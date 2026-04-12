@@ -1,0 +1,489 @@
+import { and, desc, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/mysql2";
+import {
+  approvals,
+  documents,
+  notifications,
+  onboardingPlans,
+  tasks,
+  trainingSessions,
+  users,
+  type InsertApproval,
+  type InsertDocument,
+  type InsertNotification,
+  type InsertOnboardingPlan,
+  type InsertTask,
+  type InsertTrainingSession,
+  type InsertUser,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
+
+let _db: ReturnType<typeof drizzle> | null = null;
+
+// Lazily create the drizzle instance so local tooling can run without a DB.
+export async function getDb() {
+  if (!_db && process.env.DATABASE_URL) {
+    try {
+      _db = drizzle(process.env.DATABASE_URL);
+    } catch (error) {
+      console.warn("[Database] Failed to connect:", error);
+      _db = null;
+    }
+  }
+  return _db;
+}
+
+export async function upsertUser(user: InsertUser): Promise<void> {
+  if (!user.openId) {
+    throw new Error("User openId is required for upsert");
+  }
+
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot upsert user: database not available");
+    return;
+  }
+
+  try {
+    const values: InsertUser = {
+      openId: user.openId,
+    };
+    const updateSet: Record<string, unknown> = {};
+
+    const textFields = ["name", "email", "loginMethod"] as const;
+    type TextField = (typeof textFields)[number];
+
+    const assignNullable = (field: TextField) => {
+      const value = user[field];
+      if (value === undefined) return;
+      const normalized = value ?? null;
+      values[field] = normalized;
+      updateSet[field] = normalized;
+    };
+
+    textFields.forEach(assignNullable);
+
+    if (user.lastSignedIn !== undefined) {
+      values.lastSignedIn = user.lastSignedIn;
+      updateSet.lastSignedIn = user.lastSignedIn;
+    }
+    if (user.role !== undefined) {
+      values.role = user.role;
+      updateSet.role = user.role;
+    } else if (user.openId === ENV.ownerOpenId) {
+      values.role = "admin";
+      updateSet.role = "admin";
+    }
+
+    if (!values.lastSignedIn) {
+      values.lastSignedIn = new Date();
+    }
+
+    if (Object.keys(updateSet).length === 0) {
+      updateSet.lastSignedIn = new Date();
+    }
+
+    await db.insert(users).values(values).onDuplicateKeyUpdate({
+      set: updateSet,
+    });
+  } catch (error) {
+    console.error("[Database] Failed to upsert user:", error);
+    throw error;
+  }
+}
+
+export async function getUserByOpenId(openId: string) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function getAllEmployees() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(users)
+    .where(eq(users.role, "employee"))
+    .orderBy(desc(users.createdAt));
+}
+
+export async function updateUserProfile(
+  id: number,
+  data: Partial<{ name: string; department: string; position: string; avatarUrl: string }>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(users).set(data).where(eq(users.id, id));
+}
+
+// ─── Onboarding Plans ────────────────────────────────────────────────────────
+
+export async function getOnboardingPlanByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(onboardingPlans)
+    .where(eq(onboardingPlans.employeeId, employeeId))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getOnboardingPlanById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(onboardingPlans)
+    .where(eq(onboardingPlans.id, id))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getAllOnboardingPlans() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      plan: onboardingPlans,
+      employee: users,
+    })
+    .from(onboardingPlans)
+    .innerJoin(users, eq(onboardingPlans.employeeId, users.id))
+    .orderBy(desc(onboardingPlans.createdAt));
+}
+
+export async function createOnboardingPlan(data: InsertOnboardingPlan) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(onboardingPlans).values(data);
+  return result[0].insertId;
+}
+
+export async function updateOnboardingPlan(
+  id: number,
+  data: Partial<InsertOnboardingPlan>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(onboardingPlans).set(data).where(eq(onboardingPlans.id, id));
+}
+
+export async function recalcCompletionRate(planId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const allTasks = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.onboardingPlanId, planId));
+  if (allTasks.length === 0) return;
+  const completed = allTasks.filter((t) => t.status === "completed").length;
+  const rate = Math.round((completed / allTasks.length) * 100);
+  const planStatus =
+    rate === 100 ? "completed" : rate > 0 ? "in_progress" : "not_started";
+  await db
+    .update(onboardingPlans)
+    .set({ completionRate: rate, status: planStatus })
+    .where(eq(onboardingPlans.id, planId));
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+export async function getTasksByPlan(planId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.onboardingPlanId, planId))
+    .orderBy(tasks.sortOrder);
+}
+
+export async function getTaskById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function createTask(data: InsertTask) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(tasks).values(data);
+  return result[0].insertId;
+}
+
+export async function updateTask(id: number, data: Partial<InsertTask>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(tasks).set(data).where(eq(tasks.id, id));
+}
+
+export async function deleteTask(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(tasks).where(eq(tasks.id, id));
+}
+
+// ─── Documents ───────────────────────────────────────────────────────────────
+
+export async function getDocumentsByPlan(planId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(documents)
+    .where(eq(documents.onboardingPlanId, planId))
+    .orderBy(desc(documents.createdAt));
+}
+
+export async function getDocumentById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.id, id))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getPendingDocuments() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      doc: documents,
+      employee: users,
+    })
+    .from(documents)
+    .innerJoin(users, eq(documents.uploadedBy, users.id))
+    .where(eq(documents.status, "under_review"))
+    .orderBy(desc(documents.createdAt));
+}
+
+export async function createDocument(data: InsertDocument) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(documents).values(data);
+  return result[0].insertId;
+}
+
+export async function updateDocument(id: number, data: Partial<InsertDocument>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(documents).set(data).where(eq(documents.id, id));
+}
+
+// ─── Training Sessions ───────────────────────────────────────────────────────
+
+export async function getTrainingsByPlan(planId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(trainingSessions)
+    .where(eq(trainingSessions.onboardingPlanId, planId))
+    .orderBy(trainingSessions.scheduledAt);
+}
+
+export async function createTraining(data: InsertTrainingSession) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(trainingSessions).values(data);
+  return result[0].insertId;
+}
+
+export async function updateTraining(
+  id: number,
+  data: Partial<InsertTrainingSession>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(trainingSessions).set(data).where(eq(trainingSessions.id, id));
+}
+
+// ─── Approvals ───────────────────────────────────────────────────────────────
+
+export async function getPendingApprovals(approverId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(approvals.status, "pending")];
+  if (approverId) conditions.push(eq(approvals.approverId, approverId));
+  return db
+    .select({
+      approval: approvals,
+      requester: users,
+    })
+    .from(approvals)
+    .innerJoin(users, eq(approvals.requestedBy, users.id))
+    .where(and(...conditions))
+    .orderBy(desc(approvals.createdAt));
+}
+
+export async function getApprovalById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(approvals)
+    .where(eq(approvals.id, id))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function createApproval(data: InsertApproval) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(approvals).values(data);
+  return result[0].insertId;
+}
+
+export async function updateApproval(id: number, data: Partial<InsertApproval>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(approvals).set(data).where(eq(approvals.id, id));
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export async function getNotificationsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.userId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(50);
+}
+
+export async function getUnreadCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  return result[0]?.count ?? 0;
+}
+
+export async function createNotification(data: InsertNotification) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(notifications).values(data);
+}
+
+export async function markNotificationsRead(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(eq(notifications.userId, userId));
+}
+
+// ─── Seed Demo Data ───────────────────────────────────────────────────────────
+
+export async function seedDemoDataForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const existing = await getOnboardingPlanByEmployee(userId);
+  if (existing) return existing.id;
+
+  const planResult = await db.insert(onboardingPlans).values({
+    employeeId: userId,
+    status: "in_progress",
+    completionRate: 0,
+    targetCompletionDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  });
+  const planId = planResult[0].insertId;
+
+  const taskData = [
+    { title: "신분증 사본 제출", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 1 },
+    { title: "근로계약서 서명", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 2 },
+    { title: "회사 이메일 계정 설정", category: "setup" as const, priority: "high" as const, requiresApproval: false, sortOrder: 3 },
+    { title: "사내 시스템 접근 권한 신청", category: "setup" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 4 },
+    { title: "팀 소개 미팅 참석", category: "meeting" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 5 },
+    { title: "보안 교육 이수", category: "training" as const, priority: "high" as const, requiresApproval: true, sortOrder: 6 },
+    { title: "개인정보 처리 동의서 제출", category: "document" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 7 },
+    { title: "복리후생 신청서 작성", category: "document" as const, priority: "low" as const, requiresApproval: false, sortOrder: 8 },
+  ];
+
+  for (const t of taskData) {
+    await db.insert(tasks).values({
+      onboardingPlanId: planId,
+      assignedTo: userId,
+      assignedBy: userId,
+      dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      status: "pending",
+      description: null,
+      completedAt: null,
+      ...t,
+    });
+  }
+
+  const trainingData = [
+    {
+      title: "신입사원 오리엘테이션",
+      instructor: "HR 팀",
+      scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      durationMinutes: 120,
+      location: "대회의실 A",
+    },
+    {
+      title: "정보보안 교육",
+      instructor: "보안팀",
+      scheduledAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      durationMinutes: 60,
+      location: "온라인",
+      meetingUrl: "https://meet.example.com/security",
+    },
+    {
+      title: "업무 시스템 사용법",
+      instructor: "IT 지원팀",
+      scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      durationMinutes: 90,
+      location: "교육실 B",
+    },
+  ];
+
+  for (const tr of trainingData) {
+    await db.insert(trainingSessions).values({
+      onboardingPlanId: planId,
+      status: "scheduled",
+      description: null,
+      completedAt: null,
+      notes: null,
+      meetingUrl: null,
+      ...tr,
+    });
+  }
+
+  await db.insert(notifications).values({
+    userId,
+    title: "온보딩 시작을 환영합니다!",
+    message: "온보딩 체크리스트를 확인하고 첫 번째 작업을 시작해보세요.",
+    type: "general",
+    isRead: false,
+  });
+
+  return planId;
+}

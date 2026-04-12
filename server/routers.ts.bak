@@ -1,0 +1,323 @@
+import { z } from "zod";
+import { COOKIE_NAME } from "../shared/const.js";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import * as db from "./db";
+
+export const appRouter = router({
+  // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
+  system: systemRouter,
+  auth: router({
+    me: publicProcedure.query((opts) => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return {
+        success: true,
+      } as const;
+    }),
+  }),
+
+  // ─── Onboarding Plans ────────────────────────────────────────────────────────
+  onboarding: router({
+    myPlan: protectedProcedure.query(async ({ ctx }) => {
+      return db.getOnboardingPlanByEmployee(ctx.user.id);
+    }),
+    initPlan: protectedProcedure.mutation(async ({ ctx }) => {
+      const planId = await db.seedDemoDataForUser(ctx.user.id);
+      return { planId };
+    }),
+    allPlans: protectedProcedure.query(async () => {
+      return db.getAllOnboardingPlans();
+    }),
+    getPlan: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getOnboardingPlanById(input.id);
+      }),
+    createPlan: protectedProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        managerId: z.number().optional(),
+        targetCompletionDate: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const planId = await db.createOnboardingPlan({
+          employeeId: input.employeeId,
+          managerId: input.managerId ?? null,
+          hrId: ctx.user.id,
+          status: "not_started",
+          completionRate: 0,
+          targetCompletionDate: input.targetCompletionDate ? new Date(input.targetCompletionDate) : null,
+        });
+        return { planId };
+      }),
+  }),
+
+  // ─── Tasks ───────────────────────────────────────────────────────────────────
+  tasks: router({
+    list: protectedProcedure
+      .input(z.object({ planId: z.number() }))
+      .query(async ({ input }) => db.getTasksByPlan(input.planId)),
+    create: protectedProcedure
+      .input(z.object({
+        planId: z.number(),
+        title: z.string().min(1).max(255),
+        description: z.string().optional(),
+        category: z.enum(["document", "training", "setup", "meeting", "other"]).default("other"),
+        priority: z.enum(["low", "medium", "high"]).default("medium"),
+        assignedTo: z.number().optional(),
+        dueDate: z.string().optional(),
+        requiresApproval: z.boolean().default(false),
+        sortOrder: z.number().default(0),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await db.createTask({
+          onboardingPlanId: input.planId,
+          title: input.title,
+          description: input.description ?? null,
+          category: input.category,
+          priority: input.priority,
+          assignedTo: input.assignedTo ?? null,
+          assignedBy: ctx.user.id,
+          status: "pending",
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          requiresApproval: input.requiresApproval,
+          sortOrder: input.sortOrder,
+          completedAt: null,
+        });
+        return { id };
+      }),
+    complete: protectedProcedure
+      .input(z.object({ id: z.number(), planId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const task = await db.getTaskById(input.id);
+        if (!task) throw new Error("Task not found");
+        if (task.requiresApproval) {
+          await db.updateTask(input.id, { status: "in_progress" });
+          const approvalId = await db.createApproval({
+            taskId: input.id,
+            documentId: null,
+            onboardingPlanId: input.planId,
+            requestedBy: ctx.user.id,
+            approverId: null,
+            type: "task_completion",
+            status: "pending",
+            comment: null,
+            decidedAt: null,
+          });
+          return { requiresApproval: true, approvalId };
+        } else {
+          await db.updateTask(input.id, { status: "completed", completedAt: new Date() });
+          await db.recalcCompletionRate(input.planId);
+          return { requiresApproval: false };
+        }
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().min(1).max(255).optional(),
+        status: z.enum(["pending", "in_progress", "completed", "skipped"]).optional(),
+        priority: z.enum(["low", "medium", "high"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...rest } = input;
+        await db.updateTask(id, rest);
+        return { success: true };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteTask(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Documents ───────────────────────────────────────────────────────────────
+  documents: router({
+    list: protectedProcedure
+      .input(z.object({ planId: z.number() }))
+      .query(async ({ input }) => db.getDocumentsByPlan(input.planId)),
+    pendingReview: protectedProcedure.query(async () => db.getPendingDocuments()),
+    submit: protectedProcedure
+      .input(z.object({
+        planId: z.number(),
+        taskId: z.number().optional(),
+        name: z.string().min(1).max(255),
+        fileUrl: z.string().optional(),
+        fileType: z.string().optional(),
+        fileSize: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const docId = await db.createDocument({
+          onboardingPlanId: input.planId,
+          taskId: input.taskId ?? null,
+          uploadedBy: ctx.user.id,
+          name: input.name,
+          fileUrl: input.fileUrl ?? null,
+          fileType: input.fileType ?? null,
+          fileSize: input.fileSize ?? null,
+          status: "under_review",
+          reviewedBy: null,
+          reviewNote: null,
+          reviewedAt: null,
+        });
+        await db.createApproval({
+          documentId: docId,
+          taskId: input.taskId ?? null,
+          onboardingPlanId: input.planId,
+          requestedBy: ctx.user.id,
+          approverId: null,
+          type: "document_review",
+          status: "pending",
+          comment: null,
+          decidedAt: null,
+        });
+        return { docId };
+      }),
+    review: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["approved", "rejected"]),
+        reviewNote: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.updateDocument(input.id, {
+          status: input.status,
+          reviewedBy: ctx.user.id,
+          reviewNote: input.reviewNote ?? null,
+          reviewedAt: new Date(),
+        });
+        const doc = await db.getDocumentById(input.id);
+        if (doc) {
+          await db.createNotification({
+            userId: doc.uploadedBy,
+            title: input.status === "approved" ? "서류가 승인되었습니다" : "서류가 반려되었습니다",
+            message: input.status === "approved"
+              ? `'${doc.name}' 서류가 승인되었습니다.`
+              : `'${doc.name}' 서류가 반려되었습니다. 사유: ${input.reviewNote ?? "없음"}`,
+            type: "document_status",
+            isRead: false,
+            relatedId: doc.id,
+            relatedType: "document",
+          });
+        }
+        return { success: true };
+      }),
+  }),
+
+  // ─── Training ───────────────────────────────────────────────────────────────
+  training: router({
+    list: protectedProcedure
+      .input(z.object({ planId: z.number() }))
+      .query(async ({ input }) => db.getTrainingsByPlan(input.planId)),
+    create: protectedProcedure
+      .input(z.object({
+        planId: z.number(),
+        title: z.string().min(1).max(255),
+        description: z.string().optional(),
+        instructor: z.string().optional(),
+        location: z.string().optional(),
+        meetingUrl: z.string().optional(),
+        scheduledAt: z.string(),
+        durationMinutes: z.number().default(60),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await db.createTraining({
+          onboardingPlanId: input.planId,
+          title: input.title,
+          description: input.description ?? null,
+          instructor: input.instructor ?? null,
+          location: input.location ?? null,
+          meetingUrl: input.meetingUrl ?? null,
+          scheduledAt: new Date(input.scheduledAt),
+          durationMinutes: input.durationMinutes,
+          status: "scheduled",
+          completedAt: null,
+          notes: null,
+        });
+        return { id };
+      }),
+    complete: protectedProcedure
+      .input(z.object({ id: z.number(), notes: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        await db.updateTraining(input.id, { status: "completed", completedAt: new Date(), notes: input.notes ?? null });
+        return { success: true };
+      }),
+  }),
+
+  // ─── Approvals ───────────────────────────────────────────────────────────────
+  approvals: router({
+    pending: protectedProcedure.query(async ({ ctx }) => db.getPendingApprovals(ctx.user.id)),
+    allPending: protectedProcedure.query(async () => db.getPendingApprovals()),
+    decide: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["approved", "rejected"]),
+        comment: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const approval = await db.getApprovalById(input.id);
+        if (!approval) throw new Error("Approval not found");
+        await db.updateApproval(input.id, {
+          status: input.status,
+          approverId: ctx.user.id,
+          comment: input.comment ?? null,
+          decidedAt: new Date(),
+        });
+        if (approval.type === "task_completion" && approval.taskId) {
+          if (input.status === "approved") {
+            await db.updateTask(approval.taskId, { status: "completed", completedAt: new Date() });
+            await db.recalcCompletionRate(approval.onboardingPlanId);
+          } else {
+            await db.updateTask(approval.taskId, { status: "pending" });
+          }
+        }
+        await db.createNotification({
+          userId: approval.requestedBy,
+          title: input.status === "approved" ? "승인 요청이 승인되었습니다" : "승인 요청이 반려되었습니다",
+          message: input.status === "approved"
+            ? "제출하신 항목이 승인되었습니다."
+            : `제출하신 항목이 반려되었습니다. 사유: ${input.comment ?? "없음"}`,
+          type: "approval_result",
+          isRead: false,
+          relatedId: approval.id,
+          relatedType: "approval",
+        });
+        return { success: true };
+      }),
+  }),
+
+  // ─── Notifications ───────────────────────────────────────────────────────────
+  notifications: router({
+    list: protectedProcedure.query(async ({ ctx }) => db.getNotificationsByUser(ctx.user.id)),
+    unreadCount: protectedProcedure.query(async ({ ctx }) => db.getUnreadCount(ctx.user.id)),
+    markRead: protectedProcedure.mutation(async ({ ctx }) => {
+      await db.markNotificationsRead(ctx.user.id);
+      return { success: true };
+    }),
+  }),
+
+  // ─── HR ───────────────────────────────────────────────────────────────────
+  hr: router({
+    employees: protectedProcedure.query(async () => db.getAllEmployees()),
+    employeeWithPlan: protectedProcedure
+      .input(z.object({ employeeId: z.number() }))
+      .query(async ({ input }) => {
+        const employee = await db.getUserById(input.employeeId);
+        const plan = await db.getOnboardingPlanByEmployee(input.employeeId);
+        let taskList: Awaited<ReturnType<typeof db.getTasksByPlan>> = [];
+        let trainingList: Awaited<ReturnType<typeof db.getTrainingsByPlan>> = [];
+        let docList: Awaited<ReturnType<typeof db.getDocumentsByPlan>> = [];
+        if (plan) {
+          taskList = await db.getTasksByPlan(plan.id);
+          trainingList = await db.getTrainingsByPlan(plan.id);
+          docList = await db.getDocumentsByPlan(plan.id);
+        }
+        return { employee, plan, tasks: taskList, trainings: trainingList, documents: docList };
+      }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
