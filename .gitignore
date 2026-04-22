@@ -1,0 +1,31 @@
+.DS_Store
+*.bak
+**/nulnpm
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Android
+*.iml
+.gradle/
+local.properties
+
+# iOS
+DerivedData/
+*.xcuserstate
+
+# Logs
+*.log
+
+# Local archives (not for VCS)
+아카이브.zip

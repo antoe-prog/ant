@@ -1,0 +1,73 @@
+# EAS 업로드 제외 — 반드시 .gitignore 내용을 포함해야 합니다.
+# https://docs.expo.dev/build-reference/easignore/
+# (.easignore만 두고 .gitignore를 무시하면 node_modules 등이 올라가 tar/용량 문제가 날 수 있습니다)
+
+# dependencies
+node_modules/
+package-lock.json
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# generated native folders
+/ios
+/android
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs
+*.log
+
+# OS
+Thumbs.db
+
+# Build files
+*.tgz
+*.tar.gz
+.cache/
+
+# Webdev artifacts (checkpoint zips, migrations, etc.)
+.webdev/
+
+# --- EAS 빌드에 불필요 (앱 번들과 무관) ---
+tests/
+coverage/
+*.md
