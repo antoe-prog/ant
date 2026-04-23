@@ -722,9 +722,10 @@ button {
   bottom: 0;
   display: none;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
-  padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
   z-index: 30;
   box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.05);
 }
@@ -733,14 +734,26 @@ button {
   text-decoration: none;
   text-align: center;
   color: var(--muted);
-  padding: 8px 4px;
-  border-radius: 10px;
+  padding: 6px 2px;
+  border-radius: 12px;
   font-size: 0.76rem;
   font-weight: 700;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  min-height: 56px;
+  justify-content: center;
+}
+
+.bottom-item .bi-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
 }
 
 .bottom-item .bi-icon {
@@ -748,9 +761,39 @@ button {
   line-height: 1;
 }
 
+.bottom-item .bi-label {
+  line-height: 1;
+}
+
 .bottom-item.active {
   color: var(--primary);
+  background: #f8fbff;
+}
+
+.bottom-item.active .bi-icon-wrap {
   background: var(--primary-50);
+}
+
+.mobile-fab {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: var(--primary);
+  font-size: 1.2rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.2);
+  z-index: 31;
+}
+
+.mobile-fab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* -----------------------------------------------------------
@@ -821,6 +864,11 @@ button {
   }
   .bottom-nav {
     display: grid;
+  }
+  .mobile-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -991,6 +1039,128 @@ button {
 
 .user-table tr:last-child td {
   border-bottom: none;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.toolbar input,
+.toolbar select {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.toolbar input {
+  flex: 1 1 220px;
+}
+
+.toolbar-meta {
+  margin: 0 0 10px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  border: 1px solid transparent;
+}
+
+.status-badge.ok {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.status-badge.warn {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.status-badge.danger {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.status-badge.muted {
+  color: #334155;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.empty-state {
+  margin-top: 10px;
+}
+
+.announcement-list {
+  display: grid;
+  gap: 10px;
+}
+
+.announcement-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+}
+
+.announcement-card p {
+  margin: 8px 0 0;
+}
+
+.announcement-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.row-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.danger-btn {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.retry-btn {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-weight: 700;
 }
 
 .role-badge {

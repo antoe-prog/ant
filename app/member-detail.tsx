@@ -42,8 +42,9 @@ export default function MemberDetailScreen() {
   const [showEdit, setShowEdit] = useState(false);
   const [showMemoHistory, setShowMemoHistory] = useState(false);
 
-  // 뒤로가기: 편집 모달 열림 시 모달 닫기, 탭이 info가 아니면 info로, 그 외에는 이전 화면으로
+  // 뒤로가기: 모달 → 서브탭 → 스택 이전 화면
   useBackHandler(() => {
+    if (showMemoHistory) { setShowMemoHistory(false); return true; }
     if (showEdit) { setShowEdit(false); return true; }
     if (activeTab !== "info") { setActiveTab("info"); return true; }
     router.back();

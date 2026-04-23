@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { suggestNextPaymentDate } from "../lib/judo-utils";
+import { calcParticipationRate, suggestNextPaymentDate } from "../lib/judo-utils";
 import {
   checkAttendance,
   getAttendanceStatsByMember,
@@ -461,7 +461,10 @@ const announcementsRouter = router({
 const dashboardRouter = router({
   stats: managerProcedure.query(async () => getDashboardStats()),
   monthlyStats: managerProcedure.query(async () => {
-    // 최근 6개월 매월 매출 + 출석수 반환
+    // 최근 6개월: 매출, 출석 횟수, 도장 전체 추정 출석률(활성 회원×월 22일 기준, 대시보드 카드와 동일)
+    const dash = await getDashboardStats();
+    const activeN = dash.activeMembers;
+    const denom = activeN * 22;
     const results = [];
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
@@ -473,7 +476,8 @@ const dashboardRouter = router({
         getMonthlyAttendanceCount(year, month),
       ]);
       const totalAttendance = attendanceRows.reduce((sum: number, r: { count: number }) => sum + Number(r.count), 0);
-      results.push({ year, month, revenue, attendance: totalAttendance });
+      const attendanceRate = calcParticipationRate(totalAttendance, denom);
+      results.push({ year, month, revenue, attendance: totalAttendance, attendanceRate });
     }
     return results;
   }),

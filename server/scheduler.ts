@@ -1,10 +1,11 @@
-import { getExpiringSoonMembers } from "./db";
+import { getExpiringSoonMembers, getUnpaidMembers } from "./db";
 import { sendPushNotifications } from "./push";
 
 /**
  * 납부 만료 알림 스케줄러
+ * - 매일 오전 9시: D-1 회원에게 긴급 알림
  * - 매일 오전 10시: D-7 이내 회원에게 만료 안내 알림
- * - 매일 오전 9시: D-1 회원에게 긴급 알림 (별도 시간대로 구분)
+ * - 매일 오전 11시: 미납(기한 경과) 회원에게 연체 안내 푸시 (계정 연결된 회원만)
  */
 
 let schedulerStarted = false;
@@ -98,6 +99,34 @@ async function runD1UrgentNotifications() {
   }
 }
 
+/** 미납(납부일 경과) 회원에게 일 1회 알림 */
+async function runUnpaidOverdueNotifications() {
+  try {
+    const unpaid = await getUnpaidMembers();
+    if (unpaid.length === 0) {
+      console.log("[Scheduler] 미납(연체) 알림 대상 없음");
+      return;
+    }
+    let sent = 0;
+    for (const member of unpaid as { id: number; name: string; userId: number | null; nextPaymentDate: string | null }[]) {
+      if (!member.userId) continue;
+      await sendPushNotifications([member.userId], {
+        title: "회비 납부 안내 💳",
+        body: `${member.name}님, 납부 기한이 지났습니다. 앱에서 납부 일정을 확인해 주세요.`,
+        data: {
+          type: "payment_overdue",
+          memberId: member.id,
+          nextPaymentDate: member.nextPaymentDate ?? "",
+        },
+      });
+      sent++;
+    }
+    console.log(`[Scheduler] 미납(연체) 푸시 알림 발송 완료: ${sent}명`);
+  } catch (err) {
+    console.error("[Scheduler] 미납 알림 실패:", err);
+  }
+}
+
 /** 다음 특정 시각(hour, minute)까지 남은 ms 계산 */
 function msUntilNextTime(hour: number, minute = 0): number {
   const now = new Date();
@@ -113,6 +142,7 @@ function msUntilNextTime(hour: number, minute = 0): number {
  * 스케줄러 시작 - 서버 시작 시 1회 호출
  * - 매일 오전 9시: D-1 긴급 알림
  * - 매일 오전 10시: D-7 만료 안내 알림
+ * - 매일 오전 11시: 미납(연체) 알림
  */
 export function startScheduler() {
   if (schedulerStarted) return;
@@ -137,4 +167,13 @@ export function startScheduler() {
     runD7Notifications();
     setInterval(runD7Notifications, 24 * 60 * 60 * 1000);
   }, msUntil10am);
+
+  const msUntil11am = msUntilNextTime(11, 0);
+  console.log(
+    `[Scheduler] 미납(연체) 알림 스케줄러 시작 - 첫 실행까지 ${Math.round(msUntil11am / 1000 / 60)}분 대기`
+  );
+  setTimeout(() => {
+    runUnpaidOverdueNotifications();
+    setInterval(runUnpaidOverdueNotifications, 24 * 60 * 60 * 1000);
+  }, msUntil11am);
 }

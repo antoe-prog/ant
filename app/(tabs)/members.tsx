@@ -4,8 +4,10 @@ import { Swipeable } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Modal, ScrollView, Alert, ActivityIndicator, Pressable, Platform,
+  Modal, ScrollView, Alert, ActivityIndicator, Pressable, Platform, Image,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +42,7 @@ interface MemberRowProps {
     notes?: string | null;
     monthlyFee: number;
     nextPaymentDate?: string | null;
+    avatarUrl?: string | null;
   };
   tooltipMemberId: number | null;
   onShowTooltip: (id: number) => void;
@@ -114,14 +117,22 @@ function MemberRow({
       >
         <View className="flex-row items-center gap-3">
           {/* 아바타 */}
-          <View
-            className="w-12 h-12 rounded-full items-center justify-center"
-            style={{ backgroundColor: getBeltColor(item.beltRank) + "30" }}
-          >
-            <Text className="text-lg font-bold" style={{ color: getBeltColor(item.beltRank) }}>
-              {getInitials(item.name)}
-            </Text>
-          </View>
+          {item.avatarUrl ? (
+            <Image
+              source={{ uri: item.avatarUrl }}
+              className="w-12 h-12 rounded-full"
+              style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#F1F5F9" }}
+            />
+          ) : (
+            <View
+              className="w-12 h-12 rounded-full items-center justify-center"
+              style={{ backgroundColor: getBeltColor(item.beltRank) + "30" }}
+            >
+              <Text className="text-lg font-bold" style={{ color: getBeltColor(item.beltRank) }}>
+                {getInitials(item.name)}
+              </Text>
+            </View>
+          )}
           {/* 정보 */}
           <View className="flex-1">
             <View className="flex-row items-center gap-2">
@@ -389,6 +400,55 @@ export default function MemberListScreen() {
     router.push({ pathname: "/member-detail", params: { id } } as any);
   }, [router]);
 
+  const handleExportMembersCsv = useCallback(async () => {
+    if (filteredSorted.length === 0) {
+      Alert.alert("알림", "보낼 회원이 없습니다.");
+      return;
+    }
+    const header = "ID,이름,전화,이메일,띠등급,상태,월회비(원),입관일,다음납부일";
+    const rows = filteredSorted.map((m) => {
+      const belt = getBeltLabel(m.beltRank as BeltRank);
+      const status = getMemberStatusLabel(m.status as MemberStatus);
+      return [
+        m.id,
+        `"${String(m.name).replace(/"/g, '""')}"`,
+        `"${String(m.phone ?? "").replace(/"/g, '""')}"`,
+        `"${String(m.email ?? "").replace(/"/g, '""')}"`,
+        `"${belt.replace(/"/g, '""')}"`,
+        `"${status.replace(/"/g, '""')}"`,
+        m.monthlyFee,
+        `"${formatDate(m.joinDate)}"`,
+        `"${m.nextPaymentDate ? formatDate(m.nextPaymentDate) : "-"}"`,
+      ].join(",");
+    });
+    const csv = [header, ...rows].join("\n");
+    const stamp = new Date().toISOString().split("T")[0];
+    const fileName = `회원목록_${stamp}.csv`;
+    try {
+      if (Platform.OS === "web") {
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        Alert.alert("완료", "CSV 파일이 다운로드되었습니다.");
+        return;
+      }
+      const fileUri = (FileSystem.documentDirectory ?? "") + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, "\uFEFF" + csv, { encoding: FileSystem.EncodingType.UTF8 });
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: "회원 목록 CSV" });
+      } else {
+        Alert.alert("완료", `저장됨: ${fileName}`);
+      }
+    } catch {
+      Alert.alert("오류", "CSV보내기에 실패했습니다.");
+    }
+  }, [filteredSorted]);
+
   const renderItem = useCallback(({ item }: { item: NonNullable<typeof members>[0] }) => (
     <MemberRow
       item={item}
@@ -414,13 +474,58 @@ export default function MemberListScreen() {
       {/* 헤더 */}
       <View className="px-5 pt-4 pb-3 flex-row items-center justify-between">
         <Text className="text-2xl font-bold text-foreground">회원 목록</Text>
-        <TouchableOpacity
-          style={{ backgroundColor: "#1565C0" }}
-          className="px-4 py-2 rounded-full"
-          onPress={() => setShowAdd(true)}
-        >
-          <Text className="text-white font-semibold text-sm">+ 회원 추가</Text>
-        </TouchableOpacity>
+        <View className="flex-row items-center gap-2">
+          <TouchableOpacity
+            className="px-3 py-2 rounded-full border border-border bg-surface"
+            onPress={handleExportMembersCsv}
+          >
+            <Text className="text-foreground font-semibold text-xs">CSV</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: "#1565C0" }}
+            className="px-4 py-2 rounded-full"
+            onPress={() => setShowAdd(true)}
+          >
+            <Text className="text-white font-semibold text-sm">+ 추가</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 띠 등급 필터 (상단) */}
+      <View className="pb-2">
+        <Text className="text-xs font-semibold text-muted px-5 mb-1.5">띠 등급</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 4 }}>
+          <TouchableOpacity
+            className="px-3 py-1.5 rounded-full border"
+            style={{
+              backgroundColor: beltFilter === null ? "#1565C0" : "transparent",
+              borderColor: beltFilter === null ? "#1565C0" : "#E5E7EB",
+            }}
+            onPress={() => setBeltFilter(null)}
+          >
+            <Text className="text-xs font-semibold" style={{ color: beltFilter === null ? "#FFFFFF" : "#687076" }}>
+              전체
+            </Text>
+          </TouchableOpacity>
+          {BELT_RANKS.map(rank => (
+            <TouchableOpacity
+              key={rank}
+              className="px-3 py-1.5 rounded-full border flex-row items-center gap-1.5"
+              style={{
+                backgroundColor: beltFilter === rank ? getBeltColor(rank) : "transparent",
+                borderColor: getBeltColor(rank),
+              }}
+              onPress={() => setBeltFilter(beltFilter === rank ? null : rank)}
+            >
+              <View className="w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: beltFilter === rank ? "#FFFFFF" : getBeltColor(rank) }} />
+              <Text className="text-xs font-semibold"
+                style={{ color: beltFilter === rank ? "#FFFFFF" : getBeltColor(rank) }}>
+                {getBeltLabel(rank)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {/* 검색 */}
@@ -512,42 +617,6 @@ export default function MemberListScreen() {
             {memoOnly ? "켜짐" : "꺼짐"}
           </Text>
         </TouchableOpacity>
-      </View>
-
-      {/* 띠 등급 필터 */}
-      <View className="pb-2">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 4 }}>
-          <TouchableOpacity
-            className="px-3 py-1.5 rounded-full border"
-            style={{
-              backgroundColor: beltFilter === null ? "#1565C0" : "transparent",
-              borderColor: beltFilter === null ? "#1565C0" : "#E5E7EB",
-            }}
-            onPress={() => setBeltFilter(null)}
-          >
-            <Text className="text-xs font-semibold" style={{ color: beltFilter === null ? "#FFFFFF" : "#687076" }}>
-              전체
-            </Text>
-          </TouchableOpacity>
-          {BELT_RANKS.map(rank => (
-            <TouchableOpacity
-              key={rank}
-              className="px-3 py-1.5 rounded-full border flex-row items-center gap-1.5"
-              style={{
-                backgroundColor: beltFilter === rank ? getBeltColor(rank) : "transparent",
-                borderColor: getBeltColor(rank),
-              }}
-              onPress={() => setBeltFilter(beltFilter === rank ? null : rank)}
-            >
-              <View className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: beltFilter === rank ? "#FFFFFF" : getBeltColor(rank) }} />
-              <Text className="text-xs font-semibold"
-                style={{ color: beltFilter === rank ? "#FFFFFF" : getBeltColor(rank) }}>
-                {getBeltLabel(rank)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
       {/* 상태 필터 */}

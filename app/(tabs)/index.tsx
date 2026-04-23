@@ -7,7 +7,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
 import Svg, { Rect, Text as SvgText, Line, Circle, Polyline } from "react-native-svg";
-import { useTabBackHandler } from "@/hooks/use-back-handler";
+import { useBackHandler, useTabBackHandler } from "@/hooks/use-back-handler";
 import {
   formatAmount,
   formatDate,
@@ -23,7 +23,6 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const isManager = user?.role === "manager" || user?.role === "admin";
-  useTabBackHandler();
 
   if (!user) {
     return (
@@ -158,6 +157,19 @@ function ManagerHome() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [refreshInterval, setRefreshInterval] = useState<number | null>(5); // 분 (수동=null)
   const [showIntervalPicker, setShowIntervalPicker] = useState(false);
+
+  useTabBackHandler();
+  useBackHandler(() => {
+    if (showIntervalPicker) {
+      setShowIntervalPicker(false);
+      return true;
+    }
+    if (showAlerts) {
+      setShowAlerts(false);
+      return true;
+    }
+    return false;
+  });
 
   // 저장된 갱신 주기 불러오기
   useEffect(() => {
@@ -366,6 +378,52 @@ function ManagerHome() {
             </View>
           ))}
         </View>
+
+        {/* ── 만료 임박 회원 카드 (7일 이내 납부일) ── */}
+        {(expiringSoon ?? []).length > 0 && (
+          <TouchableOpacity
+            style={{
+              marginHorizontal: 20,
+              marginBottom: 16,
+              backgroundColor: "#FFF7ED",
+              borderRadius: 18,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: "#FDBA74",
+            }}
+            onPress={() => router.push("/(tabs)/payments" as any)}
+            activeOpacity={0.75}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <Text style={{ fontSize: 14, fontWeight: "800", color: "#9A3412" }}>⏰ 만료 임박 회원</Text>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#EA580C" }}>
+                {(expiringSoon ?? []).length}명 · 7일 이내
+              </Text>
+            </View>
+            <View style={{ gap: 6 }}>
+              {(expiringSoon ?? []).slice(0, 4).map((m) => {
+                const daysLeft = m.nextPaymentDate
+                  ? Math.ceil((new Date(m.nextPaymentDate).getTime() - Date.now()) / 86400000)
+                  : 0;
+                return (
+                  <View key={m.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: "#431407", flex: 1 }} numberOfLines={1}>
+                      {m.name}
+                    </Text>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: "#C2410C" }}>
+                      {daysLeft <= 0 ? "오늘" : `D-${daysLeft}`}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+            {(expiringSoon ?? []).length > 4 && (
+              <Text style={{ fontSize: 11, color: "#9A3412", marginTop: 8, textAlign: "center" }}>
+                외 {(expiringSoon ?? []).length - 4}명 · 납부 탭에서 전체 보기
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
 
         {/* ── 핵심 KPI 위젯 (가로 스크롤) ── */}
         <DashboardKpiWidgetsRow stats={stats} router={router} />
@@ -725,6 +783,7 @@ function AlertCenterModal({ visible, onClose, items, router, topInset }: {
 
 // ─── 회원 홈 ──────────────────────────────────────────────────────────────────
 function MemberHome() {
+  useTabBackHandler();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const { data: myProfile } = trpc.members.myProfile.useQuery();
@@ -1025,7 +1084,7 @@ function AnnouncementPreview() {
 }
 
 // ─── 월별 통계 차트 ────────────────────────────────────────────────────────────
-type MonthlyStatItem = { year: number; month: number; revenue: number; attendance: number };
+type MonthlyStatItem = { year: number; month: number; revenue: number; attendance: number; attendanceRate: number };
 
 function MonthlyStatsChart({ data }: { data: MonthlyStatItem[] }) {
   const CHART_W = SCREEN_W - 80;
@@ -1036,6 +1095,7 @@ function MonthlyStatsChart({ data }: { data: MonthlyStatItem[] }) {
   const barW = Math.floor((CHART_W - BAR_GAP * (barCount - 1)) / barCount);
   const maxRevenue = Math.max(...data.map(d => d.revenue), 1);
   const maxAttendance = Math.max(...data.map(d => d.attendance), 1);
+  const maxRate = Math.max(...data.map(d => d.attendanceRate), 1);
   const MONTH_LABELS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 
   return (
@@ -1061,6 +1121,37 @@ function MonthlyStatsChart({ data }: { data: MonthlyStatItem[] }) {
               )}
               <SvgText x={x + barW / 2} y={CHART_H + 14} textAnchor="middle" fontSize={10}
                 fill={isCurrentMonth ? "#1565C0" : "#9CA3AF"} fontWeight={isCurrentMonth ? "bold" : "normal"}>
+                {MONTH_LABELS[d.month - 1]}
+              </SvgText>
+            </Svg>
+          );
+        })}
+      </Svg>
+
+      <View style={{ height: 1, backgroundColor: "#F1F5F9", marginVertical: 14 }} />
+
+      <Text style={{ fontSize: 11, color: "#6B7280", fontWeight: "600", marginBottom: 8 }}>📈 월별 출석률 (추정 %)</Text>
+      <Text style={{ fontSize: 10, color: "#94A3B8", marginBottom: 8 }}>
+        활성 회원 수 × 월 22일 기준 (대시보드 이달 출석률과 동일 계산)
+      </Text>
+      <Svg width={CHART_W} height={CHART_H + LABEL_H}>
+        <Line x1={0} y1={CHART_H} x2={CHART_W} y2={CHART_H} stroke="#E5E7EB" strokeWidth={1} />
+        {data.map((d, i) => {
+          const barH = Math.max(4, Math.round((d.attendanceRate / maxRate) * (CHART_H - 20)));
+          const x = i * (barW + BAR_GAP);
+          const y = CHART_H - barH;
+          const isCurrentMonth = i === data.length - 1;
+          return (
+            <Svg key={`rate-${i}`}>
+              <Rect x={x} y={y} width={barW} height={barH} rx={6}
+                fill={isCurrentMonth ? "#D97706" : "#FCD34D"} />
+              {isCurrentMonth && (
+                <SvgText x={x + barW / 2} y={y - 5} textAnchor="middle" fontSize={9} fill="#B45309" fontWeight="bold">
+                  {d.attendanceRate}%
+                </SvgText>
+              )}
+              <SvgText x={x + barW / 2} y={CHART_H + 14} textAnchor="middle" fontSize={10}
+                fill={isCurrentMonth ? "#B45309" : "#9CA3AF"} fontWeight={isCurrentMonth ? "bold" : "normal"}>
                 {MONTH_LABELS[d.month - 1]}
               </SvgText>
             </Svg>
@@ -1096,14 +1187,18 @@ function MonthlyStatsChart({ data }: { data: MonthlyStatItem[] }) {
         })}
       </Svg>
 
-      <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: "#1565C0" }} />
-          <Text style={{ fontSize: 11, color: "#6B7280" }}>이번 달</Text>
+          <Text style={{ fontSize: 11, color: "#6B7280" }}>매출·이번 달</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: "#BFDBFE" }} />
-          <Text style={{ fontSize: 11, color: "#6B7280" }}>이전 달</Text>
+          <Text style={{ fontSize: 11, color: "#6B7280" }}>매출·이전 달</Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+          <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: "#D97706" }} />
+          <Text style={{ fontSize: 11, color: "#6B7280" }}>출석률·이번 달</Text>
         </View>
       </View>
     </View>

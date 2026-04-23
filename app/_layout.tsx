@@ -77,13 +77,30 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Handle deep links (invite tokens)
+  // Handle deep links: judomanager://invite/TOKEN, scheme://invite?token=...
   useEffect(() => {
+    const extractInviteToken = (url: string): string | null => {
+      try {
+        const parsed = Linking.parse(url);
+        const q = parsed.queryParams?.token;
+        if (q != null && String(q).trim() !== "") return String(q);
+        const path = (parsed.path ?? "").replace(/^\/+/, "");
+        if (path.startsWith("invite/")) {
+          const rest = path.slice("invite/".length).split("?")[0];
+          if (rest) return decodeURIComponent(rest);
+        }
+        const m = url.match(/[/]invite[/]([^/?#]+)/i);
+        if (m?.[1]) return decodeURIComponent(m[1]);
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
     const handleUrl = (event: { url: string }) => {
-      const parsed = Linking.parse(event.url);
-      // manus20260403001927://invite?token=xxxx
-      if (parsed.path === "invite" && parsed.queryParams?.token) {
-        router.push({ pathname: "/invite", params: { token: String(parsed.queryParams.token) } });
+      const token = extractInviteToken(event.url);
+      if (token) {
+        router.push({ pathname: "/invite", params: { token } });
       }
     };
     // Handle cold start deep link

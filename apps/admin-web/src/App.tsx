@@ -389,31 +389,31 @@ export default function App() {
       <Routes>
         <Route
           path="/home"
-          element={<DojoHomePage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<DojoHomePage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/members"
-          element={<MembersPage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<MembersPage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/attendance"
-          element={<AttendancePage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<AttendancePage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/payments"
-          element={<PaymentsPage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<PaymentsPage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/promotions"
-          element={<PromotionsPage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<PromotionsPage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/tournaments"
-          element={<TournamentsPage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<TournamentsPage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/announcements"
-          element={<AnnouncementsPage dojoClient={dojoClient} connected={dojoConnected} />}
+          element={<AnnouncementsPage dojoClient={dojoClient} connected={dojoConnected} userRole={user.role} />}
         />
         <Route
           path="/settings"
@@ -429,10 +429,14 @@ export default function App() {
             `bottom-item ${isActive ? "active" : ""}`
           }
         >
-          <span className="bi-icon" aria-hidden="true">
-            🏠
+          <span className="bi-icon-wrap" aria-hidden="true">
+            <span className="bi-icon">
+              🏠
+            </span>
           </span>
-          홈
+          <span className="bi-label">
+            홈
+          </span>
         </NavLink>
         <NavLink
           to="/members"
@@ -440,10 +444,14 @@ export default function App() {
             `bottom-item ${isActive ? "active" : ""}`
           }
         >
-          <span className="bi-icon" aria-hidden="true">
-            👥
+          <span className="bi-icon-wrap" aria-hidden="true">
+            <span className="bi-icon">
+              👥
+            </span>
           </span>
-          회원
+          <span className="bi-label">
+            회원
+          </span>
         </NavLink>
         <NavLink
           to="/attendance"
@@ -451,10 +459,14 @@ export default function App() {
             `bottom-item ${isActive ? "active" : ""}`
           }
         >
-          <span className="bi-icon" aria-hidden="true">
-            ✅
+          <span className="bi-icon-wrap" aria-hidden="true">
+            <span className="bi-icon">
+              ✅
+            </span>
           </span>
-          출석
+          <span className="bi-label">
+            출석
+          </span>
         </NavLink>
         <NavLink
           to="/payments"
@@ -462,10 +474,14 @@ export default function App() {
             `bottom-item ${isActive ? "active" : ""}`
           }
         >
-          <span className="bi-icon" aria-hidden="true">
-            💳
+          <span className="bi-icon-wrap" aria-hidden="true">
+            <span className="bi-icon">
+              💳
+            </span>
           </span>
-          납부
+          <span className="bi-label">
+            납부
+          </span>
         </NavLink>
         <NavLink
           to="/settings"
@@ -473,12 +489,25 @@ export default function App() {
             `bottom-item ${isActive ? "active" : ""}`
           }
         >
-          <span className="bi-icon" aria-hidden="true">
-            ⚙️
+          <span className="bi-icon-wrap" aria-hidden="true">
+            <span className="bi-icon">
+              ⚙️
+            </span>
           </span>
-          설정
+          <span className="bi-label">
+            설정
+          </span>
         </NavLink>
       </nav>
+      <button
+        type="button"
+        className="mobile-fab"
+        onClick={() => void load()}
+        disabled={loading}
+        aria-label="모바일 빠른 새로고침"
+      >
+        {loading ? "..." : "↻"}
+      </button>
     </div>
   );
 }

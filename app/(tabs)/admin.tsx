@@ -6,7 +6,7 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
-import { useTabBackHandler } from "@/hooks/use-back-handler";
+import { useModalBackHandler, useTabBackHandler } from "@/hooks/use-back-handler";
 import { formatDateTime } from "@/lib/judo-utils";
 
 type UserRole = "member" | "manager" | "admin";
@@ -76,6 +76,8 @@ function UsersTab({ currentUserId }: { currentUserId?: number }) {
     onSuccess: () => { utils.admin.users.invalidate(); setShowModal(false); },
     onError: (e) => Alert.alert("오류", e.message),
   });
+
+  useModalBackHandler(showModal, () => setShowModal(false));
 
   if (isLoading) return <View className="flex-1 items-center justify-center"><ActivityIndicator size="large" color="#1565C0" /></View>;
 
@@ -193,6 +195,9 @@ function LinkMemberTab() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [showUserPicker, setShowUserPicker] = useState(false);
+
+  useModalBackHandler(showMemberPicker, () => setShowMemberPicker(false));
+  useModalBackHandler(showUserPicker, () => setShowUserPicker(false));
 
   const linkMutation = trpc.admin.linkMember.useMutation({
     onSuccess: () => {
@@ -583,6 +588,8 @@ function InviteTab() {
   const [showPicker, setShowPicker] = useState(false);
   const [lastToken, setLastToken] = useState<string | null>(null);
 
+  useModalBackHandler(showPicker, () => setShowPicker(false));
+
   const createMutation = trpc.admin.createInvite.useMutation({
     onSuccess: (data) => {
       setLastToken(data.token);
@@ -742,8 +749,8 @@ export default function AdminScreen() {
   const utils = trpc.useUtils();
   const [activeTab, setActiveTab] = useState(0);
 
-  // 뒤로가기: 탭이 0이 아니면 첫 탭으로, 0이면 앱 종료 확인
-  useTabBackHandler(activeTab !== 0 ? () => setActiveTab(0) : undefined);
+  // 뒤로가기: 서브탭 한 단계씩 앞으로(3→2→1→0), 0이면 앱 종료 확인
+  useTabBackHandler(activeTab > 0 ? () => setActiveTab((t) => t - 1) : undefined);
 
   const { data: adminCount } = trpc.admin.adminCount.useQuery(undefined, { enabled: isAuthenticated });
   const claimAdminMutation = trpc.admin.claimAdmin.useMutation({

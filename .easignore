@@ -1,7 +1,10 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# EAS 업로드 제외 — 반드시 .gitignore 내용을 포함해야 합니다.
+# https://docs.expo.dev/build-reference/easignore/
+# (.easignore만 두고 .gitignore를 무시하면 node_modules 등이 올라가 tar/용량 문제가 날 수 있습니다)
 
 # dependencies
 node_modules/
+package-lock.json
 
 # Expo
 .expo/
@@ -53,9 +56,8 @@ app-example
 logs
 *.log
 
-# OS / Windows artifacts
+# OS
 Thumbs.db
-nulnpm
 
 # Build files
 *.tgz
@@ -65,7 +67,7 @@ nulnpm
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
-# Python / gateway local data
-__pycache__/
-*.py[cod]
-services/gateway/data/
+# --- EAS 빌드에 불필요 (앱 번들과 무관) ---
+tests/
+coverage/
+*.md

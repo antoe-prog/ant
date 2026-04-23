@@ -26,12 +26,15 @@ const bundleId =
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
 const schemeFromBundleId = `manus${timestamp}`;
 
+/** OAuth·소셜 콜백용 + 초대 링크 공유용(judomanager://invite/...) */
+const urlSchemes = [schemeFromBundleId, "judomanager"] as const;
+
 const env = {
   // App branding - update these values directly (do not use env vars)
   appName: "유도관",
   appSlug: "judokan",
   logoUrl: "https://d2xsxph8kpxj0f.cloudfront.net/310519663509240657/KGSotH7p7S8bVPSzf9bZAR/judogi-icon-PjwDNEuwTYophGHYk6DoiB.png",
-  scheme: schemeFromBundleId,
+  scheme: urlSchemes,
   iosBundleId: bundleId,
   androidPackage: bundleId,
 };
@@ -43,7 +46,7 @@ const config: ExpoConfig = {
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
-  scheme: env.scheme,
+  scheme: [...env.scheme],
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   ios: {
@@ -68,12 +71,10 @@ const config: ExpoConfig = {
       {
         action: "VIEW",
         autoVerify: true,
-        data: [
-          {
-            scheme: env.scheme,
-            host: "*",
-          },
-        ],
+        data: env.scheme.map((scheme) => ({
+          scheme,
+          host: "*",
+        })),
         category: ["BROWSABLE", "DEFAULT"],
       },
     ],
@@ -85,6 +86,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-asset",
     [
       "expo-camera",
       {
@@ -133,7 +135,7 @@ const config: ExpoConfig = {
   },
   experiments: {
     typedRoutes: true,
-    reactCompiler: true,
+    reactCompiler: false,
   },
 };
 

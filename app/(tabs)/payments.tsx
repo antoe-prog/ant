@@ -115,6 +115,7 @@ export default function PaymentsScreen() {
     periodStart?: string | null;
     periodEnd?: string | null;
     notes?: string | null;
+    paidAt: Date;
   } | null>(null);
 
   useTabBackHandler();
@@ -132,6 +133,7 @@ export default function PaymentsScreen() {
   });
 
   const { data: members } = trpc.members.list.useQuery(undefined, { enabled: isManager });
+  const { data: recentPayments } = trpc.payments.recent.useQuery({ limit: 15 }, { enabled: isManager });
   const { data: expiringSoon } = trpc.payments.expiringSoon.useQuery({ days: 7 }, { enabled: isManager });
   const { data: reportData, isLoading: reportLoading } = trpc.payments.monthlyReport.useQuery(
     { year: reportYear, month: reportMonth },
@@ -149,6 +151,7 @@ export default function PaymentsScreen() {
     onSuccess: () => {
       utils.members.list.invalidate();
       void utils.members.activityTimeline.invalidate();
+      void utils.payments.recent.invalidate();
       setShowAdd(false);
 
       // 납부 등록 성공 시 영수증 표시
@@ -162,6 +165,7 @@ export default function PaymentsScreen() {
           periodStart: form.periodStart || null,
           periodEnd: form.periodEnd || null,
           notes: form.notes || null,
+          paidAt: new Date(),
         });
         setShowReceipt(true);
         // 납부 만료 3일 전 알림 스케줄링
@@ -276,8 +280,40 @@ export default function PaymentsScreen() {
   const overdueCount = overdueMembers.filter(m => new Date(m.nextPaymentDate!) < today).length;
 
   const receiptText = lastPayment
-    ? generateReceiptText({ ...lastPayment, paidAt: new Date() })
+    ? generateReceiptText({
+        memberName: lastPayment.memberName,
+        beltRank: lastPayment.beltRank,
+        amount: lastPayment.amount,
+        method: lastPayment.method,
+        periodStart: lastPayment.periodStart,
+        periodEnd: lastPayment.periodEnd,
+        notes: lastPayment.notes,
+        paidAt: lastPayment.paidAt,
+      })
     : "";
+
+  const openReceiptForPayment = (p: {
+    memberId: number;
+    amount: number;
+    method: string;
+    paidAt: Date | string;
+    periodStart?: string | null;
+    periodEnd?: string | null;
+    notes?: string | null;
+  }) => {
+    const m = members?.find(x => x.id === p.memberId);
+    setLastPayment({
+      memberName: m?.name ?? `회원 #${p.memberId}`,
+      beltRank: m ? `${getBeltLabel(m.beltRank)} ${m.beltDegree ?? 1}단` : "-",
+      amount: p.amount,
+      method: p.method as PaymentMethod,
+      periodStart: p.periodStart ?? null,
+      periodEnd: p.periodEnd ?? null,
+      notes: p.notes ?? null,
+      paidAt: p.paidAt instanceof Date ? p.paidAt : new Date(p.paidAt),
+    });
+    setShowReceipt(true);
+  };
 
   return (
     <ScreenContainer>
@@ -341,6 +377,38 @@ export default function PaymentsScreen() {
               <Text className="text-xs" style={{ color: "#B45309" }}>외 {expiringSoon.length - 3}명 더...</Text>
             )}
           </View>
+        </View>
+      )}
+
+      {recentPayments && recentPayments.length > 0 && (
+        <View className="px-5 pb-3">
+          <Text className="text-sm font-semibold text-foreground mb-2">최근 납부 내역</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
+            {recentPayments.map((p) => {
+              const m = members?.find(x => x.id === p.memberId);
+              const paid = p.paidAt instanceof Date ? p.paidAt : new Date(p.paidAt as string);
+              return (
+                <View
+                  key={p.id}
+                  className="bg-surface rounded-2xl border border-border p-3"
+                  style={{ width: 200 }}
+                >
+                  <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
+                    {m?.name ?? `회원 #${p.memberId}`}
+                  </Text>
+                  <Text className="text-xs text-muted mt-0.5">{paid.toLocaleDateString("ko-KR")}</Text>
+                  <Text className="text-base font-bold mt-1" style={{ color: "#1565C0" }}>{formatAmount(p.amount)}</Text>
+                  <TouchableOpacity
+                    className="mt-2 py-2 rounded-xl items-center border"
+                    style={{ borderColor: "#1565C040", backgroundColor: "#E3F2FD" }}
+                    onPress={() => openReceiptForPayment(p)}
+                  >
+                    <Text className="text-xs font-bold" style={{ color: "#1565C0" }}>영수증</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </ScrollView>
         </View>
       )}
 
@@ -654,8 +722,8 @@ export default function PaymentsScreen() {
           <View style={styles.receiptCard}>
             {/* 영수증 헤더 */}
             <View style={styles.receiptHeader}>
-              <Text style={styles.receiptTitle}>납부 완료</Text>
-              <Text style={styles.receiptSubtitle}>영수증을 공유하시겠습니까?</Text>
+              <Text style={styles.receiptTitle}>납부 영수증</Text>
+              <Text style={styles.receiptSubtitle}>내용 확인 후 공유할 수 있습니다</Text>
             </View>
 
             {/* 영수증 미리보기 */}
@@ -686,7 +754,7 @@ export default function PaymentsScreen() {
                 <View style={styles.receiptRow}>
                   <Text style={styles.receiptLabel}>납부 일시</Text>
                   <Text style={styles.receiptValue}>
-                    {new Date().toLocaleDateString("ko-KR")}
+                    {lastPayment.paidAt.toLocaleString("ko-KR")}
                   </Text>
                 </View>
               </View>

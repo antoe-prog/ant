@@ -11,14 +11,24 @@
 
 ```bash
 cd apps/admin-web
-cp .env.example .env   # 필요 시 VITE_GATEWAY_URL 수정
+cp .env.example .env   # 필요 시 VITE_GATEWAY_URL, VITE_DOJO_API_BASE_URL 수정
 npm install
 npm run dev
+```
+
+**도장 데이터(회원·출석 등)와 유도관 앱을 같은 DB로 쓰려면:** 유도관 `.env`의 `EXPO_PUBLIC_API_BASE_URL`(예: `http://127.0.0.1:3000`)과 **동일한 값**을 admin-web `.env`의 `VITE_DOJO_API_BASE_URL`에 넣거나, 로그인 후 화면 상단 **도장 API 베이스** 입력란에 같은 URL을 저장한 뒤, 앱과 같은 도장 계정으로 **도장 로그인**하면 됩니다.
+
+의존성 설치 중 peer 충돌(`ERESOLVE`)이 발생하면 다음처럼 설치한다.
+
+```bash
+npm install --legacy-peer-deps
 ```
 
 정상 기동이면 터미널에 `Local: http://localhost:5173/` 가 보인다. **이 상태가 맞다** — 브라우저에서 그 주소로 들어가면 Admin 화면이 뜬다. 같은 Wi-Fi의 휴대폰에서 열려면 터미널에 이어 나오는 **Network** 줄의 `http://192.168.x.x:5173` 주소를 쓰면 된다(`vite.config.ts`의 `server.host: true` 설정).
 
 빌드: `npm run build` → `dist/` 정적 배포 (S3, Netlify, Fly static 등).
+
+최근 확인 결과(2026-04-24): `npm run build`가 정상 통과하고 결과물이 `services/gateway/app/web-dist/`로 출력된다.
 
 ## 연결 거부(ERR_CONNECTION_REFUSED)일 때
 
