@@ -19,6 +19,8 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  /** 이메일+비밀번호 자체 가입용 해시. OAuth 계정은 null. */
+  passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["member", "manager", "admin"]).default("member").notNull(),
   avatarUrl: text("avatarUrl"),

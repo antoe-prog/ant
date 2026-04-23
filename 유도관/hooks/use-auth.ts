@@ -1,5 +1,6 @@
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
+import { clearGatewaySession } from "@/lib/_core/gateway-auth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 
@@ -69,6 +70,7 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       await Auth.removeSessionToken();
       await Auth.clearUserInfo();
+      await clearGatewaySession();
       setUser(null);
       setError(null);
     }

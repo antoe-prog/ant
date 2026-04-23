@@ -232,7 +232,6 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
-            <Stack.Screen name="oauth/callback" />
             <Stack.Screen name="member-detail" options={{ presentation: "card" }} />
             <Stack.Screen name="tournament-detail" options={{ presentation: "card" }} />
             <Stack.Screen name="invite" options={{ presentation: "fullScreenModal" }} />

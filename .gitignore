@@ -29,3 +29,7 @@ DerivedData/
 
 # Local archives (not for VCS)
 아카이브.zip
+
+# Self-auth local user store
+services/gateway/data/
+

@@ -34,6 +34,9 @@ export default function App() {
   const [me, setMe] = useState<{ name?: string; role?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
 
   const client = useMemo(() => createWebAdminTrpc(apiBase), [apiBase]);
 
@@ -47,6 +50,27 @@ export default function App() {
     setTokenInput(session);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
   }, []);
+
+  const handleDirectLogin = useCallback(async () => {
+    setLoggingIn(true);
+    setError(null);
+    try {
+      const result = await client.auth.login.mutate({
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
+      });
+      const token = result?.app_session_id;
+      if (!token) throw new Error("세션 토큰을 받지 못했습니다.");
+      setStoredToken(token);
+      setTokenInput(token);
+      setLoginPassword("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`로그인 실패: ${msg}`);
+    } finally {
+      setLoggingIn(false);
+    }
+  }, [client, loginEmail, loginPassword]);
 
   const displayRows = useMemo(() => {
     if (!rows) return [];
@@ -93,10 +117,9 @@ export default function App() {
       </p>
 
       <div className="hint">
-        <strong>토큰:</strong> Expo 앱 세션과 동일하게 <code>Authorization: Bearer …</code>를
-        붙입니다. 서버에 <code>GOOGLE_CLIENT_*</code>가 있으면 아래 링크로 로그인하면{" "}
-        <code>#session=…</code>로 돌아와 자동 저장됩니다(서버{" "}
-        <code>WEB_ADMIN_POST_LOGIN_URL</code> 권장).
+        <strong>로그인:</strong> 앱에서 가입한 이메일/비밀번호로 로그인하거나, 이미 발급된 Bearer
+        토큰을 직접 붙여넣을 수 있습니다. 관리자(admin/manager) 역할만 회원 목록을 조회할 수
+        있습니다.
       </div>
 
       <div className="panel">
@@ -109,6 +132,29 @@ export default function App() {
             onChange={(e) => setApiBase(e.target.value)}
             placeholder="http://127.0.0.1:3000"
           />
+        </div>
+        <div className="row">
+          <label htmlFor="email">이메일</label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+          <label htmlFor="pw">비밀번호</label>
+          <input
+            id="pw"
+            type="password"
+            autoComplete="current-password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder="8자 이상"
+          />
+          <button type="button" onClick={() => void handleDirectLogin()} disabled={loggingIn}>
+            {loggingIn ? "로그인 중…" : "이메일로 로그인"}
+          </button>
         </div>
         <div className="row">
           <label htmlFor="tok">Bearer 토큰</label>
@@ -124,12 +170,6 @@ export default function App() {
           <button type="button" className="secondary" onClick={saveToken}>
             토큰 저장
           </button>
-          <a
-            className="secondary link-btn"
-            href={`${apiBase.replace(/\/$/, "")}/api/oauth/google?return=webadmin`}
-          >
-            Google로 로그인
-          </a>
           <button type="button" onClick={() => void loadMembers()} disabled={loading}>
             {loading ? "불러오는 중…" : "회원 목록 불러오기"}
           </button>

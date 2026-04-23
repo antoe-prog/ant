@@ -71,6 +71,65 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+/** 이메일로 사용자 조회 (대소문자 무관) — 비밀번호 로그인용 */
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalized = email.trim().toLowerCase();
+  const result = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
+  return result[0];
+}
+
+/**
+ * 이메일+비밀번호 자체 가입 유저 생성.
+ * openId는 `email:<lowercased email>` 형태로 저장한다.
+ * 이미 같은 이메일이 존재하면 예외를 던진다.
+ */
+export async function createEmailUser(input: {
+  email: string;
+  name: string;
+  passwordHash: string;
+}): Promise<{ id: number; openId: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const email = input.email.trim().toLowerCase();
+  const openId = `email:${email}`;
+
+  const existing = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  if (existing.length > 0) {
+    throw new Error("이미 가입된 이메일입니다.");
+  }
+
+  const now = new Date();
+  const isOwner = openId === ENV.ownerOpenId || email === (ENV.ownerOpenId ?? "").toLowerCase();
+  const role: "member" | "manager" | "admin" = isOwner ? "admin" : "member";
+
+  await db.insert(users).values({
+    openId,
+    name: input.name,
+    email,
+    passwordHash: input.passwordHash,
+    loginMethod: "email",
+    role,
+    lastSignedIn: now,
+  });
+
+  const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  if (!created[0]) throw new Error("사용자 생성 후 조회 실패");
+  return { id: created[0].id, openId };
+}
+
+/** 로그인 성공 시 lastSignedIn을 갱신한다. */
+export async function touchUserSignIn(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
 export async function getUserById(id: number) {
   const db = await getDb();
   if (!db) return null;

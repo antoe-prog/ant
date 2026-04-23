@@ -3,10 +3,10 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerSocialOAuthRoutes } from "../social-oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { getSessionCookieOptions } from "./cookies";
+import { COOKIE_NAME } from "../../shared/const.js";
 import { startScheduler } from "../scheduler";
 import { getEnvDiagnostics, logRequiredEnvDiagnostics } from "./env";
 
@@ -59,8 +59,13 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  registerOAuthRoutes(app);
-  registerSocialOAuthRoutes(app);
+  // 간단한 로그아웃 REST 엔드포인트 (클라이언트 호환성 유지).
+  // 실제 세션/가입/로그인은 tRPC auth 라우터로 처리된다.
+  app.post("/api/logout", (req, res) => {
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    res.json({ success: true });
+  });
 
   app.get("/api/health", (_req, res) => {
     const env = getEnvDiagnostics();

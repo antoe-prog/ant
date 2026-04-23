@@ -10,6 +10,7 @@ import {
   checkAttendance,
   getAttendanceStatsByMember,
   createAnnouncement,
+  createEmailUser,
   createMember,
   createPayment,
   createPromotion,
@@ -43,8 +44,10 @@ import {
   getExpiringSoonMembers,
   getUnpaidMembers,
   getUpcomingPromotions,
+  getUserByEmail,
   seedDemoData,
   togglePromotionChecklistItem,
+  touchUserSignIn,
   updateAnnouncement,
   updateMember,
   updatePromotion,
@@ -78,10 +81,36 @@ import {
 } from "./db";
 import { storagePut } from "./storage";
 import { sendPushNotifications } from "./push";
-import { COOKIE_NAME } from "../shared/const.js";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { hashPassword, verifyPassword } from "./_core/password";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, authedProcedure, managerProcedure, publicProcedure, router } from "./_core/trpc";
+
+const EMAIL_SCHEMA = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("올바른 이메일 형식이 아닙니다.");
+const PASSWORD_SCHEMA = z
+  .string()
+  .min(8, "비밀번호는 8자 이상이어야 합니다.")
+  .max(200, "비밀번호가 너무 깁니다.");
+
+async function issueSession(opts: {
+  ctx: { res: import("express").Response; req: import("express").Request };
+  openId: string;
+  name: string;
+}) {
+  const sessionToken = await sdk.createSessionToken(opts.openId, {
+    name: opts.name,
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(opts.ctx.req);
+  opts.ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+  return sessionToken;
+}
 
 const authRouter = router({
   me: authedProcedure.query(async ({ ctx }) => {
@@ -92,6 +121,72 @@ const authRouter = router({
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
     return { success: true } as const;
   }),
+  /**
+   * 이메일 + 비밀번호 자체 회원가입.
+   * - 이미 존재하는 이메일이면 실패
+   * - 성공 시 세션 쿠키 설정 + 네이티브용 토큰(app_session_id) 반환
+   */
+  register: publicProcedure
+    .input(
+      z.object({
+        email: EMAIL_SCHEMA,
+        password: PASSWORD_SCHEMA,
+        name: z.string().trim().min(1, "이름을 입력해 주세요.").max(64),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await getUserByEmail(input.email);
+      if (existing) {
+        throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
+      }
+      const passwordHash = await hashPassword(input.password);
+      const { id, openId } = await createEmailUser({
+        email: input.email,
+        name: input.name,
+        passwordHash,
+      });
+      const sessionToken = await issueSession({ ctx, openId, name: input.name });
+      return {
+        app_session_id: sessionToken,
+        user: {
+          id,
+          openId,
+          name: input.name,
+          email: input.email,
+          role: "member" as const,
+          loginMethod: "email",
+        },
+      };
+    }),
+  /**
+   * 이메일 + 비밀번호 로그인.
+   */
+  login: publicProcedure
+    .input(z.object({ email: EMAIL_SCHEMA, password: PASSWORD_SCHEMA }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await getUserByEmail(input.email);
+      const INVALID = new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호가 올바르지 않습니다." });
+      if (!user || !user.passwordHash) throw INVALID;
+      const ok = await verifyPassword(input.password, user.passwordHash);
+      if (!ok) throw INVALID;
+      await touchUserSignIn(user.id);
+      const sessionToken = await issueSession({
+        ctx,
+        openId: user.openId,
+        name: user.name ?? "",
+      });
+      return {
+        app_session_id: sessionToken,
+        user: {
+          id: user.id,
+          openId: user.openId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          loginMethod: user.loginMethod,
+        },
+      };
+    }),
 });
 
 const membersRouter = router({

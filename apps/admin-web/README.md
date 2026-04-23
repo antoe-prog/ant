@@ -47,3 +47,23 @@ chmod +x install-desktop-shortcuts.sh   # 최초 1회
 - **모바일GenAI-Admin-개발서버.command** — 이 클론의 `apps/admin-web`으로 이동해 `npm install` 후 `npm run dev` 를 실행하고, 같은 URL을 연다.
 
 다른 경로에 클론했다면 스크립트를 **그 클론 안에서** 다시 실행해 `.command` 안의 절대 경로를 갱신한다. 바탕화면 폴더가 다르면 `DESKTOP_DIR=... ./install-desktop-shortcuts.sh` 로 지정한다.
+
+## 바탕화면 바로가기 (Windows)
+
+저장소에서 PowerShell 실행:
+
+```powershell
+cd apps/admin-web/desktop
+powershell -ExecutionPolicy Bypass -File .\install-desktop-shortcuts.ps1
+```
+
+원하는 폴더에 만들려면:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-desktop-shortcuts.ps1 -DesktopDir "C:\Users\<사용자>\Desktop"
+```
+
+생성 파일:
+
+- **MobileGenAI-Admin.url** — `http://127.0.0.1:5173/` 주소만 열기 (Vite가 떠 있어야 함)
+- **MobileGenAI-Admin-DevServer.cmd** — 이 클론의 `apps/admin-web`로 이동해 `npm install` 후 `npm run dev` 실행

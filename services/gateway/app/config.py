@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 2.0
     # Comma-separated origins for browser clients (e.g. apps/admin-web). Empty = local dev defaults.
     cors_allow_origins: str = ""
+    # Self-auth
+    jwt_secret: str = "dev-insecure-change-me"
+    auth_user_store_path: str = "./data/users.json"
+    auth_token_ttl_seconds: int = 60 * 60 * 24 * 7
+    auth_bootstrap_admin_email: str = ""
 
 
 settings = Settings()

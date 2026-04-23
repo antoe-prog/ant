@@ -1,8 +1,7 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
+  appId: process.env.VITE_APP_ID ?? "yudogwan-dojo",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
@@ -11,8 +10,6 @@ export const ENV = {
 
 const REQUIRED_ENV_KEYS = [
   "DATABASE_URL",
-  "OAUTH_SERVER_URL",
-  "VITE_APP_ID",
   "JWT_SECRET",
   "EXPO_PUBLIC_API_BASE_URL",
 ] as const;
@@ -64,14 +61,10 @@ function isValidHttpUrl(value: string): boolean {
 function validateRequiredEnvValues(): EnvValidationIssue[] {
   const issues: EnvValidationIssue[] = [];
   const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL;
-  const oauthServer = process.env.OAUTH_SERVER_URL;
   const jwtSecret = process.env.JWT_SECRET;
 
   if (apiBase && !isMissingValue(apiBase) && !isValidHttpUrl(apiBase)) {
     issues.push({ key: "EXPO_PUBLIC_API_BASE_URL", reason: "must be a valid http(s) URL" });
-  }
-  if (oauthServer && !isMissingValue(oauthServer) && !isValidHttpUrl(oauthServer)) {
-    issues.push({ key: "OAUTH_SERVER_URL", reason: "must be a valid http(s) URL" });
   }
   if (jwtSecret && !isMissingValue(jwtSecret) && jwtSecret.trim().length < 16) {
     issues.push({ key: "JWT_SECRET", reason: "must be at least 16 characters" });
