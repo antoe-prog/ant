@@ -1,0 +1,26 @@
+# Fly.io — PaaS 배포용. 앱 이름은 전역 유일해야 하므로 필요 시 `app` 값을 바꾼 뒤
+# `fly apps create <이름>` 또는 `fly launch`로 맞춘다.
+# 시크릿: `fly secrets set OPENAI_API_KEY=... ANTHROPIC_API_KEY=...` (미설정 시 채팅은 모의 응답 등 기존 동작 따름)
+
+app = "personal-genai-gateway"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[http_service.concurrency]
+  type = "requests"
+  soft_limit = 200
+  hard_limit = 250
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -1,0 +1,16 @@
+# apps/android는 Kotlin 스켈레톤입니다. Gradle 모듈이 생기면 lane을 연결하세요.
+
+default_platform(:android)
+
+platform :android do
+  desc "Fastlane 설치 확인 (빌드 없음)"
+  lane :info do
+    UI.important "apps/android: Gradle 앱 모듈이 준비되면 gradle(task: 'bundleRelease') 등으로 lane을 추가하세요."
+  end
+
+  # desc "Play 내부 트랙 업로드 예시"
+  # lane :internal do
+  #   gradle(task: "bundleRelease")
+  #   upload_to_play_store(track: "internal", aab: "../app/build/outputs/bundle/release/app-release.aab")
+  # end
+end

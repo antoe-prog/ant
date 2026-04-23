@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gateway-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: SSOT product vision vs docs
+        run: python scripts/check_ssot_docs.py
+      - name: Run tests
+        run: pytest -q
+
+  gateway-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build gateway image
+        run: docker build -t genai-gateway:ci ./services/gateway
+
+  admin-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install and build
+        run: |
+          npm install
+          npm run build
+
+  yudogwan-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 유도관
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.12.0 --activate
+      - name: Install and typecheck
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run check
+
+  yudogwan-web-admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 유도관/web-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install and build
+        run: |
+          npm install
+          npm run build

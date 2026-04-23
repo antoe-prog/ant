@@ -1,0 +1,21 @@
+# Fly.io에 게이트웨이 이미지를 배포합니다. 저장소 Settings → Secrets에 FLY_API_TOKEN을 넣은 뒤
+# Actions 탭에서 "Deploy gateway (Fly.io)" 워크플로를 수동 실행하세요.
+name: Deploy gateway (Fly.io)
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: services/gateway
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only
