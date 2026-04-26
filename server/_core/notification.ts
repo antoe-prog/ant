@@ -1,4 +1,4 @@
-import { TRPCError } from "@trpc/server";
+﻿import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
 
 export type NotificationPayload = {
@@ -105,3 +105,4 @@ export async function notifyOwner(payload: NotificationPayload): Promise<boolean
     return false;
   }
 }
+

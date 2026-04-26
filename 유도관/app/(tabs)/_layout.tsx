@@ -6,6 +6,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { IS_ADMIN_APP, IS_MEMBER_APP } from "@/constants/app-variant";
 
 // 배지 컴포넌트
 function BadgeIcon({
@@ -51,7 +52,8 @@ export default function TabLayout() {
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
   const tabBarHeight = 56 + bottomPadding;
   const role = user?.role ?? "member";
-  const isManager = role === "manager" || role === "admin";
+  const hasManagerRole = role === "manager" || role === "admin";
+  const isManager = IS_ADMIN_APP && hasManagerRole;
 
   // 미납 회원 수 조회 (관리자만, 30초마다 갱신)
   const { data: stats } = trpc.dashboard.stats.useQuery(undefined, {
@@ -67,7 +69,7 @@ export default function TabLayout() {
     staleTime: 60000,
   });
   // 최고관리자이거나, 아직 관리자가 없는 경우 탭 표시
-  const showAdminTab = isAuthenticated && (role === "admin" || adminCount === 0);
+  const showAdminTab = IS_ADMIN_APP && isAuthenticated && (role === "admin" || adminCount === 0);
 
   const { data: announcementList } = trpc.announcements.list.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -114,7 +116,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <IconSymbol size={24} name="person.3.fill" color={color} />
           ),
-          href: isAuthenticated && isManager ? undefined : null,
+          href: IS_ADMIN_APP && isAuthenticated && isManager ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -124,7 +126,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <IconSymbol size={24} name="checklist" color={color} />
           ),
-          href: isAuthenticated && isManager ? undefined : null,
+          href: IS_ADMIN_APP && isAuthenticated && isManager ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -138,7 +140,7 @@ export default function TabLayout() {
               badgeCount={isManager ? unpaidCount : undefined}
             />
           ),
-          href: isAuthenticated && isManager ? undefined : null,
+          href: IS_ADMIN_APP && isAuthenticated && isManager ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -148,7 +150,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <IconSymbol size={24} name="trophy.fill" color={color} />
           ),
-          href: isAuthenticated && isManager ? undefined : null,
+          href: IS_ADMIN_APP && isAuthenticated && isManager ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -160,7 +162,7 @@ export default function TabLayout() {
           ),
           // 관리자는 항상, 일반 회원은 내가 참가한 대회가 있을 때만 노출되도록 하고 싶다면 별도 쿼리 필요.
           // 현재는 모든 로그인 사용자에게 탭을 보여 회원이 자기 참가 이력을 확인할 수 있게 한다.
-          href: isAuthenticated ? undefined : null,
+          href: isAuthenticated && (IS_MEMBER_APP || isManager) ? undefined : null,
         }}
       />
       <Tabs.Screen

@@ -19,6 +19,7 @@ import {
   getMemberStatusColor,
   getMemberStatusLabel,
 } from "@/lib/judo-utils";
+import { IS_ADMIN_APP, IS_MEMBER_APP, canUseAdminApp } from "@/constants/app-variant";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -94,9 +95,9 @@ function HomeUpcomingRow({
 }
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const canManage = canUseAdminApp(user?.role);
 
   if (!user) {
     return (
@@ -114,8 +115,31 @@ export default function HomeScreen() {
     );
   }
 
-  if (isManager) return <ManagerHome />;
+  if (IS_ADMIN_APP && !canManage) return <AdminAppAccessDenied onLogout={logout} />;
+  if (IS_MEMBER_APP) return <MemberHome />;
+  if (canManage) return <ManagerHome />;
   return <MemberHome />;
+}
+
+function AdminAppAccessDenied({ onLogout }: { onLogout: () => void }) {
+  return (
+    <ScreenContainer className="items-center justify-center p-6">
+      <View className="items-center gap-4 max-w-xs">
+        <Text className="text-5xl">🔒</Text>
+        <Text className="text-xl font-bold text-foreground text-center">관리자 앱 전용 계정이 필요합니다</Text>
+        <Text className="text-sm text-muted text-center leading-relaxed">
+          이 앱은 도장 관리자와 매니저 전용입니다. 회원 계정은 회원 전용 앱에서 로그인해 주세요.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: "#1565C0" }}
+          className="w-full py-4 rounded-2xl items-center"
+          onPress={onLogout}
+        >
+          <Text className="text-white font-bold text-base">다른 계정으로 로그인</Text>
+        </TouchableOpacity>
+      </View>
+    </ScreenContainer>
+  );
 }
 
 // ─── 핵심 KPI 위젯 행 ───────────────────────────────────────────────────────────

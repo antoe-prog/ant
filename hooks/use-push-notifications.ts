@@ -33,13 +33,13 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
   }
 
   // 권한 요청
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
+  const existingPermissions = await Notifications.getPermissionsAsync() as any;
+  let isGranted = Boolean(existingPermissions.granted ?? existingPermissions.status === "granted");
+  if (!isGranted) {
+    const requestedPermissions = await Notifications.requestPermissionsAsync() as any;
+    isGranted = Boolean(requestedPermissions.granted ?? requestedPermissions.status === "granted");
   }
-  if (finalStatus !== "granted") return null;
+  if (!isGranted) return null;
 
   // Expo 푸시 토큰 발급
   try {

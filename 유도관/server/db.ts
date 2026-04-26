@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import fs from "fs/promises";
+import path from "path";
 import {
   activityLogs,
   announcementReads,
@@ -27,11 +29,58 @@ import {
   type InsertTournament,
   type InsertTournamentParticipant,
   type InsertUser,
+  type User,
 } from "../drizzle/schema";
 import { calcParticipationRate, isAnnouncementPinnedEffective } from "../lib/judo-utils";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const LOCAL_USERS_PATH = path.resolve(process.cwd(), "server", ".local-users.json");
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function readLocalUsers(): Promise<User[]> {
+  try {
+    const raw = await fs.readFile(LOCAL_USERS_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Array<
+      Omit<User, "createdAt" | "updatedAt" | "lastSignedIn"> & {
+        createdAt: string;
+        updatedAt: string;
+        lastSignedIn: string;
+      }
+    >;
+    return parsed.map((user) => ({
+      ...user,
+      createdAt: new Date(user.createdAt),
+      updatedAt: new Date(user.updatedAt),
+      lastSignedIn: new Date(user.lastSignedIn),
+    }));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    console.warn("[Database] Failed to read local user store:", error);
+    return [];
+  }
+}
+
+async function writeLocalUsers(usersList: User[]): Promise<void> {
+  await fs.mkdir(path.dirname(LOCAL_USERS_PATH), { recursive: true });
+  await fs.writeFile(
+    LOCAL_USERS_PATH,
+    JSON.stringify(
+      usersList.map((user) => ({
+        ...user,
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+        lastSignedIn: user.lastSignedIn.toISOString(),
+      })),
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -49,7 +98,31 @@ export async function getDb() {
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    const usersList = await readLocalUsers();
+    const now = new Date();
+    const index = usersList.findIndex((item) => item.openId === user.openId);
+    const existing = index >= 0 ? usersList[index] : null;
+    const nextUser: User = {
+      id: existing?.id ?? (usersList.reduce((max, item) => Math.max(max, item.id), 0) + 1),
+      openId: user.openId,
+      name: user.name !== undefined ? user.name ?? null : existing?.name ?? null,
+      email: user.email !== undefined ? user.email ?? null : existing?.email ?? null,
+      passwordHash:
+        user.passwordHash !== undefined ? user.passwordHash ?? null : existing?.passwordHash ?? null,
+      loginMethod:
+        user.loginMethod !== undefined ? user.loginMethod ?? null : existing?.loginMethod ?? null,
+      role: user.role ?? existing?.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "member"),
+      avatarUrl: user.avatarUrl !== undefined ? user.avatarUrl ?? null : existing?.avatarUrl ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      lastSignedIn: user.lastSignedIn ?? now,
+    };
+    if (index >= 0) usersList[index] = nextUser;
+    else usersList.push(nextUser);
+    await writeLocalUsers(usersList);
+    return;
+  }
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
   const textFields = ["name", "email", "loginMethod"] as const;
@@ -66,7 +139,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) {
+    const usersList = await readLocalUsers();
+    return usersList.find((user) => user.openId === openId);
+  }
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result[0];
 }
@@ -74,8 +150,11 @@ export async function getUserByOpenId(openId: string) {
 /** 이메일로 사용자 조회 (대소문자 무관) — 비밀번호 로그인용 */
 export async function getUserByEmail(email: string) {
   const db = await getDb();
-  if (!db) return undefined;
-  const normalized = email.trim().toLowerCase();
+  const normalized = normalizeEmail(email);
+  if (!db) {
+    const usersList = await readLocalUsers();
+    return usersList.find((user) => user.email?.toLowerCase() === normalized);
+  }
   const result = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
   return result[0];
 }
@@ -91,9 +170,35 @@ export async function createEmailUser(input: {
   passwordHash: string;
 }): Promise<{ id: number; openId: string }> {
   const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const email = input.email.trim().toLowerCase();
+  const email = normalizeEmail(input.email);
   const openId = `email:${email}`;
+
+  if (!db) {
+    const usersList = await readLocalUsers();
+    if (usersList.some((user) => user.email?.toLowerCase() === email)) {
+      throw new Error("이미 가입된 이메일입니다.");
+    }
+    const now = new Date();
+    const isOwner = openId === ENV.ownerOpenId || email === (ENV.ownerOpenId ?? "").toLowerCase();
+    const role: "member" | "manager" | "admin" =
+      isOwner || usersList.length === 0 ? "admin" : "member";
+    const created: User = {
+      id: usersList.reduce((max, user) => Math.max(max, user.id), 0) + 1,
+      openId,
+      name: input.name,
+      email,
+      passwordHash: input.passwordHash,
+      loginMethod: "email",
+      role,
+      avatarUrl: null,
+      createdAt: now,
+      updatedAt: now,
+      lastSignedIn: now,
+    };
+    usersList.push(created);
+    await writeLocalUsers(usersList);
+    return { id: created.id, openId };
+  }
 
   const existing = await db
     .select({ id: users.id })
@@ -126,20 +231,47 @@ export async function createEmailUser(input: {
 /** 로그인 성공 시 lastSignedIn을 갱신한다. */
 export async function touchUserSignIn(userId: number): Promise<void> {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    const usersList = await readLocalUsers();
+    const index = usersList.findIndex((user) => user.id === userId);
+    if (index >= 0) {
+      usersList[index] = {
+        ...usersList[index],
+        updatedAt: new Date(),
+        lastSignedIn: new Date(),
+      };
+      await writeLocalUsers(usersList);
+    }
+    return;
+  }
   await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
 }
 
 export async function getUserById(id: number) {
   const db = await getDb();
-  if (!db) return null;
+  if (!db) {
+    const usersList = await readLocalUsers();
+    return usersList.find((user) => user.id === id) ?? null;
+  }
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result[0] ?? null;
 }
 
 export async function getAllUsers() {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) {
+    const usersList = await readLocalUsers();
+    return usersList
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatarUrl: user.avatarUrl,
+        lastSignedIn: user.lastSignedIn,
+      }))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }
   return db.select({
     id: users.id,
     name: users.name,
@@ -152,14 +284,24 @@ export async function getAllUsers() {
 
 export async function getAdminCount() {
   const db = await getDb();
-  if (!db) return 0;
+  if (!db) {
+    const usersList = await readLocalUsers();
+    return usersList.filter((user) => user.role === "admin").length;
+  }
   const result = await db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.role, "admin"));
   return Number(result[0]?.count ?? 0);
 }
 
 export async function updateUserRole(id: number, role: "member" | "manager" | "admin") {
   const db = await getDb();
-  if (!db) throw new Error("DB not available");
+  if (!db) {
+    const usersList = await readLocalUsers();
+    const index = usersList.findIndex((user) => user.id === id);
+    if (index < 0) throw new Error("User not found");
+    usersList[index] = { ...usersList[index], role, updatedAt: new Date() };
+    await writeLocalUsers(usersList);
+    return;
+  }
   await db.update(users).set({ role }).where(eq(users.id, id));
 }
 

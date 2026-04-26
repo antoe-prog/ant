@@ -1,4 +1,4 @@
-import "./load-env.js";
+﻿import "./load-env.js";
 import mysql2 from "mysql2/promise";
 import * as fs from "fs";
 

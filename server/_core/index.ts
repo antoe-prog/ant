@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -8,6 +8,9 @@ import { registerSocialOAuthRoutes } from "../social-oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { startScheduler } from "../scheduler";
+import { getSessionCookieOptions } from "./cookies";
+import { createCorsMiddleware } from "./cors-middleware";
+import { COOKIE_NAME } from "../../shared/const.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -32,32 +35,23 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Enable CORS for all routes - reflect the request origin to support credentials
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-    );
-    res.header("Access-Control-Allow-Credentials", "true");
+  if (process.env.NODE_ENV === "production" && process.env.TRUST_PROXY !== "0") {
+    app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+  }
 
-    // Handle preflight requests
-    if (req.method === "OPTIONS") {
-      res.sendStatus(200);
-      return;
-    }
-    next();
-  });
+  app.use(createCorsMiddleware());
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   registerOAuthRoutes(app);
   registerSocialOAuthRoutes(app);
+
+  app.post("/api/logout", (req, res) => {
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    res.json({ success: true });
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
@@ -80,9 +74,10 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`[api] server listening on port ${port}`);
-    // 납부 만료 D-7 자동 알림 스케줄러 시작
+    // ?⑸? 留뚮즺 D-7 ?먮룞 ?뚮┝ ?ㅼ?以꾨윭 ?쒖옉
     startScheduler();
   });
 }
 
 startServer().catch(console.error);
+

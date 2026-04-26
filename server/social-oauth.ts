@@ -1,21 +1,20 @@
-/**
- * 소셜 로그인 OAuth 라우터
- * - 카카오: /api/oauth/kakao → /api/oauth/kakao/callback
- * - 인스타그램(Facebook): /api/oauth/instagram → /api/oauth/instagram/callback
- * - 구글: /api/oauth/google → /api/oauth/google/callback
+﻿/**
+ * ?뚯뀥 濡쒓렇??OAuth ?쇱슦?? * - 移댁뭅?? /api/oauth/kakao ??/api/oauth/kakao/callback
+ * - ?몄뒪?洹몃옩(Facebook): /api/oauth/instagram ??/api/oauth/instagram/callback
+ * - 援ш?: /api/oauth/google ??/api/oauth/google/callback
  *
- * API 키가 없으면 "설정 필요" 에러를 반환하고, 키 입력 후 즉시 동작합니다.
+ * API ?ㅺ? ?놁쑝硫?"?ㅼ젙 ?꾩슂" ?먮윭瑜?諛섑솚?섍퀬, ???낅젰 ??利됱떆 ?숈옉?⑸땲??
  */
 
 import type { Express, Request, Response } from "express";
-import { COOKIE_NAME, ONE_YEAR_MS } from "../shared/const.js";
+import { COOKIE_NAME, ONE_YEAR_MS, PUBLIC_DOJO_API_BASE_URL } from "../shared/const.js";
 import { upsertUser, getUserByOpenId } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 
-// ─────────────────────────────────────────────
-// 환경변수 헬퍼
-// ─────────────────────────────────────────────
+// ?????????????????????????????????????????????
+// ?섍꼍蹂???ы띁
+// ?????????????????????????????????????????????
 function getEnv(key: string): string {
   return process.env[key] ?? "";
 }
@@ -28,9 +27,9 @@ function getFrontendUrl(): string {
   );
 }
 
-// ─────────────────────────────────────────────
-// 공통: DB에 소셜 유저 저장 후 세션 토큰 발급
-// ─────────────────────────────────────────────
+// ?????????????????????????????????????????????
+// 怨듯넻: DB???뚯뀥 ?좎? ??????몄뀡 ?좏겙 諛쒓툒
+// ?????????????????????????????????????????????
 async function createSocialSession(userInfo: {
   openId: string;
   name: string | null;
@@ -63,9 +62,16 @@ function buildUserResponse(user: any) {
   };
 }
 
-// ─────────────────────────────────────────────
-// 카카오 OAuth
-// ─────────────────────────────────────────────
+function buildNativeCallbackUrl(state: string, sessionToken: string, user: any): string {
+  const callbackUrl = new URL(state);
+  callbackUrl.searchParams.set("app_session_id", sessionToken);
+  callbackUrl.searchParams.set("user", JSON.stringify(buildUserResponse(user)));
+  return callbackUrl.toString();
+}
+
+// ?????????????????????????????????????????????
+// 移댁뭅??OAuth
+// ?????????????????????????????????????????????
 function getKakaoAuthUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: getEnv("KAKAO_REST_API_KEY"),
@@ -112,9 +118,9 @@ async function getKakaoUserInfo(accessToken: string) {
   };
 }
 
-// ─────────────────────────────────────────────
-// 인스타그램(Facebook) OAuth
-// ─────────────────────────────────────────────
+// ?????????????????????????????????????????????
+// ?몄뒪?洹몃옩(Facebook) OAuth
+// ?????????????????????????????????????????????
 function getInstagramAuthUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: getEnv("INSTAGRAM_APP_ID"),
@@ -161,9 +167,9 @@ async function getInstagramUserInfo(accessToken: string, userId: number) {
   };
 }
 
-// ─────────────────────────────────────────────
-// 구글 OAuth
-// ─────────────────────────────────────────────
+// ?????????????????????????????????????????????
+// 援ш? OAuth
+// ?????????????????????????????????????????????
 function getGoogleAuthUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: getEnv("GOOGLE_CLIENT_ID"),
@@ -212,13 +218,14 @@ async function getGoogleUserInfo(accessToken: string) {
   };
 }
 
-// ─────────────────────────────────────────────
-// 라우터 등록
-// ─────────────────────────────────────────────
+// ?????????????????????????????????????????????
+// ?쇱슦???깅줉
+// ?????????????????????????????????????????????
 export function registerSocialOAuthRoutes(app: Express) {
-  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
+  const apiBase =
+    process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || PUBLIC_DOJO_API_BASE_URL;
 
-  // ── 카카오 시작 ──────────────────────────────
+  // ?? 移댁뭅???쒖옉 ??????????????????????????????
   app.get("/api/oauth/kakao", (req: Request, res: Response) => {
     const kakaoKey = getEnv("KAKAO_REST_API_KEY");
     if (!kakaoKey) {
@@ -230,7 +237,7 @@ export function registerSocialOAuthRoutes(app: Express) {
     res.redirect(302, getKakaoAuthUrl(redirectUri, state));
   });
 
-  // ── 카카오 콜백 ──────────────────────────────
+  // ?? 移댁뭅??肄쒕갚 ??????????????????????????????
   app.get("/api/oauth/kakao/callback", async (req: Request, res: Response) => {
     const code = req.query.code as string;
     const state = req.query.state as string;
@@ -245,10 +252,10 @@ export function registerSocialOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      // 네이티브 딥링크 콜백인 경우 JSON 응답, 웹인 경우 리다이렉트
+      // 네이티브 앱 콜백이면 딥링크로, 아니면 웹으로 리다이렉트
       if (state && state.startsWith("manus")) {
         const user = await getUserByOpenId(userInfo.openId);
-        res.json({ app_session_id: sessionToken, user: buildUserResponse(user) });
+        res.redirect(302, buildNativeCallbackUrl(state, sessionToken, user));
       } else {
         res.redirect(302, getFrontendUrl());
       }
@@ -258,7 +265,7 @@ export function registerSocialOAuthRoutes(app: Express) {
     }
   });
 
-  // ── 인스타그램 시작 ──────────────────────────
+  // ?? ?몄뒪?洹몃옩 ?쒖옉 ??????????????????????????
   app.get("/api/oauth/instagram", (req: Request, res: Response) => {
     const igId = getEnv("INSTAGRAM_APP_ID");
     if (!igId) {
@@ -270,7 +277,7 @@ export function registerSocialOAuthRoutes(app: Express) {
     res.redirect(302, getInstagramAuthUrl(redirectUri, state));
   });
 
-  // ── 인스타그램 콜백 ──────────────────────────
+  // ?? ?몄뒪?洹몃옩 肄쒕갚 ??????????????????????????
   app.get("/api/oauth/instagram/callback", async (req: Request, res: Response) => {
     const code = req.query.code as string;
     const state = req.query.state as string;
@@ -287,7 +294,7 @@ export function registerSocialOAuthRoutes(app: Express) {
 
       if (state && state.startsWith("manus")) {
         const user = await getUserByOpenId(userInfo.openId);
-        res.json({ app_session_id: sessionToken, user: buildUserResponse(user) });
+        res.redirect(302, buildNativeCallbackUrl(state, sessionToken, user));
       } else {
         res.redirect(302, getFrontendUrl());
       }
@@ -297,7 +304,7 @@ export function registerSocialOAuthRoutes(app: Express) {
     }
   });
 
-  // ── 구글 시작 ────────────────────────────────
+  // ?? 援ш? ?쒖옉 ????????????????????????????????
   app.get("/api/oauth/google", (req: Request, res: Response) => {
     const googleId = getEnv("GOOGLE_CLIENT_ID");
     if (!googleId) {
@@ -309,7 +316,7 @@ export function registerSocialOAuthRoutes(app: Express) {
     res.redirect(302, getGoogleAuthUrl(redirectUri, state));
   });
 
-  // ── 구글 콜백 ────────────────────────────────
+  // ?? 援ш? 肄쒕갚 ????????????????????????????????
   app.get("/api/oauth/google/callback", async (req: Request, res: Response) => {
     const code = req.query.code as string;
     const state = req.query.state as string;
@@ -326,7 +333,7 @@ export function registerSocialOAuthRoutes(app: Express) {
 
       if (state && state.startsWith("manus")) {
         const user = await getUserByOpenId(userInfo.openId);
-        res.json({ app_session_id: sessionToken, user: buildUserResponse(user) });
+        res.redirect(302, buildNativeCallbackUrl(state, sessionToken, user));
       } else {
         res.redirect(302, getFrontendUrl());
       }
@@ -336,3 +343,4 @@ export function registerSocialOAuthRoutes(app: Express) {
     }
   });
 }
+

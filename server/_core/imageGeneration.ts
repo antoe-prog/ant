@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Image generation helper using internal ImageService
  *
  * Example usage:
@@ -79,3 +79,4 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
     url,
   };
 }
+

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ScrollView, Text, TouchableOpacity, View, Dimensions, RefreshControl, Modal, FlatList, AppState, type AppStateStatus, Alert } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View, Dimensions, RefreshControl, Modal, FlatList, AppState, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";

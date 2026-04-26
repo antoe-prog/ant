@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+﻿import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   activityLogs,
@@ -65,6 +65,55 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result[0];
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalized = normalizeEmail(email);
+  const result = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
+  return result[0];
+}
+
+export async function createEmailUser(input: { email: string; name: string }): Promise<{ id: number; openId: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const email = normalizeEmail(input.email);
+  const openId = `email:${email}`;
+
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+  if (existing.length > 0) {
+    throw new Error("이미 가입된 이메일입니다.");
+  }
+
+  const now = new Date();
+  const isOwner = openId === ENV.ownerOpenId || email === (ENV.ownerOpenId ?? "").toLowerCase();
+  const adminCount = await getAdminCount();
+  const role: "member" | "manager" | "admin" =
+    isOwner || adminCount === 0 ? "admin" : "member";
+
+  await db.insert(users).values({
+    openId,
+    name: input.name,
+    email,
+    loginMethod: "email",
+    role,
+    lastSignedIn: now,
+  });
+
+  const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  if (!created[0]) throw new Error("사용자 생성 후 조회 실패");
+  return { id: created[0].id, openId };
+}
+
+export async function touchUserSignIn(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
 }
 
 export async function getUserById(id: number) {
@@ -205,7 +254,7 @@ export async function deleteAttendance(id: number) {
 export async function getAttendanceStatsByMember(memberId: number) {
   const db = await getDb();
   if (!db) return [];
-  // 최근 6개월 월별 출석 수 집계
+  // 理쒓렐 6媛쒖썡 ?붾퀎 異쒖꽍 ??吏묎퀎
   const results: { year: number; month: number; count: number }[] = [];
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
@@ -230,7 +279,7 @@ export async function getAttendanceStatsByMember(memberId: number) {
   return results;
 }
 
-/** 회원 상세 상단 「한눈에」: 최근 출석 1건, 최근 30일 출석 횟수, 대기 중 승급 심사 1건 */
+/** ?뚯썝 ?곸꽭 ?곷떒 ?뚰븳?덉뿉?? 理쒓렐 異쒖꽍 1嫄? 理쒓렐 30??異쒖꽍 ?잛닔, ?湲?以??밴툒 ?ъ궗 1嫄?*/
 export async function getMemberOverviewSnapshot(memberId: number) {
   const db = await getDb();
   const empty = {
@@ -305,7 +354,7 @@ export async function getMemberOverviewSnapshot(memberId: number) {
   return { lastAttendance, attendanceCount30d, pendingPromotion };
 }
 
-/** 출석·납부·승급 심사를 한 타임라인으로 (최신순) */
+/** 異쒖꽍쨌?⑸?쨌?밴툒 ?ъ궗瑜?????꾨씪?몄쑝濡?(理쒖떊?? */
 export type MemberTimelineEvent =
   | {
       kind: "attendance";
@@ -466,7 +515,7 @@ export async function getExpiringSoonMembers(days = 7) {
   future.setDate(future.getDate() + days);
   const todayStr = today.toISOString().split("T")[0];
   const futureStr = future.toISOString().split("T")[0];
-  // 오늘 이후 ~ days일 이내 납부 예정 (만료 임박)
+  // ?ㅻ뒛 ?댄썑 ~ days???대궡 ?⑸? ?덉젙 (留뚮즺 ?꾨컯)
   return db.select().from(members)
     .where(and(
       eq(members.status, "active"),
@@ -557,7 +606,7 @@ export async function getDashboardStats() {
   const month = now.getMonth() + 1;
   const startOfMonth = `${year}-${String(month).padStart(2, "0")}-01`;
   const endOfMonth = `${year}-${String(month).padStart(2, "0")}-31`;
-  // 7일 후 만료 임박
+  // 7????留뚮즺 ?꾨컯
   const future7 = new Date(now);
   future7.setDate(future7.getDate() + 7);
   const future7Str = future7.toISOString().split("T")[0];
@@ -602,7 +651,7 @@ export async function getDashboardStats() {
   };
 }
 
-// 이번 달 일별 출석 추이 (꺾은선 그래프용)
+// ?대쾲 ???쇰퀎 異쒖꽍 異붿씠 (爰얠???洹몃옒?꾩슜)
 export async function getDailyAttendanceThisMonth(): Promise<{ day: number; count: number }[]> {
   const db = await getDb();
   if (!db) return [];
@@ -633,12 +682,12 @@ export async function seedDemoData(adminUserId: number) {
   const fmt = (d: Date) => d.toISOString().split("T")[0];
   const demoMembers: InsertMember[] = [
     { name: "김태권", phone: "010-1234-5678", email: "taekwon@example.com", beltRank: "black", beltDegree: 2, status: "active", joinDate: fmt(new Date(today.getFullYear() - 3, 0, 15)), monthlyFee: 80000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
-    { name: "이유도", phone: "010-2345-6789", beltRank: "brown", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 2, 3, 10)), monthlyFee: 70000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
-    { name: "박수련", phone: "010-3456-7890", beltRank: "blue", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 1, 6, 20)), monthlyFee: 60000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth(), 5)), gender: "female" },
-    { name: "최강도", phone: "010-4567-8901", beltRank: "green", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 1, 9, 1)), monthlyFee: 60000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
-    { name: "정하얀", phone: "010-5678-9012", beltRank: "white", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear(), today.getMonth() - 2, 15)), monthlyFee: 50000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth(), 15)), gender: "female" },
-    { name: "강노란", phone: "010-6789-0123", beltRank: "yellow", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear(), today.getMonth() - 4, 5)), monthlyFee: 55000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
-    { name: "윤주황", phone: "010-7890-1234", beltRank: "orange", beltDegree: 1, status: "suspended", joinDate: fmt(new Date(today.getFullYear() - 1, 2, 10)), monthlyFee: 55000, nextPaymentDate: null, gender: "female" },
+    { name: "이지훈", phone: "010-2345-6789", beltRank: "brown", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 2, 3, 10)), monthlyFee: 70000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
+    { name: "박수연", phone: "010-3456-7890", beltRank: "blue", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 1, 6, 20)), monthlyFee: 60000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth(), 5)), gender: "female" },
+    { name: "최강민", phone: "010-4567-8901", beltRank: "green", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear() - 1, 9, 1)), monthlyFee: 60000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
+    { name: "정하은", phone: "010-5678-9012", beltRank: "white", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear(), today.getMonth() - 2, 15)), monthlyFee: 50000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth(), 15)), gender: "female" },
+    { name: "강노아", phone: "010-6789-0123", beltRank: "yellow", beltDegree: 1, status: "active", joinDate: fmt(new Date(today.getFullYear(), today.getMonth() - 4, 5)), monthlyFee: 55000, nextPaymentDate: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 1)), gender: "male" },
+    { name: "서주원", phone: "010-7890-1234", beltRank: "orange", beltDegree: 1, status: "suspended", joinDate: fmt(new Date(today.getFullYear() - 1, 2, 10)), monthlyFee: 55000, nextPaymentDate: null, gender: "female" },
   ];
   const memberIds: number[] = [];
   for (const m of demoMembers) { const id = await createMember(m); memberIds.push(id); }
@@ -653,11 +702,11 @@ export async function seedDemoData(adminUserId: number) {
     });
   }
   for (const id of memberIds.slice(0, 5)) { await createPayment({ memberId: id, amount: 70000, paidAt: new Date(today.getFullYear(), today.getMonth(), 3), periodStart: fmt(new Date(today.getFullYear(), today.getMonth(), 1)), periodEnd: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 0)), method: "card", recordedBy: adminUserId }); }
-  await createAnnouncement({ title: "4월 도장 운영 안내", content: "4월 한 달간 정상 운영합니다. 공휴일(4/5 식목일)은 휴관입니다.", isPinned: true, createdBy: adminUserId });
-  await createAnnouncement({ title: "승급 심사 일정 안내", content: "4월 20일(토) 오전 10시에 승급 심사가 진행됩니다. 해당 회원은 미리 신청해 주세요.", isPinned: false, createdBy: adminUserId });
+  await createAnnouncement({ title: "4???꾩옣 ?댁쁺 ?덈궡", content: "4?????ш컙 ?뺤긽 ?댁쁺?⑸땲?? 怨듯쑕??4/5 ?앸ぉ??? ?닿??낅땲??", isPinned: true, createdBy: adminUserId });
+  await createAnnouncement({ title: "?밴툒 ?ъ궗 ?쇱젙 ?덈궡", content: "4??20???? ?ㅼ쟾 10?쒖뿉 ?밴툒 ?ъ궗媛 吏꾪뻾?⑸땲?? ?대떦 ?뚯썝? 誘몃━ ?좎껌??二쇱꽭??", isPinned: false, createdBy: adminUserId });
 }
 
-// ─── Promotions (승급 심사) ───────────────────────────────────────────────────
+// ??? Promotions (?밴툒 ?ъ궗) ???????????????????????????????????????????????????
 export async function getPromotions() {
   const db = await getDb();
   if (!db) return [];
@@ -799,7 +848,7 @@ export async function getUpcomingPromotions(days = 30) {
     .orderBy(promotions.examDate);
 }
 
-// ─── Members - 계정 연결 ──────────────────────────────────────────────────────
+// ??? Members - 怨꾩젙 ?곌껐 ??????????????????????????????????????????????????????
 export async function linkMemberToUser(memberId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -812,7 +861,7 @@ export async function unlinkMemberFromUser(memberId: number) {
   await db.update(members).set({ userId: null }).where(eq(members.id, memberId));
 }
 
-// ─── ActivityLogs ─────────────────────────────────────────────────────────────
+// ??? ActivityLogs ?????????????????????????????????????????????????????????????
 export async function createActivityLog(data: InsertActivityLog) {
   const db = await getDb();
   if (!db) return;
@@ -842,7 +891,7 @@ export async function getActivityLogs(limit = 50, actionFilter?: string) {
   return q;
 }
 
-// ─── InviteTokens ─────────────────────────────────────────────────────────────
+// ??? InviteTokens ?????????????????????????????????????????????????????????????
 export async function createInviteToken(data: InsertInviteToken) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -886,7 +935,7 @@ export async function getInviteTokensByCreator(createdBy: number) {
     .limit(50);
 }
 
-// ─── MemberMemoHistory (회원 메모 수정 이력) ─────────────────────────────────────
+// ??? MemberMemoHistory (?뚯썝 硫붾え ?섏젙 ?대젰) ?????????????????????????????????????
 export async function saveMemoHistory(data: InsertMemberMemoHistory) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -923,12 +972,12 @@ export async function clearMemoHistory(memberId: number) {
   await db.delete(memberMemoHistory).where(eq(memberMemoHistory.memberId, memberId));
 }
 
-// ─── Push Tokens ─────────────────────────────────────────────────────────────
+// ??? Push Tokens ?????????????????????????????????????????????????????????????
 
 export async function upsertPushToken(userId: number, token: string, platform: string) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // 기존 토큰이 있으면 업데이트, 없으면 삽입
+  // 湲곗〈 ?좏겙???덉쑝硫??낅뜲?댄듃, ?놁쑝硫??쎌엯
   const existing = await db
     .select()
     .from(pushTokens)
@@ -955,3 +1004,4 @@ export async function deletePushToken(userId: number) {
   if (!db) return;
   await db.delete(pushTokens).where(eq(pushTokens.userId, userId));
 }
+

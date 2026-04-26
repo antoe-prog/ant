@@ -9,8 +9,9 @@ import { useBackHandler } from "@/hooks/use-back-handler";
 export default function InviteScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [status, setStatus] = useState<"loading" | "success" | "error" | "login_required">("loading");
+  const [acceptedToken, setAcceptedToken] = useState<string | null>(null);
 
   // 뒤로가기: 홈으로 이동
   useBackHandler(() => { router.replace("/(tabs)"); return true; });
@@ -39,12 +40,16 @@ export default function InviteScreen() {
       return;
     }
     // 로그인된 상태면 바로 수락
+    if (acceptedToken === token) return;
+    setAcceptedToken(token);
     acceptMutation.mutate({ token });
-  }, [token, isAuthenticated]);
+  }, [token, isAuthenticated, acceptedToken]);
 
   const handleLogin = () => {
     // 로그인 후 돌아올 수 있도록 토큰을 저장하고 로그인 화면으로 이동
-    router.push("/login");
+    const redirectTo =
+      typeof token === "string" && token ? `/invite?token=${encodeURIComponent(token)}` : "/invite";
+    router.push({ pathname: "/login", params: { redirectTo } });
   };
 
   const handleGoHome = () => {

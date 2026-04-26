@@ -4,11 +4,13 @@ import superjson from "superjson";
 export const DOJO_API_KEY = "adminweb.dojo.apiBase";
 export const DOJO_TOKEN_KEY = "adminweb.dojo.token";
 
+const DEFAULT_DOJO_API = "https://api.judokan.store";
+
 export function readDojoApiBase(): string {
   return (
     localStorage.getItem(DOJO_API_KEY) ||
     import.meta.env.VITE_DOJO_API_BASE_URL ||
-    "http://127.0.0.1:3000"
+    DEFAULT_DOJO_API
   );
 }
 

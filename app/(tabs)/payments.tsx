@@ -15,7 +15,7 @@ import {
 } from "@/lib/judo-utils";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import type { PaymentMethod } from "@/lib/judo-utils";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
 const PAYMENT_METHODS: PaymentMethod[] = ["cash", "card", "transfer"];
@@ -76,10 +76,12 @@ async function shareReceipt(receiptText: string, memberName: string) {
 
     // 네이티브: 텍스트 파일로 저장 후 공유
     const fileName = `receipt_${memberName}_${new Date().toISOString().split("T")[0]}.txt`;
-    const fileUri = (FileSystem.documentDirectory ?? "") + fileName;
-    await FileSystem.writeAsStringAsync(fileUri, receiptText, {
-      encoding: FileSystem.EncodingType.UTF8,
+    const file = new File(Paths.document, fileName);
+    file.create({ overwrite: true });
+    file.write(receiptText, {
+      encoding: "utf8",
     });
+    const fileUri = file.uri;
 
     const isAvailable = await Sharing.isAvailableAsync();
     if (!isAvailable) {
@@ -91,7 +93,7 @@ async function shareReceipt(receiptText: string, memberName: string) {
       mimeType: "text/plain",
       dialogTitle: `${memberName} 납부 영수증`,
     });
-  } catch (e) {
+  } catch {
     Alert.alert("오류", "영수증 공유 중 오류가 발생했습니다.");
   }
 }
@@ -160,7 +162,7 @@ export default function PaymentsScreen() {
         setLastPayment({
           memberName: member.name,
           beltRank: `${getBeltLabel(member.beltRank)} ${member.beltDegree ?? 1}단`,
-          amount: parseInt(form.amount),
+          amount: Number.parseInt(form.amount, 10),
           method: form.method,
           periodStart: form.periodStart || null,
           periodEnd: form.periodEnd || null,
@@ -232,8 +234,10 @@ export default function PaymentsScreen() {
         URL.revokeObjectURL(url);
         Alert.alert("완료", "CSV 파일이 다운로드되었습니다.");
       } else {
-        const fileUri = (FileSystem.documentDirectory ?? "") + fileName;
-        await FileSystem.writeAsStringAsync(fileUri, "\uFEFF" + csv, { encoding: FileSystem.EncodingType.UTF8 });
+        const file = new File(Paths.document, fileName);
+        file.create({ overwrite: true });
+        file.write("\uFEFF" + csv, { encoding: "utf8" });
+        const fileUri = file.uri;
         const isAvailable = await Sharing.isAvailableAsync();
         if (isAvailable) {
           await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: `${reportYear}년 ${reportMonth}월 납부 리포트` });
@@ -241,17 +245,17 @@ export default function PaymentsScreen() {
           Alert.alert("완료", `파일이 저장되었습니다: ${fileName}`);
         }
       }
-    } catch (e) {
+    } catch {
       Alert.alert("오류", "CSV 내보내기 중 오류가 발생했습니다.");
     }
   };
 
   const handleCreate = () => {
     if (!form.memberId) { Alert.alert("오류", "회원을 선택하세요"); return; }
-    if (!form.amount || isNaN(parseInt(form.amount))) { Alert.alert("오류", "금액을 입력하세요"); return; }
+    if (!form.amount || Number.isNaN(Number.parseInt(form.amount, 10))) { Alert.alert("오류", "금액을 입력하세요"); return; }
     createMutation.mutate({
       memberId: form.memberId,
-      amount: parseInt(form.amount),
+      amount: Number.parseInt(form.amount, 10),
       method: form.method,
       periodStart: form.periodStart || undefined,
       periodEnd: form.periodEnd || undefined,

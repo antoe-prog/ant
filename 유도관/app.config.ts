@@ -25,23 +25,29 @@ const bundleId =
 // e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
 const schemeFromBundleId = `manus${timestamp}`;
+const appVariant = process.env.EXPO_PUBLIC_APP_VARIANT === "admin" ? "admin" : "member";
+const variantScheme = `${schemeFromBundleId}${appVariant}`;
+const variantPackageSuffix = appVariant === "admin" ? ".admin" : ".member";
 
 /**
  * OAuth·소셜 콜백 + 초대 딥링크.
  * `judomanager`는 기존 배포·문서·초대 링크와의 호환을 위해 유지한다.
  * 스킴을 바꾸면 이미 설치된 앱의 초대/로그인 콜백이 깨질 수 있으므로 변경 시 마이그레이션 공지가 필요하다.
  */
-const urlSchemes = [schemeFromBundleId, "judomanager"] as const;
+const urlSchemes =
+  appVariant === "admin"
+    ? ([variantScheme, "judokanadmin"] as const)
+    : ([variantScheme, "judokanmember", "judomanager"] as const);
 
 const env = {
   // App branding - update these values directly (do not use env vars)
   // 표시 이름 "유도관" = 도장 브랜드. (난관·의료 앱 아님.)
-  appName: "유도관",
+  appName: appVariant === "admin" ? "유도관 관리자" : "유도관 회원",
   appSlug: "judokan",
   logoUrl: "https://d2xsxph8kpxj0f.cloudfront.net/310519663509240657/KGSotH7p7S8bVPSzf9bZAR/judogi-icon-PjwDNEuwTYophGHYk6DoiB.png",
   scheme: urlSchemes,
-  iosBundleId: bundleId,
-  androidPackage: bundleId,
+  iosBundleId: `${bundleId}${variantPackageSuffix}`,
+  androidPackage: `${bundleId}${variantPackageSuffix}`,
 };
 
 const config: ExpoConfig = {
@@ -62,6 +68,8 @@ const config: ExpoConfig = {
       }
   },
   android: {
+    // @ts-expect-error Expo app config accepts this field even though the local type is narrower.
+    usesCleartextTraffic: true,
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
       foregroundImage: "./assets/images/android-icon-foreground.png",

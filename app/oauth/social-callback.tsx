@@ -14,6 +14,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Auth from "@/lib/_core/auth";
 
+function parseCallbackUser(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return JSON.parse(decodeURIComponent(raw));
+  }
+}
+
 export default function SocialCallbackScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -48,13 +56,15 @@ export default function SocialCallbackScreen() {
         // 유저 정보 저장 (있는 경우)
         if (params.user) {
           try {
-            const userData = JSON.parse(decodeURIComponent(params.user));
+            const userData = parseCallbackUser(params.user);
             const userInfo: Auth.User = {
               id: userData.id,
               openId: userData.openId,
               name: userData.name,
               email: userData.email,
               loginMethod: userData.loginMethod,
+              role: (userData.role ?? "member") as "member" | "manager" | "admin",
+              avatarUrl: userData.avatarUrl ?? null,
               lastSignedIn: new Date(userData.lastSignedIn || Date.now()),
             };
             await Auth.setUserInfo(userInfo);

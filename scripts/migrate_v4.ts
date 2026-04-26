@@ -1,4 +1,4 @@
-import * as dotenv from "dotenv";
+﻿import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 dotenv.config({ path: ".env" });
 
@@ -12,10 +12,10 @@ async function migrate() {
   console.log("Connected to DB");
 
   const sqls = [
-    // members 테이블에 userId 컬럼이 없으면 추가 (이미 있으면 무시)
+    // members ?뚯씠釉붿뿉 userId 而щ읆???놁쑝硫?異붽? (?대? ?덉쑝硫?臾댁떆)
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS userId INT DEFAULT NULL`,
 
-    // activityLogs 테이블 생성
+    // activityLogs ?뚯씠釉??앹꽦
     `CREATE TABLE IF NOT EXISTS activityLogs (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT NOT NULL,
@@ -26,7 +26,7 @@ async function migrate() {
       createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
 
-    // inviteTokens 테이블 생성
+    // inviteTokens ?뚯씠釉??앹꽦
     `CREATE TABLE IF NOT EXISTS inviteTokens (
       id INT AUTO_INCREMENT PRIMARY KEY,
       token VARCHAR(64) NOT NULL UNIQUE,
@@ -57,3 +57,4 @@ async function migrate() {
 }
 
 migrate().catch(console.error);
+

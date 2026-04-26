@@ -13,6 +13,30 @@ export type User = {
   lastSignedIn: Date;
 };
 
+function normalizeUser(raw: unknown): User | null {
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.id !== "number" || typeof candidate.openId !== "string") return null;
+
+  return {
+    id: candidate.id,
+    openId: candidate.openId,
+    name: typeof candidate.name === "string" ? candidate.name : null,
+    email: typeof candidate.email === "string" ? candidate.email : null,
+    loginMethod: typeof candidate.loginMethod === "string" ? candidate.loginMethod : null,
+    role:
+      candidate.role === "member" || candidate.role === "manager" || candidate.role === "admin"
+        ? candidate.role
+        : undefined,
+    avatarUrl: typeof candidate.avatarUrl === "string" ? candidate.avatarUrl : null,
+    lastSignedIn: new Date(
+      typeof candidate.lastSignedIn === "string" || candidate.lastSignedIn instanceof Date
+        ? candidate.lastSignedIn
+        : Date.now(),
+    ),
+  };
+}
+
 export async function getSessionToken(): Promise<string | null> {
   try {
     // Web platform uses cookie-based auth, no manual token management needed
@@ -87,7 +111,7 @@ export async function getUserInfo(): Promise<User | null> {
       console.log("[Auth] No user info found");
       return null;
     }
-    const user = JSON.parse(info);
+    const user = normalizeUser(JSON.parse(info));
     console.log("[Auth] User info retrieved:", user);
     return user;
   } catch (error) {

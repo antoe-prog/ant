@@ -29,7 +29,8 @@ type MemberActivityEvent = inferRouterOutputs<AppRouter>["members"]["activityTim
 
 export default function MemberDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const memberId = parseInt(id ?? "0");
+  const memberId = Number.parseInt(id ?? "", 10);
+  const hasValidMemberId = Number.isInteger(memberId) && memberId > 0;
   const router = useRouter();
   const { user } = useAuth();
   const isManager = user?.role === "manager" || user?.role === "admin";
@@ -63,23 +64,23 @@ export default function MemberDetailScreen() {
   const year = calYear;
   const month = calMonth;
 
-  const { data: member, isLoading } = trpc.members.byId.useQuery({ id: memberId }, { enabled: !!memberId });
+  const { data: member, isLoading } = trpc.members.byId.useQuery({ id: memberId }, { enabled: hasValidMemberId });
   const { data: overview } = trpc.members.overview.useQuery(
     { memberId },
-    { enabled: !!memberId },
+    { enabled: hasValidMemberId },
   );
   const { data: attendanceMonth } = trpc.attendance.byMemberMonth.useQuery(
-    { memberId, year, month }, { enabled: !!memberId && activeTab === "attendance" }
+    { memberId, year, month }, { enabled: hasValidMemberId && activeTab === "attendance" }
   );
   const { data: payments } = trpc.payments.byMember.useQuery(
-    { memberId }, { enabled: !!memberId && activeTab === "payments" }
+    { memberId }, { enabled: hasValidMemberId && activeTab === "payments" }
   );
   const { data: attendanceStats } = trpc.attendance.statsByMember.useQuery(
-    { memberId }, { enabled: !!memberId && activeTab === "attendance" }
+    { memberId }, { enabled: hasValidMemberId && activeTab === "attendance" }
   );
   const { data: activityTimeline, isLoading: timelineLoading } = trpc.members.activityTimeline.useQuery(
     { memberId, limit: 80 },
-    { enabled: !!memberId && activeTab === "attendance" },
+    { enabled: hasValidMemberId && activeTab === "attendance" },
   );
 
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -145,7 +146,7 @@ export default function MemberDetailScreen() {
 
   const { data: memoHistoryData, isLoading: memoHistoryLoading } = trpc.memoHistory.list.useQuery(
     { memberId },
-    { enabled: showMemoHistory && !!memberId }
+    { enabled: showMemoHistory && hasValidMemberId }
   );
 
   // 메모 탭 진입 시 현재 메모 불러오기
@@ -554,7 +555,7 @@ export default function MemberDetailScreen() {
                 <EditField label="이름" value={editForm.name} onChangeText={v => setEditForm(f => f ? { ...f, name: v } : null)} />
                 <EditField label="전화번호" value={editForm.phone} onChangeText={v => setEditForm(f => f ? { ...f, phone: v } : null)} keyboardType="phone-pad" />
                 <EditField label="이메일" value={editForm.email} onChangeText={v => setEditForm(f => f ? { ...f, email: v } : null)} keyboardType="email-address" />
-                <EditField label="월 회비 (원)" value={String(editForm.monthlyFee)} onChangeText={v => setEditForm(f => f ? { ...f, monthlyFee: parseInt(v) || 0 } : null)} keyboardType="numeric" />
+                <EditField label="월 회비 (원)" value={String(editForm.monthlyFee)} onChangeText={v => setEditForm(f => f ? { ...f, monthlyFee: Number.parseInt(v, 10) || 0 } : null)} keyboardType="numeric" />
 
                 {/* 띠 선택 */}
                 <View>

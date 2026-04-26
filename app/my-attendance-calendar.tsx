@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
 import { trpc } from "@/lib/trpc";
@@ -26,7 +25,6 @@ function getHeatColor(count: number): string {
 }
 
 export default function MyAttendanceCalendarScreen() {
-  const router = useRouter();
   const now = new Date();
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<"monthly" | "yearly">("monthly");

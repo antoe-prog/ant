@@ -1,4 +1,4 @@
-import "./load-env.js";
+﻿import "./load-env.js";
 import mysql from "mysql2/promise";
 
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -27,3 +27,4 @@ async function main() {
 }
 
 main().catch(console.error);
+

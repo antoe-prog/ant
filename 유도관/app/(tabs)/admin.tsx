@@ -1,14 +1,16 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, Modal,
-  Alert, ActivityIndicator, TextInput, Share, Clipboard, RefreshControl, FlatList,
+  Alert, ActivityIndicator, TextInput, Share, RefreshControl, FlatList, Platform,
 } from "react-native";
+import * as ReactNative from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
 import { useModalBackHandler, useTabBackHandler } from "@/hooks/use-back-handler";
 import { formatDateTime } from "@/lib/judo-utils";
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
+import { IS_ADMIN_APP, MEMBER_INVITE_SCHEME } from "@/constants/app-variant";
 
 type UserRole = "member" | "manager" | "admin";
 
@@ -45,6 +47,21 @@ function formatTime(d: Date | string | null | undefined) {
   return dt.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+async function copyText(text: string) {
+  if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const legacyClipboard = (ReactNative as any).Clipboard;
+  if (legacyClipboard?.setString) {
+    legacyClipboard.setString(text);
+    return true;
+  }
+
+  return false;
+}
+
 // ─── 탭 버튼 ─────────────────────────────────────────────────────────────────
 function TabBar({ tabs, active, onSelect }: { tabs: string[]; active: number; onSelect: (i: number) => void }) {
   return (
@@ -71,14 +88,18 @@ function UsersTab({ currentUserId }: { currentUserId?: number }) {
   const [selectedUser, setSelectedUser] = useState<{ id: number; name: string | null; role: string } | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [newRole, setNewRole] = useState<UserRole>("member");
+  const closeRoleModal = useCallback(() => {
+    setShowModal(false);
+    setSelectedUser(null);
+  }, []);
 
   const { data: users, isLoading } = trpc.admin.users.useQuery();
   const updateRoleMutation = trpc.admin.updateRole.useMutation({
-    onSuccess: () => { utils.admin.users.invalidate(); setShowModal(false); },
+    onSuccess: () => { void utils.admin.users.invalidate(); void utils.admin.activityLogs.invalidate(); closeRoleModal(); },
     onError: (e) => Alert.alert("오류", e.message),
   });
 
-  useModalBackHandler(showModal, () => setShowModal(false));
+  useModalBackHandler(showModal, closeRoleModal);
 
   if (isLoading) return <View className="flex-1 items-center justify-center"><ActivityIndicator size="large" color="#1565C0" /></View>;
 
@@ -176,7 +197,7 @@ function UsersTab({ currentUserId }: { currentUserId?: number }) {
             >
               <Text className="text-white font-bold text-base">{updateRoleMutation.isPending ? "변경 중..." : "역할 변경"}</Text>
             </TouchableOpacity>
-            <TouchableOpacity className="py-3 items-center" onPress={() => setShowModal(false)}>
+            <TouchableOpacity className="py-3 items-center" onPress={closeRoleModal}>
               <Text className="text-muted">취소</Text>
             </TouchableOpacity>
           </View>
@@ -203,7 +224,9 @@ function LinkMemberTab() {
   const linkMutation = trpc.admin.linkMember.useMutation({
     onSuccess: () => {
       Alert.alert("완료", "회원과 계정이 연결되었습니다.");
-      utils.members.list.invalidate();
+      void utils.members.list.invalidate();
+      void utils.admin.users.invalidate();
+      void utils.members.myProfile.invalidate();
       setSelectedMemberId(null);
       setSelectedUserId(null);
     },
@@ -214,6 +237,12 @@ function LinkMemberTab() {
     onSuccess: () => { Alert.alert("완료", "연결이 해제되었습니다."); utils.members.list.invalidate(); },
     onError: (e) => Alert.alert("오류", e.message),
   });
+
+  useEffect(() => {
+    if (!unlinkMutation.isSuccess) return;
+    void utils.admin.users.invalidate();
+    void utils.members.myProfile.invalidate();
+  }, [unlinkMutation.isSuccess, utils]);
 
   const selectedMember = members?.find(m => m.id === selectedMemberId);
   const selectedUser = users?.find(u => u.id === selectedUserId);
@@ -604,22 +633,30 @@ function InviteTab() {
   const createMutation = trpc.admin.createInvite.useMutation({
     onSuccess: (data) => {
       setLastToken(data.token);
-      utils.admin.myInvites.invalidate();
+      setSelectedMemberId(null);
+      void utils.admin.myInvites.invalidate();
+      void utils.admin.activityLogs.invalidate();
     },
     onError: (e) => Alert.alert("오류", e.message),
   });
 
   const selectedMember = members?.find(m => m.id === selectedMemberId);
-  const inviteUrl = lastToken ? `judomanager://invite/${lastToken}` : null;
+  const inviteUrl = lastToken ? `${MEMBER_INVITE_SCHEME}://invite/${lastToken}` : null;
 
   function handleShare() {
     if (!inviteUrl) return;
     Share.share({ message: `유도장 앱 초대 링크입니다:\n${inviteUrl}\n\n7일 이내에 앱에서 사용하세요.` });
   }
 
-  function handleCopy() {
+  async function handleCopy() {
     if (!inviteUrl) return;
-    Clipboard.setString(inviteUrl);
+    const copied = await copyText(inviteUrl);
+    if (copied) {
+      Alert.alert("복사됨", "초대 링크를 클립보드에 복사했습니다.");
+      return;
+    }
+    Alert.alert("복사 미지원", "이 환경에서는 클립보드 복사를 지원하지 않아 공유 시트를 엽니다.");
+    await Share.share({ message: inviteUrl });
     Alert.alert("복사됨", "초대 링크가 클립보드에 복사되었습니다.");
   }
 
@@ -755,7 +792,7 @@ function InviteTab() {
 
 // ─── 메인 화면 ────────────────────────────────────────────────────────────────
 export default function AdminScreen() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refresh } = useAuth();
   const isAdmin = user?.role === "admin";
   const utils = trpc.useUtils();
   const [activeTab, setActiveTab] = useState(0);
@@ -763,11 +800,14 @@ export default function AdminScreen() {
   // 뒤로가기: 서브탭 한 단계씩 앞으로(3→2→1→0), 0이면 앱 종료 확인
   useTabBackHandler(activeTab > 0 ? () => setActiveTab((t) => t - 1) : undefined);
 
-  const { data: adminCount } = trpc.admin.adminCount.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: adminCount, isLoading: isAdminCountLoading } = trpc.admin.adminCount.useQuery(undefined, { enabled: isAuthenticated });
   const claimAdminMutation = trpc.admin.claimAdmin.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       Alert.alert("완료", "최고관리자로 설정되었습니다. 앱을 재시작하거나 다시 로그인해 주세요.");
-      utils.admin.adminCount.invalidate();
+      void utils.admin.adminCount.invalidate();
+      void utils.admin.users.invalidate();
+      void utils.admin.activityLogs.invalidate();
+      await refresh();
     },
     onError: (e) => Alert.alert("오류", e.message),
   });
@@ -776,6 +816,28 @@ export default function AdminScreen() {
     return (
       <ScreenContainer className="items-center justify-center p-6">
         <Text className="text-muted text-center">로그인이 필요합니다</Text>
+      </ScreenContainer>
+    );
+  }
+
+  if (!IS_ADMIN_APP) {
+    return (
+      <ScreenContainer className="items-center justify-center p-6">
+        <View className="items-center gap-4 max-w-xs">
+          <Text className="text-5xl">🔒</Text>
+          <Text className="text-xl font-bold text-foreground text-center">관리자 전용 앱에서만 사용할 수 있습니다</Text>
+          <Text className="text-sm text-muted text-center leading-relaxed">
+            회원 전용 앱에는 관리자 기능을 노출하지 않습니다. 관리자 APK로 로그인해 주세요.
+          </Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (isAdminCountLoading) {
+    return (
+      <ScreenContainer className="items-center justify-center p-6">
+        <ActivityIndicator size="large" color="#1565C0" />
       </ScreenContainer>
     );
   }

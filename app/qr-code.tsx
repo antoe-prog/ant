@@ -1,6 +1,5 @@
 "use client";
-import { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
@@ -19,7 +18,6 @@ if (Platform.OS !== "web") {
 export default function QrCodeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [showFull, setShowFull] = useState(false);
 
   useBackHandler(() => {
     router.back();
@@ -90,7 +88,7 @@ export default function QrCodeScreen() {
               ) : QRCode ? (
                 <QRCode
                   value={qrPayload}
-                  size={showFull ? 260 : 220}
+                  size={220}
                   color="#1a1a2e"
                   backgroundColor="#FFFFFF"
                 />

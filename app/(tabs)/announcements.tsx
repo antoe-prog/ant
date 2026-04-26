@@ -47,7 +47,7 @@ export default function AnnouncementsScreen() {
     if (markedReadRef.current.has(viewItem.id)) return;
     markedReadRef.current.add(viewItem.id);
     markReadMutation.mutate({ announcementId: viewItem.id });
-  }, [viewItem?.id]);
+  }, [markReadMutation, viewItem]);
 
   const createMutation = trpc.announcements.create.useMutation({
     onSuccess: (_, variables) => {

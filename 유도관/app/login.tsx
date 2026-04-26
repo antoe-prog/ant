@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
@@ -20,14 +20,17 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
 import { useBackHandler } from "@/hooks/use-back-handler";
 import * as Auth from "@/lib/_core/auth";
-import { mirrorAuthToGateway } from "@/lib/_core/gateway-auth";
+import { TRPCClientError } from "@trpc/client";
 import { trpc } from "@/lib/trpc";
+import { APP_VARIANT_LABEL, IS_ADMIN_APP, canUseAdminApp } from "@/constants/app-variant";
 
 type Mode = "login" | "register";
 
 export default function LoginScreen() {
   const colors = useColors();
   const { isAuthenticated, loading, refresh } = useAuth();
+  const { redirectTo } = useLocalSearchParams<{ redirectTo?: string }>();
+
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,9 +55,13 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (!loading && isAuthenticated) {
-      router.replace("/(tabs)");
+      const nextRoute =
+        typeof redirectTo === "string" && redirectTo
+          ? (redirectTo as Parameters<typeof router.replace>[0])
+          : "/(tabs)";
+      router.replace(nextRoute);
     }
-  }, [isAuthenticated, loading]);
+  }, [isAuthenticated, loading, redirectTo]);
 
   const submitting = loginMutation.isPending || registerMutation.isPending;
 
@@ -86,6 +93,11 @@ export default function LoginScreen() {
               name: name.trim(),
             });
 
+      if (IS_ADMIN_APP && !canUseAdminApp(result.user?.role)) {
+        setErrorMsg("관리자 앱은 관리자 또는 매니저 계정만 로그인할 수 있습니다.");
+        return;
+      }
+
       if (Platform.OS !== "web" && result.app_session_id) {
         await Auth.setSessionToken(result.app_session_id);
       }
@@ -102,18 +114,19 @@ export default function LoginScreen() {
         });
       }
 
-      // GenAI Gateway(admin-web)와 계정을 미러링한다. 실패해도 유도관 로그인은 그대로.
-      void mirrorAuthToGateway({
-        email: emailTrim,
-        password,
-        name: name.trim() || result.user?.name || undefined,
-        mode,
-      });
-
       await refresh();
-      router.replace("/(tabs)");
+      const nextRoute =
+        typeof redirectTo === "string" && redirectTo
+          ? (redirectTo as Parameters<typeof router.replace>[0])
+          : "/(tabs)";
+      router.replace(nextRoute);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
+      let message = "로그인에 실패했습니다.";
+      if (err instanceof TRPCClientError) {
+        message = err.message || message;
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
       setErrorMsg(message);
     }
   };
@@ -150,16 +163,13 @@ export default function LoginScreen() {
               </View>
             </View>
             <Text style={styles.heroTitle}>유도관</Text>
-            <Text style={styles.heroSubtitle}>유도 도장 회원 관리 앱</Text>
+            <Text style={styles.heroSubtitle}>유도 도장 {APP_VARIANT_LABEL} 앱</Text>
           </View>
 
           <View style={styles.contentSection}>
             <View style={[styles.tabRow, { backgroundColor: colors.border + "33" }]}>
               <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  mode === "login" && { backgroundColor: colors.background },
-                ]}
+                style={[styles.tabButton, mode === "login" && { backgroundColor: colors.background }]}
                 onPress={() => {
                   setMode("login");
                   setErrorMsg(null);
@@ -176,10 +186,7 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  mode === "register" && { backgroundColor: colors.background },
-                ]}
+                style={[styles.tabButton, mode === "register" && { backgroundColor: colors.background }]}
                 onPress={() => {
                   setMode("register");
                   setErrorMsg(null);
@@ -201,10 +208,7 @@ export default function LoginScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={[styles.label, { color: colors.foreground }]}>이름</Text>
                 <TextInput
-                  style={[
-                    styles.input,
-                    { borderColor: colors.border, color: colors.foreground },
-                  ]}
+                  style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
                   placeholder="홍길동"
                   placeholderTextColor={colors.muted}
                   value={name}
@@ -218,10 +222,7 @@ export default function LoginScreen() {
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.foreground }]}>이메일</Text>
               <TextInput
-                style={[
-                  styles.input,
-                  { borderColor: colors.border, color: colors.foreground },
-                ]}
+                style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
                 placeholder="you@example.com"
                 placeholderTextColor={colors.muted}
                 value={email}
@@ -236,10 +237,7 @@ export default function LoginScreen() {
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.foreground }]}>비밀번호</Text>
               <TextInput
-                style={[
-                  styles.input,
-                  { borderColor: colors.border, color: colors.foreground },
-                ]}
+                style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
                 placeholder="8자 이상"
                 placeholderTextColor={colors.muted}
                 value={password}
@@ -275,10 +273,8 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            <Text style={[styles.disclaimer, { color: colors.muted }]}>
-              {mode === "login"
-                ? "계정이 없다면 회원가입 탭으로 전환해 주세요."
-                : "가입 즉시 로그인되며, 비밀번호는 안전하게 해시되어 저장됩니다."}
+            <Text style={[styles.helpText, { color: colors.muted }]}>
+              가입 즉시 로그인되며, 비밀번호는 안전하게 해시되어 저장됩니다.
             </Text>
           </View>
         </ScrollView>
@@ -288,18 +284,14 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   heroSection: {
     paddingTop: 48,
-    paddingBottom: 40,
+    paddingBottom: 36,
     alignItems: "center",
     gap: 12,
   },
-  logoContainer: {
-    marginBottom: 8,
-  },
+  logoContainer: { marginBottom: 8 },
   logoCircle: {
     width: 88,
     height: 88,
@@ -308,87 +300,63 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroTitle: {
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: -0.5,
   },
   heroSubtitle: {
     fontSize: 14,
-    color: "rgba(255,255,255,0.85)",
+    color: "rgba(255,255,255,0.9)",
     fontWeight: "500",
   },
-  contentSection: {
-    padding: 24,
-    paddingBottom: 32,
-  },
+  contentSection: { padding: 20, gap: 14 },
   tabRow: {
     flexDirection: "row",
-    borderRadius: 10,
+    borderRadius: 14,
     padding: 4,
-    marginBottom: 20,
-    gap: 4,
+    marginBottom: 4,
   },
   tabButton: {
     flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 8,
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  fieldGroup: {
-    marginBottom: 14,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 6,
-  },
+  tabText: { fontSize: 15, fontWeight: "700" },
+  fieldGroup: { gap: 8 },
+  label: { fontSize: 15, fontWeight: "700" },
   input: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    paddingVertical: 14,
+    fontSize: 16,
   },
   errorBox: {
-    marginBottom: 12,
-    borderRadius: 10,
-    backgroundColor: "#fef2f2",
-    borderWidth: 1,
-    borderColor: "#fecaca",
+    backgroundColor: "#FEE2E2",
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   errorText: {
-    color: "#991b1b",
-    fontSize: 13,
-    lineHeight: 18,
+    color: "#B91C1C",
+    fontSize: 14,
+    fontWeight: "600",
   },
   submitButton: {
-    flexDirection: "row",
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 15,
-    borderRadius: 12,
     marginTop: 4,
   },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  disclaimer: {
-    fontSize: 11,
+  submitButtonDisabled: { opacity: 0.7 },
+  submitButtonText: { color: "#FFFFFF", fontSize: 18, fontWeight: "800" },
+  helpText: {
     textAlign: "center",
-    lineHeight: 17,
-    marginTop: 16,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 4,
   },
 });

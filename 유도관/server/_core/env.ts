@@ -9,7 +9,6 @@ export const ENV = {
 };
 
 const REQUIRED_ENV_KEYS = [
-  "DATABASE_URL",
   "JWT_SECRET",
   "EXPO_PUBLIC_API_BASE_URL",
 ] as const;

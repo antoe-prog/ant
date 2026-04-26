@@ -3,6 +3,8 @@
  * 이전의 OAuth 포털/딥링크 관련 유틸리티는 자체 이메일+비밀번호 가입 방식으로 전환되어 제거되었습니다.
  */
 import * as ReactNative from "react-native";
+import Constants from "expo-constants";
+import { PUBLIC_DOJO_API_BASE_URL } from "@/shared/const";
 
 const env = {
   apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "",
@@ -29,14 +31,36 @@ export function getApiBaseUrl(): string {
   }
 
   if (ReactNative.Platform.OS === "web" && typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
+    const { origin, protocol, hostname, port } = window.location;
     const apiHostname = hostname.replace(/^8081-/, "3000-");
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
+    if (port === "8081") {
+      return `${protocol}//${hostname}:3000`;
+    }
+    return origin.replace(/\/$/, "");
   }
 
-  return "";
+  if (ReactNative.Platform.OS === "android") {
+    // Android emulator loopback to host machine.
+    return "http://10.0.2.2:3000";
+  }
+
+  // Native (real device/dev client): derive host from Expo runtime (LAN), then point to :3000.
+  const hostCandidates = [
+    (Constants as any)?.expoConfig?.hostUri as string | undefined,
+    (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost as string | undefined,
+    (Constants as any)?.manifest?.debuggerHost as string | undefined,
+  ];
+  const host = hostCandidates
+    .find((v) => typeof v === "string" && v.trim().length > 0)
+    ?.split(":")[0];
+  if (host) {
+    return `http://${host}:3000`;
+  }
+
+  return PUBLIC_DOJO_API_BASE_URL.replace(/\/$/, "");
 }
 
 export const SESSION_TOKEN_KEY = "app_session_token";

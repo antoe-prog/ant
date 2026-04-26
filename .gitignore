@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+.pnpm/
 
 # Expo
 .expo/
@@ -33,6 +34,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# email/password auth (local dev)
+.email-password-store.json
+
 # typescript
 *.tsbuildinfo
 
@@ -41,6 +45,9 @@ app-example
 # generated native folders
 /ios
 /android
+.android-cxx/
+.android-native-build/
+.expo-export-apk-check/
 
 # IDE
 .vscode/

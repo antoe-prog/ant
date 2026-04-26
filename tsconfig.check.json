@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "dist",
+    "유도관",
+    "app/(tabs)/checklist.tsx",
+    "app/(tabs)/documents.tsx",
+    "app/(tabs)/training.tsx",
+    "app/(tabs)/hr-dashboard.tsx",
+    "app/employee-detail.tsx"
+  ]
+}

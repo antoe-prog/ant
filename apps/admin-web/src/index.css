@@ -72,6 +72,11 @@ button {
   padding: 20px 16px 40px;
 }
 
+.layout.compact-mode {
+  max-width: 980px;
+  padding: 14px 12px 28px;
+}
+
 /* -----------------------------------------------------------
  * Topbar (유도관 홈 헤더 톤)
  * --------------------------------------------------------- */
@@ -674,6 +679,13 @@ button {
   transition: transform 0.1s ease, border-color 0.15s ease;
 }
 
+.quick-tile .secondary-btn {
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
 .quick-tile:hover {
   transform: translateY(-1px);
   border-color: var(--primary-200);
@@ -1145,6 +1157,237 @@ button {
 .danger-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.row-actions-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.edit-btn {
+  border: 1px solid var(--primary-200);
+  background: var(--primary-50);
+  color: var(--primary-600);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.edit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primary-btn {
+  border: 1px solid var(--primary-600);
+  background: var(--primary);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 800;
+}
+
+.primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondary-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--fg-2);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 700;
+}
+
+.secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  background: rgba(15, 23, 42, 0.45);
+}
+
+@media (min-width: 560px) {
+  .modal-backdrop {
+    align-items: center;
+  }
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 420px;
+  max-height: min(90vh, 640px);
+  overflow: auto;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  padding: 18px 16px 16px;
+}
+
+.modal-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.member-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.member-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.member-edit-field input,
+.member-edit-field select {
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  color: var(--fg);
+}
+
+.member-edit-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.member-edit-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.subsection-title {
+  margin: 22px 0 6px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--fg);
+}
+
+.bulk-attendance-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.bulk-id-textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.bulk-attendance-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bulk-attendance-controls input[type="date"],
+.bulk-attendance-controls select {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.ok-inline {
+  margin: 4px 0 10px;
+  color: #166534;
+  font-weight: 700;
+}
+
+.table-inline-select {
+  max-width: 130px;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.announcement-edit-textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.pay-amount-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+
+.tournament-detail-card {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: #fff;
+  padding: 14px;
+}
+
+.tournament-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tournament-detail-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .action-feedback {

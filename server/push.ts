@@ -1,17 +1,17 @@
-import Expo, { ExpoPushMessage } from "expo-server-sdk";
+﻿import Expo, { ExpoPushMessage } from "expo-server-sdk";
 import { getAllPushTokens } from "./db";
 
 const expo = new Expo();
 
 /**
- * 특정 userId 목록에게 푸시 알림 발송
+ * ?뱀젙 userId 紐⑸줉?먭쾶 ?몄떆 ?뚮┝ 諛쒖넚
  */
 export async function sendPushNotifications(
   userIds: number[] | "all",
   payload: { title: string; body: string; data?: Record<string, unknown> }
 ) {
   try {
-    // 토큰 조회
+    // ?좏겙 議고쉶
     const allTokens = await getAllPushTokens();
     const targets =
       userIds === "all"
@@ -33,7 +33,7 @@ export async function sendPushNotifications(
 
     if (messages.length === 0) return { sent: 0, errors: 0 };
 
-    // 청크 단위로 발송 (Expo 권장)
+    // 泥?겕 ?⑥쐞濡?諛쒖넚 (Expo 沅뚯옣)
     const chunks = expo.chunkPushNotifications(messages);
     let sent = 0;
     let errors = 0;
@@ -56,3 +56,4 @@ export async function sendPushNotifications(
     return { sent: 0, errors: 1 };
   }
 }
+

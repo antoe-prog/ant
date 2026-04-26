@@ -167,7 +167,7 @@ export default function PaymentsScreen() {
         setLastPayment({
           memberName: member.name,
           beltRank: `${getBeltLabel(member.beltRank)} ${member.beltDegree ?? 1}단`,
-          amount: parseInt(form.amount),
+          amount: Number.parseInt(form.amount, 10),
           method: form.method,
           periodStart: form.periodStart || null,
           periodEnd: form.periodEnd || null,
@@ -255,10 +255,10 @@ export default function PaymentsScreen() {
 
   const handleCreate = () => {
     if (!form.memberId) { Alert.alert("오류", "회원을 선택하세요"); return; }
-    if (!form.amount || isNaN(parseInt(form.amount))) { Alert.alert("오류", "금액을 입력하세요"); return; }
+    if (!form.amount || Number.isNaN(Number.parseInt(form.amount, 10))) { Alert.alert("오류", "금액을 입력하세요"); return; }
     createMutation.mutate({
       memberId: form.memberId,
-      amount: parseInt(form.amount),
+      amount: Number.parseInt(form.amount, 10),
       method: form.method,
       periodStart: form.periodStart || undefined,
       periodEnd: form.periodEnd || undefined,

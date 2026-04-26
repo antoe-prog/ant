@@ -1,6 +1,4 @@
-import { useState } from "react";
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { View, Text, FlatList, ActivityIndicator, StyleSheet } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
 import { trpc } from "@/lib/trpc";
@@ -13,7 +11,6 @@ const RESULT_LABEL: Record<string, { label: string; color: string; icon: string 
 };
 
 export default function MyPromotionsScreen() {
-  const router = useRouter();
   const { data: promotions, isLoading } = trpc.members.myPromotions.useQuery();
 
   const pending = promotions?.filter(p => p.result === "pending") ?? [];

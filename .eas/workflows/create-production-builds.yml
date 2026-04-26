@@ -1,0 +1,14 @@
+name: 안드로이드 프로덕션 빌드
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  build_android:
+    type: build
+    params:
+      platform: android
+      profile: production

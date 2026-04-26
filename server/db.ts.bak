@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+﻿import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   approvals,
@@ -104,7 +104,7 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// ─── Users ───────────────────────────────────────────────────────────────────
+// ??? Users ???????????????????????????????????????????????????????????????????
 
 export async function getUserById(id: number) {
   const db = await getDb();
@@ -132,7 +132,7 @@ export async function updateUserProfile(
   await db.update(users).set(data).where(eq(users.id, id));
 }
 
-// ─── Onboarding Plans ────────────────────────────────────────────────────────
+// ??? Onboarding Plans ????????????????????????????????????????????????????????
 
 export async function getOnboardingPlanByEmployee(employeeId: number) {
   const db = await getDb();
@@ -203,7 +203,7 @@ export async function recalcCompletionRate(planId: number) {
     .where(eq(onboardingPlans.id, planId));
 }
 
-// ─── Tasks ───────────────────────────────────────────────────────────────────
+// ??? Tasks ???????????????????????????????????????????????????????????????????
 
 export async function getTasksByPlan(planId: number) {
   const db = await getDb();
@@ -241,7 +241,7 @@ export async function deleteTask(id: number) {
   await db.delete(tasks).where(eq(tasks.id, id));
 }
 
-// ─── Documents ───────────────────────────────────────────────────────────────
+// ??? Documents ???????????????????????????????????????????????????????????????
 
 export async function getDocumentsByPlan(planId: number) {
   const db = await getDb();
@@ -291,7 +291,7 @@ export async function updateDocument(id: number, data: Partial<InsertDocument>) 
   await db.update(documents).set(data).where(eq(documents.id, id));
 }
 
-// ─── Training Sessions ───────────────────────────────────────────────────────
+// ??? Training Sessions ???????????????????????????????????????????????????????
 
 export async function getTrainingsByPlan(planId: number) {
   const db = await getDb();
@@ -319,7 +319,7 @@ export async function updateTraining(
   await db.update(trainingSessions).set(data).where(eq(trainingSessions.id, id));
 }
 
-// ─── Approvals ───────────────────────────────────────────────────────────────
+// ??? Approvals ???????????????????????????????????????????????????????????????
 
 export async function getPendingApprovals(approverId?: number) {
   const db = await getDb();
@@ -361,7 +361,7 @@ export async function updateApproval(id: number, data: Partial<InsertApproval>) 
   await db.update(approvals).set(data).where(eq(approvals.id, id));
 }
 
-// ─── Notifications ───────────────────────────────────────────────────────────
+// ??? Notifications ???????????????????????????????????????????????????????????
 
 export async function getNotificationsByUser(userId: number) {
   const db = await getDb();
@@ -399,7 +399,7 @@ export async function markNotificationsRead(userId: number) {
     .where(eq(notifications.userId, userId));
 }
 
-// ─── Seed Demo Data ───────────────────────────────────────────────────────────
+// ??? Seed Demo Data ???????????????????????????????????????????????????????????
 
 export async function seedDemoDataForUser(userId: number) {
   const db = await getDb();
@@ -417,14 +417,14 @@ export async function seedDemoDataForUser(userId: number) {
   const planId = planResult[0].insertId;
 
   const taskData = [
-    { title: "신분증 사본 제출", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 1 },
-    { title: "근로계약서 서명", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 2 },
-    { title: "회사 이메일 계정 설정", category: "setup" as const, priority: "high" as const, requiresApproval: false, sortOrder: 3 },
-    { title: "사내 시스템 접근 권한 신청", category: "setup" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 4 },
-    { title: "팀 소개 미팅 참석", category: "meeting" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 5 },
-    { title: "보안 교육 이수", category: "training" as const, priority: "high" as const, requiresApproval: true, sortOrder: 6 },
-    { title: "개인정보 처리 동의서 제출", category: "document" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 7 },
-    { title: "복리후생 신청서 작성", category: "document" as const, priority: "low" as const, requiresApproval: false, sortOrder: 8 },
+    { title: "?좊텇利??щ낯 ?쒖텧", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 1 },
+    { title: "洹쇰줈怨꾩빟???쒕챸", category: "document" as const, priority: "high" as const, requiresApproval: true, sortOrder: 2 },
+    { title: "?뚯궗 ?대찓??怨꾩젙 ?ㅼ젙", category: "setup" as const, priority: "high" as const, requiresApproval: false, sortOrder: 3 },
+    { title: "?щ궡 ?쒖뒪???묎렐 沅뚰븳 ?좎껌", category: "setup" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 4 },
+    { title: "? ?뚭컻 誘명똿 李몄꽍", category: "meeting" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 5 },
+    { title: "蹂댁븞 援먯쑁 ?댁닔", category: "training" as const, priority: "high" as const, requiresApproval: true, sortOrder: 6 },
+    { title: "媛쒖씤?뺣낫 泥섎━ ?숈쓽???쒖텧", category: "document" as const, priority: "medium" as const, requiresApproval: false, sortOrder: 7 },
+    { title: "蹂듬━?꾩깮 ?좎껌???묒꽦", category: "document" as const, priority: "low" as const, requiresApproval: false, sortOrder: 8 },
   ];
 
   for (const t of taskData) {
@@ -442,26 +442,26 @@ export async function seedDemoDataForUser(userId: number) {
 
   const trainingData = [
     {
-      title: "신입사원 오리엘테이션",
-      instructor: "HR 팀",
+      title: "?좎엯?ъ썝 ?ㅻ━?섑뀒?댁뀡",
+      instructor: "HR ?",
       scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
       durationMinutes: 120,
-      location: "대회의실 A",
+      location: "??뚯쓽??A",
     },
     {
-      title: "정보보안 교육",
-      instructor: "보안팀",
+      title: "?뺣낫蹂댁븞 援먯쑁",
+      instructor: "蹂댁븞?",
       scheduledAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
       durationMinutes: 60,
-      location: "온라인",
+      location: "?⑤씪??,
       meetingUrl: "https://meet.example.com/security",
     },
     {
-      title: "업무 시스템 사용법",
-      instructor: "IT 지원팀",
+      title: "?낅Т ?쒖뒪???ъ슜踰?,
+      instructor: "IT 吏?먰?",
       scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       durationMinutes: 90,
-      location: "교육실 B",
+      location: "援먯쑁??B",
     },
   ];
 
@@ -479,11 +479,12 @@ export async function seedDemoDataForUser(userId: number) {
 
   await db.insert(notifications).values({
     userId,
-    title: "온보딩 시작을 환영합니다!",
-    message: "온보딩 체크리스트를 확인하고 첫 번째 작업을 시작해보세요.",
+    title: "?⑤낫???쒖옉???섏쁺?⑸땲??",
+    message: "?⑤낫??泥댄겕由ъ뒪?몃? ?뺤씤?섍퀬 泥?踰덉㎏ ?묒뾽???쒖옉?대낫?몄슂.",
     type: "general",
     isRead: false,
   });
 
   return planId;
 }
+

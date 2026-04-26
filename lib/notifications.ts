@@ -23,11 +23,11 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       });
     }
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+    const existingPermissions = await Notifications.getPermissionsAsync() as any;
+    let isGranted = Boolean(existingPermissions.granted ?? existingPermissions.status === "granted");
 
-    if (existingStatus !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync({
+    if (!isGranted) {
+      const requestedPermissions = await Notifications.requestPermissionsAsync({
         ios: {
           allowAlert: true,
           allowBadge: true,
@@ -37,11 +37,11 @@ export async function requestNotificationPermissions(): Promise<boolean> {
           provideAppNotificationSettings: false,
           allowProvisional: false,
         },
-      });
-      finalStatus = status;
+      }) as any;
+      isGranted = Boolean(requestedPermissions.granted ?? requestedPermissions.status === "granted");
     }
 
-    return finalStatus === "granted";
+    return isGranted;
   } catch (e) {
     console.warn("[Notifications] requestNotificationPermissions failed:", e);
     return false;

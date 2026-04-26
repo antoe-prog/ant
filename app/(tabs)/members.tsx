@@ -6,7 +6,7 @@ import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   Modal, ScrollView, Alert, ActivityIndicator, Pressable, Platform, Image,
 } from "react-native";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -20,6 +20,7 @@ import {
 import type { BeltRank, MemberStatus } from "@/lib/judo-utils";
 
 const BELT_RANKS: BeltRank[] = ["white", "yellow", "orange", "green", "blue", "brown", "black"];
+const SwipeableView = Swipeable as unknown as React.ComponentType<any>;
 type MemberSortKey = "name" | "joinDate" | "belt" | "fee" | "nextPayment";
 type PaymentFilterKey = "all" | "overdue" | "dueSoon";
 
@@ -97,7 +98,7 @@ function MemberRow({
   ), [item.id, item.name, onCheckIn, onDelete]);
 
   return (
-    <Swipeable
+    <SwipeableView
       ref={swipeableRef}
       renderRightActions={renderRightActions}
       overshootRight={false}
@@ -180,7 +181,7 @@ function MemberRow({
           </View>
         )}
       </TouchableOpacity>
-    </Swipeable>
+    </SwipeableView>
   );
 }
 
@@ -436,8 +437,10 @@ export default function MemberListScreen() {
         Alert.alert("완료", "CSV 파일이 다운로드되었습니다.");
         return;
       }
-      const fileUri = (FileSystem.documentDirectory ?? "") + fileName;
-      await FileSystem.writeAsStringAsync(fileUri, "\uFEFF" + csv, { encoding: FileSystem.EncodingType.UTF8 });
+      const file = new File(Paths.document, fileName);
+      file.create({ overwrite: true });
+      file.write("\uFEFF" + csv, { encoding: "utf8" });
+      const fileUri = file.uri;
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: "회원 목록 CSV" });
@@ -708,7 +711,7 @@ export default function MemberListScreen() {
               <FormField label="이메일" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} placeholder="example@email.com" keyboardType="email-address" />
               <FormField label="생년월일" value={form.birthDate} onChangeText={v => setForm(f => ({ ...f, birthDate: v }))} placeholder="YYYY-MM-DD" />
               <FormField label="입관일 *" value={form.joinDate} onChangeText={v => setForm(f => ({ ...f, joinDate: v }))} placeholder="YYYY-MM-DD" />
-              <FormField label="월 회비 (원)" value={String(form.monthlyFee)} onChangeText={v => setForm(f => ({ ...f, monthlyFee: parseInt(v) || 0 }))} keyboardType="numeric" />
+              <FormField label="월 회비 (원)" value={String(form.monthlyFee)} onChangeText={v => setForm(f => ({ ...f, monthlyFee: Number.parseInt(v, 10) || 0 }))} keyboardType="numeric" />
               <FormField label="비상연락처" value={form.emergencyContact} onChangeText={v => setForm(f => ({ ...f, emergencyContact: v }))} placeholder="보호자 연락처" keyboardType="phone-pad" />
 
               {/* 띠 선택 */}

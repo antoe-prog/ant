@@ -10,11 +10,19 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "CMAKE_VERSION": "3.22.1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
+      "env": {
+        "CMAKE_VERSION": "3.22.1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store"
+      },
       "android": {
         "buildType": "apk"
       }

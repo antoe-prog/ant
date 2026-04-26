@@ -1,4 +1,4 @@
-import { ENV } from "./env";
+﻿import { ENV } from "./env";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -307,8 +307,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
+    throw new Error(`LLM invoke failed: ${response.status} ${response.statusText} ??${errorText}`);
   }
 
   return (await response.json()) as InvokeResult;
 }
+

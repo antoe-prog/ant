@@ -1,4 +1,4 @@
-import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "../../shared/const.js";
+﻿import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "../../shared/const.js";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -32,7 +32,7 @@ export const managerProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
     if (!ctx.user || (ctx.user.role !== "manager" && ctx.user.role !== "admin")) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      throw new TRPCError({ code: "FORBIDDEN", message: "愿由ъ옄 沅뚰븳???꾩슂?⑸땲??" });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
@@ -54,3 +54,4 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+

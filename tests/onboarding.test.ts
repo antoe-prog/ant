@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import {
   getStatusColor,
   getStatusLabel,
@@ -19,122 +19,122 @@ import {
 
 describe("OnboardPro - onboarding-utils", () => {
   describe("getStatusColor", () => {
-    it("completed 상태는 초록색 반환", () => {
+    it("completed ?곹깭??珥덈줉??諛섑솚", () => {
       expect(getStatusColor("completed")).toBe("#10B981");
     });
-    it("approved 상태는 초록색 반환", () => {
+    it("approved ?곹깭??珥덈줉??諛섑솚", () => {
       expect(getStatusColor("approved")).toBe("#10B981");
     });
-    it("in_progress 상태는 노란색 반환", () => {
+    it("in_progress ?곹깭???몃???諛섑솚", () => {
       expect(getStatusColor("in_progress")).toBe("#F59E0B");
     });
-    it("pending 상태는 회색 반환", () => {
+    it("pending ?곹깭???뚯깋 諛섑솚", () => {
       expect(getStatusColor("pending")).toBe("#6B7280");
     });
-    it("rejected 상태는 빨간색 반환", () => {
+    it("rejected ?곹깭??鍮④컙??諛섑솚", () => {
       expect(getStatusColor("rejected")).toBe("#EF4444");
     });
-    it("알 수 없는 상태는 회색 반환", () => {
+    it("?????녿뒗 ?곹깭???뚯깋 諛섑솚", () => {
       expect(getStatusColor("unknown_status")).toBe("#6B7280");
     });
   });
 
   describe("getStatusLabel", () => {
-    it("pending → 대기중", () => {
-      expect(getStatusLabel("pending")).toBe("대기중");
+    it("pending ???湲곗쨷", () => {
+      expect(getStatusLabel("pending")).toBe("?湲곗쨷");
     });
-    it("in_progress → 진행중", () => {
-      expect(getStatusLabel("in_progress")).toBe("진행중");
+    it("in_progress ??吏꾪뻾以?, () => {
+      expect(getStatusLabel("in_progress")).toBe("吏꾪뻾以?);
     });
-    it("completed → 완료", () => {
-      expect(getStatusLabel("completed")).toBe("완료");
+    it("completed ???꾨즺", () => {
+      expect(getStatusLabel("completed")).toBe("?꾨즺");
     });
-    it("approved → 승인", () => {
-      expect(getStatusLabel("approved")).toBe("승인");
+    it("approved ???뱀씤", () => {
+      expect(getStatusLabel("approved")).toBe("?뱀씤");
     });
-    it("rejected → 반려", () => {
-      expect(getStatusLabel("rejected")).toBe("반려");
+    it("rejected ??諛섎젮", () => {
+      expect(getStatusLabel("rejected")).toBe("諛섎젮");
     });
-    it("not_started → 시작 전", () => {
-      expect(getStatusLabel("not_started")).toBe("시작 전");
+    it("not_started ???쒖옉 ??, () => {
+      expect(getStatusLabel("not_started")).toBe("?쒖옉 ??);
     });
-    it("scheduled → 예정", () => {
-      expect(getStatusLabel("scheduled")).toBe("예정");
+    it("scheduled ???덉젙", () => {
+      expect(getStatusLabel("scheduled")).toBe("?덉젙");
     });
   });
 
   describe("getCategoryLabel", () => {
     const cases: [TaskCategory, string][] = [
-      ["document", "서류"],
-      ["training", "교육"],
-      ["setup", "환경설정"],
-      ["meeting", "미팅"],
-      ["other", "기타"],
+      ["document", "?쒕쪟"],
+      ["training", "援먯쑁"],
+      ["setup", "?섍꼍?ㅼ젙"],
+      ["meeting", "誘명똿"],
+      ["other", "湲고?"],
     ];
     cases.forEach(([cat, expected]) => {
-      it(`${cat} → ${expected}`, () => {
+      it(`${cat} ??${expected}`, () => {
         expect(getCategoryLabel(cat)).toBe(expected);
       });
     });
   });
 
   describe("getCategoryIcon", () => {
-    it("document 카테고리는 doc.fill 아이콘", () => {
+    it("document 移댄뀒怨좊━??doc.fill ?꾩씠肄?, () => {
       expect(getCategoryIcon("document")).toBe("doc.fill");
     });
-    it("training 카테고리는 graduationcap.fill 아이콘", () => {
+    it("training 移댄뀒怨좊━??graduationcap.fill ?꾩씠肄?, () => {
       expect(getCategoryIcon("training")).toBe("graduationcap.fill");
     });
-    it("meeting 카테고리는 person.2.fill 아이콘", () => {
+    it("meeting 移댄뀒怨좊━??person.2.fill ?꾩씠肄?, () => {
       expect(getCategoryIcon("meeting")).toBe("person.2.fill");
     });
   });
 
   describe("getPriorityLabel", () => {
     const cases: [TaskPriority, string][] = [
-      ["low", "낮음"],
-      ["medium", "보통"],
-      ["high", "높음"],
+      ["low", "??쓬"],
+      ["medium", "蹂댄넻"],
+      ["high", "?믪쓬"],
     ];
     cases.forEach(([priority, expected]) => {
-      it(`${priority} → ${expected}`, () => {
+      it(`${priority} ??${expected}`, () => {
         expect(getPriorityLabel(priority)).toBe(expected);
       });
     });
   });
 
   describe("getPriorityColor", () => {
-    it("high 우선순위는 빨간색", () => {
+    it("high ?곗꽑?쒖쐞??鍮④컙??, () => {
       expect(getPriorityColor("high")).toBe("#EF4444");
     });
-    it("medium 우선순위는 노란색", () => {
+    it("medium ?곗꽑?쒖쐞???몃???, () => {
       expect(getPriorityColor("medium")).toBe("#F59E0B");
     });
-    it("low 우선순위는 초록색", () => {
+    it("low ?곗꽑?쒖쐞??珥덈줉??, () => {
       expect(getPriorityColor("low")).toBe("#10B981");
     });
   });
 
   describe("getRoleLabel", () => {
     const cases: [UserRole, string][] = [
-      ["employee", "신규 입사자"],
-      ["hr", "HR 담당자"],
-      ["manager", "관리자"],
-      ["admin", "시스템 관리자"],
+      ["employee", "?좉퇋 ?낆궗??],
+      ["hr", "HR ?대떦??],
+      ["manager", "愿由ъ옄"],
+      ["admin", "?쒖뒪??愿由ъ옄"],
     ];
     cases.forEach(([role, expected]) => {
-      it(`${role} → ${expected}`, () => {
+      it(`${role} ??${expected}`, () => {
         expect(getRoleLabel(role)).toBe(expected);
       });
     });
   });
 
   describe("formatDate", () => {
-    it("null/undefined 입력 시 '-' 반환", () => {
+    it("null/undefined ?낅젰 ??'-' 諛섑솚", () => {
       expect(formatDate(null)).toBe("-");
       expect(formatDate(undefined)).toBe("-");
     });
-    it("유효한 날짜를 한국어 형식으로 반환", () => {
+    it("?좏슚???좎쭨瑜??쒓뎅???뺤떇?쇰줈 諛섑솚", () => {
       // Use a date with explicit time to avoid timezone issues
       const date = new Date(2026, 0, 15); // Jan 15, 2026 local time
       const result = formatDate(date);
@@ -142,17 +142,17 @@ describe("OnboardPro - onboarding-utils", () => {
       expect(result).toContain("1");
       expect(result).toContain("15");
     });
-    it("문자열 날짜도 처리", () => {
+    it("臾몄옄???좎쭨??泥섎━", () => {
       const result = formatDate("2026-03-01");
       expect(result).toContain("2026");
     });
   });
 
   describe("formatDateTime", () => {
-    it("null 입력 시 '-' 반환", () => {
+    it("null ?낅젰 ??'-' 諛섑솚", () => {
       expect(formatDateTime(null)).toBe("-");
     });
-    it("유효한 날짜시간 반환", () => {
+    it("?좏슚???좎쭨?쒓컙 諛섑솚", () => {
       const date = new Date("2026-04-03T10:30:00");
       const result = formatDateTime(date);
       expect(result.length).toBeGreaterThan(0);
@@ -161,32 +161,32 @@ describe("OnboardPro - onboarding-utils", () => {
   });
 
   describe("formatDuration", () => {
-    it("60분 미만은 분 단위", () => {
-      expect(formatDuration(30)).toBe("30분");
-      expect(formatDuration(45)).toBe("45분");
+    it("60遺?誘몃쭔? 遺??⑥쐞", () => {
+      expect(formatDuration(30)).toBe("30遺?);
+      expect(formatDuration(45)).toBe("45遺?);
     });
-    it("정확히 60분은 1시간", () => {
-      expect(formatDuration(60)).toBe("1시간");
+    it("?뺥솗??60遺꾩? 1?쒓컙", () => {
+      expect(formatDuration(60)).toBe("1?쒓컙");
     });
-    it("90분은 1시간 30분", () => {
-      expect(formatDuration(90)).toBe("1시간 30분");
+    it("90遺꾩? 1?쒓컙 30遺?, () => {
+      expect(formatDuration(90)).toBe("1?쒓컙 30遺?);
     });
-    it("120분은 2시간", () => {
-      expect(formatDuration(120)).toBe("2시간");
+    it("120遺꾩? 2?쒓컙", () => {
+      expect(formatDuration(120)).toBe("2?쒓컙");
     });
   });
 
   describe("getDaysUntil", () => {
-    it("null 입력 시 null 반환", () => {
+    it("null ?낅젰 ??null 諛섑솚", () => {
       expect(getDaysUntil(null)).toBeNull();
     });
-    it("미래 날짜는 양수 반환", () => {
+    it("誘몃옒 ?좎쭨???묒닔 諛섑솚", () => {
       const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       const days = getDaysUntil(future);
       expect(days).toBeGreaterThan(0);
       expect(days).toBeLessThanOrEqual(8);
     });
-    it("과거 날짜는 음수 반환", () => {
+    it("怨쇨굅 ?좎쭨???뚯닔 諛섑솚", () => {
       const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const days = getDaysUntil(past);
       expect(days).toBeLessThan(0);
@@ -194,16 +194,17 @@ describe("OnboardPro - onboarding-utils", () => {
   });
 
   describe("getInitials", () => {
-    it("null/undefined 입력 시 ? 반환", () => {
+    it("null/undefined ?낅젰 ??? 諛섑솚", () => {
       expect(getInitials(null)).toBe("?");
       expect(getInitials(undefined)).toBe("?");
     });
-    it("단일 이름은 첫 두 글자 반환", () => {
-      expect(getInitials("김철수")).toBe("김철");
+    it("?⑥씪 ?대쫫? 泥???湲??諛섑솚", () => {
+      expect(getInitials("源泥좎닔")).toBe("源泥?);
     });
-    it("두 단어 이름은 각 첫 글자 반환", () => {
+    it("???⑥뼱 ?대쫫? 媛?泥?湲??諛섑솚", () => {
       const result = getInitials("John Doe");
       expect(result).toBe("JD");
     });
   });
 });
+

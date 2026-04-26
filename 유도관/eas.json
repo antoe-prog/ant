@@ -14,9 +14,41 @@
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview",
+      "channel": "member-preview",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "preview"
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_APP_VARIANT": "member",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "member-preview": {
+      "distribution": "internal",
+      "channel": "member-preview",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_APP_VARIANT": "member",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "admin-preview": {
+      "distribution": "internal",
+      "channel": "admin-preview",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_APP_VARIANT": "admin",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
       },
       "android": {
         "buildType": "apk"
@@ -25,7 +57,37 @@
     "production": {
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_APP_VARIANT": "member",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "member-production": {
+      "channel": "member-production",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_APP_VARIANT": "member",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "admin-production": {
+      "channel": "admin-production",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_APP_VARIANT": "admin",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.judokan.store",
+        "EXPO_PUBLIC_MEMBER_INVITE_SCHEME": "judokanmember",
+        "CMAKE_VERSION": "3.22.1"
       },
       "android": {
         "buildType": "apk"

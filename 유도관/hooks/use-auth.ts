@@ -46,6 +46,7 @@ export function useAuth(options?: UseAuthOptions) {
       const sessionToken = await Auth.getSessionToken();
       if (!sessionToken) {
         setUser(null);
+        await Auth.clearUserInfo();
         return;
       }
 
@@ -84,13 +85,16 @@ export function useAuth(options?: UseAuthOptions) {
         fetchUser();
       } else {
         // Native: check for cached user info first for faster initial load
-        Auth.getUserInfo().then((cachedUser) => {
-          if (cachedUser) {
+        Promise.all([Auth.getSessionToken(), Auth.getUserInfo()]).then(([sessionToken, cachedUser]) => {
+          if (sessionToken && cachedUser) {
             setUser(cachedUser);
             setLoading(false);
-          } else {
-            fetchUser();
+            return;
           }
+          if (!sessionToken && cachedUser) {
+            void Auth.clearUserInfo();
+          }
+          fetchUser();
         });
       }
     } else {

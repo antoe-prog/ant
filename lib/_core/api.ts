@@ -2,24 +2,16 @@ import { Platform } from "react-native";
 import { getApiBaseUrl } from "@/constants/oauth";
 import * as Auth from "./auth";
 
-type ApiResponse<T> = {
-  data?: T;
-  error?: string;
-};
-
 export async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  // Determine the auth method:
-  // - Native platform: use stored session token as Bearer auth
-  // - Web (including iframe): use cookie-based auth (browser handles automatically)
   if (Platform.OS !== "web") {
     const sessionToken = await Auth.getSessionToken();
     if (sessionToken) {
-      headers["Authorization"] = `Bearer ${sessionToken}`;
+      headers.Authorization = `Bearer ${sessionToken}`;
     }
   }
 
@@ -42,14 +34,14 @@ export async function apiCall<T>(endpoint: string, options: RequestInit = {}): P
         const errorJson = JSON.parse(errorText);
         errorMessage = errorJson.error || errorJson.message || errorText;
       } catch {
-        // Not JSON, use text as is
+        // Not JSON, use text as is.
       }
       throw new Error(errorMessage || `API call failed: ${response.statusText}`);
     }
 
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
-      return await response.json() as T;
+      return (await response.json()) as T;
     }
 
     const text = await response.text();
@@ -62,7 +54,6 @@ export async function apiCall<T>(endpoint: string, options: RequestInit = {}): P
   }
 }
 
-// OAuth callback handler - exchange code for session token
 export async function exchangeOAuthCode(
   code: string,
   state: string,
@@ -76,14 +67,16 @@ export async function exchangeOAuthCode(
   };
 }
 
-// Logout
 export async function logout(): Promise<void> {
-  await apiCall<void>("/api/auth/logout", {
-    method: "POST",
-  });
+  try {
+    await apiCall<void>("/api/logout", {
+      method: "POST",
+    });
+  } catch {
+    // Ignore logout failures so local session cleanup can still proceed.
+  }
 }
 
-// Get current authenticated user (web uses cookie-based auth)
 export async function getMe(): Promise<{
   id: number;
   openId: string;
@@ -95,15 +88,28 @@ export async function getMe(): Promise<{
   avatarUrl: string | null;
 } | null> {
   try {
-    const result = await apiCall<{ user: any }>("/api/auth/me");
-    return result.user || null;
+    const result = await apiCall<{
+      result: { data: { json?: any } | any };
+    }>("/api/trpc/auth.me?input=" + encodeURIComponent(JSON.stringify({})));
+    const raw = (result as any)?.result?.data;
+    const user = raw?.json ?? raw;
+    if (!user || typeof user.id !== "number") return null;
+    return {
+      id: user.id,
+      openId: user.openId ?? "",
+      name: user.name ?? null,
+      email: user.email ?? null,
+      loginMethod: user.loginMethod ?? null,
+      lastSignedIn: user.lastSignedIn ?? new Date().toISOString(),
+      role: (user.role as "member" | "manager" | "admin") ?? "member",
+      avatarUrl: user.avatarUrl ?? null,
+    };
   } catch {
-    // Session not established yet — expected for unauthenticated state
+    // Session not established yet is expected for unauthenticated state.
     return null;
   }
 }
 
-// Establish session cookie on the backend
 export async function establishSession(token: string): Promise<boolean> {
   try {
     const baseUrl = getApiBaseUrl();

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import QRCode from "qrcode";
 
 const url = process.argv[2];
@@ -9,4 +9,5 @@ if (!url) {
 }
 
 await QRCode.toFile("expo-qr-code.png", url, { width: 512 });
-console.log(`✅ QR code saved to expo-qr-code.png`);
+console.log(`??QR code saved to expo-qr-code.png`);
+

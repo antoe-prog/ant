@@ -75,6 +75,7 @@ export function AuthProvider({ baseUrl, children }: { baseUrl: string; children:
 
   const refresh = useCallback(async () => {
     if (!token) {
+      persist(null, null);
       setReady(true);
       return;
     }

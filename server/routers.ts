@@ -5,6 +5,7 @@ import {
   checkAttendance,
   getAttendanceStatsByMember,
   createAnnouncement,
+  createEmailUser,
   createMember,
   createPayment,
   createPromotion,
@@ -38,6 +39,7 @@ import {
   getExpiringSoonMembers,
   getUnpaidMembers,
   getUpcomingPromotions,
+  getUserByEmail,
   seedDemoData,
   togglePromotionChecklistItem,
   updateAnnouncement,
@@ -58,15 +60,45 @@ import {
   saveMemoHistory,
   deleteMemoHistoryItem,
   clearMemoHistory,
+  touchUserSignIn,
+  getUserById,
   upsertPushToken,
   deletePushToken,
 } from "./db";
 import { storagePut } from "./storage";
 import { sendPushNotifications } from "./push";
 import { COOKIE_NAME } from "../shared/const.js";
+import { ONE_YEAR_MS } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { hashPassword, verifyPassword } from "./_core/password";
+import { sdk } from "./_core/sdk";
+import { getPasswordHashByEmail, setPasswordHashByEmail } from "./_core/email-password-store";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, authedProcedure, managerProcedure, publicProcedure, router } from "./_core/trpc";
+
+const EMAIL_SCHEMA = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("올바른 이메일 형식이 아닙니다.");
+const PASSWORD_SCHEMA = z
+  .string()
+  .min(8, "비밀번호는 8자 이상이어야 합니다.")
+  .max(200, "비밀번호가 너무 깁니다.");
+
+async function issueSession(opts: {
+  ctx: { res: import("express").Response; req: import("express").Request };
+  openId: string;
+  name: string;
+}) {
+  const sessionToken = await sdk.createSessionToken(opts.openId, {
+    name: opts.name,
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(opts.ctx.req);
+  opts.ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+  return sessionToken;
+}
 
 const authRouter = router({
   me: authedProcedure.query(async ({ ctx }) => {
@@ -77,6 +109,74 @@ const authRouter = router({
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
     return { success: true } as const;
   }),
+  register: publicProcedure
+    .input(
+      z.object({
+        email: EMAIL_SCHEMA,
+        password: PASSWORD_SCHEMA,
+        name: z.string().trim().min(1, "이름을 입력해 주세요.").max(64),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await getUserByEmail(input.email);
+      if (existing) {
+        throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
+      }
+
+      const { id, openId } = await createEmailUser({
+        email: input.email,
+        name: input.name,
+      });
+      const passwordHash = await hashPassword(input.password);
+      await setPasswordHashByEmail(input.email, passwordHash);
+
+      const sessionToken = await issueSession({ ctx, openId, name: input.name });
+      const createdUser = await getUserById(id);
+      return {
+        app_session_id: sessionToken,
+        user: {
+          id,
+          openId,
+          name: input.name,
+          email: input.email,
+          role: (createdUser?.role ?? "member") as "member" | "manager" | "admin",
+          loginMethod: "email",
+        },
+      };
+    }),
+  login: publicProcedure
+    .input(z.object({ email: EMAIL_SCHEMA, password: PASSWORD_SCHEMA }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await getUserByEmail(input.email);
+      const INVALID = new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+      });
+      if (!user) throw INVALID;
+
+      const passwordHash = await getPasswordHashByEmail(input.email);
+      if (!passwordHash) throw INVALID;
+      const ok = await verifyPassword(input.password, passwordHash);
+      if (!ok) throw INVALID;
+
+      await touchUserSignIn(user.id);
+      const sessionToken = await issueSession({
+        ctx,
+        openId: user.openId,
+        name: user.name ?? "",
+      });
+      return {
+        app_session_id: sessionToken,
+        user: {
+          id: user.id,
+          openId: user.openId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          loginMethod: user.loginMethod,
+        },
+      };
+    }),
 });
 
 const membersRouter = router({

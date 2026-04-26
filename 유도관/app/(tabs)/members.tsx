@@ -717,7 +717,7 @@ export default function MemberListScreen() {
               <FormField label="이메일" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} placeholder="example@email.com" keyboardType="email-address" />
               <FormField label="생년월일" value={form.birthDate} onChangeText={v => setForm(f => ({ ...f, birthDate: v }))} placeholder="YYYY-MM-DD" />
               <FormField label="입관일 *" value={form.joinDate} onChangeText={v => setForm(f => ({ ...f, joinDate: v }))} placeholder="YYYY-MM-DD" />
-              <FormField label="월 회비 (원)" value={String(form.monthlyFee)} onChangeText={v => setForm(f => ({ ...f, monthlyFee: parseInt(v) || 0 }))} keyboardType="numeric" />
+              <FormField label="월 회비 (원)" value={String(form.monthlyFee)} onChangeText={v => setForm(f => ({ ...f, monthlyFee: Number.parseInt(v, 10) || 0 }))} keyboardType="numeric" />
               <FormField label="비상연락처" value={form.emergencyContact} onChangeText={v => setForm(f => ({ ...f, emergencyContact: v }))} placeholder="보호자 연락처" keyboardType="phone-pad" />
 
               {/* 띠 선택 */}

@@ -1,11 +1,10 @@
-import { ScrollView, Text, TouchableOpacity, View, StyleSheet, Switch } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View, StyleSheet, Switch, Platform, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
 import { formatAmount, formatDate, getBeltColor, getBeltLabel, getMemberStatusLabel } from "@/lib/judo-utils";
 import { useTabBackHandler } from "@/hooks/use-back-handler";
-import { Platform, Alert } from "react-native";
 import { useThemeContext } from "@/lib/theme-provider";
 
 export default function ProfileScreen() {
@@ -13,7 +12,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const isManager = user?.role === "manager" || user?.role === "admin";
   useTabBackHandler();
-  const { data: myProfile } = trpc.members.myProfile.useQuery(undefined, { enabled: !!user && !isManager });
+  const { data: myProfile, isLoading: isMyProfileLoading } = trpc.members.myProfile.useQuery(undefined, { enabled: !!user && !isManager });
   const { colorScheme, setColorScheme } = useThemeContext();
   const isDark = colorScheme === "dark";
 
@@ -55,6 +54,12 @@ export default function ProfileScreen() {
         </View>
 
         {/* QR 출석증 버튼 (일반 회원) */}
+        {!isManager && isMyProfileLoading && (
+          <View className="mx-5 mb-4 bg-surface rounded-2xl border border-border p-5 items-center">
+            <Text className="text-muted text-sm">회원 정보를 불러오는 중입니다.</Text>
+          </View>
+        )}
+
         {!isManager && myProfile && (
           <View className="mx-5 mb-4">
             <TouchableOpacity
@@ -104,6 +109,15 @@ export default function ProfileScreen() {
               )}
               {myProfile.phone && <InfoRow label="연락처" value={myProfile.phone} />}
             </View>
+          </View>
+        )}
+
+        {!isManager && !isMyProfileLoading && !myProfile && (
+          <View className="mx-5 mb-4 bg-surface rounded-2xl border border-border p-5">
+            <Text className="text-sm font-semibold text-foreground mb-1">회원 정보 없음</Text>
+            <Text className="text-muted text-sm">
+              현재 계정에 연결된 회원 정보가 아직 없습니다. 관리자에게 계정 연결을 요청해 주세요.
+            </Text>
           </View>
         )}
 

@@ -50,6 +50,8 @@ export default function OAuthCallback() {
                 name: userData.name,
                 email: userData.email,
                 loginMethod: userData.loginMethod,
+                role: (userData.role ?? "member") as "member" | "manager" | "admin",
+                avatarUrl: userData.avatarUrl ?? null,
                 lastSignedIn: new Date(userData.lastSignedIn || Date.now()),
               };
               await Auth.setUserInfo(userInfo);

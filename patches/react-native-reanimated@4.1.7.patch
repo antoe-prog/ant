@@ -1,0 +1,13 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 6b73a69d82ae9b04dd41e22b2d115019cf7eae14..72940547b6e9de6d79427d424e88cef2e4c93051 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -213,7 +213,7 @@ android {
+     }
+     externalNativeBuild {
+         cmake {
+-            version = System.getenv("CMAKE_VERSION") ?: "3.22.1"
++            version = System.getenv("CMAKE_VERSION") ?: "3.31.6"
+             path "CMakeLists.txt"
+         }
+     }

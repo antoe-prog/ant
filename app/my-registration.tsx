@@ -1,5 +1,4 @@
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { View, Text, FlatList, ActivityIndicator, StyleSheet } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
 import { trpc } from "@/lib/trpc";
@@ -25,7 +24,6 @@ function getDday(dateStr: string | null | undefined): { label: string; color: st
 }
 
 export default function MyRegistrationScreen() {
-  const router = useRouter();
   const { data: profile } = trpc.members.myProfile.useQuery();
   const { data: payments, isLoading } = trpc.members.myPayments.useQuery();
 

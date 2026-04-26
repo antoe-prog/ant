@@ -4,6 +4,7 @@
 
 # dependencies
 node_modules/
+.pnpm/
 package-lock.json
 
 # Expo
@@ -14,6 +15,9 @@ expo-env.d.ts
 
 # Native
 .kotlin/
+.android-cxx/
+.android-native-build/
+.expo-export-apk-check/
 *.orig.*
 *.jks
 *.p8

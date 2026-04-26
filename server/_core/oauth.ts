@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
+﻿import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
 import type { Express, Request, Response } from "express";
 import { getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
@@ -143,7 +143,7 @@ export function registerOAuthRoutes(app: Express) {
       const user = await sdk.authenticateRequest(req);
       res.json({ user: buildUserResponse(user) });
     } catch {
-      // Unauthenticated state is expected — not an error
+      // Unauthenticated state is expected ??not an error
       res.status(401).json({ error: "Not authenticated", user: null });
     }
   });
@@ -175,3 +175,4 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 }
+

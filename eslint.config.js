@@ -5,6 +5,10 @@ import expoConfig from "eslint-config-expo/flat.js";
 export default defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
+    ignores: [
+      "dist/*",
+      "services/gateway/app/web-dist/**",
+      "유도관/**",
+    ],
   },
 ]);

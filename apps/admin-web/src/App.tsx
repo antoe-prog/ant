@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import LoginPage from "./auth/LoginPage";
 import { useAuth } from "./auth/AuthContext";
@@ -24,6 +24,10 @@ import {
 import { resolveGatewayBase } from "./gateway";
 import { gatewayFetch } from "./gatewayFetch";
 import type { HealthResponse } from "./types";
+
+const DOJO_EMAIL_KEY = "adminweb.dojo.email";
+const FAVORITE_MENU_KEY = "adminweb.favoriteMenus";
+const COMPACT_MODE_KEY = "adminweb.compactMode";
 
 function formatLoadError(e: unknown, gateway: string): string {
   const msg = e instanceof Error ? e.message : String(e);
@@ -76,10 +80,25 @@ export default function App() {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [dojoApiBase, setDojoApiBase] = useState(readDojoApiBase);
   const [dojoToken, setDojoToken] = useState(readDojoToken);
-  const [dojoEmail, setDojoEmail] = useState("");
+  const [dojoEmail, setDojoEmail] = useState(() => localStorage.getItem(DOJO_EMAIL_KEY) || "");
   const [dojoPassword, setDojoPassword] = useState("");
+  const [showDojoPassword, setShowDojoPassword] = useState(false);
+  const [rememberDojoEmail, setRememberDojoEmail] = useState(() => localStorage.getItem(DOJO_EMAIL_KEY) !== null);
+  const [dojoChecking, setDojoChecking] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [refreshIntervalSec, setRefreshIntervalSec] = useState("30");
   const [dojoLoading, setDojoLoading] = useState(false);
   const [dojoError, setDojoError] = useState<string | null>(null);
+  const [quickAction, setQuickAction] = useState("");
+  const [recentRoutes, setRecentRoutes] = useState<string[]>([]);
+  const [favoriteMenus, setFavoriteMenus] = useState<string[]>(
+    () => JSON.parse(localStorage.getItem(FAVORITE_MENU_KEY) || "[]") as string[],
+  );
+  const [compactMode, setCompactMode] = useState<boolean>(
+    () => localStorage.getItem(COMPACT_MODE_KEY) === "1",
+  );
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const dojoClient = useMemo(
     () => createDojoTrpcClient(dojoApiBase, dojoToken),
@@ -125,6 +144,29 @@ export default function App() {
     if (user) void load();
   }, [load, user]);
 
+  useEffect(() => {
+    if (!autoRefreshEnabled || !user) return;
+    const id = setInterval(() => {
+      void load();
+    }, Math.max(10, Number(refreshIntervalSec) || 30) * 1000);
+    return () => clearInterval(id);
+  }, [autoRefreshEnabled, load, user, refreshIntervalSec]);
+
+  useEffect(() => {
+    setRecentRoutes((prev) => {
+      const next = [location.pathname, ...prev.filter((p) => p !== location.pathname)];
+      return next.slice(0, 5);
+    });
+  }, [location.pathname]);
+
+  useEffect(() => {
+    localStorage.setItem(FAVORITE_MENU_KEY, JSON.stringify(favoriteMenus));
+  }, [favoriteMenus]);
+
+  useEffect(() => {
+    localStorage.setItem(COMPACT_MODE_KEY, compactMode ? "1" : "0");
+  }, [compactMode]);
+
   const now = useMemo(() => new Date(), [lastUpdatedAt]);
 
   const saveDojoApiBase = useCallback(() => {
@@ -145,19 +187,38 @@ export default function App() {
       if (!token) throw new Error("도장 세션 토큰을 받지 못했습니다.");
       setDojoToken(token);
       writeDojoToken(token);
+      if (rememberDojoEmail) localStorage.setItem(DOJO_EMAIL_KEY, dojoEmail.trim().toLowerCase());
+      else localStorage.removeItem(DOJO_EMAIL_KEY);
       setDojoPassword("");
     } catch (e) {
       setDojoError(e instanceof Error ? e.message : String(e));
     } finally {
       setDojoLoading(false);
     }
-  }, [dojoApiBase, dojoEmail, dojoPassword]);
+  }, [dojoApiBase, dojoEmail, dojoPassword, rememberDojoEmail]);
 
   const dojoLogout = useCallback(() => {
     setDojoToken("");
     writeDojoToken("");
     setDojoError(null);
   }, []);
+
+  const dojoCheckConnection = useCallback(async () => {
+    if (!dojoConnected) {
+      setDojoError("도장 세션 토큰이 없어 연결 테스트를 할 수 없습니다.");
+      return;
+    }
+    setDojoChecking(true);
+    setDojoError(null);
+    try {
+      await dojoClient.dashboard.stats.query();
+      setDojoError("연결 테스트 성공: 도장 API 응답 정상");
+    } catch (e) {
+      setDojoError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDojoChecking(false);
+    }
+  }, [dojoClient, dojoConnected]);
 
   if (!ready) {
     return (
@@ -174,10 +235,22 @@ export default function App() {
   }
 
   const isHealthy = health?.status === "ok";
-  const greetingName = user.name?.trim() || user.email.split("@")[0] || "운영자";
+  const emailName = user.email?.split("@")[0] ?? "";
+  const greetingName = user.name?.trim() || emailName || "운영자";
+
+  const quickMenuItems = [
+    { path: "/home", label: "홈" },
+    { path: "/members", label: "회원" },
+    { path: "/attendance", label: "출석" },
+    { path: "/payments", label: "납부" },
+    { path: "/promotions", label: "심사" },
+    { path: "/tournaments", label: "대회" },
+    { path: "/announcements", label: "공지" },
+    { path: "/settings", label: "설정" },
+  ];
 
   return (
-    <div className="layout">
+    <div className={`layout ${compactMode ? "compact-mode" : ""}`}>
       <header className="topbar">
         <div className="topbar-left">
           <p className="topbar-date">{formatDateKo(now)}</p>
@@ -204,13 +277,34 @@ export default function App() {
             <span aria-hidden="true">🔄</span>
             {loading ? "불러오는 중" : "다시 불러오기"}
           </button>
+          <label className="member-edit-check" style={{ margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled}
+              onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+            />
+            <span>30초 자동 새로고침</span>
+          </label>
+          <select value={refreshIntervalSec} onChange={(e) => setRefreshIntervalSec(e.target.value)}>
+            <option value="15">15초</option>
+            <option value="30">30초</option>
+            <option value="60">60초</option>
+          </select>
+          <label className="member-edit-check" style={{ margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={compactMode}
+              onChange={(e) => setCompactMode(e.target.checked)}
+            />
+            <span>컴팩트 모드</span>
+          </label>
           <div className="user-chip">
             <span className="avatar" aria-hidden="true">
               {initialsOf(user)}
             </span>
             <span>
               <span className="user-name">
-                {user.name || user.email.split("@")[0]}
+                {user.name || emailName || "운영자"}
               </span>
               <br />
               <span className="user-role">{user.role}</span>
@@ -246,6 +340,35 @@ export default function App() {
       />
 
       <section className="panel page" style={{ marginBottom: 14 }}>
+        <div className="toolbar">
+          <input
+            value={quickAction}
+            onChange={(e) => setQuickAction(e.target.value)}
+            placeholder="빠른 이동 (예: 회원, 출석, 설정)"
+          />
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => {
+              const q = quickAction.trim().toLowerCase();
+              const found = quickMenuItems.find((m) => m.label.toLowerCase().includes(q) || m.path.includes(q));
+              if (found) navigate(found.path);
+            }}
+          >
+            이동
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setQuickAction("")}
+          >
+            초기화
+          </button>
+        </div>
+        <p className="meta toolbar-meta">최근 이동: {recentRoutes.join(" → ") || "없음"}</p>
+      </section>
+
+      <section className="panel page" style={{ marginBottom: 14 }}>
         <div className="page-head">
           <h2>도장 데이터 연결</h2>
         </div>
@@ -259,6 +382,52 @@ export default function App() {
           <button type="button" className="reload-btn" onClick={saveDojoApiBase}>
             API 저장
           </button>
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={() => window.open(`${gatewayBase.replace(/\/$/, "")}/health`, "_blank")}
+          >
+            게이트웨이 헬스 열기
+          </button>
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={() => window.open(`${dojoApiBase.replace(/\/$/, "")}/health`, "_blank")}
+          >
+            도장 헬스 열기
+          </button>
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(gatewayBase);
+              } catch {
+                // ignore clipboard error
+              }
+            }}
+          >
+            게이트웨이 URL 복사
+          </button>
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(dojoApiBase);
+              } catch {
+                // ignore clipboard error
+              }
+            }}
+          >
+            도장 URL 복사
+          </button>
+          <button type="button" className="reload-btn" onClick={() => setDojoApiBase("http://127.0.0.1:3000")}>
+            로컬(127.0.0.1)
+          </button>
+          <button type="button" className="reload-btn" onClick={() => setDojoApiBase("http://localhost:3000")}>
+            로컬(localhost)
+          </button>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
           <input
@@ -269,24 +438,94 @@ export default function App() {
             style={{ flex: "1 1 220px", padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1" }}
           />
           <input
-            type="password"
+            type={showDojoPassword ? "text" : "password"}
             value={dojoPassword}
             onChange={(e) => setDojoPassword(e.target.value)}
             placeholder="도장 비밀번호"
             style={{ flex: "1 1 220px", padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1" }}
           />
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={() => setShowDojoPassword((v) => !v)}
+          >
+            {showDojoPassword ? "비밀번호 숨김" : "비밀번호 표시"}
+          </button>
           <button type="button" className="reload-btn" onClick={() => void dojoLogin()} disabled={dojoLoading}>
             {dojoLoading ? "로그인 중…" : "도장 로그인"}
+          </button>
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={() => void dojoCheckConnection()}
+            disabled={!dojoConnected || dojoChecking}
+          >
+            {dojoChecking ? "연결 점검 중..." : "연결 테스트"}
           </button>
           {dojoConnected ? (
             <button type="button" className="reload-btn" onClick={dojoLogout}>
               도장 로그아웃
             </button>
           ) : null}
+          <button
+            type="button"
+            className="reload-btn"
+            onClick={() => {
+              setDojoEmail("");
+              setDojoPassword("");
+              setRememberDojoEmail(false);
+              localStorage.removeItem(DOJO_EMAIL_KEY);
+              dojoLogout();
+            }}
+          >
+            도장 정보 초기화
+          </button>
         </div>
+        <label className="member-edit-check" style={{ marginBottom: 6 }}>
+          <input
+            type="checkbox"
+            checked={rememberDojoEmail}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setRememberDojoEmail(checked);
+              if (!checked) localStorage.removeItem(DOJO_EMAIL_KEY);
+            }}
+          />
+          <span>도장 이메일 저장</span>
+        </label>
         <p className="meta" style={{ margin: 0 }}>
           상태: {dojoConnected ? "연결됨" : "미연결"}
         </p>
+        <p className="meta" style={{ margin: "4px 0 0" }}>
+          토큰 길이: {dojoToken.length}자
+        </p>
+        <div className="row-actions-inline" style={{ marginTop: 6 }}>
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={!dojoToken}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(dojoToken);
+              } catch {
+                // ignore clipboard error
+              }
+            }}
+          >
+            현재 토큰 복사
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setDojoError(null)}
+            disabled={!dojoError}
+          >
+            연결 메시지 지우기
+          </button>
+          <p className="meta" style={{ margin: 0 }}>
+            API 상태: {isHealthy ? "정상" : "점검 필요"} / 응답 {latencyMs ?? "-"}ms
+          </p>
+        </div>
         {dojoError ? <p className="err">{dojoError}</p> : null}
       </section>
 
@@ -297,6 +536,18 @@ export default function App() {
             🏠
           </span>
           홈
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={(e) => {
+              e.preventDefault();
+              setFavoriteMenus((prev) =>
+                prev.includes("/home") ? prev.filter((x) => x !== "/home") : [...prev, "/home"],
+              );
+            }}
+          >
+            {favoriteMenus.includes("/home") ? "★" : "☆"}
+          </button>
         </NavLink>
         <NavLink to="/members" className="quick-tile" data-tone="green">
           <span className="quick-icon" aria-hidden="true">
@@ -317,6 +568,22 @@ export default function App() {
           납부
         </NavLink>
       </nav>
+
+      {favoriteMenus.length > 0 ? (
+        <>
+          <p className="section-title">즐겨찾기 메뉴</p>
+          <nav className="quick-grid" aria-label="즐겨찾기 메뉴">
+            {quickMenuItems
+              .filter((m) => favoriteMenus.includes(m.path))
+              .map((m) => (
+                <NavLink key={`fav-${m.path}`} to={m.path} className="quick-tile" data-tone="blue">
+                  <span className="quick-icon" aria-hidden="true">⭐</span>
+                  {m.label}
+                </NavLink>
+              ))}
+          </nav>
+        </>
+      ) : null}
 
       <p className="section-title">도장 메뉴</p>
       <nav className="tab-row top-nav" aria-label="도장 메뉴">
@@ -417,7 +684,14 @@ export default function App() {
         />
         <Route
           path="/settings"
-          element={<SettingsPage gatewayBase={gatewayBase} />}
+          element={
+            <SettingsPage
+              gatewayBase={gatewayBase}
+              dojoApiBase={dojoApiBase}
+              onDojoApiBaseChange={setDojoApiBase}
+              dojoConnected={dojoConnected}
+            />
+          }
         />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>

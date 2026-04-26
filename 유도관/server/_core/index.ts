@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { getSessionCookieOptions } from "./cookies";
+import { createCorsMiddleware } from "./cors-middleware";
 import { COOKIE_NAME } from "../../shared/const.js";
 import { startScheduler } from "../scheduler";
 import { getEnvDiagnostics, logRequiredEnvDiagnostics } from "./env";
@@ -13,7 +14,7 @@ import { getEnvDiagnostics, logRequiredEnvDiagnostics } from "./env";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
-    server.listen(port, () => {
+    server.listen(port, "0.0.0.0", () => {
       server.close(() => resolve(true));
     });
     server.on("error", () => resolve(false));
@@ -35,26 +36,11 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Enable CORS for all routes - reflect the request origin to support credentials
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-    );
-    res.header("Access-Control-Allow-Credentials", "true");
+  if (process.env.NODE_ENV === "production" && process.env.TRUST_PROXY !== "0") {
+    app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+  }
 
-    // Handle preflight requests
-    if (req.method === "OPTIONS") {
-      res.sendStatus(200);
-      return;
-    }
-    next();
-  });
+  app.use(createCorsMiddleware());
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -95,8 +81,8 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`[api] server listening on port ${port}`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[api] server listening on http://0.0.0.0:${port}`);
     // 납부 만료 D-7 자동 알림 스케줄러 시작
     startScheduler();
   });

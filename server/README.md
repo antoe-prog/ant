@@ -1,4 +1,4 @@
-# Backend Development Guide
+﻿# Backend Development Guide
 
 This guide covers server-side features including authentication, database, tRPC API, and integrations. **Only read this if your app needs these capabilities.**
 
@@ -15,7 +15,7 @@ This guide covers server-side features including authentication, database, tRPC 
 | User uploads files | Yes | **Optional** | S3 Storage |
 | Server-side validation | Yes | **Optional** | tRPC procedures |
 
-> **Note:** Backend ≠ User Auth. You can run a backend with LLM/Storage/ImageGen capabilities without requiring user login — just use `publicProcedure` instead of `protectedProcedure`. User auth is only mandatory when you need to identify users or sync user-specific data.
+> **Note:** Backend ??User Auth. You can run a backend with LLM/Storage/ImageGen capabilities without requiring user login ??just use `publicProcedure` instead of `protectedProcedure`. User auth is only mandatory when you need to identify users or sync user-specific data.
 
 ---
 
@@ -23,28 +23,28 @@ This guide covers server-side features including authentication, database, tRPC 
 
 ```
 server/
-  db.ts              ← Query helpers (add database functions here)
-  routers.ts         ← tRPC procedures (add API routes here)
-  storage.ts         ← S3 storage helpers (can extend)
-  _core/             ← Framework-level code (don't modify)
+  db.ts              ??Query helpers (add database functions here)
+  routers.ts         ??tRPC procedures (add API routes here)
+  storage.ts         ??S3 storage helpers (can extend)
+  _core/             ??Framework-level code (don't modify)
 drizzle/
-  schema.ts          ← Database tables & types (add your tables here)
-  relations.ts       ← Table relationships
-  migrations/        ← Auto-generated migrations
+  schema.ts          ??Database tables & types (add your tables here)
+  relations.ts       ??Table relationships
+  migrations/        ??Auto-generated migrations
 shared/
-  types.ts           ← Shared TypeScript types
-  const.ts           ← Shared constants
-  _core/             ← Framework-level code (don't modify)
+  types.ts           ??Shared TypeScript types
+  const.ts           ??Shared constants
+  _core/             ??Framework-level code (don't modify)
 lib/
-  trpc.ts            ← tRPC client (can customize headers)
-  _core/             ← Framework-level code (don't modify)
+  trpc.ts            ??tRPC client (can customize headers)
+  _core/             ??Framework-level code (don't modify)
 hooks/
-  use-auth.ts        ← Auth state hook (don't modify)
+  use-auth.ts        ??Auth state hook (don't modify)
 tests/
-  *.test.ts          ← Add your tests here
+  *.test.ts          ??Add your tests here
 ```
 
-Only touch the files with "←" markers. Anything under `_core/` directories is framework-level—avoid editing unless you are extending the infrastructure.
+Only touch the files with "?? markers. Anything under `_core/` directories is framework-level?봞void editing unless you are extending the infrastructure.
 
 ---
 
@@ -529,7 +529,7 @@ Tips
 
 ---
 
-## ☁️ File Storage
+## ?곻툘 File Storage
 
 Use the preconfigured S3 helpers in `server/storage.ts`. Credentials are injected from the platform (no manual setup required).
 
@@ -553,7 +553,7 @@ Tips
 
 ---
 
-## ☁️ Data API
+## ?곻툘 Data API
 
 When you need external data, use the omni_search with search_type = 'api' to see there's any built-in api available in Manus API Hub access. You only have to connect other api if there's no suitable built-in api available.
 
@@ -561,7 +561,7 @@ When you need external data, use the omni_search with search_type = 'api' to see
 
 ## Owner Notifications
 
-This template already ships with a `notifyOwner({ title, content })` helper (`server/_core/notification.ts`) and a protected tRPC mutation at `trpc.system.notifyOwner`. Use it whenever backend logic needs to push an operational update to the Manus project owner—common triggers are new form submissions, survey feedback, or workflow results.
+This template already ships with a `notifyOwner({ title, content })` helper (`server/_core/notification.ts`) and a protected tRPC mutation at `trpc.system.notifyOwner`. Use it whenever backend logic needs to push an operational update to the Manus project owner?봠ommon triggers are new form submissions, survey feedback, or workflow results.
 
 1. On the server, call `await notifyOwner({ title, content })` or reuse the provided `system.notifyOwner` mutation from jobs/webhooks (`trpc.system.notifyOwner.useMutation()` on the client).
 2. Handle the boolean return (`true` on success, `false` if the upstream service is temporarily unavailable) to decide whether you need a fallback channel.
@@ -1233,3 +1233,4 @@ const { data, fetchNextPage, hasNextPage } = trpc.items.list.useInfiniteQuery(
 | tRPC type errors | Run `pnpm check` to verify types |
 | Mutations fail silently | Check browser console for errors |
 | Session expired | User needs to login again |
+

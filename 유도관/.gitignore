@@ -2,12 +2,16 @@
 
 # dependencies
 node_modules/
+.pnpm/
 
 # Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
+.expo-export-apk-check/
+.android-cxx/
+.android-native-build/
 
 # Native
 .kotlin/
@@ -32,6 +36,7 @@ yarn-error.*
 
 # local env files
 .env*.local
+server/.local-users.json
 
 # typescript
 *.tsbuildinfo

@@ -11,9 +11,9 @@ import { trpc } from "@/lib/trpc";
 import {
   getBeltColor, getBeltLabel, getInitials, getAttendanceTypeLabel, formatDate,
   getCheckResultLabel, type CheckResult,
+  type AttendanceType,
 } from "@/lib/judo-utils";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
-import type { AttendanceType } from "@/lib/judo-utils";
 
 const TODAY = new Date().toISOString().split("T")[0];
 
