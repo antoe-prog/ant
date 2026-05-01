@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   int,
+  longtext,
   mysqlEnum,
   mysqlTable,
   primaryKey,
@@ -23,6 +24,7 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["member", "manager", "admin"]).default("member").notNull(),
+  accountType: mysqlEnum("accountType", ["student", "parent"]).default("student").notNull(),
   avatarUrl: text("avatarUrl"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -31,6 +33,7 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type AccountType = User["accountType"];
 
 // ─── Members (회원 프로필) ────────────────────────────────────────────────────
 export const members = mysqlTable("members", {
@@ -76,6 +79,22 @@ export const attendance = mysqlTable("attendance", {
 
 export type Attendance = typeof attendance.$inferSelect;
 export type InsertAttendance = typeof attendance.$inferInsert;
+
+// ─── AttendancePhotos (회원 출석 사진 기록) ─────────────────────────────────────
+export const attendancePhotos = mysqlTable("attendance_photos", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  memberId: int("memberId").notNull(),
+  attendanceDate: date("attendanceDate", { mode: "string" }).notNull(),
+  imageData: longtext("imageData"),
+  imageUrl: text("imageUrl"),
+  storageKey: varchar("storageKey", { length: 512 }),
+  caption: varchar("caption", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AttendancePhoto = typeof attendancePhotos.$inferSelect;
+export type InsertAttendancePhoto = typeof attendancePhotos.$inferInsert;
 
 // ─── Payments (납부) ──────────────────────────────────────────────────────────
 export const payments = mysqlTable("payments", {
@@ -225,6 +244,84 @@ export const pushTokens = mysqlTable("pushTokens", {
 export type PushToken = typeof pushTokens.$inferSelect;
 export type InsertPushToken = typeof pushTokens.$inferInsert;
 
+// ─── NotificationPreferences (관리자 승인형 알림 설정) ─────────────────────────
+export const notificationPreferences = mysqlTable(
+  "notification_preferences",
+  {
+    userId: int("userId").notNull(),
+    category: mysqlEnum("category", [
+      "announcement",
+      "attendance",
+      "payment",
+      "promotion",
+      "tournament",
+      "manager_ops",
+    ]).notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    approvedBy: int("approvedBy"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.category] }),
+  }),
+);
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
+
+export const notificationDefaultPreferences = mysqlTable("notification_default_preferences", {
+  category: mysqlEnum("category", [
+    "announcement",
+    "attendance",
+    "payment",
+    "promotion",
+    "tournament",
+    "manager_ops",
+  ]).primaryKey().notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type NotificationDefaultPreference = typeof notificationDefaultPreferences.$inferSelect;
+export type InsertNotificationDefaultPreference = typeof notificationDefaultPreferences.$inferInsert;
+
+// ─── ParentChildLinks (학부모-자녀 연결) ─────────────────────────────────────────
+export const parentChildLinks = mysqlTable(
+  "parent_child_links",
+  {
+    parentUserId: int("parentUserId").notNull(),
+    memberId: int("memberId").notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.parentUserId, t.memberId] }),
+  }),
+);
+
+export type ParentChildLink = typeof parentChildLinks.$inferSelect;
+export type InsertParentChildLink = typeof parentChildLinks.$inferInsert;
+
+// ─── ManagerTasks (관리자 운영 할 일/메모) ─────────────────────────────────────
+export const managerTasks = mysqlTable("manager_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  status: mysqlEnum("status", ["open", "done", "archived"]).default("open").notNull(),
+  priority: mysqlEnum("priority", ["low", "normal", "high"]).default("normal").notNull(),
+  dueDate: date("dueDate", { mode: "string" }),
+  memberId: int("memberId"),
+  createdBy: int("createdBy").notNull(),
+  assignedTo: int("assignedTo"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ManagerTask = typeof managerTasks.$inferSelect;
+export type InsertManagerTask = typeof managerTasks.$inferInsert;
+
 // ─── Tournaments (대회) ───────────────────────────────────────────────────────
 export const tournaments = mysqlTable("tournaments", {
   id: int("id").autoincrement().primaryKey(),
@@ -233,7 +330,11 @@ export const tournaments = mysqlTable("tournaments", {
   location: varchar("location", { length: 255 }),
   /** 참가 신청 마감일 (null이면 상시 등록) */
   registrationDeadline: date("registrationDeadline", { mode: "string" }),
+  /** 참가비. 0이면 무료 또는 미정으로 표시한다. */
+  entryFee: int("entryFee").default(0).notNull(),
   description: text("description"),
+  /** 회원에게 노출할 준비물·계좌·집합 시간 등 기타 안내사항. */
+  notice: text("notice"),
   status: mysqlEnum("status", ["upcoming", "ongoing", "completed", "cancelled"])
     .default("upcoming")
     .notNull(),

@@ -1,9 +1,10 @@
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
+import { useSemanticColors } from "@/components/ui/primitives";
 import { trpc } from "@/lib/trpc";
 import { formatAmount, formatDate } from "@/lib/judo-utils";
+import { useSelectedChild } from "@/hooks/use-selected-child";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "현금",
@@ -25,25 +26,31 @@ function getDday(dateStr: string | null | undefined): { label: string; color: st
 }
 
 export default function MyRegistrationScreen() {
-  const router = useRouter();
-  const { data: profile } = trpc.members.myProfile.useQuery();
-  const { data: payments, isLoading } = trpc.members.myPayments.useQuery();
+  const c = useSemanticColors();
+  const { isParent, children, selectedChild, selectedChildId, selectedMemberInput, setSelectedChildId } = useSelectedChild();
+  const { data: profile } = trpc.members.myProfile.useQuery(selectedMemberInput, {
+    enabled: !isParent || !!selectedChildId,
+  });
+  const { data: payments, isLoading } = trpc.members.myPayments.useQuery(selectedMemberInput, {
+    enabled: !isParent || !!selectedChildId,
+  });
 
   const dday = getDday(profile?.nextPaymentDate);
   const totalPaid = payments?.reduce((sum, p) => sum + Number(p.amount), 0) ?? 0;
+  const currentPeriod = payments?.find((p) => p.periodStart && p.periodEnd);
 
   return (
     <ScreenContainer>
       {/* 헤더 */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <BackButton />
-        <Text style={styles.headerTitle}>📅 등록기간</Text>
+        <Text style={[styles.headerTitle, { color: c.foreground }]}>📅 등록기간</Text>
         <View style={{ width: 40 }} />
       </View>
 
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1565C0" />
+          <ActivityIndicator size="large" color={c.primary} />
         </View>
       ) : (
         <FlatList
@@ -52,20 +59,48 @@ export default function MyRegistrationScreen() {
           contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
           ListHeaderComponent={
             <>
-              {/* 등록 현황 카드 */}
-              <View style={styles.statusCard}>
-                <Text style={styles.statusTitle}>현재 등록 현황</Text>
+              {isParent && children.length > 1 && (
+                <View style={styles.childTabs}>
+                  <Text style={[styles.childTabsTitle, { color: c.foreground }]}>자녀 선택</Text>
+                  <View style={styles.childTabsRow}>
+                    {children.map((child) => {
+                      const active = child.id === selectedChild?.id;
+                      return (
+                        <TouchableOpacity
+                          key={child.id}
+                          style={[
+                            styles.childTab,
+                            {
+                              borderColor: active ? c.primary : c.border,
+                              backgroundColor: active ? c.primary + "18" : c.surface,
+                            },
+                          ]}
+                          onPress={() => void setSelectedChildId(child.id)}
+                        >
+                          <Text style={[styles.childTabText, { color: active ? c.primary : c.foreground }]}>
+                            {child.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
 
-                <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>월 회비</Text>
-                  <Text style={styles.statusValue}>{formatAmount(profile?.monthlyFee ?? 0)}</Text>
+              {/* 등록 현황 카드 */}
+              <View style={[styles.statusCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+                <Text style={[styles.statusTitle, { color: c.primary }]}>현재 등록 현황</Text>
+
+                <View style={[styles.statusRow, { borderBottomColor: c.border }]}>
+                  <Text style={[styles.statusLabel, { color: c.muted }]}>월 회비</Text>
+                  <Text style={[styles.statusValue, { color: c.foreground }]}>{formatAmount(profile?.monthlyFee ?? 0)}</Text>
                 </View>
 
                 {profile?.nextPaymentDate && (
-                  <View style={styles.statusRow}>
-                    <Text style={styles.statusLabel}>다음 납부일</Text>
+                  <View style={[styles.statusRow, { borderBottomColor: c.border }]}>
+                    <Text style={[styles.statusLabel, { color: c.muted }]}>다음 납부일</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={styles.statusValue}>{formatDate(profile.nextPaymentDate)}</Text>
+                      <Text style={[styles.statusValue, { color: c.foreground }]}>{formatDate(profile.nextPaymentDate)}</Text>
                       {dday && (
                         <View style={[styles.ddayBadge, { backgroundColor: dday.color + "20" }]}>
                           <Text style={[styles.ddayText, { color: dday.color }]}>{dday.label}</Text>
@@ -75,9 +110,18 @@ export default function MyRegistrationScreen() {
                   </View>
                 )}
 
+                {currentPeriod?.periodStart && currentPeriod?.periodEnd && (
+                  <View style={[styles.statusRow, { borderBottomColor: c.border }]}>
+                    <Text style={[styles.statusLabel, { color: c.muted }]}>현재 등록기간</Text>
+                    <Text style={[styles.statusValue, { color: c.foreground }]}>
+                      {formatDate(currentPeriod.periodStart)} ~ {formatDate(currentPeriod.periodEnd)}
+                    </Text>
+                  </View>
+                )}
+
                 <View style={[styles.statusRow, { borderBottomWidth: 0 }]}>
-                  <Text style={styles.statusLabel}>총 납부 금액</Text>
-                  <Text style={[styles.statusValue, { color: "#1565C0", fontWeight: "700" }]}>{formatAmount(totalPaid)}</Text>
+                  <Text style={[styles.statusLabel, { color: c.muted }]}>총 납부 금액</Text>
+                  <Text style={[styles.statusValue, { color: c.primary, fontWeight: "700" }]}>{formatAmount(totalPaid)}</Text>
                 </View>
               </View>
 
@@ -94,31 +138,31 @@ export default function MyRegistrationScreen() {
               )}
 
               {/* 납부 이력 헤더 */}
-              <Text style={styles.sectionTitle}>납부 이력</Text>
+              <Text style={[styles.sectionTitle, { color: c.muted }]}>납부 이력</Text>
               {(!payments || payments.length === 0) && (
                 <View style={styles.emptyBox}>
-                  <Text style={styles.emptyText}>납부 이력이 없습니다.</Text>
+                  <Text style={[styles.emptyText, { color: c.muted }]}>납부 이력이 없습니다.</Text>
                 </View>
               )}
             </>
           }
           renderItem={({ item }) => (
-            <View style={styles.paymentCard}>
+            <View style={[styles.paymentCard, { backgroundColor: c.surface, borderColor: c.border }]}>
               <View style={styles.paymentTop}>
-                <Text style={styles.paymentDate}>{formatDate(String(item.paidAt))}</Text>
-                <Text style={styles.paymentAmount}>{formatAmount(Number(item.amount))}</Text>
+                <Text style={[styles.paymentDate, { color: c.muted }]}>{formatDate(String(item.paidAt))}</Text>
+                <Text style={[styles.paymentAmount, { color: c.primary }]}>{formatAmount(Number(item.amount))}</Text>
               </View>
               <View style={styles.paymentBottom}>
                 <View style={styles.methodBadge}>
                   <Text style={styles.methodText}>{METHOD_LABEL[item.method] ?? item.method}</Text>
                 </View>
                 {item.periodStart && item.periodEnd && (
-                  <Text style={styles.periodText}>
+                  <Text style={[styles.periodText, { color: c.muted }]}>
                     {formatDate(item.periodStart)} ~ {formatDate(item.periodEnd)}
                   </Text>
                 )}
               </View>
-              {item.notes ? <Text style={styles.paymentNotes}>📝 {item.notes}</Text> : null}
+              {item.notes ? <Text style={[styles.paymentNotes, { color: c.muted }]}>📝 {item.notes}</Text> : null}
             </View>
           )}
         />
@@ -141,6 +185,11 @@ const styles = StyleSheet.create({
   backIcon: { fontSize: 28, color: "#1565C0", fontWeight: "300" },
   headerTitle: { fontSize: 18, fontWeight: "700", color: "#11181C" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  childTabs: { marginBottom: 12 },
+  childTabsTitle: { fontSize: 14, fontWeight: "800", marginBottom: 8 },
+  childTabsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  childTab: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  childTabText: { fontSize: 13, fontWeight: "800" },
   statusCard: {
     backgroundColor: "#EFF6FF",
     borderRadius: 16,

@@ -9,6 +9,7 @@ export type User = {
   email: string | null;
   loginMethod: string | null;
   role?: "member" | "manager" | "admin";
+  accountType?: "student" | "parent";
   avatarUrl?: string | null;
   lastSignedIn: Date;
 };
@@ -28,6 +29,7 @@ function normalizeUser(raw: unknown): User | null {
       candidate.role === "member" || candidate.role === "manager" || candidate.role === "admin"
         ? candidate.role
         : undefined,
+    accountType: candidate.accountType === "parent" ? "parent" : "student",
     avatarUrl: typeof candidate.avatarUrl === "string" ? candidate.avatarUrl : null,
     lastSignedIn: new Date(
       typeof candidate.lastSignedIn === "string" || candidate.lastSignedIn instanceof Date

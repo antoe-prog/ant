@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, TouchableOpacity } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage } from "@/lib/error-messages";
 import { useAuth } from "@/hooks/use-auth";
 import { useBackHandler } from "@/hooks/use-back-handler";
 
@@ -24,7 +25,7 @@ export default function InviteScreen() {
       setStatus("success");
     },
     onError: (e) => {
-      setErrorMessage(e.message);
+      setErrorMessage(getFriendlyErrorMessage(e));
       setStatus("error");
     },
   });

@@ -20,6 +20,7 @@ export default function QrCodeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [showFull, setShowFull] = useState(false);
+  const isParentAccount = user?.accountType === "parent";
 
   useBackHandler(() => {
     router.back();
@@ -27,7 +28,7 @@ export default function QrCodeScreen() {
   });
 
   const { data: myProfile, isLoading } = trpc.members.myProfile.useQuery(undefined, {
-    enabled: !!user,
+    enabled: !!user && !isParentAccount,
   });
 
   // QR 코드의 타임스탬프 `t`는 화면이 열려 있는 동안 주기적으로 갱신되어야 만료되지 않는다.
@@ -60,7 +61,16 @@ export default function QrCodeScreen() {
       </View>
 
       <View style={styles.container}>
-        {isLoading ? (
+        {isParentAccount ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>👨‍👩‍👧‍👦</Text>
+            <Text style={styles.emptyTitle}>학부모 계정입니다</Text>
+            <Text style={styles.emptyDesc}>
+              QR 출석증은 학생 본인 계정에서만 사용할 수 있습니다.{"\n"}
+              자녀의 출석 현황은 학부모 홈에서 확인해 주세요.
+            </Text>
+          </View>
+        ) : isLoading ? (
           <View style={styles.loadingBox}>
             <Text style={styles.loadingText}>불러오는 중...</Text>
           </View>

@@ -7,9 +7,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import { getBeltColor, getBeltLabel, formatDate, getInitials } from "@/lib/judo-utils";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import type { BeltRank } from "@/lib/judo-utils";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
 
 type PromotionResult = "pending" | "passed" | "failed";
 
@@ -25,6 +27,13 @@ const RESULT_LABELS: Record<PromotionResult, string> = {
   passed: "합격",
   failed: "불합격",
 };
+
+function isValidDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
 
 function PromotionChecklistSection({
   promotionId,
@@ -42,7 +51,7 @@ function PromotionChecklistSection({
     onSuccess: () => {
       void utils.promotions.checklist.invalidate({ promotionId });
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   if (isLoading || !data) {
@@ -105,7 +114,7 @@ function PromotionChecklistSection({
 
 export default function PromotionsScreen() {
   const { user, isAuthenticated } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const utils = trpc.useUtils();
   const insets = useSafeAreaInsets();
 
@@ -153,7 +162,7 @@ export default function PromotionsScreen() {
       setShowAddModal(false);
       setForm({ memberId: null, examDate: now.toISOString().split("T")[0], currentBelt: "white", targetBelt: "yellow", notes: "" });
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const updateResultMutation = trpc.promotions.updateResult.useMutation({
@@ -169,7 +178,7 @@ export default function PromotionsScreen() {
         Alert.alert("합격 완료 🎉", "띠 등급이 자동으로 업그레이드되었습니다.");
       }
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const deleteMutation = trpc.promotions.delete.useMutation({
@@ -177,12 +186,19 @@ export default function PromotionsScreen() {
       utils.promotions.byMonth.invalidate();
       void utils.members.activityTimeline.invalidate();
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const handleCreate = () => {
     if (!form.memberId) { Alert.alert("오류", "회원을 선택해 주세요."); return; }
-    if (!form.examDate) { Alert.alert("오류", "심사 날짜를 입력해 주세요."); return; }
+    if (!isValidDateInput(form.examDate)) {
+      Alert.alert("오류", "심사 날짜는 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+      return;
+    }
+    if (form.currentBelt === form.targetBelt) {
+      Alert.alert("오류", "현재 띠와 목표 띠는 달라야 합니다.");
+      return;
+    }
     createMutation.mutate({
       memberId: form.memberId,
       examDate: form.examDate,

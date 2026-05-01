@@ -30,6 +30,7 @@ export function useAuth(options?: UseAuthOptions) {
             email: apiUser.email,
             loginMethod: apiUser.loginMethod,
             role: (apiUser.role as "member" | "manager" | "admin") ?? "member",
+            accountType: apiUser.accountType === "parent" ? "parent" : "student",
             avatarUrl: apiUser.avatarUrl ?? null,
             lastSignedIn: new Date(apiUser.lastSignedIn),
           };

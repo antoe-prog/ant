@@ -71,6 +71,7 @@ export default function RootLayout() {
 
   const router = useRouter();
   const [envBannerMessage, setEnvBannerMessage] = useState<string | null>(null);
+  const [networkBannerMessage, setNetworkBannerMessage] = useState<string | null>(null);
 
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
@@ -165,6 +166,39 @@ export default function RootLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let failureCount = 0;
+    const checkApiConnection = async () => {
+      try {
+        const apiBase = getApiBaseUrl();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`${apiBase}/api/health`, {
+          credentials: "include",
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`health:${res.status}`);
+        failureCount = 0;
+        if (!cancelled) setNetworkBannerMessage(null);
+      } catch {
+        failureCount += 1;
+        if (!cancelled && failureCount >= 1) {
+          setNetworkBannerMessage(
+            `API 서버 연결이 불안정합니다. 현재 주소: ${getApiBaseUrl()}`,
+          );
+        }
+      }
+    };
+    void checkApiConnection();
+    const interval = setInterval(() => void checkApiConnection(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Create clients once and reuse them
   const [queryClient] = useState(
     () =>
@@ -222,6 +256,29 @@ export default function RootLayout() {
               </Text>
               <Pressable
                 onPress={() => setEnvBannerMessage(null)}
+                accessibilityRole="button"
+                style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>닫기</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {networkBannerMessage ? (
+            <View
+              style={{
+                backgroundColor: "#92400e",
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", flex: 1 }}>
+                {networkBannerMessage}
+              </Text>
+              <Pressable
+                onPress={() => setNetworkBannerMessage(null)}
                 accessibilityRole="button"
                 style={{ paddingHorizontal: 8, paddingVertical: 4 }}
               >

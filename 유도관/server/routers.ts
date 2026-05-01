@@ -25,11 +25,16 @@ import {
   markAnnouncementRead,
   getAttendanceByMember,
   getAttendanceByMemberAndMonth,
+  getAttendancePhotosByMemberAndDate,
+  getAttendancePhotosByMemberAndMonth,
   getDashboardStats,
+  getManagerOperationsSummary,
   getMemberById,
   getMemberActivityTimeline,
   getMemberOverviewSnapshot,
   getMemberByUserId,
+  getChildrenByParentUserId,
+  getPrimaryChildByParentUserId,
   getMonthlyAttendanceCount,
   getMonthlyRevenue,
   getPaymentsByMember,
@@ -56,7 +61,11 @@ import {
   getAdminCount,
   linkMemberToUser,
   unlinkMemberFromUser,
+  getParentChildLinksForAdmin,
+  linkParentToMember,
+  unlinkParentFromMember,
   createActivityLog,
+  createAttendancePhoto,
   getActivityLogs,
   createInviteToken,
   getInviteToken,
@@ -66,6 +75,7 @@ import {
   saveMemoHistory,
   deleteMemoHistoryItem,
   clearMemoHistory,
+  deleteAttendancePhotoForUser,
   upsertPushToken,
   deletePushToken,
   getAllTournaments,
@@ -78,6 +88,19 @@ import {
   deleteTournament,
   upsertTournamentParticipant,
   removeTournamentParticipant,
+  getNotificationPreferencesForAdmin,
+  setNotificationPreference,
+  getNotificationDefaultPreferences,
+  setNotificationDefaultPreference,
+  applyNotificationDefaultsToAllUsers,
+  createDatabaseBackup,
+  importMembersFromBackup,
+  getMonthlyOperationalReport,
+  getManagerTasks,
+  createManagerTask,
+  updateManagerTask,
+  setManagerTaskDone,
+  archiveManagerTask,
 } from "./db";
 import { storagePut } from "./storage";
 import { sendPushNotifications } from "./push";
@@ -98,6 +121,46 @@ const PASSWORD_SCHEMA = z
   .min(8, "비밀번호는 8자 이상이어야 합니다.")
   .max(200, "비밀번호가 너무 깁니다.");
 
+function isValidDateOnly(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, y, m, d] = match;
+  const date = new Date(Number(y), Number(m) - 1, Number(d));
+  return (
+    date.getFullYear() === Number(y) &&
+    date.getMonth() === Number(m) - 1 &&
+    date.getDate() === Number(d)
+  );
+}
+
+const DATE_SCHEMA = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "날짜는 YYYY-MM-DD 형식이어야 합니다.")
+  .refine(isValidDateOnly, "존재하지 않는 날짜입니다.");
+
+const NOTIFICATION_CATEGORY_SCHEMA = z.enum([
+  "announcement",
+  "attendance",
+  "payment",
+  "promotion",
+  "tournament",
+  "manager_ops",
+]);
+
+function parseImageDataUrl(value: string): { buffer: Buffer; mimeType: string; ext: string } {
+  const match = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(value);
+  if (!match) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "이미지 파일만 업로드할 수 있습니다." });
+  }
+  const subtype = match[1].toLowerCase();
+  const ext = subtype === "jpeg" ? "jpg" : subtype;
+  return {
+    buffer: Buffer.from(match[2], "base64"),
+    mimeType: `image/${subtype === "jpg" ? "jpeg" : subtype}`,
+    ext,
+  };
+}
+
 async function issueSession(opts: {
   ctx: { res: import("express").Response; req: import("express").Request };
   openId: string;
@@ -114,7 +177,17 @@ async function issueSession(opts: {
 
 const authRouter = router({
   me: authedProcedure.query(async ({ ctx }) => {
-    return { id: ctx.user.id, name: ctx.user.name, email: ctx.user.email, role: ctx.user.role, avatarUrl: ctx.user.avatarUrl };
+    return {
+      id: ctx.user.id,
+      openId: ctx.user.openId,
+      name: ctx.user.name,
+      email: ctx.user.email,
+      role: ctx.user.role,
+      accountType: ctx.user.accountType ?? "student",
+      loginMethod: ctx.user.loginMethod,
+      avatarUrl: ctx.user.avatarUrl,
+      lastSignedIn: ctx.user.lastSignedIn,
+    };
   }),
   logout: publicProcedure.mutation(({ ctx }) => {
     const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -132,6 +205,7 @@ const authRouter = router({
         email: EMAIL_SCHEMA,
         password: PASSWORD_SCHEMA,
         name: z.string().trim().min(1, "이름을 입력해 주세요.").max(64),
+        accountType: z.enum(["student", "parent"]).default("student"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -144,6 +218,7 @@ const authRouter = router({
         email: input.email,
         name: input.name,
         passwordHash,
+        accountType: input.accountType,
       });
       const sessionToken = await issueSession({ ctx, openId, name: input.name });
       return {
@@ -154,6 +229,7 @@ const authRouter = router({
           name: input.name,
           email: input.email,
           role: "member" as const,
+          accountType: input.accountType,
           loginMethod: "email",
         },
       };
@@ -183,11 +259,34 @@ const authRouter = router({
           name: user.name,
           email: user.email,
           role: user.role,
+          accountType: user.accountType ?? "student",
           loginMethod: user.loginMethod,
         },
       };
-    }),
+  }),
 });
+
+async function getReadableMemberForUser(
+  user: NonNullable<import("./_core/context").TrpcContext["user"]>,
+  memberId?: number,
+) {
+  if (user.accountType === "parent") {
+    if (memberId) {
+      const children = await getChildrenByParentUserId(user.id);
+      const child = children.find((item) => item.id === memberId);
+      if (!child) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "연결된 자녀 정보만 조회할 수 있습니다." });
+      }
+      return child;
+    }
+    return getPrimaryChildByParentUserId(user.id);
+  }
+  const member = await getMemberByUserId(user.id);
+  if (memberId && member?.id !== memberId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "본인 회원 정보만 조회할 수 있습니다." });
+  }
+  return member;
+}
 
 const membersRouter = router({
   list: managerProcedure.query(async () => getAllMembers()),
@@ -213,39 +312,68 @@ const membersRouter = router({
   activityTimeline: managerProcedure
     .input(z.object({ memberId: z.number(), limit: z.number().int().min(1).max(200).optional() }))
     .query(async ({ input }) => getMemberActivityTimeline(input.memberId, input.limit ?? 80)),
-  myProfile: authedProcedure.query(async ({ ctx }) => getMemberByUserId(ctx.user.id)),
+  myProfile: authedProcedure
+    .input(z.object({ memberId: z.number().optional() }).optional())
+    .query(async ({ ctx, input }) => getReadableMemberForUser(ctx.user, input?.memberId)),
+  myChildren: authedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.accountType !== "parent") return [];
+    return getChildrenByParentUserId(ctx.user.id);
+  }),
+  updateMyProfile: authedProcedure.input(z.object({
+    name: z.string().trim().min(1).max(128).optional(),
+    phone: z.string().trim().max(20).nullable().optional(),
+    email: z.string().trim().email().nullable().optional(),
+    birthDate: DATE_SCHEMA.nullable().optional(),
+    emergencyContact: z.string().trim().max(128).nullable().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    if (ctx.user.accountType === "parent") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "학부모 계정은 자녀 정보를 직접 수정할 수 없습니다." });
+    }
+    const member = await getMemberByUserId(ctx.user.id);
+    if (!member) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "연결된 회원 정보가 없습니다." });
+    }
+    const patch: Parameters<typeof updateMember>[1] = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.phone !== undefined) patch.phone = input.phone || null;
+    if (input.email !== undefined) patch.email = input.email || null;
+    if (input.birthDate !== undefined) patch.birthDate = input.birthDate || null;
+    if (input.emergencyContact !== undefined) patch.emergencyContact = input.emergencyContact || null;
+    await updateMember(member.id, patch);
+    return { success: true };
+  }),
   create: managerProcedure.input(z.object({
-    name: z.string().min(1),
-    phone: z.string().optional(),
-    email: z.string().email().optional(),
-    birthDate: z.string().optional(),
+    name: z.string().trim().min(1).max(128),
+    phone: z.string().trim().max(20).optional(),
+    email: EMAIL_SCHEMA.optional(),
+    birthDate: DATE_SCHEMA.optional(),
     gender: z.enum(["male", "female", "other"]).optional(),
     beltRank: z.enum(["white", "yellow", "orange", "green", "blue", "brown", "black"]).default("white"),
     beltDegree: z.number().int().min(1).max(9).default(1),
     status: z.enum(["active", "suspended", "withdrawn"]).default("active"),
-    joinDate: z.string(),
+    joinDate: DATE_SCHEMA,
     monthlyFee: z.number().int().min(0).default(0),
-    nextPaymentDate: z.string().optional(),
-    emergencyContact: z.string().optional(),
-    notes: z.string().optional(),
+    nextPaymentDate: DATE_SCHEMA.optional(),
+    emergencyContact: z.string().trim().max(128).optional(),
+    notes: z.string().trim().max(2000).optional(),
   })).mutation(async ({ input }) => {
     const id = await createMember(input);
     return { id };
   }),
   update: managerProcedure.input(z.object({
     id: z.number(),
-    name: z.string().min(1).optional(),
-    phone: z.string().optional(),
-    email: z.string().optional(),
-    birthDate: z.string().optional(),
+    name: z.string().trim().min(1).max(128).optional(),
+    phone: z.string().trim().max(20).optional(),
+    email: EMAIL_SCHEMA.optional(),
+    birthDate: DATE_SCHEMA.optional(),
     gender: z.enum(["male", "female", "other"]).optional(),
     beltRank: z.enum(["white", "yellow", "orange", "green", "blue", "brown", "black"]).optional(),
     beltDegree: z.number().int().min(1).max(9).optional(),
     status: z.enum(["active", "suspended", "withdrawn"]).optional(),
     monthlyFee: z.number().int().min(0).optional(),
-    nextPaymentDate: z.string().nullable().optional(),
-    emergencyContact: z.string().optional(),
-    notes: z.string().optional(),
+    nextPaymentDate: DATE_SCHEMA.nullable().optional(),
+    emergencyContact: z.string().trim().max(128).optional(),
+    notes: z.string().trim().max(2000).optional(),
   })).mutation(async ({ input, ctx }) => {
     const { id, ...data } = input;
     // notes가 업데이트될 때 이전 메모를 이력에 저장 후 notesUpdatedAt 자동 설정
@@ -266,34 +394,96 @@ const membersRouter = router({
     return { success: true };
   }),
   // 회원 본인 승급심사 이력 조회
-  myPromotions: authedProcedure.query(async ({ ctx }) => {
-    const member = await getMemberByUserId(ctx.user.id);
+  myPromotions: authedProcedure.input(z.object({ memberId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {
+    const member = await getReadableMemberForUser(ctx.user, input?.memberId);
     if (!member) return [];
     return getPromotionsByMember(member.id);
   }),
   // 회원 본인 납부 이력 조회
-  myPayments: authedProcedure.query(async ({ ctx }) => {
-    const member = await getMemberByUserId(ctx.user.id);
+  myPayments: authedProcedure.input(z.object({ memberId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {
+    const member = await getReadableMemberForUser(ctx.user, input?.memberId);
     if (!member) return [];
     return getPaymentsByMember(member.id);
   }),
   // 회원 본인 월별 출석 조회
-  myAttendanceByMonth: authedProcedure.input(z.object({ year: z.number(), month: z.number() })).query(async ({ ctx, input }) => {
-    const member = await getMemberByUserId(ctx.user.id);
+  myAttendanceByMonth: authedProcedure.input(z.object({ year: z.number(), month: z.number(), memberId: z.number().optional() })).query(async ({ ctx, input }) => {
+    const member = await getReadableMemberForUser(ctx.user, input.memberId);
     if (!member) return [];
     return getAttendanceByMemberAndMonth(member.id, input.year, input.month);
   }),
   // 회원 본인 전체 출석 이력 (달력용)
-  myAttendanceAll: authedProcedure.query(async ({ ctx }) => {
-    const member = await getMemberByUserId(ctx.user.id);
+  myAttendanceAll: authedProcedure.input(z.object({ memberId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {
+    const member = await getReadableMemberForUser(ctx.user, input?.memberId);
     if (!member) return [];
     return getAttendanceByMember(member.id);
   }),
+  myAttendancePhotosByMonth: authedProcedure
+    .input(z.object({ year: z.number(), month: z.number().min(1).max(12), memberId: z.number().optional() }))
+    .query(async ({ ctx, input }) => {
+      const member = await getReadableMemberForUser(ctx.user, input.memberId);
+      if (!member) return [];
+      return getAttendancePhotosByMemberAndMonth(member.id, input.year, input.month);
+    }),
+  myAttendancePhotosByDate: authedProcedure
+    .input(z.object({ attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), memberId: z.number().optional() }))
+    .query(async ({ ctx, input }) => {
+      const member = await getReadableMemberForUser(ctx.user, input.memberId);
+      if (!member) return [];
+      return getAttendancePhotosByMemberAndDate(member.id, input.attendanceDate);
+    }),
+  addAttendancePhoto: authedProcedure
+    .input(z.object({
+      attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      imageData: z
+        .string()
+        .max(3_500_000, "사진 용량이 너무 큽니다. 더 작은 사진을 선택해 주세요.")
+        .refine((value) => /^data:image\/(png|jpe?g|webp);base64,/i.test(value), "이미지 파일만 업로드할 수 있습니다."),
+      caption: z.string().trim().max(255).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.accountType === "parent") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "학부모 계정은 자녀 출석 사진을 직접 추가할 수 없습니다." });
+      }
+      const member = await getMemberByUserId(ctx.user.id);
+      if (!member) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "연결된 회원 정보가 없습니다." });
+      }
+      const parsed = parseImageDataUrl(input.imageData);
+      let imageData: string | null = null;
+      let imageUrl: string | null = null;
+      let storageKey: string | null = null;
+      try {
+        const key = `attendance-photos/member-${member.id}/${input.attendanceDate}-${Date.now()}.${parsed.ext}`;
+        const stored = await storagePut(key, parsed.buffer, parsed.mimeType);
+        imageUrl = stored.url;
+        storageKey = stored.key;
+      } catch (error) {
+        // 저장소 환경변수가 없는 로컬 개발 환경에서는 기존 base64 방식으로 안전하게 폴백한다.
+        console.warn("[AttendancePhoto] storage upload failed; falling back to DB imageData:", error);
+        imageData = input.imageData;
+      }
+      const id = await createAttendancePhoto({
+        userId: ctx.user.id,
+        memberId: member.id,
+        attendanceDate: input.attendanceDate,
+        imageData,
+        imageUrl,
+        storageKey,
+        caption: input.caption || null,
+      });
+      return { id };
+    }),
+  deleteAttendancePhoto: authedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteAttendancePhotoForUser(input.id, ctx.user.id);
+      return { success: true };
+    }),
   /** 회원 본인 앞으로의 일정 (승급 심사 예정·납부 예정일) */
   mySchedule: authedProcedure
-    .input(z.object({ days: z.number().min(7).max(365).optional() }))
+    .input(z.object({ days: z.number().min(7).max(365).optional(), memberId: z.number().optional() }))
     .query(async ({ ctx, input }) => {
-      const member = await getMemberByUserId(ctx.user.id);
+      const member = await getReadableMemberForUser(ctx.user, input.memberId);
       if (!member) {
         return { hasMemberProfile: false as const, items: [] };
       }
@@ -358,10 +548,10 @@ const attendanceRouter = router({
   monthlyCount: managerProcedure.input(z.object({ year: z.number(), month: z.number() })).query(async ({ input }) => getMonthlyAttendanceCount(input.year, input.month)),
   check: managerProcedure.input(z.object({
     memberId: z.number(),
-    attendanceDate: z.string(),
+    attendanceDate: DATE_SCHEMA,
     type: z.enum(["regular", "makeup", "trial"]).default("regular"),
     checkResult: z.enum(["present", "late", "absent"]).default("present"),
-    notes: z.string().optional(),
+    notes: z.string().trim().max(500).optional(),
   })).mutation(async ({ ctx, input }) => {
     const { id, isNew } = await checkAttendance({
       memberId: input.memberId,
@@ -395,10 +585,10 @@ const attendanceRouter = router({
   // 일괄 출석 체크
   checkBulk: managerProcedure.input(z.object({
     memberIds: z.array(z.number()).min(1),
-    attendanceDate: z.string(),
+    attendanceDate: DATE_SCHEMA,
     type: z.enum(["regular", "makeup", "trial"]).default("regular"),
     checkResult: z.enum(["present", "late", "absent"]).default("present"),
-    notes: z.string().optional(),
+    notes: z.string().trim().max(500).optional(),
   })).mutation(async ({ ctx, input }) => {
     const bulkNote = input.notes?.trim() || (input.checkResult === "absent" ? "일괄 결석" : "일괄 출석");
     const results = await Promise.allSettled(
@@ -476,20 +666,39 @@ const paymentsRouter = router({
   monthlyRevenue: managerProcedure.input(z.object({ year: z.number(), month: z.number() })).query(async ({ input }) => getMonthlyRevenue(input.year, input.month)),
   create: managerProcedure.input(z.object({
     memberId: z.number(),
-    amount: z.number().int().min(0),
+    amount: z.number().int().min(1, "납부 금액은 1원 이상이어야 합니다."),
     method: z.enum(["cash", "card", "transfer"]).default("cash"),
-    periodStart: z.string().optional(),
-    periodEnd: z.string().optional(),
-    notes: z.string().optional(),
+    periodStart: DATE_SCHEMA.optional(),
+    periodEnd: DATE_SCHEMA.optional(),
+    notes: z.string().trim().max(500).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const id = await createPayment({ memberId: input.memberId, amount: input.amount, paidAt: new Date(), method: input.method, periodStart: (input.periodStart ?? null) as string | null, periodEnd: (input.periodEnd ?? null) as string | null, notes: input.notes, recordedBy: ctx.user.id });
+    if ((input.periodStart && !input.periodEnd) || (!input.periodStart && input.periodEnd)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "등록기간은 시작일과 종료일을 함께 입력해 주세요." });
+    }
+    if (input.periodStart && input.periodEnd && input.periodStart > input.periodEnd) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "등록기간 시작일은 종료일보다 늦을 수 없습니다." });
+    }
+    const member = await getMemberById(input.memberId);
+    if (!member) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "회원을 찾을 수 없습니다." });
+    }
+    const id = await createPayment({
+      memberId: input.memberId,
+      amount: input.amount,
+      paidAt: new Date(),
+      method: input.method,
+      periodStart: (input.periodStart ?? null) as string | null,
+      periodEnd: (input.periodEnd ?? null) as string | null,
+      notes: input.notes,
+      recordedBy: ctx.user.id,
+    });
     const nextDate = new Date();
     nextDate.setMonth(nextDate.getMonth() + 1);
-    const nextPaymentDateStr = nextDate.toISOString().split("T")[0];
+    const nextPaymentDateStr = input.periodEnd ?? nextDate.toISOString().split("T")[0];
     // nextPaymentDate를 한 달 뒤로 갱신 → 스케줄러의 만료 알림 대상에서 자동 제외됨
     await updateMember(input.memberId, { nextPaymentDate: nextPaymentDateStr });
     // 납부 완료 즉시 회원에게 확인 알림 발송 (비동기)
-    getMemberById(input.memberId).then((member) => {
+    Promise.resolve(member).then((member) => {
       if (member?.userId) {
         const methodLabel: Record<string, string> = { cash: "현금", card: "카드", transfer: "계좌이체" };
         const amountFormatted = input.amount.toLocaleString("ko-KR");
@@ -583,6 +792,10 @@ const announcementsRouter = router({
 
 const dashboardRouter = router({
   stats: managerProcedure.query(async () => getDashboardStats()),
+  operationsSummary: managerProcedure.query(async () => getManagerOperationsSummary()),
+  monthlyReport: managerProcedure
+    .input(z.object({ year: z.number().int().min(2000).max(2100), month: z.number().int().min(1).max(12) }))
+    .query(async ({ input }) => getMonthlyOperationalReport(input.year, input.month)),
   monthlyStats: managerProcedure.query(async () => {
     // 최근 6개월: 매출, 출석 횟수, 도장 전체 추정 출석률(활성 회원×월 22일 기준, 대시보드 카드와 동일)
     const dash = await getDashboardStats();
@@ -618,12 +831,15 @@ const promotionsRouter = router({
   upcoming: managerProcedure.input(z.object({ days: z.number().default(30) })).query(async ({ input }) => getUpcomingPromotions(input.days)),
   create: managerProcedure.input(z.object({
     memberId: z.number(),
-    examDate: z.string(),
+    examDate: DATE_SCHEMA,
     currentBelt: z.enum(["white", "yellow", "orange", "green", "blue", "brown", "black"]),
     targetBelt: z.enum(["white", "yellow", "orange", "green", "blue", "brown", "black"]),
     result: z.enum(["pending", "passed", "failed"]).default("pending"),
-    notes: z.string().optional(),
+    notes: z.string().trim().max(500).optional(),
   })).mutation(async ({ ctx, input }) => {
+    if (input.currentBelt === input.targetBelt) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "현재 띠와 목표 띠는 달라야 합니다." });
+    }
     const id = await createPromotion({ ...input, recordedBy: ctx.user.id });
     // 대상 회원에게 심사 등록 알림 (회원 계정이 연결되어 있고 푸시 토큰이 있을 때만 전달)
     void (async () => {
@@ -731,12 +947,120 @@ const adminRouter = router({
     return { success: true };
   }),
   // 활동 로그
+  parentChildLinks: adminProcedure.query(async () => getParentChildLinksForAdmin()),
+  linkParentChild: adminProcedure
+    .input(z.object({ parentUserId: z.number(), memberId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const targetUser = (await getAllUsers()).find((u) => u.id === input.parentUserId);
+      if (!targetUser) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "학부모 계정을 찾을 수 없습니다." });
+      }
+      if (targetUser.accountType !== "parent") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "학부모 유형으로 가입한 계정만 자녀와 연결할 수 있습니다." });
+      }
+      await linkParentToMember({
+        parentUserId: input.parentUserId,
+        memberId: input.memberId,
+        createdBy: ctx.user.id,
+      });
+      await createActivityLog({
+        userId: ctx.user.id,
+        action: "linkParentChild",
+        targetType: "member",
+        targetId: input.memberId,
+        description: `학부모 #${input.parentUserId}와 자녀 회원 #${input.memberId} 연결`,
+      });
+      return { success: true };
+    }),
+  unlinkParentChild: adminProcedure
+    .input(z.object({ parentUserId: z.number(), memberId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await unlinkParentFromMember(input.parentUserId, input.memberId);
+      await createActivityLog({
+        userId: ctx.user.id,
+        action: "unlinkParentChild",
+        targetType: "member",
+        targetId: input.memberId,
+        description: `학부모 #${input.parentUserId}와 자녀 회원 #${input.memberId} 연결 해제`,
+      });
+      return { success: true };
+    }),
   activityLogs: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(500).optional(),
       action: z.string().optional(),
     }))
     .query(async ({ input }) => getActivityLogs(input.limit ?? 150, input.action)),
+  notificationPreferences: adminProcedure.query(async () => getNotificationPreferencesForAdmin()),
+  notificationDefaults: adminProcedure.query(async () => getNotificationDefaultPreferences()),
+  setNotificationPreference: adminProcedure
+    .input(z.object({
+      userId: z.number(),
+      category: NOTIFICATION_CATEGORY_SCHEMA,
+      enabled: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await setNotificationPreference(input.userId, input.category, input.enabled, ctx.user.id);
+      await createActivityLog({
+        userId: ctx.user.id,
+        action: "setNotificationPreference",
+        targetType: "user",
+        targetId: input.userId,
+        description: `알림 ${input.category} ${input.enabled ? "허용" : "차단"}`,
+      });
+      return { success: true };
+    }),
+  setNotificationDefault: adminProcedure
+    .input(z.object({
+      category: NOTIFICATION_CATEGORY_SCHEMA,
+      enabled: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await setNotificationDefaultPreference(input.category, input.enabled, ctx.user.id);
+      await createActivityLog({
+        userId: ctx.user.id,
+        action: "setNotificationDefault",
+        targetType: "notification",
+        description: `신규 알림 기본값 ${input.category} ${input.enabled ? "ON" : "OFF"}`,
+      });
+      return { success: true };
+    }),
+  applyNotificationDefaults: adminProcedure.mutation(async ({ ctx }) => {
+    const result = await applyNotificationDefaultsToAllUsers(ctx.user.id);
+    await createActivityLog({
+      userId: ctx.user.id,
+      action: "applyNotificationDefaults",
+      targetType: "notification",
+      description: `알림 기본 정책 전체 적용: 사용자 ${result.users}명, 설정 ${result.preferences}개`,
+    });
+    return result;
+  }),
+  createBackup: adminProcedure.mutation(async ({ ctx }) => {
+    const backup = await createDatabaseBackup();
+    await createActivityLog({
+      userId: ctx.user.id,
+      action: "createBackup",
+      description: "DB 백업 JSON 생성",
+    });
+    return backup;
+  }),
+  importBackupMembers: adminProcedure
+    .input(z.object({ backupJson: z.string().min(2) }))
+    .mutation(async ({ ctx, input }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(input.backupJson);
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "백업 JSON 형식이 올바르지 않습니다." });
+      }
+      const result = await importMembersFromBackup(parsed);
+      await createActivityLog({
+        userId: ctx.user.id,
+        action: "importBackupMembers",
+        description: `백업 회원 가져오기: 생성 ${result.created}명, 건너뜀 ${result.skipped}명`,
+      });
+      return result;
+    }),
   // 초대 링크
   createInvite: adminProcedure.input(z.object({ memberId: z.number().optional() })).mutation(async ({ input, ctx }) => {
     const crypto = await import("crypto");
@@ -788,12 +1112,67 @@ const memoHistoryRouter = router({
   }),
 });
 
+const managerTasksRouter = router({
+  list: managerProcedure
+    .input(z.object({
+      includeDone: z.boolean().optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    }).optional())
+    .query(async ({ input }) => getManagerTasks(input)),
+  create: managerProcedure
+    .input(z.object({
+      title: z.string().trim().min(1, "할 일 제목을 입력해 주세요.").max(255),
+      description: z.string().trim().max(2000).optional(),
+      priority: z.enum(["low", "normal", "high"]).default("normal"),
+      dueDate: DATE_SCHEMA.optional(),
+      memberId: z.number().optional(),
+      assignedTo: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await createManagerTask({
+        title: input.title,
+        description: input.description || null,
+        priority: input.priority,
+        dueDate: input.dueDate ?? null,
+        memberId: input.memberId ?? null,
+        assignedTo: input.assignedTo ?? null,
+        createdBy: ctx.user.id,
+      });
+      return { id };
+    }),
+  update: managerProcedure
+    .input(z.object({
+      id: z.number(),
+      title: z.string().trim().min(1).max(255).optional(),
+      description: z.string().trim().max(2000).nullable().optional(),
+      priority: z.enum(["low", "normal", "high"]).optional(),
+      dueDate: DATE_SCHEMA.nullable().optional(),
+      memberId: z.number().nullable().optional(),
+      assignedTo: z.number().nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { id, ...patch } = input;
+      await updateManagerTask(id, patch);
+      return { success: true };
+    }),
+  setDone: managerProcedure
+    .input(z.object({ id: z.number(), done: z.boolean() }))
+    .mutation(async ({ input }) => {
+      await setManagerTaskDone(input.id, input.done);
+      return { success: true };
+    }),
+  archive: managerProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await archiveManagerTask(input.id);
+      return { success: true };
+    }),
+});
+
 // ─── Tournaments (대회) ─────────────────────────────────────────────────────
 
 const TOURNAMENT_STATUS = ["upcoming", "ongoing", "completed", "cancelled"] as const;
 const PARTICIPANT_RESULT = ["pending", "participated", "gold", "silver", "bronze", "absent"] as const;
-const DATE_SCHEMA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-
 function resultKo(r: (typeof PARTICIPANT_RESULT)[number]) {
   switch (r) {
     case "gold":
@@ -831,18 +1210,18 @@ const tournamentsRouter = router({
    * 회원용 공개 정보: 대회 기본 정보 + 본인 참가 내역만.
    * 참가자 전체 명단·타인 결과는 노출하지 않는다.
    */
-  publicInfo: authedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+  publicInfo: authedProcedure.input(z.object({ id: z.number(), memberId: z.number().optional() })).query(async ({ ctx, input }) => {
     const row = await getTournamentWithParticipants(input.id);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "대회를 찾을 수 없습니다." });
     const { participants, ...tournament } = row;
-    const me = await getMemberByUserId(ctx.user.id);
+    const me = await getReadableMemberForUser(ctx.user, input.memberId);
     const mine = me ? participants.find((p) => p.memberId === me.id) ?? null : null;
     return { ...tournament, myEntry: mine, participantCount: participants.length };
   }),
 
   /** 내 대회 (연결된 회원 기준) — 회원/관리자 공용 */
-  myTournaments: authedProcedure.query(async ({ ctx }) => {
-    const me = await getMemberByUserId(ctx.user.id);
+  myTournaments: authedProcedure.input(z.object({ memberId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {
+    const me = await getReadableMemberForUser(ctx.user, input?.memberId);
     if (!me) return [];
     return getTournamentsByMember(me.id);
   }),
@@ -855,17 +1234,24 @@ const tournamentsRouter = router({
         eventDate: DATE_SCHEMA,
         location: z.string().optional(),
         registrationDeadline: DATE_SCHEMA.optional().nullable(),
+        entryFee: z.number().int().min(0).default(0),
         description: z.string().optional(),
+        notice: z.string().optional(),
         status: z.enum(TOURNAMENT_STATUS).default("upcoming"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.registrationDeadline && input.registrationDeadline > input.eventDate) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "신청 마감일은 대회일보다 늦을 수 없습니다." });
+      }
       const id = await createTournament({
         title: input.title,
         eventDate: input.eventDate,
         location: input.location ?? null,
         registrationDeadline: input.registrationDeadline ?? null,
+        entryFee: input.entryFee,
         description: input.description ?? null,
+        notice: input.notice ?? null,
         status: input.status,
         recordedBy: ctx.user.id,
       });
@@ -882,12 +1268,29 @@ const tournamentsRouter = router({
         eventDate: DATE_SCHEMA.optional(),
         location: z.string().nullable().optional(),
         registrationDeadline: DATE_SCHEMA.nullable().optional(),
+        entryFee: z.number().int().min(0).optional(),
         description: z.string().nullable().optional(),
+        notice: z.string().nullable().optional(),
         status: z.enum(TOURNAMENT_STATUS).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const { id, ...patch } = input;
+      if (patch.registrationDeadline && patch.eventDate && patch.registrationDeadline > patch.eventDate) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "신청 마감일은 대회일보다 늦을 수 없습니다." });
+      }
+      if (patch.registrationDeadline && !patch.eventDate) {
+        const existing = await getTournamentById(id);
+        if (existing && patch.registrationDeadline > existing.eventDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "신청 마감일은 대회일보다 늦을 수 없습니다." });
+        }
+      }
+      if (patch.eventDate && patch.registrationDeadline === undefined) {
+        const existing = await getTournamentById(id);
+        if (existing?.registrationDeadline && existing.registrationDeadline > patch.eventDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "기존 신청 마감일이 새 대회일보다 늦습니다. 마감일도 함께 수정해 주세요." });
+        }
+      }
       await updateTournament(id, patch);
       return { success: true };
     }),
@@ -953,16 +1356,20 @@ const tournamentsRouter = router({
       z.object({
         tournamentId: z.number(),
         memberId: z.number(),
+        weightClass: z.string().nullable().optional(),
+        division: z.string().nullable().optional(),
         result: z.enum(PARTICIPANT_RESULT),
-        notes: z.string().optional(),
+        notes: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       await upsertTournamentParticipant({
         tournamentId: input.tournamentId,
         memberId: input.memberId,
+        weightClass: input.weightClass === undefined ? undefined : input.weightClass || null,
+        division: input.division === undefined ? undefined : input.division || null,
         result: input.result,
-        notes: input.notes ?? null,
+        notes: input.notes === undefined ? undefined : input.notes || null,
       });
       if (input.result === "gold" || input.result === "silver" || input.result === "bronze") {
         void (async () => {
@@ -1009,6 +1416,7 @@ export const appRouter = router({
   dashboard: dashboardRouter,
   admin: adminRouter,
   memoHistory: memoHistoryRouter,
+  managerTasks: managerTasksRouter,
   pushTokens: pushTokensRouter,
   tournaments: tournamentsRouter,
 });

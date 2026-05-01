@@ -8,15 +8,20 @@ import { BackButton } from "@/components/back-button";
 import { trpc } from "@/lib/trpc";
 import { formatAmount, formatDate, getBeltColor, getBeltLabel, type BeltRank } from "@/lib/judo-utils";
 import { useAuth } from "@/hooks/use-auth";
+import { useSelectedChild } from "@/hooks/use-selected-child";
 
 export default function MyScheduleScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { isParent, children, selectedChild, selectedChildId, selectedMemberInput, setSelectedChildId, isLoadingChildren } =
+    useSelectedChild();
   const [refreshing, setRefreshing] = useState(false);
+  const canReadSelectedMember = !isParent || !!selectedChildId;
+  const scheduleInput = { days: 180, ...(selectedMemberInput ?? {}) };
 
   const { data, isLoading, refetch } = trpc.members.mySchedule.useQuery(
-    { days: 180 },
-    { enabled: !!user },
+    scheduleInput,
+    { enabled: !!user && canReadSelectedMember },
   );
 
   const onRefresh = useCallback(async () => {
@@ -40,7 +45,7 @@ export default function MyScheduleScreen() {
         <Text className="text-xl font-bold text-foreground flex-1">📅 내 일정</Text>
       </View>
 
-      {isLoading ? (
+      {isLoading || (isParent && isLoadingChildren) ? (
         <View className="flex-1 items-center justify-center py-20">
           <ActivityIndicator size="large" color="#1565C0" />
         </View>
@@ -57,7 +62,42 @@ export default function MyScheduleScreen() {
             향후 약 6개월 이내 예정된 승급 심사와 납부 날짜를 모았습니다.
           </Text>
 
-          {!data?.hasMemberProfile ? (
+          {isParent && children.length > 1 ? (
+            <View className="mb-4">
+              <Text className="text-sm font-bold text-foreground mb-2">자녀 선택</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {children.map((child) => {
+                  const active = child.id === selectedChild?.id;
+                  return (
+                    <TouchableOpacity
+                      key={child.id}
+                      className="px-4 py-2 rounded-full border"
+                      style={{
+                        backgroundColor: active ? "#EAF4FF" : "#FFFFFF",
+                        borderColor: active ? "#1565C0" : "#D7E2F0",
+                      }}
+                      activeOpacity={0.8}
+                      onPress={() => void setSelectedChildId(child.id)}
+                    >
+                      <Text style={{ color: active ? "#1565C0" : "#64748B", fontWeight: "800" }}>{child.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          {isParent && !isLoadingChildren && children.length === 0 ? (
+            <View className="items-center py-12 px-4">
+              <Text className="text-4xl mb-3">🔗</Text>
+              <Text className="text-base font-semibold text-foreground text-center mb-2">
+                연결된 자녀가 없습니다
+              </Text>
+              <Text className="text-sm text-muted text-center leading-5">
+                관리자에게 학부모-자녀 연결을 요청하면 자녀별 일정을 확인할 수 있습니다.
+              </Text>
+            </View>
+          ) : !data?.hasMemberProfile ? (
             <View className="items-center py-12 px-4">
               <Text className="text-4xl mb-3">🔗</Text>
               <Text className="text-base font-semibold text-foreground text-center mb-2">

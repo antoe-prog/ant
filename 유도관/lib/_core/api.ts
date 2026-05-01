@@ -87,6 +87,7 @@ export async function getMe(): Promise<{
   loginMethod: string | null;
   lastSignedIn: string;
   role: "member" | "manager" | "admin";
+  accountType: "student" | "parent";
   avatarUrl: string | null;
 } | null> {
   try {
@@ -105,6 +106,7 @@ export async function getMe(): Promise<{
       loginMethod: user.loginMethod ?? null,
       lastSignedIn: user.lastSignedIn ?? new Date().toISOString(),
       role: (user.role as "member" | "manager" | "admin") ?? "member",
+      accountType: user.accountType === "parent" ? "parent" : "student",
       avatarUrl: user.avatarUrl ?? null,
     };
   } catch {

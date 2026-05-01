@@ -217,6 +217,36 @@ export function LoadingView({ label }: { label?: string }) {
   );
 }
 
+export function ErrorState({
+  action,
+  message,
+  title = "연결을 확인해 주세요",
+}: {
+  action?: React.ReactNode;
+  message: string;
+  title?: string;
+}) {
+  const c = useColors();
+  return (
+    <View
+      style={{
+        marginHorizontal: spacing.xl,
+        marginTop: spacing.md,
+        padding: spacing.lg,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: "#F2B8B5",
+        backgroundColor: "#FFF1F0",
+        gap: spacing.sm,
+      }}
+    >
+      <Text style={{ color: "#B3261E", fontWeight: "900", fontSize: 15 }}>{title}</Text>
+      <Text style={{ color: "#7A271A", lineHeight: 20, fontWeight: "600" }}>{message}</Text>
+      {action ? <View style={{ marginTop: spacing.sm }}>{action}</View> : null}
+    </View>
+  );
+}
+
 // ─── Form Field ──────────────────────────────────────────────────────────────
 
 export function FormField({

@@ -20,11 +20,12 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
 import { useBackHandler } from "@/hooks/use-back-handler";
 import * as Auth from "@/lib/_core/auth";
-import { TRPCClientError } from "@trpc/client";
+import { getFriendlyErrorMessage } from "@/lib/error-messages";
 import { trpc } from "@/lib/trpc";
 import { APP_VARIANT_LABEL, IS_ADMIN_APP, canUseAdminApp } from "@/constants/app-variant";
 
 type Mode = "login" | "register";
+type AccountType = "student" | "parent";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -35,6 +36,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [accountType, setAccountType] = useState<AccountType>("student");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const loginMutation = trpc.auth.login.useMutation();
@@ -91,6 +93,7 @@ export default function LoginScreen() {
               email: emailTrim,
               password,
               name: name.trim(),
+              accountType: IS_ADMIN_APP ? "student" : accountType,
             });
 
       if (IS_ADMIN_APP && !canUseAdminApp(result.user?.role)) {
@@ -109,6 +112,7 @@ export default function LoginScreen() {
           email: result.user.email ?? null,
           loginMethod: result.user.loginMethod ?? "email",
           role: (result.user.role as "member" | "manager" | "admin") ?? "member",
+          accountType: result.user.accountType === "parent" ? "parent" : "student",
           avatarUrl: null,
           lastSignedIn: new Date(),
         });
@@ -121,13 +125,12 @@ export default function LoginScreen() {
           : "/(tabs)";
       router.replace(nextRoute);
     } catch (err: unknown) {
-      let message = "로그인에 실패했습니다.";
-      if (err instanceof TRPCClientError) {
-        message = err.message || message;
-      } else if (err instanceof Error) {
-        message = err.message;
-      }
-      setErrorMsg(message);
+      setErrorMsg(
+        getFriendlyErrorMessage(
+          err,
+          mode === "login" ? "로그인에 실패했습니다." : "회원가입에 실패했습니다.",
+        ),
+      );
     }
   };
 
@@ -205,18 +208,68 @@ export default function LoginScreen() {
             </View>
 
             {mode === "register" && (
-              <View style={styles.fieldGroup}>
-                <Text style={[styles.label, { color: colors.foreground }]}>이름</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
-                  placeholder="홍길동"
-                  placeholderTextColor={colors.muted}
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="words"
-                  returnKeyType="next"
-                />
-              </View>
+              <>
+                {!IS_ADMIN_APP && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={[styles.label, { color: colors.foreground }]}>가입 유형</Text>
+                    <View style={styles.accountTypeRow}>
+                      {[
+                        {
+                          value: "student" as const,
+                          title: "학생",
+                          desc: "출석·수련 기록을 직접 확인",
+                        },
+                        {
+                          value: "parent" as const,
+                          title: "학부모",
+                          desc: "자녀 현황을 모니터링",
+                        },
+                      ].map((item) => {
+                        const active = accountType === item.value;
+                        return (
+                          <TouchableOpacity
+                            key={item.value}
+                            style={[
+                              styles.accountTypeCard,
+                              {
+                                borderColor: active ? colors.primary : colors.border,
+                                backgroundColor: active ? colors.primary + "14" : colors.background,
+                              },
+                            ]}
+                            activeOpacity={0.85}
+                            onPress={() => setAccountType(item.value)}
+                          >
+                            <Text
+                              style={[
+                                styles.accountTypeTitle,
+                                { color: active ? colors.primary : colors.foreground },
+                              ]}
+                            >
+                              {item.title}
+                            </Text>
+                            <Text style={[styles.accountTypeDesc, { color: colors.muted }]}>
+                              {item.desc}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.label, { color: colors.foreground }]}>이름</Text>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
+                    placeholder={accountType === "parent" ? "학부모 이름" : "학생 이름"}
+                    placeholderTextColor={colors.muted}
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                  />
+                </View>
+              </>
             )}
 
             <View style={styles.fieldGroup}>
@@ -326,6 +379,18 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 15, fontWeight: "700" },
   fieldGroup: { gap: 8 },
   label: { fontSize: 15, fontWeight: "700" },
+  accountTypeRow: { flexDirection: "row", gap: 10 },
+  accountTypeCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 86,
+    justifyContent: "center",
+  },
+  accountTypeTitle: { fontSize: 16, fontWeight: "800", marginBottom: 4 },
+  accountTypeDesc: { fontSize: 12, lineHeight: 17 },
   input: {
     borderWidth: 1,
     borderRadius: 14,

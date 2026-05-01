@@ -14,12 +14,16 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
-import { formatDate } from "@/lib/judo-utils";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
+import { formatAmount, formatDate } from "@/lib/judo-utils";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import { listPerfProps } from "@/lib/list-utils";
+import { useSelectedChild } from "@/hooks/use-selected-child";
 import {
   Chip,
   EmptyState,
+  ErrorState,
   Fab,
   FormField,
   GhostButton,
@@ -53,13 +57,23 @@ function statusColor(status: TournamentStatus, c: ReturnType<typeof useSemanticC
   }
 }
 
+function isValidDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
 export default function TournamentsScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const insets = useSafeAreaInsets();
   const utils = trpc.useUtils();
   const c = useSemanticColors();
+  const { isParent, children, selectedChild, selectedChildId, selectedMemberInput, setSelectedChildId, isLoadingChildren } =
+    useSelectedChild();
+  const canReadSelectedMember = !isParent || !!selectedChildId;
 
   useTabBackHandler();
 
@@ -68,9 +82,13 @@ export default function TournamentsScreen() {
   useModalBackHandler(showCreate, () => setShowCreate(false));
 
   const managerQuery = trpc.tournaments.list.useQuery(undefined, { enabled: isManager });
-  const memberQuery = trpc.tournaments.myTournaments.useQuery(undefined, { enabled: !isManager });
+  const memberQuery = trpc.tournaments.myTournaments.useQuery(selectedMemberInput, {
+    enabled: !isManager && canReadSelectedMember,
+  });
   const rows = isManager ? (managerQuery.data ?? []) : (memberQuery.data ?? []);
-  const isLoading = isManager ? managerQuery.isLoading : memberQuery.isLoading;
+  const isLoading = isManager ? managerQuery.isLoading : memberQuery.isLoading || (isParent && isLoadingChildren);
+  const queryError = isManager ? managerQuery.error : memberQuery.error;
+  const refetchRows = isManager ? managerQuery.refetch : memberQuery.refetch;
 
   const filtered = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
@@ -88,7 +106,7 @@ export default function TournamentsScreen() {
       void utils.tournaments.upcoming.invalidate();
       setShowCreate(false);
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const renderItem = useCallback(
@@ -118,6 +136,7 @@ export default function TournamentsScreen() {
           <View style={{ flexDirection: "row", gap: spacing.md, flexWrap: "wrap" }}>
             <MetaLine label={`📅 ${formatDate(item.eventDate)}`} />
             {item.location ? <MetaLine label={`📍 ${item.location}`} /> : null}
+            {Number(item.entryFee ?? 0) > 0 ? <MetaLine label={`💳 ${formatAmount(Number(item.entryFee))}`} /> : null}
             {item.weightClass ? <MetaLine label={`⚖️ ${item.weightClass}`} /> : null}
             {item.division ? <MetaLine label={`🏷 ${item.division}`} /> : null}
             {!isManager && item.result && item.result !== "pending" ? (
@@ -140,19 +159,32 @@ export default function TournamentsScreen() {
       </View>
 
       {/* 필터 */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.sm }}>
-        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+      <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.md }}>
+        <View
+          style={{
+            alignSelf: "flex-start",
+            flexDirection: "row",
+            gap: 4,
+            padding: 4,
+            height: 44,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: c.border,
+            backgroundColor: c.surface,
+          }}
+        >
           {(["upcoming", "past", "all"] as const).map((k) => (
             <TouchableOpacity
               key={k}
               onPress={() => setFilter(k)}
               style={{
-                paddingHorizontal: 14,
-                paddingVertical: 6,
+                minWidth: k === "past" ? 92 : 64,
+                height: 34,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: 12,
                 borderRadius: radius.pill,
-                borderWidth: 1,
                 backgroundColor: filter === k ? c.primary : "transparent",
-                borderColor: filter === k ? c.primary : c.border,
               }}
             >
               <Text style={{ fontSize: 13, fontWeight: "600", color: filter === k ? "#FFFFFF" : c.muted }}>
@@ -161,10 +193,30 @@ export default function TournamentsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </ScrollView>
+      </View>
 
       {isLoading ? (
         <LoadingView label="대회 목록 불러오는 중..." />
+      ) : queryError ? (
+        <ErrorState
+          message={getFriendlyErrorMessage(queryError)}
+          action={
+            <TouchableOpacity
+              onPress={() => void refetchRows()}
+              style={{
+                alignSelf: "flex-start",
+                borderWidth: 1,
+                borderColor: "#F2B8B5",
+                borderRadius: radius.pill,
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                backgroundColor: "#FFFFFF",
+              }}
+            >
+              <Text style={{ color: "#B3261E", fontWeight: "800" }}>다시 시도</Text>
+            </TouchableOpacity>
+          }
+        />
       ) : (
         <FlatList
           data={filtered}
@@ -177,6 +229,39 @@ export default function TournamentsScreen() {
             paddingBottom: Math.max(insets.bottom, spacing.xxl * 4),
             gap: spacing.md,
           }}
+          ListHeaderComponent={
+            !isManager && isParent && children.length > 1 ? (
+              <View style={{ marginBottom: spacing.xs }}>
+                <Text style={{ fontSize: 13, fontWeight: "800", color: c.foreground, marginBottom: 8 }}>
+                  자녀 선택
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {children.map((child) => {
+                    const active = child.id === selectedChild?.id;
+                    return (
+                      <TouchableOpacity
+                        key={child.id}
+                        activeOpacity={0.8}
+                        onPress={() => void setSelectedChildId(child.id)}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: active ? c.primary : c.border,
+                          backgroundColor: active ? c.primarySoft : c.surface,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                        }}
+                      >
+                        <Text style={{ color: active ? c.primary : c.foreground, fontSize: 13, fontWeight: "800" }}>
+                          {child.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <EmptyState
               emoji="🏆"
@@ -185,9 +270,17 @@ export default function TournamentsScreen() {
                   ? filter === "upcoming"
                     ? "예정된 대회가 없습니다"
                     : "대회가 없습니다"
+                  : isParent && !isLoadingChildren && children.length === 0
+                    ? "연결된 자녀가 없습니다"
                   : "참가한 대회가 없습니다"
               }
-              subtitle={isManager ? "+ 버튼으로 첫 대회를 등록해 보세요." : "관리자가 등록하면 여기에 표시됩니다."}
+              subtitle={
+                isManager
+                  ? "+ 버튼으로 첫 대회를 등록해 보세요."
+                  : isParent && !isLoadingChildren && children.length === 0
+                    ? "관리자에게 학부모-자녀 연결을 요청해 주세요."
+                    : "관리자가 등록하면 여기에 표시됩니다."
+              }
             />
           }
         />
@@ -238,7 +331,9 @@ function CreateTournamentModal({
     eventDate: string;
     location?: string;
     registrationDeadline?: string | null;
+    entryFee?: number;
     description?: string;
+    notice?: string;
   }) => void;
   isPending: boolean;
   topPadding: number;
@@ -248,14 +343,18 @@ function CreateTournamentModal({
   const [eventDate, setEventDate] = useState("");
   const [location, setLocation] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [entryFee, setEntryFee] = useState("");
   const [description, setDescription] = useState("");
+  const [notice, setNotice] = useState("");
 
   const reset = () => {
     setTitle("");
     setEventDate("");
     setLocation("");
     setDeadline("");
+    setEntryFee("");
     setDescription("");
+    setNotice("");
   };
 
   const submit = () => {
@@ -263,12 +362,16 @@ function CreateTournamentModal({
       Alert.alert("입력 필요", "대회명을 입력해 주세요.");
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
-      Alert.alert("입력 필요", "대회일은 YYYY-MM-DD 형식입니다.");
+    if (!isValidDateInput(eventDate)) {
+      Alert.alert("입력 필요", "대회일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다.");
       return;
     }
-    if (deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
-      Alert.alert("입력 필요", "신청 마감일 형식이 올바르지 않습니다.");
+    if (deadline && !isValidDateInput(deadline)) {
+      Alert.alert("입력 필요", "신청 마감일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다.");
+      return;
+    }
+    if (deadline && deadline > eventDate) {
+      Alert.alert("입력 확인", "신청 마감일은 대회일보다 늦을 수 없습니다.");
       return;
     }
     onSubmit({
@@ -276,7 +379,9 @@ function CreateTournamentModal({
       eventDate,
       location: location.trim() || undefined,
       registrationDeadline: deadline ? deadline : null,
+      entryFee: Number.parseInt(entryFee.replace(/[^\d]/g, ""), 10) || 0,
       description: description.trim() || undefined,
+      notice: notice.trim() || undefined,
     });
     reset();
   };
@@ -318,10 +423,25 @@ function CreateTournamentModal({
             hint="비워두면 상시 등록"
           />
           <FormField
+            label="대회 비용"
+            value={entryFee}
+            onChangeText={setEntryFee}
+            keyboardType="number-pad"
+            placeholder="예: 30000"
+            hint="0원이면 무료 또는 미정으로 표시됩니다."
+          />
+          <FormField
             label="설명"
             value={description}
             onChangeText={setDescription}
             placeholder="체급·복장·기타 안내"
+            multiline
+          />
+          <FormField
+            label="기타 안내사항"
+            value={notice}
+            onChangeText={setNotice}
+            placeholder="집합 시간, 입금 계좌, 준비물 등"
             multiline
           />
           <PrimaryButton label="대회 만들기" loading={isPending} onPress={submit} />

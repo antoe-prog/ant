@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import {
   getBeltColor, getBeltLabel, getBeltOrder, getMemberStatusColor, getMemberStatusLabel,
@@ -19,7 +20,9 @@ import {
 } from "@/lib/judo-utils";
 import type { BeltRank, MemberStatus } from "@/lib/judo-utils";
 import { idKeyExtractor as memberKeyExtractor, listPerfProps } from "@/lib/list-utils";
-import { EmptyState, LoadingView, PillButton } from "@/components/ui/primitives";
+import { EmptyState, ErrorState, LoadingView, PillButton } from "@/components/ui/primitives";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
+import { formatDateInput, formatPhoneInput, formatWonInput, parseWonInput } from "@/lib/input-formatters";
 
 const BELT_RANKS: BeltRank[] = ["white", "yellow", "orange", "green", "blue", "brown", "black"];
 type MemberSortKey = "name" | "joinDate" | "belt" | "fee" | "nextPayment";
@@ -32,6 +35,18 @@ const SORT_OPTIONS: { key: MemberSortKey; label: string }[] = [
   { key: "fee", label: "회비" },
   { key: "nextPayment", label: "납부일" },
 ];
+
+function isValidDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function isValidEmailInput(value: string) {
+  if (!value.trim()) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
 
 // ─── MemberRow 컴포넌트 (Rules of Hooks 준수를 위해 분리) ──────────────────────
 interface MemberRowProps {
@@ -190,7 +205,7 @@ function MemberRow({
 export default function MemberListScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const insets = useSafeAreaInsets();
   const utils = trpc.useUtils();
 
@@ -201,6 +216,7 @@ export default function MemberListScreen() {
   const [sortKey, setSortKey] = useState<MemberSortKey>("name");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilterKey>("all");
   const [memoOnly, setMemoOnly] = useState(false);
+  const [longAbsenceOnly, setLongAbsenceOnly] = useState(false);
   const [tooltipMemberId, setTooltipMemberId] = useState<number | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -236,7 +252,15 @@ export default function MemberListScreen() {
     notes: "",
   });
 
-  const { data: members, isLoading } = trpc.members.list.useQuery();
+  const { data: members, isLoading, error: membersError, refetch: refetchMembers } = trpc.members.list.useQuery();
+  const { data: operationsSummary } = trpc.dashboard.operationsSummary.useQuery(undefined, {
+    enabled: isManager,
+  });
+
+  const longAbsenceMemberIds = useMemo(() => {
+    const task = operationsSummary?.tasks.find((item) => item.kind === "long_absence");
+    return new Set((task?.members ?? []).map((member) => member.id));
+  }, [operationsSummary]);
 
   const createMutation = trpc.members.create.useMutation({
     onSuccess: () => {
@@ -246,7 +270,7 @@ export default function MemberListScreen() {
       setShowAdd(false);
       resetForm();
     },
-    onError: (e: any) => Alert.alert("오류", e.message),
+    onError: (e: unknown) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const deleteMutation = trpc.members.delete.useMutation({
@@ -254,7 +278,7 @@ export default function MemberListScreen() {
       void utils.members.list.invalidate();
       void utils.dashboard.stats.invalidate();
     },
-    onError: (e: any) => Alert.alert("오류", e.message),
+    onError: (e: unknown) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const checkInMutation = trpc.attendance.check.useMutation({
@@ -269,7 +293,7 @@ export default function MemberListScreen() {
       void utils.dashboard.monthlyStats.invalidate();
       Alert.alert("체크인 완료", "오늘 출석이 등록되었습니다.");
     },
-    onError: (e: any) => Alert.alert("오류", e.message),
+    onError: (e: unknown) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const handleSwipeCheckIn = useCallback((
@@ -340,6 +364,7 @@ export default function MemberListScreen() {
       const matchBelt = beltFilter === null || m.beltRank === beltFilter;
       const matchStatus = statusFilter === "all" || m.status === statusFilter;
       const matchMemo = !memoOnly || Boolean(m.notes?.trim());
+      const matchLongAbsence = !longAbsenceOnly || longAbsenceMemberIds.has(m.id);
       let matchPayment = true;
       if (paymentFilter !== "all") {
         const np = m.nextPaymentDate;
@@ -349,7 +374,7 @@ export default function MemberListScreen() {
           matchPayment = Boolean(np && np >= todayStr && np <= future7Str);
         }
       }
-      return matchSearch && matchBelt && matchStatus && matchMemo && matchPayment;
+      return matchSearch && matchBelt && matchStatus && matchMemo && matchPayment && matchLongAbsence;
     });
 
     const sorted = [...filtered].sort((a, b) => {
@@ -372,7 +397,24 @@ export default function MemberListScreen() {
       }
     });
     return sorted;
-  }, [members, search, beltFilter, statusFilter, sortKey, paymentFilter, memoOnly]);
+  }, [members, search, beltFilter, statusFilter, sortKey, paymentFilter, memoOnly, longAbsenceOnly, longAbsenceMemberIds]);
+
+  const memberInsights = useMemo(() => {
+    const list = members ?? [];
+    const todayStr = new Date().toISOString().split("T")[0];
+    const future7 = new Date();
+    future7.setDate(future7.getDate() + 7);
+    const future7Str = future7.toISOString().split("T")[0];
+
+    return {
+      total: list.length,
+      active: list.filter((m) => m.status === "active").length,
+      overdue: list.filter((m) => m.nextPaymentDate && m.nextPaymentDate <= todayStr).length,
+      dueSoon: list.filter((m) => m.nextPaymentDate && m.nextPaymentDate >= todayStr && m.nextPaymentDate <= future7Str).length,
+      memo: list.filter((m) => Boolean(m.notes?.trim())).length,
+      longAbsence: longAbsenceMemberIds.size,
+    };
+  }, [members, longAbsenceMemberIds]);
 
   const hasActiveFilters =
     search.trim().length > 0 ||
@@ -380,7 +422,8 @@ export default function MemberListScreen() {
     statusFilter !== "all" ||
     sortKey !== "name" ||
     paymentFilter !== "all" ||
-    memoOnly;
+    memoOnly ||
+    longAbsenceOnly;
 
   const resetFilters = () => {
     setSearch("");
@@ -389,10 +432,37 @@ export default function MemberListScreen() {
     setSortKey("name");
     setPaymentFilter("all");
     setMemoOnly(false);
+    setLongAbsenceOnly(false);
+  };
+
+  const applyInsightFilter = (target: "all" | "active" | "overdue" | "dueSoon" | "memo" | "longAbsence") => {
+    setSearch("");
+    setBeltFilter(null);
+    setSortKey(target === "overdue" || target === "dueSoon" ? "nextPayment" : "name");
+    setStatusFilter(target === "active" ? "active" : "all");
+    setPaymentFilter(target === "overdue" || target === "dueSoon" ? target : "all");
+    setMemoOnly(target === "memo");
+    setLongAbsenceOnly(target === "longAbsence");
   };
 
   const handleCreate = () => {
     if (!form.name.trim()) { Alert.alert("오류", "이름을 입력하세요"); return; }
+    if (!isValidEmailInput(form.email)) {
+      Alert.alert("오류", "이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    if (form.birthDate && !isValidDateInput(form.birthDate)) {
+      Alert.alert("오류", "생년월일은 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+      return;
+    }
+    if (!isValidDateInput(form.joinDate)) {
+      Alert.alert("오류", "입관일은 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+      return;
+    }
+    if (form.monthlyFee < 0) {
+      Alert.alert("오류", "월 회비는 0원 이상이어야 합니다.");
+      return;
+    }
     createMutation.mutate({
       name: form.name.trim(),
       phone: form.phone || undefined,
@@ -609,20 +679,37 @@ export default function MemberListScreen() {
       </View>
 
       {/* 메모 여부 */}
-      <View className="px-5 pb-3 flex-row items-center justify-between">
-        <Text className="text-xs font-semibold text-muted">관리자 메모가 있는 회원만</Text>
-        <TouchableOpacity
-          onPress={() => setMemoOnly(v => !v)}
-          className="px-3 py-1.5 rounded-full border"
-          style={{
-            backgroundColor: memoOnly ? "#92400E" : "transparent",
-            borderColor: memoOnly ? "#92400E" : "#E5E7EB",
-          }}
-        >
-          <Text className="text-xs font-semibold" style={{ color: memoOnly ? "#FFFFFF" : "#687076" }}>
-            {memoOnly ? "켜짐" : "꺼짐"}
-          </Text>
-        </TouchableOpacity>
+      <View className="px-5 pb-3 gap-2">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xs font-semibold text-muted">관리자 메모가 있는 회원만</Text>
+          <TouchableOpacity
+            onPress={() => setMemoOnly(v => !v)}
+            className="px-3 py-1.5 rounded-full border"
+            style={{
+              backgroundColor: memoOnly ? "#92400E" : "transparent",
+              borderColor: memoOnly ? "#92400E" : "#E5E7EB",
+            }}
+          >
+            <Text className="text-xs font-semibold" style={{ color: memoOnly ? "#FFFFFF" : "#687076" }}>
+              {memoOnly ? "켜짐" : "꺼짐"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xs font-semibold text-muted">14일 이상 미출석 회원만</Text>
+          <TouchableOpacity
+            onPress={() => setLongAbsenceOnly(v => !v)}
+            className="px-3 py-1.5 rounded-full border"
+            style={{
+              backgroundColor: longAbsenceOnly ? "#B45309" : "transparent",
+              borderColor: longAbsenceOnly ? "#B45309" : "#E5E7EB",
+            }}
+          >
+            <Text className="text-xs font-semibold" style={{ color: longAbsenceOnly ? "#FFFFFF" : "#687076" }}>
+              {longAbsenceOnly ? "켜짐" : "꺼짐"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* 상태 필터 */}
@@ -654,23 +741,48 @@ export default function MemberListScreen() {
         )}
       </View>
 
-      {/* 통계 */}
-      <View className="px-5 pb-3 flex-row gap-3">
-        {[
-          { label: "전체", count: members?.length ?? 0, color: "#1565C0" },
-          { label: "활성", count: members?.filter(m => m.status === "active").length ?? 0, color: "#2DA44E" },
-          { label: "휴회", count: members?.filter(m => m.status === "suspended").length ?? 0, color: "#F4A261" },
-        ].map(s => (
-          <View key={s.label} className="flex-1 bg-surface rounded-xl p-3 border border-border items-center">
-            <Text className="text-xl font-bold" style={{ color: s.color }}>{s.count}</Text>
-            <Text className="text-xs text-muted mt-0.5">{s.label}</Text>
-          </View>
-        ))}
+      {/* 관리 포인트 */}
+      <View className="px-5 pb-3">
+        <Text className="text-xs font-semibold text-muted mb-2">관리 포인트</Text>
+        <View className="flex-row flex-wrap gap-2">
+          {[
+            { key: "all" as const, label: "전체 회원", count: memberInsights.total, color: "#1565C0" },
+            { key: "active" as const, label: "활성 회원", count: memberInsights.active, color: "#2DA44E" },
+            { key: "overdue" as const, label: "미납 확인", count: memberInsights.overdue, color: "#DC2626" },
+            { key: "dueSoon" as const, label: "7일 내 만료", count: memberInsights.dueSoon, color: "#F59E0B" },
+            { key: "memo" as const, label: "메모 있음", count: memberInsights.memo, color: "#92400E" },
+            { key: "longAbsence" as const, label: "장기 미출석", count: memberInsights.longAbsence, color: "#B45309" },
+          ].map((card) => (
+            <TouchableOpacity
+              key={card.key}
+              className="bg-surface rounded-xl p-3 border"
+              style={{ width: "48%", borderColor: `${card.color}55`, backgroundColor: `${card.color}12` }}
+              onPress={() => applyInsightFilter(card.key)}
+              activeOpacity={0.82}
+            >
+              <Text className="text-xl font-bold" style={{ color: card.color }}>{card.count}</Text>
+              <Text className="text-xs text-muted mt-0.5">{card.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* 목록 */}
       {isLoading ? (
         <LoadingView label="회원 목록 불러오는 중..." />
+      ) : membersError ? (
+        <ErrorState
+          message={getFriendlyErrorMessage(membersError)}
+          action={
+            <TouchableOpacity
+              onPress={() => void refetchMembers()}
+              className="px-4 py-2 rounded-full bg-white border"
+              style={{ borderColor: "#F2B8B5", alignSelf: "flex-start" }}
+            >
+              <Text className="text-sm font-bold" style={{ color: "#B3261E" }}>다시 시도</Text>
+            </TouchableOpacity>
+          }
+        />
       ) : (
         <FlatList
           data={filteredSorted}
@@ -713,12 +825,12 @@ export default function MemberListScreen() {
           <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
             <View className="py-4 gap-4">
               <FormField label="이름 *" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} placeholder="홍길동" />
-              <FormField label="전화번호" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} placeholder="010-0000-0000" keyboardType="phone-pad" />
+              <FormField label="전화번호" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: formatPhoneInput(v) }))} placeholder="010-0000-0000" keyboardType="phone-pad" />
               <FormField label="이메일" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} placeholder="example@email.com" keyboardType="email-address" />
-              <FormField label="생년월일" value={form.birthDate} onChangeText={v => setForm(f => ({ ...f, birthDate: v }))} placeholder="YYYY-MM-DD" />
-              <FormField label="입관일 *" value={form.joinDate} onChangeText={v => setForm(f => ({ ...f, joinDate: v }))} placeholder="YYYY-MM-DD" />
-              <FormField label="월 회비 (원)" value={String(form.monthlyFee)} onChangeText={v => setForm(f => ({ ...f, monthlyFee: Number.parseInt(v, 10) || 0 }))} keyboardType="numeric" />
-              <FormField label="비상연락처" value={form.emergencyContact} onChangeText={v => setForm(f => ({ ...f, emergencyContact: v }))} placeholder="보호자 연락처" keyboardType="phone-pad" />
+              <FormField label="생년월일" value={form.birthDate} onChangeText={v => setForm(f => ({ ...f, birthDate: formatDateInput(v) }))} placeholder="YYYY-MM-DD" keyboardType="numeric" />
+              <FormField label="입관일 *" value={form.joinDate} onChangeText={v => setForm(f => ({ ...f, joinDate: formatDateInput(v) }))} placeholder="YYYY-MM-DD" keyboardType="numeric" />
+              <FormField label="월 회비 (원)" value={formatWonInput(String(form.monthlyFee))} onChangeText={v => setForm(f => ({ ...f, monthlyFee: parseWonInput(v) }))} keyboardType="numeric" />
+              <FormField label="비상연락처" value={form.emergencyContact} onChangeText={v => setForm(f => ({ ...f, emergencyContact: formatPhoneInput(v) }))} placeholder="보호자 연락처" keyboardType="phone-pad" />
 
               {/* 띠 선택 */}
               <View>

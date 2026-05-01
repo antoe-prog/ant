@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import {
   getBeltColor, getBeltLabel, getInitials, getAttendanceTypeLabel, formatDate,
   getCheckResultLabel, type CheckResult,
@@ -16,12 +17,13 @@ import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
 import { EmptyState } from "@/components/ui/primitives";
 import type { AttendanceType } from "@/lib/judo-utils";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
 
 const TODAY = new Date().toISOString().split("T")[0];
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const utils = trpc.useUtils();
   const insets = useSafeAreaInsets();
 
@@ -77,7 +79,7 @@ export default function AttendanceScreen() {
       setCheckResult("present");
       setAttendanceNote("");
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const checkBulkMutation = trpc.attendance.checkBulk.useMutation({
@@ -90,7 +92,7 @@ export default function AttendanceScreen() {
       setAttendanceNote("");
       Alert.alert("일괄 처리 완료", `${data.succeeded}명 처리됨${data.failed > 0 ? ` (${data.failed}명 실패)` : ""}`);
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const checkByQrMutation = trpc.attendance.checkByQr.useMutation({
@@ -100,7 +102,7 @@ export default function AttendanceScreen() {
     onError: (e) => {
       // 실패 시 성공 카드가 남아 있지 않도록 결과·플래그를 초기화한다.
       setQrResult(null);
-      setQrError(e.message);
+      setQrError(getFriendlyErrorMessage(e));
     },
   });
 
@@ -108,7 +110,7 @@ export default function AttendanceScreen() {
     onSuccess: () => {
       invalidateAttendance();
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const handleCheckIn = () => {

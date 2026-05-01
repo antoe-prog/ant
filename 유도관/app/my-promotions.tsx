@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
+import { useSemanticColors } from "@/components/ui/primitives";
 import { trpc } from "@/lib/trpc";
 import { getBeltColor, getBeltLabel, formatDate } from "@/lib/judo-utils";
+import { useSelectedChild } from "@/hooks/use-selected-child";
 
 const RESULT_LABEL: Record<string, { label: string; color: string; icon: string }> = {
   pending: { label: "예정", color: "#F59E0B", icon: "⏳" },
@@ -13,30 +13,63 @@ const RESULT_LABEL: Record<string, { label: string; color: string; icon: string 
 };
 
 export default function MyPromotionsScreen() {
-  const router = useRouter();
-  const { data: promotions, isLoading } = trpc.members.myPromotions.useQuery();
+  const c = useSemanticColors();
+  const { isParent, children, selectedChild, selectedChildId, selectedMemberInput, setSelectedChildId } = useSelectedChild();
+  const { data: promotions, isLoading } = trpc.members.myPromotions.useQuery(selectedMemberInput, {
+    enabled: !isParent || !!selectedChildId,
+  });
 
   const pending = promotions?.filter(p => p.result === "pending") ?? [];
   const history = promotions?.filter(p => p.result !== "pending") ?? [];
+  const childSelector = isParent && children.length > 1 ? (
+    <View style={styles.childTabs}>
+      <Text style={[styles.childTabsTitle, { color: c.foreground }]}>자녀 선택</Text>
+      <View style={styles.childTabsRow}>
+        {children.map((child) => {
+          const active = child.id === selectedChild?.id;
+          return (
+            <TouchableOpacity
+              key={child.id}
+              style={[
+                styles.childTab,
+                {
+                  borderColor: active ? c.primary : c.border,
+                  backgroundColor: active ? c.primary + "18" : c.surface,
+                },
+              ]}
+              onPress={() => void setSelectedChildId(child.id)}
+            >
+              <Text style={[styles.childTabText, { color: active ? c.primary : c.foreground }]}>
+                {child.name}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  ) : null;
 
   return (
     <ScreenContainer>
       {/* 헤더 */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <BackButton />
-        <Text style={styles.headerTitle}>🏅 내 승급심사</Text>
+        <Text style={[styles.headerTitle, { color: c.foreground }]}>🏅 내 승급심사</Text>
         <View style={{ width: 40 }} />
       </View>
 
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7B3F9E" />
+          <ActivityIndicator size="large" color={c.primary} />
         </View>
       ) : !promotions || promotions.length === 0 ? (
-        <View style={styles.center}>
-          <Text style={styles.emptyIcon}>🥋</Text>
-          <Text style={styles.emptyTitle}>등록된 심사 내역이 없습니다</Text>
-          <Text style={styles.emptyDesc}>관리자가 심사 일정을 등록하면 여기에 표시됩니다.</Text>
+        <View style={styles.emptyContent}>
+          {childSelector}
+          <View style={styles.center}>
+            <Text style={styles.emptyIcon}>🥋</Text>
+            <Text style={[styles.emptyTitle, { color: c.foreground }]}>등록된 심사 내역이 없습니다</Text>
+            <Text style={[styles.emptyDesc, { color: c.muted }]}>관리자가 심사 일정을 등록하면 여기에 표시됩니다.</Text>
+          </View>
         </View>
       ) : (
         <FlatList
@@ -48,19 +81,20 @@ export default function MyPromotionsScreen() {
           ]}
           keyExtractor={(item, idx) => item.type === "section" ? `sec-${idx}` : `item-${(item as any).data.id}`}
           contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+          ListHeaderComponent={childSelector}
           renderItem={({ item }) => {
             if (item.type === "section") {
-              return <Text style={styles.sectionTitle}>{item.title}</Text>;
+              return <Text style={[styles.sectionTitle, { color: c.muted }]}>{item.title}</Text>;
             }
             const p = item.data;
             const res = RESULT_LABEL[p.result] ?? RESULT_LABEL.pending;
             const fromColor = getBeltColor(p.currentBelt);
             const toColor = getBeltColor(p.targetBelt);
             return (
-              <View style={styles.card}>
+              <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
                 {/* 날짜 + 결과 */}
                 <View style={styles.cardTop}>
-                  <Text style={styles.cardDate}>{formatDate(p.examDate)}</Text>
+                  <Text style={[styles.cardDate, { color: c.foreground }]}>{formatDate(p.examDate)}</Text>
                   <View style={[styles.resultBadge, { backgroundColor: res.color + "20" }]}>
                     <Text style={[styles.resultText, { color: res.color }]}>{res.icon} {res.label}</Text>
                   </View>
@@ -70,20 +104,20 @@ export default function MyPromotionsScreen() {
                 <View style={styles.beltRow}>
                   <View style={styles.beltItem}>
                     <View style={[styles.beltDot, { backgroundColor: fromColor }]} />
-                    <Text style={styles.beltLabel}>{getBeltLabel(p.currentBelt)}띠</Text>
-                    <Text style={styles.beltSub}>현재</Text>
+                    <Text style={[styles.beltLabel, { color: c.foreground }]}>{getBeltLabel(p.currentBelt)}</Text>
+                    <Text style={[styles.beltSub, { color: c.muted }]}>현재</Text>
                   </View>
                   <Text style={styles.beltArrow}>→</Text>
                   <View style={styles.beltItem}>
                     <View style={[styles.beltDot, { backgroundColor: toColor }]} />
-                    <Text style={styles.beltLabel}>{getBeltLabel(p.targetBelt)}띠</Text>
-                    <Text style={styles.beltSub}>목표</Text>
+                    <Text style={[styles.beltLabel, { color: c.foreground }]}>{getBeltLabel(p.targetBelt)}</Text>
+                    <Text style={[styles.beltSub, { color: c.muted }]}>목표</Text>
                   </View>
                 </View>
 
                 {/* 메모 */}
                 {p.notes ? (
-                  <Text style={styles.notes}>📝 {p.notes}</Text>
+                  <Text style={[styles.notes, { color: c.muted, borderTopColor: c.border }]}>📝 {p.notes}</Text>
                 ) : null}
               </View>
             );
@@ -108,6 +142,12 @@ const styles = StyleSheet.create({
   backIcon: { fontSize: 28, color: "#1565C0", fontWeight: "300" },
   headerTitle: { fontSize: 18, fontWeight: "700", color: "#11181C" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
+  emptyContent: { flex: 1, padding: 20 },
+  childTabs: { marginBottom: 12 },
+  childTabsTitle: { fontSize: 14, fontWeight: "800", marginBottom: 8 },
+  childTabsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  childTab: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  childTabText: { fontSize: 13, fontWeight: "800" },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 16, fontWeight: "600", color: "#11181C", marginBottom: 6 },
   emptyDesc: { fontSize: 13, color: "#687076", textAlign: "center" },

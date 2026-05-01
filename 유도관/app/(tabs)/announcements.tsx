@@ -8,15 +8,17 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import { formatDateTime, formatDate } from "@/lib/judo-utils";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
 import { EmptyState, PillButton } from "@/components/ui/primitives";
 import { useColors } from "@/hooks/use-colors";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
 
 export default function AnnouncementsScreen() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const utils = trpc.useUtils();
   const insets = useSafeAreaInsets();
   const colors = useColors();
@@ -61,17 +63,17 @@ export default function AnnouncementsScreen() {
       sendAnnouncementNotification({ title: variables.title, content: variables.content });
       setForm({ title: "", content: "", isPinned: false, pinnedUntil: "" });
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const updateMutation = trpc.announcements.update.useMutation({
     onSuccess: () => { utils.announcements.list.invalidate(); setEditItem(null); },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const deleteMutation = trpc.announcements.delete.useMutation({
     onSuccess: () => utils.announcements.list.invalidate(),
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const handleDelete = (id: number) => {

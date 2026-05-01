@@ -14,9 +14,11 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
-import { formatDate, getBeltColor, getBeltLabel } from "@/lib/judo-utils";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
+import { formatAmount, formatDate, getBeltColor, getBeltLabel } from "@/lib/judo-utils";
 import { useBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
+import { useSelectedChild } from "@/hooks/use-selected-child";
 import {
   Card,
   Chip,
@@ -68,6 +70,9 @@ export default function TournamentDetailScreen() {
   const isManager = user?.role === "manager" || user?.role === "admin";
   const utils = trpc.useUtils();
   const c = useSemanticColors();
+  const { isParent, children, selectedChild, selectedChildId, selectedMemberInput, setSelectedChildId, isLoadingChildren } =
+    useSelectedChild();
+  const canReadSelectedMember = !isParent || !!selectedChildId;
 
   useBackHandler(() => {
     router.back();
@@ -81,8 +86,8 @@ export default function TournamentDetailScreen() {
 
   // 회원(또는 역할 확인 전)도 공개 정보 + 본인 참가 내역을 볼 수 있다.
   const { data: memberView, isLoading: memberLoading } = trpc.tournaments.publicInfo.useQuery(
-    { id },
-    { enabled: id > 0 && !isManager },
+    { id, ...(selectedMemberInput ?? {}) },
+    { enabled: id > 0 && !isManager && canReadSelectedMember },
   );
 
   // 참가자 등록용 회원 목록 (관리자 전용)
@@ -96,7 +101,16 @@ export default function TournamentDetailScreen() {
 
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [editingResult, setEditingResult] = useState<Result>("pending");
+  const [editingWeightClass, setEditingWeightClass] = useState("");
+  const [editingDivision, setEditingDivision] = useState("");
+  const [editingNotes, setEditingNotes] = useState("");
   useModalBackHandler(editingMemberId != null, () => setEditingMemberId(null));
+
+  const [showInfoEditor, setShowInfoEditor] = useState(false);
+  const [editEntryFee, setEditEntryFee] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editNotice, setEditNotice] = useState("");
+  useModalBackHandler(showInfoEditor, () => setShowInfoEditor(false));
 
   const invalidate = () => {
     void utils.tournaments.byId.invalidate({ id });
@@ -111,7 +125,7 @@ export default function TournamentDetailScreen() {
       setWeightClass("");
       setDivision("");
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const updateResultMutation = trpc.tournaments.updateParticipantResult.useMutation({
@@ -119,17 +133,17 @@ export default function TournamentDetailScreen() {
       invalidate();
       setEditingMemberId(null);
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const removeMutation = trpc.tournaments.removeParticipant.useMutation({
     onSuccess: () => invalidate(),
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const updateTournamentMutation = trpc.tournaments.update.useMutation({
     onSuccess: () => invalidate(),
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const deleteTournamentMutation = trpc.tournaments.delete.useMutation({
@@ -137,7 +151,7 @@ export default function TournamentDetailScreen() {
       invalidate();
       router.back();
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const participantIds = useMemo(
@@ -154,12 +168,31 @@ export default function TournamentDetailScreen() {
     });
   }, [members, participantIds, pickerSearch]);
 
+  const openInfoEditor = (tournament: { entryFee?: number | null; description?: string | null; notice?: string | null }) => {
+    setEditEntryFee(String(tournament.entryFee ?? 0));
+    setEditDescription(tournament.description ?? "");
+    setEditNotice(tournament.notice ?? "");
+    setShowInfoEditor(true);
+  };
+
   if (!isManager) {
-    if (memberLoading || !memberView) {
+    if (memberLoading || (isParent && isLoadingChildren)) {
       return (
         <ScreenContainer>
           <Header title="대회 상세" />
           <LoadingView />
+        </ScreenContainer>
+      );
+    }
+    if (!memberView) {
+      return (
+        <ScreenContainer>
+          <Header title="대회 상세" />
+          <EmptyState
+            emoji="🔗"
+            title="연결된 자녀가 없습니다"
+            subtitle="관리자에게 학부모-자녀 연결을 요청하면 자녀별 대회 참가 정보를 확인할 수 있습니다."
+          />
         </ScreenContainer>
       );
     }
@@ -169,13 +202,43 @@ export default function TournamentDetailScreen() {
       <ScreenContainer>
         <Header title="대회 상세" />
         <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) }}>
+          {isParent && children.length > 1 ? (
+            <View style={{ paddingHorizontal: 20, paddingTop: 16, gap: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: "800", color: c.foreground }}>자녀 선택</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {children.map((child) => {
+                  const active = child.id === selectedChild?.id;
+                  return (
+                    <TouchableOpacity
+                      key={child.id}
+                      activeOpacity={0.8}
+                      onPress={() => void setSelectedChildId(child.id)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: active ? c.primary : c.border,
+                        backgroundColor: active ? c.primarySoft : c.surface,
+                        borderRadius: radius.pill,
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                      }}
+                    >
+                      <Text style={{ color: active ? c.primary : c.foreground, fontSize: 13, fontWeight: "800" }}>
+                        {child.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <View style={{ padding: 20, gap: 8 }}>
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#0F172A" }}>{memberView.title}</Text>
+            <Text style={{ fontSize: 22, fontWeight: "800", color: c.foreground }}>{memberView.title}</Text>
             <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <Text style={{ color: "#475569" }}>📅 {formatDate(memberView.eventDate)}</Text>
-              {memberView.location ? <Text style={{ color: "#475569" }}>📍 {memberView.location}</Text> : null}
+              <Text style={{ color: c.muted }}>📅 {formatDate(memberView.eventDate)}</Text>
+              {memberView.location ? <Text style={{ color: c.muted }}>📍 {memberView.location}</Text> : null}
               {memberView.registrationDeadline ? (
-                <Text style={{ color: "#475569" }}>⏰ 신청 {formatDate(memberView.registrationDeadline)} 까지</Text>
+                <Text style={{ color: c.muted }}>⏰ 신청 {formatDate(memberView.registrationDeadline)} 까지</Text>
               ) : null}
             </View>
             <View
@@ -185,17 +248,20 @@ export default function TournamentDetailScreen() {
                 paddingHorizontal: 8,
                 paddingVertical: 2,
                 borderRadius: 999,
-                backgroundColor: "#1565C018",
+                backgroundColor: c.primarySoft,
               }}
             >
-              <Text style={{ fontSize: 11, fontWeight: "700", color: "#1565C0" }}>{
+              <Text style={{ fontSize: 11, fontWeight: "700", color: c.primary }}>{
                 { upcoming: "예정", ongoing: "진행중", completed: "종료", cancelled: "취소" }[status]
               }</Text>
             </View>
-            {memberView.description ? (
-              <Text style={{ color: "#0F172A", marginTop: 10, lineHeight: 20 }}>{memberView.description}</Text>
-            ) : null}
           </View>
+
+          <TournamentInfoCard
+            entryFee={memberView.entryFee}
+            description={memberView.description}
+            notice={memberView.notice}
+          />
 
           <View
             style={{
@@ -204,14 +270,15 @@ export default function TournamentDetailScreen() {
               padding: 16,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: "#E5E7EB",
+              borderColor: c.border,
+              backgroundColor: c.surface,
               gap: 8,
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: "700", color: "#0F172A" }}>내 참가 정보</Text>
+            <Text style={{ fontSize: 14, fontWeight: "700", color: c.foreground }}>내 참가 정보</Text>
             {memberView.myEntry ? (
               <>
-                <Text style={{ color: "#0F172A" }}>
+                <Text style={{ color: c.foreground }}>
                   {memberView.myEntry.weightClass ? `체급: ${memberView.myEntry.weightClass}` : "체급 미지정"}
                   {memberView.myEntry.division ? `  ·  부문: ${memberView.myEntry.division}` : ""}
                 </Text>
@@ -221,15 +288,15 @@ export default function TournamentDetailScreen() {
                   </Text>
                 ) : null}
                 {memberView.myEntry.notes ? (
-                  <Text style={{ color: "#475569", fontSize: 12 }}>{memberView.myEntry.notes}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12 }}>{memberView.myEntry.notes}</Text>
                 ) : null}
               </>
             ) : (
-              <Text style={{ color: "#64748B" }}>
+              <Text style={{ color: c.muted }}>
                 아직 참가자로 등록되지 않았습니다. 관리자에게 문의하세요.
               </Text>
             )}
-            <Text style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4 }}>
+            <Text style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>
               전체 참가자 {memberView.participantCount}명
             </Text>
           </View>
@@ -275,12 +342,12 @@ export default function TournamentDetailScreen() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) }}>
         <View style={{ padding: 20, gap: 8 }}>
-          <Text style={{ fontSize: 22, fontWeight: "800", color: "#0F172A" }}>{data.title}</Text>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: c.foreground }}>{data.title}</Text>
           <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-            <Text style={{ color: "#475569" }}>📅 {formatDate(data.eventDate)}</Text>
-            {data.location ? <Text style={{ color: "#475569" }}>📍 {data.location}</Text> : null}
+            <Text style={{ color: c.muted }}>📅 {formatDate(data.eventDate)}</Text>
+            {data.location ? <Text style={{ color: c.muted }}>📍 {data.location}</Text> : null}
             {data.registrationDeadline ? (
-              <Text style={{ color: "#475569" }}>⏰ 신청 {formatDate(data.registrationDeadline)} 까지</Text>
+              <Text style={{ color: c.muted }}>⏰ 신청 {formatDate(data.registrationDeadline)} 까지</Text>
             ) : null}
           </View>
 
@@ -306,10 +373,15 @@ export default function TournamentDetailScreen() {
             ))}
           </View>
 
-          {data.description ? (
-            <Text style={{ color: "#0F172A", marginTop: 10, lineHeight: 20 }}>{data.description}</Text>
-          ) : null}
         </View>
+
+        <TournamentInfoCard
+          entryFee={data.entryFee}
+          description={data.description}
+          notice={data.notice}
+          editable
+          onEdit={() => openInfoEditor(data)}
+        />
 
         {/* 참가자 섹션 */}
         <View
@@ -317,7 +389,8 @@ export default function TournamentDetailScreen() {
             marginHorizontal: 20,
             borderRadius: 16,
             borderWidth: 1,
-            borderColor: "#E5E7EB",
+            borderColor: c.border,
+            backgroundColor: c.surface,
             overflow: "hidden",
           }}
         >
@@ -328,10 +401,10 @@ export default function TournamentDetailScreen() {
               justifyContent: "space-between",
               padding: 14,
               borderBottomWidth: 1,
-              borderBottomColor: "#F1F5F9",
+              borderBottomColor: c.border,
             }}
           >
-            <Text style={{ fontSize: 15, fontWeight: "700", color: "#0F172A" }}>
+            <Text style={{ fontSize: 15, fontWeight: "700", color: c.foreground }}>
               참가자 ({data.participants.length})
             </Text>
             <TouchableOpacity
@@ -349,7 +422,7 @@ export default function TournamentDetailScreen() {
 
           {data.participants.length === 0 ? (
             <View style={{ padding: 24, alignItems: "center" }}>
-              <Text style={{ color: "#64748B" }}>참가자가 없습니다.</Text>
+              <Text style={{ color: c.muted }}>참가자가 없습니다.</Text>
             </View>
           ) : (
             data.participants.map((p, idx) => {
@@ -363,7 +436,7 @@ export default function TournamentDetailScreen() {
                     gap: 12,
                     padding: 14,
                     borderTopWidth: idx > 0 ? 0.5 : 0,
-                    borderTopColor: "#F1F5F9",
+                    borderTopColor: c.border,
                   }}
                 >
                   <View
@@ -375,10 +448,10 @@ export default function TournamentDetailScreen() {
                     }}
                   />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#0F172A" }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: c.foreground }}>
                       {p.memberName ?? `#${p.memberId}`}
                     </Text>
-                    <Text style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
+                    <Text style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>
                       {getBeltLabel((p.beltRank ?? "white") as any)}
                       {p.weightClass ? ` · ${p.weightClass}` : ""}
                       {p.division ? ` · ${p.division}` : ""}
@@ -388,6 +461,9 @@ export default function TournamentDetailScreen() {
                     onPress={() => {
                       setEditingMemberId(p.memberId);
                       setEditingResult(result);
+                      setEditingWeightClass(p.weightClass ?? "");
+                      setEditingDivision(p.division ?? "");
+                      setEditingNotes(p.notes ?? "");
                     }}
                     style={{
                       paddingHorizontal: 10,
@@ -496,6 +572,69 @@ export default function TournamentDetailScreen() {
         </View>
       </Modal>
 
+      {/* 대회 안내 수정 모달 */}
+      <Modal visible={showInfoEditor} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowInfoEditor(false)}>
+        <View style={{ flex: 1, backgroundColor: c.background }}>
+          <View
+            style={{
+              paddingTop: Math.max(insets.top, 20),
+              paddingHorizontal: 20,
+              paddingBottom: 10,
+              borderBottomWidth: 0.5,
+              borderBottomColor: c.border,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: "800", color: c.foreground }}>대회 안내 수정</Text>
+            <TouchableOpacity onPress={() => setShowInfoEditor(false)}>
+              <Text style={{ color: c.primary, fontWeight: "600" }}>닫기</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: spacing.md }}>
+            <FormField
+              label="대회 비용"
+              value={editEntryFee}
+              onChangeText={setEditEntryFee}
+              keyboardType="number-pad"
+              placeholder="예: 30000"
+              hint="0원이면 무료 또는 미정으로 표시됩니다."
+            />
+            <FormField
+              label="대회 설명"
+              value={editDescription}
+              onChangeText={setEditDescription}
+              placeholder="체급, 복장, 접수 방식 등"
+              multiline
+            />
+            <FormField
+              label="기타 안내사항"
+              value={editNotice}
+              onChangeText={setEditNotice}
+              placeholder="집합 시간, 입금 계좌, 준비물 등"
+              multiline
+            />
+            <PrimaryButton
+              label="안내 저장"
+              loading={updateTournamentMutation.isPending}
+              onPress={() =>
+                updateTournamentMutation.mutate(
+                  {
+                    id,
+                    entryFee: Number.parseInt(editEntryFee.replace(/[^\d]/g, ""), 10) || 0,
+                    description: editDescription.trim() || null,
+                    notice: editNotice.trim() || null,
+                  },
+                  { onSuccess: () => setShowInfoEditor(false) },
+                )
+              }
+            />
+            <GhostButton label="취소" onPress={() => setShowInfoEditor(false)} />
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* 결과 선택 모달 */}
       <Modal
         visible={editingMemberId != null}
@@ -504,8 +643,33 @@ export default function TournamentDetailScreen() {
         onRequestClose={() => setEditingMemberId(null)}
       >
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" }}>
-          <View style={{ backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 10 }}>
-            <Text style={{ fontSize: 16, fontWeight: "800", color: "#0F172A" }}>결과 선택</Text>
+          <View style={{ backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 10 }}>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: c.foreground }}>참가 정보 수정</Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <FormField
+                  label="체급"
+                  placeholder="예: -60kg"
+                  value={editingWeightClass}
+                  onChangeText={setEditingWeightClass}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <FormField
+                  label="부문"
+                  placeholder="예: 초등부"
+                  value={editingDivision}
+                  onChangeText={setEditingDivision}
+                />
+              </View>
+            </View>
+            <FormField
+              label="참가 메모"
+              placeholder="특이사항 또는 준비 메모"
+              value={editingNotes}
+              onChangeText={setEditingNotes}
+              multiline
+            />
             {RESULT_OPTIONS.map((r) => (
               <TouchableOpacity
                 key={r}
@@ -517,7 +681,7 @@ export default function TournamentDetailScreen() {
                   padding: 14,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: editingResult === r ? RESULT_COLOR[r] : "#E5E7EB",
+                  borderColor: editingResult === r ? RESULT_COLOR[r] : c.border,
                   backgroundColor: editingResult === r ? RESULT_COLOR[r] + "12" : "transparent",
                 }}
               >
@@ -533,7 +697,10 @@ export default function TournamentDetailScreen() {
                 updateResultMutation.mutate({
                   tournamentId: id,
                   memberId: editingMemberId,
+                  weightClass: editingWeightClass.trim() || null,
+                  division: editingDivision.trim() || null,
                   result: editingResult,
+                  notes: editingNotes.trim() || null,
                 });
               }}
               style={{
@@ -559,7 +726,57 @@ export default function TournamentDetailScreen() {
   );
 }
 
+function TournamentInfoCard({
+  entryFee,
+  description,
+  notice,
+  editable,
+  onEdit,
+}: {
+  entryFee?: number | null;
+  description?: string | null;
+  notice?: string | null;
+  editable?: boolean;
+  onEdit?: () => void;
+}) {
+  const c = useSemanticColors();
+  const fee = Number(entryFee ?? 0);
+  return (
+    <Card style={{ marginHorizontal: 20, marginBottom: 16, gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 14, fontWeight: "800", color: c.foreground }}>대회 안내</Text>
+        {editable && onEdit ? (
+          <TouchableOpacity onPress={onEdit}>
+            <Text style={{ color: c.primary, fontSize: 12, fontWeight: "700" }}>수정</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: spacing.md }}>
+        <Text style={{ color: c.muted, fontSize: 13 }}>대회 비용</Text>
+        <Text style={{ color: c.foreground, fontSize: 13, fontWeight: "700" }}>
+          {fee > 0 ? formatAmount(fee) : "무료/미정"}
+        </Text>
+      </View>
+      {description ? (
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: c.muted, fontSize: 12, fontWeight: "700" }}>설명</Text>
+          <Text style={{ color: c.foreground, fontSize: 13, lineHeight: 20 }}>{description}</Text>
+        </View>
+      ) : null}
+      {notice ? (
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: c.muted, fontSize: 12, fontWeight: "700" }}>기타 안내사항</Text>
+          <Text style={{ color: c.foreground, fontSize: 13, lineHeight: 20 }}>{notice}</Text>
+        </View>
+      ) : (
+        <Text style={{ color: c.muted, fontSize: 12 }}>등록된 기타 안내사항이 없습니다.</Text>
+      )}
+    </Card>
+  );
+}
+
 function Header({ title, right }: { title: string; right?: React.ReactNode }) {
+  const c = useSemanticColors();
   return (
     <View
       style={{
@@ -572,7 +789,7 @@ function Header({ title, right }: { title: string; right?: React.ReactNode }) {
       }}
     >
       <BackButton />
-      <Text style={{ fontSize: 18, fontWeight: "700", color: "#0F172A" }}>{title}</Text>
+      <Text style={{ fontSize: 18, fontWeight: "700", color: c.foreground }}>{title}</Text>
       <View style={{ minWidth: 44, alignItems: "flex-end" }}>{right ?? null}</View>
     </View>
   );

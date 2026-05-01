@@ -12,6 +12,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BackButton } from "@/components/back-button";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import {
   getBeltColor, getBeltLabel, getMemberStatusColor, getMemberStatusLabel,
   getPaymentMethodLabel, getAttendanceTypeLabel, getCheckResultLabel, getPromotionResultLabel, formatDate, formatDateTime, formatAmount,
@@ -27,6 +28,61 @@ const STATUSES: MemberStatus[] = ["active", "suspended", "withdrawn"];
 
 type MemberActivityEvent = inferRouterOutputs<AppRouter>["members"]["activityTimeline"][number];
 
+function memberActivityEventSearchText(ev: MemberActivityEvent) {
+  const common = [ev.kind, formatDateTime(ev.at)];
+  if (ev.kind === "attendance") {
+    return [
+      ...common,
+      "출석",
+      formatDate(ev.attendanceDate),
+      getAttendanceTypeLabel(ev.type),
+      getCheckResultLabel(ev.checkResult as CheckResult),
+      ev.notes,
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+  if (ev.kind === "payment") {
+    return [
+      ...common,
+      "납부",
+      formatAmount(ev.amount),
+      getPaymentMethodLabel(ev.method),
+      ev.periodStart ? formatDate(ev.periodStart) : "",
+      ev.periodEnd ? formatDate(ev.periodEnd) : "",
+      ev.notes,
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+  if (ev.kind === "promotion") {
+    return [
+      ...common,
+      "승급 심사",
+      formatDate(ev.examDate),
+      getBeltLabel(ev.currentBelt as BeltRank),
+      getBeltLabel(ev.targetBelt as BeltRank),
+      getPromotionResultLabel(ev.result),
+      ev.notes,
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+  if (ev.kind === "photo") {
+    return [
+      ...common,
+      "사진",
+      formatDate(ev.attendanceDate),
+      ev.caption,
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+  return [
+    ...common,
+    "대회",
+    ev.title,
+    formatDate(ev.eventDate),
+    ev.location,
+    ev.weightClass,
+    ev.division,
+    ev.result,
+    ev.notes,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
 export default function MemberDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const memberId = Number.parseInt(id ?? "", 10);
@@ -37,7 +93,7 @@ export default function MemberDetailScreen() {
   const utils = trpc.useUtils();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState<"info" | "attendance" | "payments" | "memo">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "timeline" | "attendance" | "payments" | "memo">("info");
   const [memoText, setMemoText] = useState("");
   const [memoSaved, setMemoSaved] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -80,7 +136,7 @@ export default function MemberDetailScreen() {
   );
   const { data: activityTimeline, isLoading: timelineLoading } = trpc.members.activityTimeline.useQuery(
     { memberId, limit: 80 },
-    { enabled: hasValidMemberId && activeTab === "attendance" },
+    { enabled: hasValidMemberId && (activeTab === "attendance" || activeTab === "timeline") },
   );
 
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -91,7 +147,7 @@ export default function MemberDetailScreen() {
       utils.members.list.invalidate();
       Alert.alert("완료", "프로필 사진이 업데이트되었습니다.");
     },
-    onError: (e) => Alert.alert("업로드 오류", e.message),
+    onError: (e) => Alert.alert("업로드 오류", getFriendlyErrorMessage(e)),
     onSettled: () => setAvatarUploading(false),
   });
 
@@ -127,12 +183,12 @@ export default function MemberDetailScreen() {
       utils.members.list.invalidate();
       setShowEdit(false);
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const deleteMutation = trpc.members.delete.useMutation({
     onSuccess: () => { utils.members.list.invalidate(); router.back(); },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const saveMemoMutation = trpc.members.update.useMutation({
@@ -141,7 +197,7 @@ export default function MemberDetailScreen() {
       setMemoSaved(true);
       setTimeout(() => setMemoSaved(false), 2000);
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const { data: memoHistoryData, isLoading: memoHistoryLoading } = trpc.memoHistory.list.useQuery(
@@ -341,7 +397,7 @@ export default function MemberDetailScreen() {
 
       {/* 탭 */}
       <View className="mx-5 mb-3 flex-row bg-surface rounded-xl border border-border p-1">
-            {(["info", "attendance", "payments", "memo"] as const).map(tab => (
+            {(["info", "timeline", "attendance", "payments", "memo"] as const).map(tab => (
           <TouchableOpacity
             key={tab}
             className="flex-1 py-2 rounded-lg items-center"
@@ -350,7 +406,7 @@ export default function MemberDetailScreen() {
           >
             <Text className="text-xs font-semibold"
               style={{ color: activeTab === tab ? "#FFFFFF" : "#687076" }}>
-              {tab === "info" ? "기본 정보" : tab === "attendance" ? "출석" : tab === "payments" ? "납부" : "메모"}
+              {tab === "info" ? "기본" : tab === "timeline" ? "기록" : tab === "attendance" ? "출석" : tab === "payments" ? "납부" : "메모"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -392,13 +448,17 @@ export default function MemberDetailScreen() {
           </View>
         )}
 
+        {/* 기록 탭 */}
+        {activeTab === "timeline" && (
+          <MemberActivityTimeline
+            events={activityTimeline ?? []}
+            loading={timelineLoading}
+          />
+        )}
+
         {/* 출석 탭 */}
         {activeTab === "attendance" && (
           <View className="gap-4">
-            <MemberActivityTimeline
-              events={activityTimeline ?? []}
-              loading={timelineLoading}
-            />
             {/* 최근 6개월 출석 통계 그래프 */}
             <AttendanceBarChart stats={attendanceStats ?? []} />
             {/* 월별 캘린더 */}
@@ -682,6 +742,25 @@ function MemberActivityTimeline({
   events: MemberActivityEvent[];
   loading: boolean;
 }) {
+  const [filter, setFilter] = useState<"all" | MemberActivityEvent["kind"]>("all");
+  const [search, setSearch] = useState("");
+  const counts = useMemo(() => ({
+    all: events.length,
+    attendance: events.filter((ev) => ev.kind === "attendance").length,
+    payment: events.filter((ev) => ev.kind === "payment").length,
+    promotion: events.filter((ev) => ev.kind === "promotion").length,
+    photo: events.filter((ev) => ev.kind === "photo").length,
+    tournament: events.filter((ev) => ev.kind === "tournament").length,
+  }), [events]);
+  const filteredEvents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return events.filter((ev) => {
+      if (filter !== "all" && ev.kind !== filter) return false;
+      if (!q) return true;
+      return memberActivityEventSearchText(ev).includes(q);
+    });
+  }, [events, filter, search]);
+
   if (loading) {
     return (
       <View className="bg-surface rounded-2xl border border-border p-4 items-center py-6">
@@ -703,13 +782,52 @@ function MemberActivityTimeline({
     <View className="bg-surface rounded-2xl border border-border p-4">
       <Text className="text-sm font-bold text-foreground">활동 타임라인</Text>
       <Text className="text-xs text-muted mt-0.5 mb-3">출석 · 납부 · 승급 심사를 최신순으로 모았습니다</Text>
-      {events.map((ev, idx) => (
+      <TextInput
+        className="bg-background border border-border rounded-xl px-4 py-2.5 text-foreground text-sm mb-3"
+        placeholder="날짜, 메모, 대회명, 납부 기록 검색"
+        placeholderTextColor="#9BA1A6"
+        value={search}
+        onChangeText={setSearch}
+        returnKeyType="search"
+      />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
+        <View className="flex-row gap-2">
+          {([
+            { key: "all", label: "전체", count: counts.all },
+            { key: "attendance", label: "출석", count: counts.attendance },
+            { key: "payment", label: "납부", count: counts.payment },
+            { key: "promotion", label: "승급", count: counts.promotion },
+            { key: "photo", label: "사진", count: counts.photo },
+            { key: "tournament", label: "대회", count: counts.tournament },
+          ] as const).map((item) => {
+            const selected = filter === item.key;
+            return (
+              <TouchableOpacity
+                key={item.key}
+                className="px-3 py-1.5 rounded-full border"
+                style={{ backgroundColor: selected ? "#1565C0" : "transparent", borderColor: selected ? "#1565C0" : "#E5E7EB" }}
+                onPress={() => setFilter(item.key)}
+              >
+                <Text className="text-xs font-semibold" style={{ color: selected ? "#FFFFFF" : "#687076" }}>
+                  {item.label} {item.count}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+      {filteredEvents.length === 0 ? (
+        <View className="items-center py-8">
+          <Text className="text-3xl mb-2">🔎</Text>
+          <Text className="text-xs text-muted">선택한 조건의 기록이 없습니다</Text>
+        </View>
+      ) : filteredEvents.map((ev, idx) => (
         <View
           key={`${ev.kind}-${ev.id}`}
-          className={`flex-row gap-3 pb-3 ${idx < events.length - 1 ? "border-b border-border mb-3" : ""}`}
+          className={`flex-row gap-3 pb-3 ${idx < filteredEvents.length - 1 ? "border-b border-border mb-3" : ""}`}
         >
-          <Text className="text-lg pt-0.5" accessibilityLabel={ev.kind === "attendance" ? "출석" : ev.kind === "payment" ? "납부" : "승급 심사"}>
-            {ev.kind === "attendance" ? "🥋" : ev.kind === "payment" ? "💳" : "🏆"}
+          <Text className="text-lg pt-0.5" accessibilityLabel={ev.kind}>
+            {ev.kind === "attendance" ? "🥋" : ev.kind === "payment" ? "💳" : ev.kind === "promotion" ? "🏅" : ev.kind === "photo" ? "📷" : "🏆"}
           </Text>
           <View className="flex-1 min-w-0">
             <Text className="text-[11px] text-muted">{formatDateTime(ev.at)}</Text>
@@ -733,13 +851,37 @@ function MemberActivityTimeline({
                 ) : null}
                 {ev.notes ? <Text className="text-xs text-muted mt-1">{ev.notes}</Text> : null}
               </>
-            ) : (
+            ) : ev.kind === "promotion" ? (
               <>
                 <Text className="text-sm font-semibold text-foreground mt-0.5">
                   승급 심사 · {getPromotionResultLabel(ev.result)}
                 </Text>
                 <Text className="text-xs text-muted mt-0.5">
                   심사일 {formatDate(ev.examDate)} · {getBeltLabel(ev.currentBelt as BeltRank)} → {getBeltLabel(ev.targetBelt as BeltRank)}
+                </Text>
+                {ev.notes ? <Text className="text-xs text-muted mt-1">{ev.notes}</Text> : null}
+              </>
+            ) : ev.kind === "photo" ? (
+              <>
+                <Text className="text-sm font-semibold text-foreground mt-0.5">
+                  출석 사진 기록
+                </Text>
+                <Text className="text-xs text-muted mt-0.5">기준일 {formatDate(ev.attendanceDate)}</Text>
+                {ev.caption ? <Text className="text-xs text-muted mt-1">{ev.caption}</Text> : null}
+                {(ev.imageUrl || ev.imageData) ? (
+                  <Image source={{ uri: ev.imageUrl || ev.imageData || "" }} style={{ width: 84, height: 84, borderRadius: 12, marginTop: 8, backgroundColor: "#F1F5F9" }} />
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text className="text-sm font-semibold text-foreground mt-0.5">
+                  대회 · {ev.title}
+                </Text>
+                <Text className="text-xs text-muted mt-0.5">
+                  {formatDate(ev.eventDate)}{ev.location ? ` · ${ev.location}` : ""}{ev.weightClass ? ` · ${ev.weightClass}` : ""}{ev.division ? ` · ${ev.division}` : ""}
+                </Text>
+                <Text className="text-xs text-muted mt-0.5">
+                  결과 {ev.result === "pending" ? "예정" : ev.result === "participated" ? "참가" : ev.result === "gold" ? "금메달" : ev.result === "silver" ? "은메달" : ev.result === "bronze" ? "동메달" : "불참"}
                 </Text>
                 {ev.notes ? <Text className="text-xs text-muted mt-1">{ev.notes}</Text> : null}
               </>
@@ -1057,12 +1199,12 @@ function MemoHistoryModal({
 
   const deleteItemMutation = trpc.memoHistory.deleteItem.useMutation({
     onSuccess: () => utils.memoHistory.list.invalidate({ memberId }),
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const clearAllMutation = trpc.memoHistory.clearAll.useMutation({
     onSuccess: () => utils.memoHistory.list.invalidate({ memberId }),
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const handleDeleteItem = (id: number, index: number) => {

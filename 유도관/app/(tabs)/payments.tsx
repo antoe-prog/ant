@@ -9,6 +9,7 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
 import { trpc } from "@/lib/trpc";
+import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import {
   getBeltColor, getBeltLabel, getInitials, getPaymentMethodLabel,
   formatDate, formatAmount,
@@ -16,11 +17,25 @@ import {
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import type { PaymentMethod } from "@/lib/judo-utils";
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
-import { EmptyState, PillButton } from "@/components/ui/primitives";
+import { EmptyState, ErrorState, PillButton } from "@/components/ui/primitives";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
+import { formatDateInput, formatWonInput } from "@/lib/input-formatters";
 
 const PAYMENT_METHODS: PaymentMethod[] = ["cash", "card", "transfer"];
+
+function isValidDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function parseWon(value: string) {
+  const amount = Number.parseInt(value.replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(amount) ? amount : 0;
+}
 
 // 납부 영수증 텍스트 생성
 function generateReceiptText(params: {
@@ -100,7 +115,7 @@ async function shareReceipt(receiptText: string, memberName: string) {
 
 export default function PaymentsScreen() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager" || user?.role === "admin";
+  const isManager = IS_ADMIN_APP && (user?.role === "manager" || user?.role === "admin");
   const utils = trpc.useUtils();
   const insets = useSafeAreaInsets();
 
@@ -134,7 +149,7 @@ export default function PaymentsScreen() {
     notes: "",
   });
 
-  const { data: members } = trpc.members.list.useQuery(undefined, { enabled: isManager });
+  const { data: members, error: membersError, refetch: refetchMembers } = trpc.members.list.useQuery(undefined, { enabled: isManager });
   const { data: recentPayments } = trpc.payments.recent.useQuery({ limit: 15 }, { enabled: isManager });
   const { data: expiringSoon } = trpc.payments.expiringSoon.useQuery({ days: 7 }, { enabled: isManager });
   const { data: reportData, isLoading: reportLoading } = trpc.payments.monthlyReport.useQuery(
@@ -167,7 +182,7 @@ export default function PaymentsScreen() {
         setLastPayment({
           memberName: member.name,
           beltRank: `${getBeltLabel(member.beltRank)} ${member.beltDegree ?? 1}단`,
-          amount: Number.parseInt(form.amount, 10),
+          amount: parseWon(form.amount),
           method: form.method,
           periodStart: form.periodStart || null,
           periodEnd: form.periodEnd || null,
@@ -190,7 +205,7 @@ export default function PaymentsScreen() {
       }
       resetForm();
     },
-    onError: (e) => Alert.alert("오류", e.message),
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
   const resetForm = () => setForm({
@@ -201,7 +216,7 @@ export default function PaymentsScreen() {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
-    setForm(f => ({ ...f, memberId, amount: String(monthlyFee), periodStart: start, periodEnd: end }));
+    setForm(f => ({ ...f, memberId, amount: formatWonInput(String(monthlyFee)), periodStart: start, periodEnd: end }));
     setShowAdd(true);
   };
 
@@ -255,10 +270,25 @@ export default function PaymentsScreen() {
 
   const handleCreate = () => {
     if (!form.memberId) { Alert.alert("오류", "회원을 선택하세요"); return; }
-    if (!form.amount || Number.isNaN(Number.parseInt(form.amount, 10))) { Alert.alert("오류", "금액을 입력하세요"); return; }
+    const amount = parseWon(form.amount);
+    if (amount <= 0) { Alert.alert("오류", "납부 금액은 1원 이상 입력해 주세요."); return; }
+    const hasStart = form.periodStart.trim().length > 0;
+    const hasEnd = form.periodEnd.trim().length > 0;
+    if (hasStart !== hasEnd) {
+      Alert.alert("등록기간 확인", "시작일과 종료일을 함께 입력해 주세요.");
+      return;
+    }
+    if (hasStart && (!isValidDateInput(form.periodStart) || !isValidDateInput(form.periodEnd))) {
+      Alert.alert("등록기간 확인", "등록기간은 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+      return;
+    }
+    if (hasStart && form.periodStart > form.periodEnd) {
+      Alert.alert("등록기간 확인", "시작일은 종료일보다 늦을 수 없습니다.");
+      return;
+    }
     createMutation.mutate({
       memberId: form.memberId,
-      amount: Number.parseInt(form.amount, 10),
+      amount,
       method: form.method,
       periodStart: form.periodStart || undefined,
       periodEnd: form.periodEnd || undefined,
@@ -417,51 +447,66 @@ export default function PaymentsScreen() {
         <Text className="text-sm font-semibold text-foreground">납부 예정 목록</Text>
       </View>
 
-      <FlatList
-        data={overdueMembers}
-        keyExtractor={idKeyExtractor}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20, gap: 8 }}
-        {...listPerfProps}
-        ListEmptyComponent={<EmptyState emoji="💳" title="납부 예정 회원이 없습니다" />}
-        renderItem={({ item }) => {
-          const status = getDaysStatus(item.nextPaymentDate!);
-          return (
-            <View className="bg-surface rounded-2xl border border-border p-4">
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 rounded-full items-center justify-center"
-                  style={{ backgroundColor: getBeltColor(item.beltRank) + "30" }}>
-                  <Text className="text-sm font-bold" style={{ color: getBeltColor(item.beltRank) }}>
-                    {getInitials(item.name)}
-                  </Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-base font-semibold text-foreground">{item.name}</Text>
-                  <View className="flex-row items-center gap-2 mt-0.5">
-                    <View className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getBeltColor(item.beltRank) }} />
-                    <Text className="text-xs text-muted">{getBeltLabel(item.beltRank)}</Text>
+      {membersError ? (
+        <ErrorState
+          message={getFriendlyErrorMessage(membersError)}
+          action={
+            <TouchableOpacity
+              onPress={() => void refetchMembers()}
+              className="px-4 py-2 rounded-full bg-white border"
+              style={{ borderColor: "#F2B8B5", alignSelf: "flex-start" }}
+            >
+              <Text className="text-sm font-bold" style={{ color: "#B3261E" }}>다시 시도</Text>
+            </TouchableOpacity>
+          }
+        />
+      ) : (
+        <FlatList
+          data={overdueMembers}
+          keyExtractor={idKeyExtractor}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20, gap: 8 }}
+          {...listPerfProps}
+          ListEmptyComponent={<EmptyState emoji="💳" title="납부 예정 회원이 없습니다" />}
+          renderItem={({ item }) => {
+            const status = getDaysStatus(item.nextPaymentDate!);
+            return (
+              <View className="bg-surface rounded-2xl border border-border p-4">
+                <View className="flex-row items-center gap-3">
+                  <View className="w-10 h-10 rounded-full items-center justify-center"
+                    style={{ backgroundColor: getBeltColor(item.beltRank) + "30" }}>
+                    <Text className="text-sm font-bold" style={{ color: getBeltColor(item.beltRank) }}>
+                      {getInitials(item.name)}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-base font-semibold text-foreground">{item.name}</Text>
+                    <View className="flex-row items-center gap-2 mt-0.5">
+                      <View className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getBeltColor(item.beltRank) }} />
+                      <Text className="text-xs text-muted">{getBeltLabel(item.beltRank)}</Text>
+                    </View>
+                  </View>
+                  <View className="items-end gap-1">
+                    <Text className="text-base font-bold text-foreground">{formatAmount(item.monthlyFee)}</Text>
+                    <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: status.color + "20" }}>
+                      <Text className="text-xs font-semibold" style={{ color: status.color }}>{status.label}</Text>
+                    </View>
                   </View>
                 </View>
-                <View className="items-end gap-1">
-                  <Text className="text-base font-bold text-foreground">{formatAmount(item.monthlyFee)}</Text>
-                  <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: status.color + "20" }}>
-                    <Text className="text-xs font-semibold" style={{ color: status.color }}>{status.label}</Text>
-                  </View>
+                <View className="mt-3 flex-row items-center justify-between">
+                  <Text className="text-xs text-muted">납부 예정일: {formatDate(item.nextPaymentDate)}</Text>
+                  <TouchableOpacity
+                    style={{ backgroundColor: "#1565C0" }}
+                    className="px-3 py-1.5 rounded-xl"
+                    onPress={() => openAddForMember(item.id, item.monthlyFee)}
+                  >
+                    <Text className="text-white text-xs font-semibold">납부 처리</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-              <View className="mt-3 flex-row items-center justify-between">
-                <Text className="text-xs text-muted">납부 예정일: {formatDate(item.nextPaymentDate)}</Text>
-                <TouchableOpacity
-                  style={{ backgroundColor: "#1565C0" }}
-                  className="px-3 py-1.5 rounded-xl"
-                  onPress={() => openAddForMember(item.id, item.monthlyFee)}
-                >
-                  <Text className="text-white text-xs font-semibold">납부 처리</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          );
-        }}
-      />
+            );
+          }}
+        />
+      )}
 
       {/* 납부 등록 모달 */}
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet">
@@ -484,7 +529,7 @@ export default function PaymentsScreen() {
                         key={m.id}
                         className="flex-row items-center gap-3 p-3 rounded-xl border mb-2"
                         style={{ borderColor: "#E5E7EB" }}
-                        onPress={() => setForm(f => ({ ...f, memberId: m.id, amount: String(m.monthlyFee) }))}
+                        onPress={() => setForm(f => ({ ...f, memberId: m.id, amount: formatWonInput(String(m.monthlyFee)) }))}
                       >
                         <View className="w-8 h-8 rounded-full items-center justify-center"
                           style={{ backgroundColor: getBeltColor(m.beltRank) + "30" }}>
@@ -514,7 +559,7 @@ export default function PaymentsScreen() {
                 <TextInput
                   className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
                   value={form.amount}
-                  onChangeText={v => setForm(f => ({ ...f, amount: v }))}
+                  onChangeText={v => setForm(f => ({ ...f, amount: formatWonInput(v) }))}
                   placeholder="80000"
                   placeholderTextColor="#9BA1A6"
                   keyboardType="numeric"
@@ -549,7 +594,7 @@ export default function PaymentsScreen() {
                   <TextInput
                     className="bg-surface border border-border rounded-xl px-3 py-3 text-foreground"
                     value={form.periodStart}
-                    onChangeText={v => setForm(f => ({ ...f, periodStart: v }))}
+                    onChangeText={v => setForm(f => ({ ...f, periodStart: formatDateInput(v) }))}
                     placeholder="YYYY-MM-DD"
                     placeholderTextColor="#9BA1A6"
                   />
@@ -559,7 +604,7 @@ export default function PaymentsScreen() {
                   <TextInput
                     className="bg-surface border border-border rounded-xl px-3 py-3 text-foreground"
                     value={form.periodEnd}
-                    onChangeText={v => setForm(f => ({ ...f, periodEnd: v }))}
+                    onChangeText={v => setForm(f => ({ ...f, periodEnd: formatDateInput(v) }))}
                     placeholder="YYYY-MM-DD"
                     placeholderTextColor="#9BA1A6"
                   />
