@@ -11,12 +11,11 @@ import { trpc } from "@/lib/trpc";
 import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import {
   getBeltColor, getBeltLabel, getInitials, getAttendanceTypeLabel, formatDate,
-  getCheckResultLabel, type CheckResult,
+  getCheckResultLabel, type CheckResult, type AttendanceType,
 } from "@/lib/judo-utils";
 import { useTabBackHandler, useModalBackHandler } from "@/hooks/use-back-handler";
 import { idKeyExtractor, listPerfProps } from "@/lib/list-utils";
 import { EmptyState } from "@/components/ui/primitives";
-import type { AttendanceType } from "@/lib/judo-utils";
 import { IS_ADMIN_APP } from "@/constants/app-variant";
 
 const TODAY = new Date().toISOString().split("T")[0];

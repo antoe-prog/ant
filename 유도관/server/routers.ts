@@ -1,11 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { calcParticipationRate, getBeltLabel, suggestNextPaymentDate, type BeltRank } from "../lib/judo-utils";
-
-// 서버에서도 띠를 한국어로 표기하기 위한 짧은 래퍼. getBeltLabel 인자 타입에 맞춰 캐스팅한다.
-function beltKo(belt: string): string {
-  return getBeltLabel(belt as BeltRank);
-}
 import {
   checkAttendance,
   getAttendanceStatsByMember,
@@ -30,6 +25,8 @@ import {
   getDashboardStats,
   getManagerOperationsSummary,
   getMemberById,
+  getNotifyUserIdsForMember,
+  getNotifyUserIdsForMembers,
   getMemberActivityTimeline,
   getMemberOverviewSnapshot,
   getMemberByUserId,
@@ -110,6 +107,11 @@ import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, authedProcedure, managerProcedure, publicProcedure, router } from "./_core/trpc";
+
+// 서버에서도 띠를 한국어로 표기하기 위한 짧은 래퍼. getBeltLabel 인자 타입에 맞춰 캐스팅한다.
+function beltKo(belt: string): string {
+  return getBeltLabel(belt as BeltRank);
+}
 
 const EMAIL_SCHEMA = z
   .string()
@@ -564,11 +566,11 @@ const attendanceRouter = router({
     });
     // 중복 출석이면 푸시 알림은 생략한다.
     if (isNew && input.checkResult !== "absent") {
-      getMemberById(input.memberId).then((member) => {
-        if (member?.userId) {
+      getNotifyUserIdsForMember(input.memberId).then((userIds) => {
+        if (userIds.length > 0) {
           const typeLabel = input.type === "regular" ? "일반" : input.type === "makeup" ? "보강" : "체험";
           const resultLabel = input.checkResult === "late" ? "지각" : "출석";
-          sendPushNotifications([member.userId], {
+          sendPushNotifications(userIds, {
             title: "회원님, 오늘 출석이 등록되었습니다! 🏆",
             body: `${input.attendanceDate} ${typeLabel} ${resultLabel}이(가) 기록되었습니다.`,
             data: { type: "attendance", memberId: input.memberId, attendanceDate: input.attendanceDate },
@@ -607,8 +609,7 @@ const attendanceRouter = router({
     const succeeded = results.filter(r => r.status === "fulfilled").length;
     const failed = results.filter(r => r.status === "rejected").length;
     if (input.checkResult !== "absent") {
-      Promise.all(input.memberIds.map(memberId => getMemberById(memberId))).then((memberList) => {
-        const userIds = memberList.filter(m => m?.userId).map(m => m!.userId!);
+      getNotifyUserIdsForMembers(input.memberIds).then((userIds) => {
         if (userIds.length > 0) {
           sendPushNotifications(userIds, {
             title: "회원님, 오늘 출석이 등록되었습니다! 🏆",
@@ -644,9 +645,9 @@ const attendanceRouter = router({
     );
     // 최초 기록된 경우에만 회원에게 푸시 알림
     if (isNew) {
-      getMemberById(input.memberId).then((member) => {
-        if (member?.userId) {
-          sendPushNotifications([member.userId], {
+      getNotifyUserIdsForMember(input.memberId).then((userIds) => {
+        if (userIds.length > 0) {
+          sendPushNotifications(userIds, {
             title: "QR 출석 완료! 📱",
             body: `${today} 출석이 등록되었습니다.`,
             data: { type: "attendance", memberId: input.memberId, attendanceDate: today },
@@ -698,11 +699,11 @@ const paymentsRouter = router({
     // nextPaymentDate를 한 달 뒤로 갱신 → 스케줄러의 만료 알림 대상에서 자동 제외됨
     await updateMember(input.memberId, { nextPaymentDate: nextPaymentDateStr });
     // 납부 완료 즉시 회원에게 확인 알림 발송 (비동기)
-    Promise.resolve(member).then((member) => {
-      if (member?.userId) {
+    getNotifyUserIdsForMember(input.memberId).then((userIds) => {
+      if (userIds.length > 0) {
         const methodLabel: Record<string, string> = { cash: "현금", card: "카드", transfer: "계좌이체" };
         const amountFormatted = input.amount.toLocaleString("ko-KR");
-        sendPushNotifications([member.userId], {
+        sendPushNotifications(userIds, {
           title: "납부 완료 ✅",
           body: `${amountFormatted}원 납부가 완료되었습니다. 다음 납부일: ${nextPaymentDateStr}`,
           data: { type: "payment_complete", memberId: input.memberId, method: methodLabel[input.method] ?? input.method, nextPaymentDate: nextPaymentDateStr },
@@ -844,11 +845,11 @@ const promotionsRouter = router({
     // 대상 회원에게 심사 등록 알림 (회원 계정이 연결되어 있고 푸시 토큰이 있을 때만 전달)
     void (async () => {
       try {
-        const member = await getMemberById(input.memberId);
-        if (!member?.userId) return;
+        const userIds = await getNotifyUserIdsForMember(input.memberId);
+        if (userIds.length === 0) return;
         const currentLabel = beltKo(input.currentBelt);
         const targetLabel = beltKo(input.targetBelt);
-        sendPushNotifications([member.userId], {
+        sendPushNotifications(userIds, {
           title: `🥋 승급 심사 예정`,
           body: `${input.examDate}에 ${currentLabel} → ${targetLabel} 심사가 등록되었습니다.`,
           data: { type: "promotion", id, examDate: input.examDate, memberId: input.memberId },
@@ -874,9 +875,9 @@ const promotionsRouter = router({
         await updateMember(p.memberId, { beltRank: p.targetBelt });
         void (async () => {
           try {
-            const member = await getMemberById(p.memberId);
-            if (!member?.userId) return;
-            sendPushNotifications([member.userId], {
+            const userIds = await getNotifyUserIdsForMember(p.memberId);
+            if (userIds.length === 0) return;
+            sendPushNotifications(userIds, {
               title: `🎉 승급 심사 합격`,
               body: `축하합니다! ${beltKo(p.currentBelt)} → ${beltKo(p.targetBelt)} 승급이 완료되었습니다.`,
               data: { type: "promotion", id, memberId: p.memberId },
@@ -1326,12 +1327,12 @@ const tournamentsRouter = router({
       if (isNew) {
         void (async () => {
           try {
-            const [member, tournament] = await Promise.all([
-              getMemberById(input.memberId),
+            const [userIds, tournament] = await Promise.all([
+              getNotifyUserIdsForMember(input.memberId),
               getTournamentById(input.tournamentId),
             ]);
-            if (!member?.userId || !tournament) return;
-            sendPushNotifications([member.userId], {
+            if (userIds.length === 0 || !tournament) return;
+            sendPushNotifications(userIds, {
               title: `🏆 대회 참가 등록`,
               body: `${tournament.eventDate} ${tournament.title}에 참가자로 등록되었습니다.`,
               data: {
@@ -1374,12 +1375,12 @@ const tournamentsRouter = router({
       if (input.result === "gold" || input.result === "silver" || input.result === "bronze") {
         void (async () => {
           try {
-            const [member, tournament] = await Promise.all([
-              getMemberById(input.memberId),
+            const [userIds, tournament] = await Promise.all([
+              getNotifyUserIdsForMember(input.memberId),
               getTournamentById(input.tournamentId),
             ]);
-            if (!member?.userId || !tournament) return;
-            sendPushNotifications([member.userId], {
+            if (userIds.length === 0 || !tournament) return;
+            sendPushNotifications(userIds, {
               title: `🎉 대회 결과`,
               body: `축하합니다! ${tournament.title}에서 ${resultKo(input.result)}을(를) 획득했습니다.`,
               data: {

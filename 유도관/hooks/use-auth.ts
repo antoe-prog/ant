@@ -1,6 +1,7 @@
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import { clearGatewaySession } from "@/lib/_core/gateway-auth";
+import { vanillaTrpc } from "@/lib/trpc";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 
@@ -53,7 +54,34 @@ export function useAuth(options?: UseAuthOptions) {
 
       // Use cached user info for native (token validates the session)
       const cachedUser = await Auth.getUserInfo();
-      setUser(cachedUser ?? null);
+      if (cachedUser) {
+        setUser(cachedUser);
+        return;
+      }
+
+      // 토큰은 있는데 캐시가 비어 있으면(앱 업데이트, 캐시 유실 등)
+      // 서버에서 사용자 정보를 복구해 자동로그인을 유지한다.
+      const apiUser = await Api.getMe();
+      if (apiUser) {
+        const userInfo: Auth.User = {
+          id: apiUser.id,
+          openId: apiUser.openId,
+          name: apiUser.name,
+          email: apiUser.email,
+          loginMethod: apiUser.loginMethod,
+          role: (apiUser.role as "member" | "manager" | "admin") ?? "member",
+          accountType: apiUser.accountType === "parent" ? "parent" : "student",
+          avatarUrl: apiUser.avatarUrl ?? null,
+          lastSignedIn: new Date(apiUser.lastSignedIn),
+        };
+        setUser(userInfo);
+        await Auth.setUserInfo(userInfo);
+      } else {
+        // 토큰이 만료/폐기된 경우: 정리하고 로그아웃 상태로
+        setUser(null);
+        await Auth.removeSessionToken();
+        await Auth.clearUserInfo();
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error("Failed to fetch user");
       setError(error);
@@ -64,6 +92,13 @@ export function useAuth(options?: UseAuthOptions) {
   }, []);
 
   const logout = useCallback(async () => {
+    // 세션이 살아있는 동안 이 기기의 푸시 토큰을 해제한다.
+    // 놓치면 다음에 로그인한 계정이 이전 계정(관리자 운영 알림 등)의 푸시를 받는다.
+    try {
+      await vanillaTrpc.pushTokens.unregister.mutate();
+    } catch (err) {
+      console.warn("[Auth] Push token unregister failed:", err);
+    }
     try {
       await Api.logout();
     } catch (err) {

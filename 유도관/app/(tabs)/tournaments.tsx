@@ -85,7 +85,10 @@ export default function TournamentsScreen() {
   const memberQuery = trpc.tournaments.myTournaments.useQuery(selectedMemberInput, {
     enabled: !isManager && canReadSelectedMember,
   });
-  const rows = isManager ? (managerQuery.data ?? []) : (memberQuery.data ?? []);
+  const rows = useMemo(
+    () => (isManager ? (managerQuery.data ?? []) : (memberQuery.data ?? [])),
+    [isManager, managerQuery.data, memberQuery.data],
+  );
   const isLoading = isManager ? managerQuery.isLoading : memberQuery.isLoading || (isParent && isLoadingChildren);
   const queryError = isManager ? managerQuery.error : memberQuery.error;
   const refetchRows = isManager ? managerQuery.refetch : memberQuery.refetch;

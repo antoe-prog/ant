@@ -11,19 +11,6 @@ import * as Notifications from "expo-notifications";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { getApiBaseUrl } from "@/constants/oauth";
-
-// 알림 핸들러: 포그라운드에서도 알림 표시 (웹 제외)
-if (Platform.OS !== "web") {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-}
 import {
   SafeAreaFrameContext,
   SafeAreaInsetsContext,
@@ -37,6 +24,19 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 
+// 알림 핸들러: 포그라운드에서도 알림 표시 (웹 제외)
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
+
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
@@ -44,10 +44,10 @@ export const unstable_settings = {
   anchor: "(tabs)",
 };
 
-// 인증 상태 감지 후 푸시 토큰 서버 등록
+// 인증 상태 감지 후 푸시 토큰 서버 등록 (계정이 바뀌면 새 계정으로 재등록)
 function PushNotificationSetup() {
-  const { isAuthenticated } = useAuth();
-  usePushNotifications(isAuthenticated);
+  const { user } = useAuth();
+  usePushNotifications(user?.id ?? null);
   return null;
 }
 

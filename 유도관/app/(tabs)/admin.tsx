@@ -640,14 +640,6 @@ function ActivityLogsTab() {
     return m;
   }, [logs]);
 
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#1565C0" />
-      </View>
-    );
-  }
-
   const renderLog = useCallback(({ item: log, index: idx }: { item: NonNullable<typeof logs>[0]; index: number }) => {
     const ac = ACTION_COLORS[log.action] ?? "#1565C0";
     const isFirst = idx === 0;
@@ -690,6 +682,14 @@ function ActivityLogsTab() {
       </View>
     );
   }, []);
+
+  if (isLoading) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color="#1565C0" />
+      </View>
+    );
+  }
 
   const listHeader = (
     <>

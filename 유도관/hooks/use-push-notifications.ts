@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { IS_ADMIN_APP } from "@/constants/app-variant";
 import type { Router } from "expo-router";
 
 Notifications.setNotificationHandler({
@@ -77,7 +78,8 @@ function navigateFromNotification(router: Router, data: Record<string, unknown>)
   }
 
   if (type === "attendance") {
-    router.push("/(tabs)");
+    // 관리자 앱은 출석 관리 탭으로, 회원/학부모 앱은 홈(출석 현황)으로 이동
+    router.push(IS_ADMIN_APP ? ("/(tabs)/attendance" as never) : "/(tabs)");
     return;
   }
 
@@ -87,12 +89,12 @@ function navigateFromNotification(router: Router, data: Record<string, unknown>)
     type === "payment_complete" ||
     type === "registration_expiry"
   ) {
-    router.push("/my-registration" as never);
+    router.push(IS_ADMIN_APP ? ("/(tabs)/payments" as never) : ("/my-registration" as never));
     return;
   }
 
   if (type === "promotion" || type === "promotion_reminder") {
-    router.push("/my-promotions");
+    router.push(IS_ADMIN_APP ? ("/(tabs)/promotions" as never) : "/my-promotions");
     return;
   }
 
@@ -111,29 +113,32 @@ function navigateFromNotification(router: Router, data: Record<string, unknown>)
     return;
   }
 
-  if (type === "manager_ops_daily" || type === "manager_ops_critical") {
+  if (type === "manager_ops_daily" || type === "manager_ops_critical" || type === "manager_task_due") {
+    // 운영 요약·할 일 위젯은 관리자 홈에 있다
     router.push("/(tabs)" as never);
     return;
   }
 }
 
-export function usePushNotifications(isAuthenticated: boolean) {
+export function usePushNotifications(userId: number | null) {
   const router = useRouter();
   const registerMutation = trpc.pushTokens.register.useMutation();
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
-  const registeredTokenRef = useRef<string | null>(null);
+  // 계정별로 토큰을 다시 묶는다: 같은 기기에서 다른 계정으로 로그인하면 재등록 필요
+  const registeredKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (userId == null) return;
 
     registerForPushNotificationsAsync().then((token) => {
       if (!token) {
         console.warn("[Push] Token not obtained. Check real device, notification permission, and EAS projectId.");
         return;
       }
-      if (registeredTokenRef.current === token) return;
-      registeredTokenRef.current = token;
+      const key = `${userId}:${token}`;
+      if (registeredKeyRef.current === key) return;
+      registeredKeyRef.current = key;
       registerMutation.mutate(
         { token, platform: Platform.OS },
         {
@@ -155,5 +160,6 @@ export function usePushNotifications(isAuthenticated: boolean) {
       notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, [isAuthenticated, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- registerMutation은 렌더마다 새 객체라 제외
+  }, [userId, router]);
 }

@@ -1264,6 +1264,7 @@ function ManagerTodoBoard() {
   const [memberId, setMemberId] = useState<number | null>(null);
   const [filter, setFilter] = useState<"open" | "today" | "week" | "high" | "done">("open");
   const [showDone, setShowDone] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
 
   const { data: tasks, isLoading } = trpc.managerTasks.list.useQuery(
     { includeDone: true, limit: 80 },
@@ -1279,6 +1280,21 @@ function ManagerTodoBoard() {
       setMemberId(null);
       void utils.managerTasks.list.invalidate();
     },
+  });
+  const resetTaskForm = () => {
+    setTitle("");
+    setDescription("");
+    setPriority("normal");
+    setDueDate("");
+    setMemberId(null);
+    setEditingTaskId(null);
+  };
+  const updateMutation = trpc.managerTasks.update.useMutation({
+    onSuccess: () => {
+      resetTaskForm();
+      void utils.managerTasks.list.invalidate();
+    },
+    onError: (e) => Alert.alert("할 일 수정 실패", e.message),
   });
   const doneMutation = trpc.managerTasks.setDone.useMutation({
     onSuccess: () => void utils.managerTasks.list.invalidate(),
@@ -1310,13 +1326,40 @@ function ManagerTodoBoard() {
       Alert.alert("확인", "할 일 제목을 입력해 주세요.");
       return;
     }
+    const normalizedDueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim()) ? dueDate.trim() : null;
+    if (editingTaskId != null) {
+      updateMutation.mutate({
+        id: editingTaskId,
+        title: trimmed,
+        description: description.trim() || null,
+        priority,
+        dueDate: normalizedDueDate,
+        memberId,
+      });
+      return;
+    }
     createMutation.mutate({
       title: trimmed,
       description: description.trim() || undefined,
       priority,
-      dueDate: /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim()) ? dueDate.trim() : undefined,
+      dueDate: normalizedDueDate ?? undefined,
       memberId: memberId ?? undefined,
     });
+  };
+  const startEditTask = (task: {
+    id: number;
+    title: string;
+    description: string | null;
+    priority: "low" | "normal" | "high";
+    dueDate: string | null;
+    memberId: number | null;
+  }) => {
+    setEditingTaskId(task.id);
+    setTitle(task.title);
+    setDescription(task.description ?? "");
+    setPriority(task.priority);
+    setDueDate(task.dueDate ?? "");
+    setMemberId(task.memberId);
   };
   const selectedMember = members?.find((member) => member.id === memberId);
 
@@ -1355,6 +1398,11 @@ function ManagerTodoBoard() {
       ) : null}
 
       <View style={{ gap: 8, marginBottom: 12 }}>
+        {editingTaskId != null ? (
+          <View style={{ borderRadius: 10, backgroundColor: "#F5F3FF", borderWidth: 1, borderColor: "#DDD6FE", paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Text style={{ fontSize: 11, fontWeight: "800", color: "#7C3AED" }}>할 일 수정 중 — 저장을 누르면 반영됩니다</Text>
+          </View>
+        ) : null}
         <TextInput
           value={title}
           onChangeText={setTitle}
@@ -1427,13 +1475,23 @@ function ManagerTodoBoard() {
               </TouchableOpacity>
             );
           })}
+          {editingTaskId != null ? (
+            <TouchableOpacity
+              onPress={resetTaskForm}
+              style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E2E8F0", backgroundColor: "#FFFFFF", paddingHorizontal: 12, paddingVertical: 9 }}
+            >
+              <Text style={{ color: "#64748B", fontSize: 12, fontWeight: "900" }}>취소</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             onPress={handleCreate}
-            disabled={createMutation.isPending}
-            style={{ borderRadius: 999, backgroundColor: "#1565C0", paddingHorizontal: 14, paddingVertical: 9, opacity: createMutation.isPending ? 0.6 : 1 }}
+            disabled={createMutation.isPending || updateMutation.isPending}
+            style={{ borderRadius: 999, backgroundColor: editingTaskId != null ? "#7C3AED" : "#1565C0", paddingHorizontal: 14, paddingVertical: 9, opacity: createMutation.isPending || updateMutation.isPending ? 0.6 : 1 }}
           >
             <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "900" }}>
-              {createMutation.isPending ? "추가 중" : "추가"}
+              {editingTaskId != null
+                ? updateMutation.isPending ? "저장 중" : "저장"
+                : createMutation.isPending ? "추가 중" : "추가"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1518,9 +1576,16 @@ function ManagerTodoBoard() {
                       </Text>
                     ) : null}
                   </View>
-                  <TouchableOpacity onPress={() => archiveMutation.mutate({ id: task.id })} style={{ paddingHorizontal: 4, paddingVertical: 2 }}>
-                    <Text style={{ color: "#94A3B8", fontSize: 14, fontWeight: "900" }}>×</Text>
-                  </TouchableOpacity>
+                  <View style={{ alignItems: "center", gap: 6 }}>
+                    <TouchableOpacity onPress={() => archiveMutation.mutate({ id: task.id })} style={{ paddingHorizontal: 4, paddingVertical: 2 }}>
+                      <Text style={{ color: "#94A3B8", fontSize: 14, fontWeight: "900" }}>×</Text>
+                    </TouchableOpacity>
+                    {!isDone ? (
+                      <TouchableOpacity onPress={() => startEditTask(task)} style={{ paddingHorizontal: 4, paddingVertical: 2 }}>
+                        <Text style={{ color: editingTaskId === task.id ? "#7C3AED" : "#94A3B8", fontSize: 13 }}>✎</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                 </View>
               </View>
             );

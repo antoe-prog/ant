@@ -49,12 +49,16 @@ export function getSessionCookieOptions(
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
   const hostname = req.hostname;
   const domain = getParentDomain(hostname);
+  const secure = isSecureRequest(req);
 
   return {
     domain,
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    // 브라우저는 Secure 없는 SameSite=None 쿠키를 저장하지 않는다.
+    // http(로컬 개발)에서는 Lax로 내려야 쿠키가 유지되어 웹 자동로그인이 동작한다.
+    // (localhost:8081 → localhost:3000 은 same-site라 Lax로도 XHR에 쿠키가 실린다)
+    sameSite: secure ? "none" : "lax",
+    secure,
   };
 }

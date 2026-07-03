@@ -14,7 +14,7 @@ export function useSelectedChild() {
     enabled: isParent,
     staleTime: 60_000,
   });
-  const children = childrenQuery.data ?? [];
+  const children = useMemo(() => childrenQuery.data ?? [], [childrenQuery.data]);
 
   useEffect(() => {
     if (!isParent) {

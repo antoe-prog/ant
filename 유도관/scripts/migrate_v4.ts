@@ -1,8 +1,8 @@
 import * as dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
-dotenv.config({ path: ".env" });
 
 import mysql from "mysql2/promise";
+dotenv.config({ path: ".env.local" });
+dotenv.config({ path: ".env" });
 
 async function migrate() {
   const url = process.env.DATABASE_URL;

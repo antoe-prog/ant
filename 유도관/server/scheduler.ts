@@ -3,7 +3,7 @@ import {
   getExpiringSoonMembers,
   getManagerOperationsSummary,
   getManagerTaskReminderSummary,
-  getMemberById,
+  getNotifyUserIdsForMember,
   getTournamentWithParticipants,
   getUpcomingPromotions,
   getUpcomingTournaments,
@@ -176,10 +176,11 @@ async function runD7PaymentNotifications() {
 
     let sent = 0;
     for (const member of targets) {
-      if (!member.userId) continue;
+      const userIds = await getNotifyUserIdsForMember(member.id);
+      if (userIds.length === 0) continue;
       const daysLeft = calcDaysLeft(member.nextPaymentDate);
       if (!oncePerDay(`payment-expiring:${member.id}:${daysLeft}`)) continue;
-      const result = await sendPushNotifications([member.userId], {
+      const result = await sendPushNotifications(userIds, {
         title: "등록 기간 만료 안내",
         body: `등록 기간이 ${daysLeft}일 후(${member.nextPaymentDate}) 만료됩니다. 갱신을 준비해 주세요.`,
         data: {
@@ -210,11 +211,12 @@ async function runD1PaymentNotifications() {
 
     let sent = 0;
     for (const member of targets) {
-      if (!member.userId) continue;
+      const userIds = await getNotifyUserIdsForMember(member.id);
+      if (userIds.length === 0) continue;
       const daysLeft = calcDaysLeft(member.nextPaymentDate);
       if (!oncePerDay(`payment-urgent:${member.id}:${daysLeft}`)) continue;
       const isToday = daysLeft === 0;
-      const result = await sendPushNotifications([member.userId], {
+      const result = await sendPushNotifications(userIds, {
         title: isToday ? "오늘 등록 기간이 만료됩니다" : "내일 등록 기간이 만료됩니다",
         body: isToday
           ? `오늘(${member.nextPaymentDate}) 등록 기간이 끝납니다. 도장에서 갱신 일정을 확인해 주세요.`
@@ -245,9 +247,10 @@ async function runUnpaidOverdueNotifications() {
 
     let sent = 0;
     for (const member of unpaid as { id: number; name: string; userId: number | null; nextPaymentDate: string | null }[]) {
-      if (!member.userId) continue;
+      const userIds = await getNotifyUserIdsForMember(member.id);
+      if (userIds.length === 0) continue;
       if (!oncePerDay(`payment-overdue:${member.id}`)) continue;
-      const result = await sendPushNotifications([member.userId], {
+      const result = await sendPushNotifications(userIds, {
         title: "납부 확인 안내",
         body: `${member.name}님의 등록/납부 기한이 지났습니다. 도장에서 납부 일정을 확인해 주세요.`,
         data: {
@@ -271,11 +274,11 @@ async function runPromotionReminderNotifications() {
     for (const promotion of promotions) {
       const daysLeft = calcDaysLeft(promotion.examDate);
       if (!REMINDER_DAYS.has(daysLeft)) continue;
-      const member = await getMemberById(promotion.memberId);
-      if (!member?.userId) continue;
-      if (!oncePerDay(`promotion:${promotion.id}:${member.userId}:${daysLeft}`)) continue;
+      const userIds = await getNotifyUserIdsForMember(promotion.memberId);
+      if (userIds.length === 0) continue;
+      if (!oncePerDay(`promotion:${promotion.id}:${daysLeft}`)) continue;
 
-      const result = await sendPushNotifications([member.userId], {
+      const result = await sendPushNotifications(userIds, {
         title: `승급 심사 ${daysLabel(daysLeft)}`,
         body: `${promotion.examDate} ${beltKo(promotion.currentBelt)} → ${beltKo(promotion.targetBelt)} 심사가 예정되어 있습니다.`,
         data: {
@@ -308,8 +311,8 @@ async function runTournamentReminderNotifications() {
       const recipientIds = new Set<number>();
 
       for (const memberId of participantIds) {
-        const member = await getMemberById(memberId);
-        if (member?.userId) recipientIds.add(member.userId);
+        const userIds = await getNotifyUserIdsForMember(memberId);
+        for (const userId of userIds) recipientIds.add(userId);
       }
 
       if (recipientIds.size === 0) continue;

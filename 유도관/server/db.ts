@@ -67,13 +67,11 @@ function normalizeAccountType(value: unknown): AccountType {
 async function readLocalUsers(): Promise<User[]> {
   try {
     const raw = await fs.readFile(LOCAL_USERS_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Array<
-      Omit<User, "createdAt" | "updatedAt" | "lastSignedIn"> & {
+    const parsed = JSON.parse(raw) as (Omit<User, "createdAt" | "updatedAt" | "lastSignedIn"> & {
         createdAt: string;
         updatedAt: string;
         lastSignedIn: string;
-      }
-    >;
+      })[];
     return parsed.map((user) => ({
       ...user,
       accountType: normalizeAccountType((user as { accountType?: unknown }).accountType),
@@ -1599,6 +1597,32 @@ export async function getChildrenByParentUserId(parentUserId: number) {
 export async function getPrimaryChildByParentUserId(parentUserId: number) {
   const children = await getChildrenByParentUserId(parentUserId);
   return children[0] ?? null;
+}
+
+export async function getParentUserIdsByMemberId(memberId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ parentUserId: parentChildLinks.parentUserId })
+    .from(parentChildLinks)
+    .where(eq(parentChildLinks.memberId, memberId));
+  return rows.map((r) => r.parentUserId);
+}
+
+// 회원 대상 알림 수신자: 본인 계정 + 연결된 학부모 계정 전체
+export async function getNotifyUserIdsForMember(memberId: number): Promise<number[]> {
+  const [member, parentIds] = await Promise.all([
+    getMemberById(memberId),
+    getParentUserIdsByMemberId(memberId),
+  ]);
+  const ids = new Set<number>(parentIds);
+  if (member?.userId) ids.add(member.userId);
+  return [...ids];
+}
+
+export async function getNotifyUserIdsForMembers(memberIds: number[]): Promise<number[]> {
+  const idLists = await Promise.all(memberIds.map((id) => getNotifyUserIdsForMember(id)));
+  return [...new Set(idLists.flat())];
 }
 
 export async function linkParentToMember(data: InsertParentChildLink) {

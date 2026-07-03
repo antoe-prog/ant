@@ -208,6 +208,31 @@ export default function PaymentsScreen() {
     onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
   });
 
+  const deleteMutation = trpc.payments.delete.useMutation({
+    onSuccess: () => {
+      void utils.payments.recent.invalidate();
+      void utils.payments.unpaid.invalidate();
+      void utils.payments.expiringSoon.invalidate();
+      void utils.payments.monthlyReport.invalidate();
+      void utils.members.activityTimeline.invalidate();
+      void utils.dashboard.stats.invalidate();
+      void utils.dashboard.monthlyStats.invalidate();
+    },
+    onError: (e) => Alert.alert(getFriendlyErrorTitle(e), getFriendlyErrorMessage(e)),
+  });
+
+  const confirmDeletePayment = (payment: { id: number; amount: number | string; memberId: number }) => {
+    const memberName = members?.find(x => x.id === payment.memberId)?.name ?? `회원 #${payment.memberId}`;
+    Alert.alert(
+      "납부 내역 삭제",
+      `${memberName}님의 ${formatAmount(Number(payment.amount))} 납부 기록을 삭제할까요?\n회원의 다음 납부일은 변경되지 않습니다.`,
+      [
+        { text: "취소", style: "cancel" },
+        { text: "삭제", style: "destructive", onPress: () => deleteMutation.mutate({ id: payment.id }) },
+      ],
+    );
+  };
+
   const resetForm = () => setForm({
     memberId: 0, amount: "", method: "cash", periodStart: "", periodEnd: "", notes: "",
   });
@@ -429,13 +454,23 @@ export default function PaymentsScreen() {
                   </Text>
                   <Text className="text-xs text-muted mt-0.5">{paid.toLocaleDateString("ko-KR")}</Text>
                   <Text className="text-base font-bold mt-1" style={{ color: "#1565C0" }}>{formatAmount(p.amount)}</Text>
-                  <TouchableOpacity
-                    className="mt-2 py-2 rounded-xl items-center border"
-                    style={{ borderColor: "#1565C040", backgroundColor: "#E3F2FD" }}
-                    onPress={() => openReceiptForPayment(p)}
-                  >
-                    <Text className="text-xs font-bold" style={{ color: "#1565C0" }}>영수증</Text>
-                  </TouchableOpacity>
+                  <View className="mt-2 flex-row" style={{ gap: 6 }}>
+                    <TouchableOpacity
+                      className="flex-1 py-2 rounded-xl items-center border"
+                      style={{ borderColor: "#1565C040", backgroundColor: "#E3F2FD" }}
+                      onPress={() => openReceiptForPayment(p)}
+                    >
+                      <Text className="text-xs font-bold" style={{ color: "#1565C0" }}>영수증</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className="py-2 px-3 rounded-xl items-center border"
+                      style={{ borderColor: "#B3261E33", backgroundColor: "#FDECEA" }}
+                      disabled={deleteMutation.isPending}
+                      onPress={() => confirmDeletePayment(p)}
+                    >
+                      <Text className="text-xs font-bold" style={{ color: "#B3261E" }}>삭제</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               );
             })}

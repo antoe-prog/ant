@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from "react";
-import { Dimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  Dimensions,
   View, Text, ScrollView, TouchableOpacity, Modal,
   Alert, ActivityIndicator, TextInput,
+  Image,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/routers";
@@ -21,7 +22,6 @@ import {
 import { useBackHandler } from "@/hooks/use-back-handler";
 import type { BeltRank, MemberStatus, AttendanceType, CheckResult } from "@/lib/judo-utils";
 import * as ImagePicker from "expo-image-picker";
-import { Image } from "react-native";
 
 const BELT_RANKS: BeltRank[] = ["white", "yellow", "orange", "green", "blue", "brown", "black"];
 const STATUSES: MemberStatus[] = ["active", "suspended", "withdrawn"];

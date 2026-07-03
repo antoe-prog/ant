@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View, StyleSheet, Switch, Modal } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View, StyleSheet, Switch, Modal , Platform, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/hooks/use-auth";
@@ -8,7 +8,6 @@ import { trpc } from "@/lib/trpc";
 import { getFriendlyErrorMessage, getFriendlyErrorTitle } from "@/lib/error-messages";
 import { formatAmount, formatDate, getBeltColor, getBeltLabel, getMemberStatusLabel } from "@/lib/judo-utils";
 import { useModalBackHandler, useTabBackHandler } from "@/hooks/use-back-handler";
-import { Platform, Alert } from "react-native";
 import { useThemeContext } from "@/lib/theme-provider";
 import { IS_MEMBER_APP } from "@/constants/app-variant";
 import { FormField, GhostButton, PrimaryButton, spacing, useSemanticColors } from "@/components/ui/primitives";
