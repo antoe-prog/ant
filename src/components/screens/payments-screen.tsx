@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Ban, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards } from "lucide-react";
 import type { OnlinePaymentStatus, Payment, PaymentStatus, RecurringBillingStatus } from "@/lib/domain";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -29,6 +29,33 @@ const paymentFilterOptions: Array<{ label: string; value: PaymentStatus | "all" 
   { label: "전액 환불", value: "refunded" },
   { label: "취소", value: "cancelled" },
 ];
+
+// 새로고침·딥링크(?filter=risk 등)에서 결제 필터 상태를 복원한다.
+function getInitialPaymentFilter(): PaymentStatus | "all" | "risk" {
+  if (typeof window === "undefined") {
+    return "all";
+  }
+
+  const value = new URLSearchParams(window.location.search).get("filter");
+
+  return paymentFilterOptions.some((option) => option.value === value) ? (value as PaymentStatus | "risk") : "all";
+}
+
+function syncPaymentFilterToUrl(value: PaymentStatus | "all" | "risk") {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if (value === "all") {
+    url.searchParams.delete("filter");
+  } else {
+    url.searchParams.set("filter", value);
+  }
+
+  window.history.replaceState(window.history.state, "", url);
+}
 const familyPaymentFilterLabels: Partial<Record<PaymentStatus | "all" | "risk", string>> = {
   all: "전체",
   expiringSoon: "만료",
@@ -114,8 +141,24 @@ export function PaymentsScreen() {
   const showPaymentOperationsMeta = canManagePayments;
   const showPaymentsScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
   const [newPaymentBranchId, setNewPaymentBranchId] = useState("");
-  const [newPaymentMemberId, setNewPaymentMemberId] = useState("");
-  const [paymentMemberSearch, setPaymentMemberSearch] = useState("");
+  const [newPaymentMemberId, setNewPaymentMemberId] = useState(
+    () => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("payMemberId")?.trim() ?? ""),
+  );
+  const [paymentMemberSearch, setPaymentMemberSearch] = useState(
+    () => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("payMemberSearch")?.trim() ?? ""),
+  );
+  const searchParams = useSearchParams();
+
+  // 회원 카드 "결제 등록" 바로가기처럼 클라이언트 내비게이션으로 진입해도 회원 프리셋이 적용되게 한다.
+  useEffect(() => {
+    const presetMemberId = searchParams.get("payMemberId")?.trim();
+
+    if (presetMemberId) {
+      setNewPaymentMemberId(presetMemberId);
+      setPaymentMemberSearch(searchParams.get("payMemberSearch")?.trim() ?? "");
+      setPaymentCreateOpen(true);
+    }
+  }, [searchParams]);
   const [newPaymentPlanName, setNewPaymentPlanName] = useState("월 회원권");
   const [newPaymentStatus, setNewPaymentStatus] = useState<PaymentStatus>("paid");
   const [newPaymentAmount, setNewPaymentAmount] = useState("180000");
@@ -123,7 +166,12 @@ export function PaymentsScreen() {
   const [newPaymentDueDate, setNewPaymentDueDate] = useState(() => dateInputValue(0));
   const [newPaymentExpiresAt, setNewPaymentExpiresAt] = useState(() => dateInputValue(30));
   const [exportStatus, setExportStatus] = useState<string | null>(null);
-  const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | "all" | "risk">("all");
+  const [paymentFilter, setPaymentFilterState] = useState<PaymentStatus | "all" | "risk">(getInitialPaymentFilter);
+
+  function setPaymentFilter(value: PaymentStatus | "all" | "risk") {
+    setPaymentFilterState(value);
+    syncPaymentFilterToUrl(value);
+  }
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
   const [paymentCreateOpen, setPaymentCreateOpen] = useState(false);
@@ -754,6 +802,14 @@ export function PaymentsScreen() {
                           onClick={() => {
                             setNewPaymentMemberId(member.id);
                             setPaymentMemberSearch(member.name);
+                            // 직전 결제 기준으로 회원권명·금액을 미리 채운다 (이력이 없으면 기존 입력 유지)
+                            const lastPayment = (data ?? [])
+                              .filter((payment) => payment.memberId === member.id)
+                              .sort((left, right) => right.dueDate.localeCompare(left.dueDate))[0];
+                            if (lastPayment) {
+                              setNewPaymentPlanName(lastPayment.planName);
+                              setNewPaymentAmount(String(lastPayment.amount));
+                            }
                           }}
                         >
                           <span className="font-semibold">{member.name}</span>

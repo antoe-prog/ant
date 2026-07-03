@@ -1,6 +1,7 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bell, BellRing, CheckCheck, Send, Trash2 } from "lucide-react";
 import type { Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient } from "@/lib/api-client";
@@ -95,6 +96,33 @@ export function NoticesScreen() {
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [noticeCreateOpen, setNoticeCreateOpen] = useState(noticeComposerDefaults.open);
+  const searchParams = useSearchParams();
+
+  // 회원 카드 "개인 공지 보내기" 같은 클라이언트 내비게이션에서도 작성 프리셋이 적용되도록
+  // URL 파라미터 변화를 반영한다 (최초 하드 로드는 noticeComposerDefaults가 처리).
+  useEffect(() => {
+    if (searchParams.get("noticeCompose") !== "1") {
+      return;
+    }
+
+    const targetType = searchParams.get("noticeTarget");
+    const targetMemberId = searchParams.get("noticeTargetMemberId")?.trim() ?? "";
+    const memberSearch = searchParams.get("noticeMemberSearch")?.trim() ?? "";
+
+    setNoticeCreateOpen(true);
+
+    if (targetType === "class" || targetType === "member") {
+      setNoticeTargetType(targetType);
+    }
+
+    if (targetMemberId) {
+      setNoticeTargetMemberId(targetMemberId);
+    }
+
+    if (memberSearch) {
+      setNoticeMemberSearch(memberSearch);
+    }
+  }, [searchParams]);
   const canPublishNotice = noticePublisherRoles.has(context.user.role);
   const isCoachNoticeReader = context.user.role === "coach" && !canPublishNotice;
   const showNoticeDeliveryMeta = canPublishNotice;

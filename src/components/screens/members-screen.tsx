@@ -1,7 +1,8 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Pencil, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
+import Link from "next/link";
+import { Bell, Copy, CreditCard, ExternalLink, Pencil, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberStatus, UserRole } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -10,6 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
+import { noticePublisherRoles } from "@/lib/notice-permissions";
 import { memberStatusLabels, roleLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
@@ -22,6 +24,40 @@ const statusClasses: Record<MemberStatus, string> = {
   withdrawn: "border-zinc-200 bg-zinc-50 text-zinc-600",
 };
 const memberStatusOptions: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
+
+function getInitialMemberQuery() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return new URLSearchParams(window.location.search).get("q")?.trim() ?? "";
+}
+
+function getInitialMemberStatusFilter(): MemberStatus | "all" {
+  if (typeof window === "undefined") {
+    return "all";
+  }
+
+  const value = new URLSearchParams(window.location.search).get("status");
+
+  return (memberStatusOptions as string[]).includes(value ?? "") ? (value as MemberStatus) : "all";
+}
+
+function syncMemberListParamToUrl(key: "q" | "status", value: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if (value) {
+    url.searchParams.set(key, value);
+  } else {
+    url.searchParams.delete(key);
+  }
+
+  window.history.replaceState(window.history.state, "", url);
+}
 const ageGroupOptions: Array<{ value: Member["ageGroup"]; label: string }> = [
   { value: "kids", label: "유소년" },
   { value: "teen", label: "청소년" },
@@ -133,8 +169,19 @@ export function MembersScreen() {
     updateMemberProfile,
     updateMemberStatus,
   } = useAppStore();
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MemberStatus | "all">("all");
+  const [query, setQueryState] = useState(getInitialMemberQuery);
+  const [statusFilter, setStatusFilterState] = useState<MemberStatus | "all">(getInitialMemberStatusFilter);
+
+  // 새로고침·뒤로가기·딥링크에서 목록 필터 상태가 유지되도록 URL에 동기화한다.
+  function setQuery(value: string) {
+    setQueryState(value);
+    syncMemberListParamToUrl("q", value.trim() || null);
+  }
+
+  function setStatusFilter(value: MemberStatus | "all") {
+    setStatusFilterState(value);
+    syncMemberListParamToUrl("status", value === "all" ? null : value);
+  }
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [inviteBranchId, setInviteBranchId] = useState("");
   const [inviteName, setInviteName] = useState("");
@@ -1028,6 +1075,31 @@ export function MembersScreen() {
                   </dd>
                 </div>
               </dl>
+
+              {noticePublisherRoles.has(context.user.role) || canManageMembers ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {noticePublisherRoles.has(context.user.role) ? (
+                    <Link
+                      className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                      data-testid={`member-send-notice-${member.id}`}
+                      href={`/app/notices?noticeCompose=1&noticeTarget=member&noticeTargetMemberId=${encodeURIComponent(member.id)}&noticeMemberSearch=${encodeURIComponent(member.name)}`}
+                    >
+                      <Bell className="h-3.5 w-3.5" aria-hidden />
+                      개인 공지 보내기
+                    </Link>
+                  ) : null}
+                  {canManageMembers ? (
+                    <Link
+                      className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                      data-testid={`member-create-payment-${member.id}`}
+                      href={`/app/payments?payMemberId=${encodeURIComponent(member.id)}&payMemberSearch=${encodeURIComponent(member.name)}`}
+                    >
+                      <CreditCard className="h-3.5 w-3.5" aria-hidden />
+                      결제 등록
+                    </Link>
+                  ) : null}
+                </div>
+              ) : null}
 
               {canEditOwnContact && !canManageMembers && !showProfileForm ? (
                 <div className="mt-4 border-t border-zinc-100 pt-4">

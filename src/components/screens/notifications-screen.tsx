@@ -171,10 +171,42 @@ const kindIcons = {
   promotion: Medal,
 } satisfies Record<NotificationKind, React.ComponentType<{ className?: string }>>;
 
+// ?filter=unread 같은 딥링크·새로고침에서 필터 상태를 복원한다.
+function getInitialNotificationFilter(): NotificationFilter {
+  if (typeof window === "undefined") {
+    return "all";
+  }
+
+  const value = new URLSearchParams(window.location.search).get("filter");
+
+  return value === "unread" || value === "important" || value === "payment" || value === "promotion" ? value : "all";
+}
+
+function syncNotificationFilterToUrl(value: NotificationFilter) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if (value === "all") {
+    url.searchParams.delete("filter");
+  } else {
+    url.searchParams.set("filter", value);
+  }
+
+  window.history.replaceState(window.history.state, "", url);
+}
+
 export function NotificationsScreen() {
   const context = useApiContext();
   const { deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
-  const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>("all");
+  const [notificationFilter, setNotificationFilterState] = useState<NotificationFilter>(getInitialNotificationFilter);
+
+  function setNotificationFilter(value: NotificationFilter) {
+    setNotificationFilterState(value);
+    syncNotificationFilterToUrl(value);
+  }
   const [readFeedback, setReadFeedback] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
   const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null);

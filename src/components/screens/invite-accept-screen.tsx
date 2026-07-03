@@ -3,7 +3,7 @@
 import { type FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, LoaderCircle, UserCheck } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, LoaderCircle, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
@@ -13,6 +13,7 @@ export function InviteAcceptScreen({ token }: { token: string }) {
   const { acceptInvitation } = useAppStore();
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,31 +62,49 @@ export function InviteAcceptScreen({ token }: { token: string }) {
           </div>
 
           <form className="mt-5 grid gap-3" onSubmit={(event) => void handleAccept(event)}>
-            <label>
-              <span className="text-sm font-semibold text-zinc-700">사용할 비밀번호</span>
-              <input
-                autoComplete="new-password"
-                className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
-                minLength={12}
-                placeholder="12자 이상"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+            <div>
+              <label className="text-sm font-semibold text-zinc-700" htmlFor="invite-password-input">
+                사용할 비밀번호
+              </label>
+              <span className="relative mt-2 block">
+                <input
+                  autoComplete="new-password"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-11 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  id="invite-password-input"
+                  minLength={12}
+                  placeholder="12자 이상"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <button
+                  aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}
+                  aria-pressed={showPassword}
+                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  data-testid="invite-password-visibility-toggle"
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                </button>
+              </span>
+            </div>
 
-            <label>
-              <span className="text-sm font-semibold text-zinc-700">비밀번호 확인</span>
+            <div>
+              <label className="text-sm font-semibold text-zinc-700" htmlFor="invite-password-confirm-input">
+                비밀번호 확인
+              </label>
               <input
                 autoComplete="new-password"
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                id="invite-password-confirm-input"
                 minLength={12}
                 placeholder="다시 입력"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={passwordConfirm}
                 onChange={(event) => setPasswordConfirm(event.target.value)}
               />
-            </label>
+            </div>
 
             {error ? (
               <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">

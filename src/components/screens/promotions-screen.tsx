@@ -62,6 +62,7 @@ export function PromotionsScreen() {
   const canManage = user.role === "coach" || user.role === "owner" || user.role === "admin";
 
   const [composerOpen, setComposerOpen] = useState(false);
+  const [resultFilter, setResultFilter] = useState<BeltPromotionResult | "all">("all");
   const [memberId, setMemberId] = useState("");
   const [toBelt, setToBelt] = useState("");
   const [examDate, setExamDate] = useState("");
@@ -83,6 +84,16 @@ export function PromotionsScreen() {
   );
   const scheduledCount = promotions.filter((promotion) => promotion.result === "scheduled").length;
   const passedCount = promotions.filter((promotion) => promotion.result === "passed").length;
+  const filteredPromotions =
+    resultFilter === "all" ? promotions : promotions.filter((promotion) => promotion.result === resultFilter);
+  const resultFilterOptions = [
+    { label: "전체", value: "all" as const, count: promotions.length },
+    ...(["scheduled", "passed", "failed", "cancelled"] as const).map((result) => ({
+      label: beltPromotionResultLabels[result],
+      value: result,
+      count: promotions.filter((promotion) => promotion.result === result).length,
+    })),
+  ].filter((option) => option.value === "all" || option.count > 0);
 
   const selectableMembers = useMemo(
     () => db.members.filter((member) => member.status === "active" || member.status === "trial"),
@@ -257,14 +268,44 @@ export function PromotionsScreen() {
         </form>
       ) : null}
 
+      {promotions.length > 0 ? (
+        <div aria-label="승급 결과 필터" className="mb-3 flex flex-wrap gap-1.5" role="group">
+          {resultFilterOptions.map((option) => {
+            const selected = resultFilter === option.value;
+            return (
+              <button
+                aria-pressed={selected}
+                className={`inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 text-xs font-semibold transition ${
+                  selected
+                    ? "border-teal-600 bg-teal-600 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                }`}
+                data-testid={`promotion-result-filter-${option.value}`}
+                key={option.value}
+                type="button"
+                onClick={() => setResultFilter(option.value)}
+              >
+                {option.label}
+                <span className={`tabular-nums ${selected ? "text-teal-100" : "text-zinc-400"}`}>{option.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {promotions.length === 0 ? (
         <EmptyState
           title="승급 심사 기록이 없습니다"
           description={canManage ? "심사 등록 버튼으로 첫 승급 심사를 만들어 보세요." : "승급 심사가 등록되면 여기에 표시됩니다."}
         />
+      ) : filteredPromotions.length === 0 ? (
+        <EmptyState
+          title={`${beltPromotionResultLabels[resultFilter as BeltPromotionResult]} 상태 심사가 없습니다`}
+          description="결과 필터를 전체로 바꾸면 모든 심사가 표시됩니다."
+        />
       ) : (
         <ul className="grid gap-3">
-          {promotions.map((promotion) => {
+          {filteredPromotions.map((promotion) => {
             const member = membersById.get(promotion.memberId);
             const evaluator = usersById.get(promotion.evaluatorUserId);
 

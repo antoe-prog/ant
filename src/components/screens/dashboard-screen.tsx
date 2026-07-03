@@ -474,7 +474,7 @@ export function DashboardScreen() {
         }
       : data.expiringPayments.length > 0
           ? {
-              href: "/app/payments",
+              href: "/app/payments?filter=risk",
               label: "결제 상태 확인",
               helper: `결제 ${data.expiringPayments.length}건 · 출석 ${dashboardAttendanceGap}`,
             }
@@ -950,7 +950,7 @@ export function DashboardScreen() {
       },
       {
         accentClass: paymentRisks.length > 0 ? "bg-red-500" : "bg-emerald-500",
-        actionHref: "/app/payments",
+        actionHref: paymentRisks.length > 0 ? "/app/payments?filter=risk" : "/app/payments",
         actionLabel: paymentRisks.length > 0 ? "회수 확인" : "결제 보기",
         guide: paymentRisks.length > 0 ? "위험" : "정상",
         helper: paymentRisks.length > 0 ? `${paymentRisks.length}건 · ${formatCurrency(riskAmount)} 확인` : "위험 결제 없음",
