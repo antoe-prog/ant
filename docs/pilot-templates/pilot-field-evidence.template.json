@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "pilot": {
+    "branches": [
+      {
+        "name": "TODO: 파일럿 지점명",
+        "owner": "TODO: 지점 대표 또는 현장 책임자",
+        "evidence": "TODO: 지점 확정 회의록, 승인 링크, 또는 캡처 경로"
+      }
+    ],
+    "period": {
+      "startsOn": "2026-07-01",
+      "endsOn": "2026-07-14",
+      "operatingDays": 14
+    },
+    "signedOffBy": "TODO: 총괄 PM 이름",
+    "signedOffAt": "2026-07-15T10:00:00+09:00"
+  },
+  "accounts": [
+    {
+      "role": "admin",
+      "email": "TODO",
+      "branchScope": "all",
+      "passwordRotated": false,
+      "loginVerified": false,
+      "evidence": "TODO"
+    },
+    {
+      "role": "owner",
+      "email": "TODO",
+      "branchScope": "TODO: source CSV 지점명",
+      "passwordRotated": false,
+      "loginVerified": false,
+      "evidence": "TODO"
+    },
+    {
+      "role": "coach",
+      "email": "TODO",
+      "branchScope": "TODO: source CSV 지점명",
+      "passwordRotated": false,
+      "loginVerified": false,
+      "evidence": "TODO"
+    },
+    {
+      "role": "guardian",
+      "email": "TODO",
+      "branchScope": "TODO: source CSV 지점명 + 연결 자녀 범위",
+      "passwordRotated": false,
+      "loginVerified": false,
+      "evidence": "TODO"
+    },
+    {
+      "role": "member",
+      "email": "TODO",
+      "branchScope": "TODO: source CSV 지점명 + self",
+      "passwordRotated": false,
+      "loginVerified": false,
+      "evidence": "TODO"
+    }
+  ],
+  "dataImport": {
+    "sourceCsv": "TODO: 실제 파일럿 CSV 경로",
+    "dryRunCommand": "npm run test:pilot-import -- TODO.csv",
+    "importCommand": "npm run pilot:import:postgres -- TODO.csv",
+    "preflightCommand": "NODE_ENV=production npm run preflight:pilot -- --out=.data/pilot-preflight.pre-pilot.json",
+    "evidenceReport": ".data/pilot-evidence.json",
+    "sensitiveDataReviewed": false,
+    "verified": false,
+    "evidence": "TODO: dry-run/import/preflight 결과 링크 또는 파일 경로"
+  },
+  "fieldChecks": {
+    "mobileAttendance": [
+      {
+        "deviceKind": "ios",
+        "device": "TODO: iPhone 모델",
+        "browser": "Safari",
+        "route": "/app/classes",
+        "durationSeconds": 0,
+        "touchTargetsVerified": false,
+        "noHorizontalOverflow": false,
+        "offlineQueueVerified": false,
+        "evidence": "TODO"
+      },
+      {
+        "deviceKind": "android",
+        "device": "TODO: Android 모델",
+        "browser": "Chrome",
+        "route": "/app/classes",
+        "durationSeconds": 0,
+        "touchTargetsVerified": false,
+        "noHorizontalOverflow": false,
+        "offlineQueueVerified": false,
+        "evidence": "TODO"
+      },
+      {
+        "deviceKind": "tablet",
+        "device": "TODO: tablet 모델",
+        "browser": "TODO",
+        "route": "/app/classes",
+        "durationSeconds": 0,
+        "touchTargetsVerified": false,
+        "noHorizontalOverflow": false,
+        "offlineQueueVerified": false,
+        "evidence": "TODO"
+      }
+    ],
+    "screenReader": [
+      {
+        "tool": "TODO: VoiceOver 또는 TalkBack",
+        "role": "TODO: 검증 역할",
+        "route": "/app/classes",
+        "target": "attendance-status",
+        "expectedAnnouncement": "TODO: 출석 상태 버튼에서 기대한 낭독 문구",
+        "actualAnnouncement": "TODO: 현장 스크린리더가 실제 읽은 문구",
+        "passed": false,
+        "issueFree": false,
+        "notes": "TODO: 낭독 순서, 상태 변화, 보완 필요 여부",
+        "evidence": "TODO"
+      },
+      {
+        "tool": "TODO: VoiceOver 또는 TalkBack",
+        "role": "TODO: 검증 역할",
+        "route": "/app/notices",
+        "target": "notice-read-state",
+        "expectedAnnouncement": "TODO: 공지 읽음 상태에서 기대한 낭독 문구",
+        "actualAnnouncement": "TODO: 현장 스크린리더가 실제 읽은 문구",
+        "passed": false,
+        "issueFree": false,
+        "notes": "TODO: 읽음/미읽음 상태 구분과 보완 필요 여부",
+        "evidence": "TODO"
+      }
+    ],
+    "keyboardNavigation": {
+      "passed": false,
+      "evidence": "TODO"
+    },
+    "privacyMaskingVerified": false,
+    "incidentChannel": {
+      "name": "TODO",
+      "owner": "TODO",
+      "verified": false,
+      "evidence": "TODO"
+    }
+  },
+  "operations": {
+    "operationLogCount": 0,
+    "attendanceRecords": 0,
+    "paymentChecks": 0,
+    "noticeFollowupChecks": 0,
+    "noticeChecks": 0,
+    "unresolvedP0Count": 0,
+    "postPilotPreflightCommand": "NODE_ENV=production npm run preflight:pilot -- --require-retro --out=.data/pilot-preflight.post-pilot.json",
+    "postPilotEvidenceJson": ".data/pilot-evidence.post-pilot.json",
+    "postPilotEvidenceMarkdown": ".data/pilot-evidence.md",
+    "feedbackCollected": false,
+    "verified": false,
+    "evidence": "TODO: 14일 운영 로그, 회고록, post-pilot preflight 결과"
+  },
+  "environment": {
+    "productionPreflightPassed": false,
+    "demoLoginDisabled": false,
+    "devResetDisabled": false,
+    "evidence": "TODO: production 환경 변수와 preflight 결과"
+  }
+}

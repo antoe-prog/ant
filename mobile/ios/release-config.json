@@ -1,0 +1,11 @@
+{
+  "bundleId": "kr.co.finaljudo.multigym",
+  "appleTeamId": "5GWZ792DWH",
+  "project": "mobile/ios/App/App.xcodeproj",
+  "scheme": "App",
+  "exportMethod": "release-testing",
+  "doctorReport": ".data/mobile-builds/ios/ios-ipa-doctor.json",
+  "doctorMarkdown": ".data/mobile-builds/ios/ios-ipa-doctor.md",
+  "buildReport": ".data/mobile-builds/ios/ios-ipa-build-report.json",
+  "note": "Non-secret iOS release metadata only. Do not store device UDIDs, certificates, provisioning profile contents, or Apple account secrets here."
+}

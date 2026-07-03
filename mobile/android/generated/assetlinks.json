@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym",
+      "sha256_cert_fingerprints": [
+        "3C:94:19:E9:5B:14:C1:9C:94:A3:2C:5C:8A:D1:3D:AE:AE:E1:64:9E:06:ED:58:7C:F0:D6:E4:2C:5E:C9:37:3B"
+      ]
+    }
+  }
+]

@@ -1,0 +1,10 @@
+#Tue Jun 30 10:05:45 KST 2026
+base.0=/Users/sny0219/Desktop/파이널유도멀티짐/mobile/android/twa/app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex
+base.1=/Users/sny0219/Desktop/파이널유도멀티짐/mobile/android/twa/app/build/intermediates/dex/debug/mergeProjectDexDebug/0/classes.dex
+base.2=/Users/sny0219/Desktop/파이널유도멀티짐/mobile/android/twa/app/build/intermediates/dex/debug/mergeProjectDexDebug/11/classes.dex
+path.0=classes.dex
+path.1=0/classes.dex
+path.2=11/classes.dex
+renamed.0=classes.dex
+renamed.1=classes2.dex
+renamed.2=classes3.dex

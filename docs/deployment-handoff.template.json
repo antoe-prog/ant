@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "TODO_ISO_TIMESTAMP",
+  "environment": "production",
+  "deployment": {
+    "platform": "TODO_DEPLOYMENT_PLATFORM",
+    "productionOrigin": "https://TODO-PRODUCTION-HOST",
+    "deploymentUrl": "https://TODO-DEPLOYMENT-URL",
+    "commitSha": "TODO_COMMIT_SHA",
+    "evidence": "TODO_DEPLOYMENT_EVIDENCE_URI"
+  },
+  "environmentVariables": [
+    {
+      "key": "NODE_ENV",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "production",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_DB_DRIVER",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "postgres",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_POSTGRES_URL",
+      "classification": "secret",
+      "storage": "deployment-platform-secret-store",
+      "configured": true,
+      "secretName": "FINAL_JUDO_POSTGRES_URL",
+      "evidence": "TODO_SECRET_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_POSTGRES_STATE_KEY",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "mvp",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_POSTGRES_TABLE",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "app_runtime_state",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_ENABLE_DEMO_LOGIN",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "0",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_ENABLE_DEV_RESET",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "0",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_PAYMENT_PROVIDER",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "external",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "https://TODO-PAYMENT-CHECKOUT-HOST",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_PAYMENT_WEBHOOK_SECRET",
+      "classification": "secret",
+      "storage": "deployment-platform-secret-store",
+      "configured": true,
+      "secretName": "FINAL_JUDO_PAYMENT_WEBHOOK_SECRET",
+      "evidence": "TODO_SECRET_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_VAPID_PUBLIC_KEY",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "secretName": "FINAL_JUDO_VAPID_PUBLIC_KEY",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_VAPID_PRIVATE_KEY",
+      "classification": "secret",
+      "storage": "deployment-platform-secret-store",
+      "configured": true,
+      "secretName": "FINAL_JUDO_VAPID_PRIVATE_KEY",
+      "evidence": "TODO_SECRET_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_VAPID_SUBJECT",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "mailto:ops@example.com",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    }
+  ],
+  "database": {
+    "migrationApplied": true,
+    "runtimeStoreVerified": true,
+    "backupPlanVerified": true,
+    "evidence": "TODO_DATABASE_EVIDENCE_URI"
+  },
+  "paymentProvider": {
+    "provider": "external",
+    "checkoutBaseUrl": "https://TODO-PAYMENT-CHECKOUT-HOST",
+    "webhookSecretStored": true,
+    "providerEventIdMapped": true,
+    "receiptUrlVerified": true,
+    "recurringBillingContractVerified": true,
+    "evidence": "TODO_PAYMENT_EVIDENCE_URI"
+  },
+  "pushNotifications": {
+    "vapidKeysStored": true,
+    "subject": "mailto:ops@example.com",
+    "deviceSubscriptionVerified": true,
+    "noticePushVerified": true,
+    "evidence": "TODO_PUSH_EVIDENCE_URI"
+  },
+  "checks": {
+    "envReadiness": {
+      "command": "npm run test:env-readiness",
+      "passed": true,
+      "evidence": "TODO_ENV_READINESS_EVIDENCE_URI"
+    },
+    "productionPreflight": {
+      "command": "NODE_ENV=production npm run preflight:pilot -- --out=.data/pilot-preflight.pre-pilot.json",
+      "reportPath": ".data/pilot-preflight.pre-pilot.json",
+      "passed": true,
+      "evidence": "TODO_PREFLIGHT_EVIDENCE_URI"
+    },
+    "release": {
+      "command": "npm run test:release",
+      "passed": true,
+      "evidence": "TODO_RELEASE_EVIDENCE_URI"
+    }
+  },
+  "signoff": {
+    "signedOffBy": "TODO_OWNER",
+    "signedOffAt": "TODO_ISO_TIMESTAMP",
+    "evidence": "TODO_SIGNOFF_EVIDENCE_URI"
+  }
+}

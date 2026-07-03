@@ -1,0 +1,21 @@
+type,branch_name,name,email,phone,role,member_name,guardian_name,class_name,age_group,level,belt,coach_name,starts_at,ends_at,capacity,membership_name,payment_status,amount_krw,expires_on,notes
+branch,강남 본관,,,,,,,,,,,,,,,,,,,
+branch,송파 도장,,,,,,,,,,,,,,,,,,,
+user,강남 본관,정유진,admin@finaljudo.kr,+821028476013,admin,,,,,,,,,,,,,,
+user,강남 본관,김도윤,owner@finaljudo.kr,+821059274381,owner,,,,,,,,,,,,,,
+user,강남 본관,박서준,coach@finaljudo.kr,+821031967428,coach,,,,,,,,,,,,,,
+user,강남 본관,이하린,guardian@finaljudo.kr,+821072483619,guardian,,,,,,,,,,,,,,
+user,강남 본관,최민재,member@finaljudo.kr,+821093645827,member,,,,,,,,,,,,,,
+user,송파 도장,송민호,coach.songpa@finaljudo.kr,+821064827593,coach,,,,,,,,,,,,,,
+user,송파 도장,박지연,guardian.songpa@finaljudo.kr,+821081267345,guardian,,,,,,,,,,,,,,
+user,송파 도장,송하린,member.songpa@finaljudo.kr,+821070593286,member,,,,,,,,,,,,,,
+member,강남 본관,,,,,이준,이하린,,kids,초급,노란띠,박서준,,,,유소년 주 3회권,paid,180000,2026-07-18,견과류 알레르기
+member,강남 본관,,,,,최민재,,,adult,중급,파란띠,박서준,,,,성인 주 2회권,expiringSoon,150000,2026-07-20,
+member,강남 본관,,,,,이서아,이하린,,kids,입문,흰띠,박서준,,,,유소년 주 2회권,expiringSoon,160000,2026-07-22,복귀 일정 조율 중
+member,송파 도장,,,,,송하린,박지연,,kids,초급,노란띠,송민호,,,,유소년 주 2회권,overdue,160000,2026-07-21,손목 상태 확인 후 재등록 상담 필요.
+class,강남 본관,,,,,,,유소년 유도 기초반,kids,입문-초급,,박서준,2026-06-13T10:00:00+09:00,2026-06-13T10:50:00+09:00,12,,,,
+class,강남 본관,,,,,,,유소년 낙법 집중반,kids,초급,,박서준,2026-06-14T11:00:00+09:00,2026-06-14T11:50:00+09:00,12,,,,
+class,강남 본관,,,,,,,성인 직장인반,adult,중급,,박서준,2026-06-13T20:00:00+09:00,2026-06-13T21:20:00+09:00,14,,,,
+class,송파 도장,,,,,,,송파 유소년반,kids,입문-초급,,송민호,2026-06-13T15:00:00+09:00,2026-06-13T15:50:00+09:00,10,,,,
+notice,강남 본관,,,,,,,,,,,,,,,,,,,승급 심사 준비 안내
+notice,송파 도장,,,,,,,,,,,,,,,,,,,송파 도장 주말 운영 안내

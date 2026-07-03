@@ -1,0 +1,17 @@
+{
+  "strategy": "trusted-web-activity",
+  "generatedAt": "2026-06-17T08:07:28.266Z",
+  "origin": "https://strong-ends-tan.loca.lt",
+  "manifestUrl": "https://strong-ends-tan.loca.lt/manifest.webmanifest",
+  "startUrl": "https://strong-ends-tan.loca.lt/app",
+  "packageName": "kr.co.finaljudo.multigym",
+  "assetLinksDeployPath": "https://strong-ends-tan.loca.lt/.well-known/assetlinks.json",
+  "outputs": [
+    "apk",
+    "aab"
+  ],
+  "commands": {
+    "init": "npx @bubblewrap/cli init --manifest=https://strong-ends-tan.loca.lt/manifest.webmanifest --directory=mobile/android/twa",
+    "build": "npx @bubblewrap/cli build --directory=mobile/android/twa"
+  }
+}

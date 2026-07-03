@@ -1,0 +1,216 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+function assertAppearsAfter(source, needle, earlierNeedle, message) {
+  const needleIndex = source.indexOf(needle);
+  const earlierIndex = source.indexOf(earlierNeedle);
+
+  assert(needleIndex >= 0, `${message}: missing ${needle}`);
+  assert(earlierIndex >= 0, `${message}: missing ${earlierNeedle}`);
+  assert(needleIndex > earlierIndex, message);
+}
+
+const [
+  membersScreenSource,
+  adminUsersScreenSource,
+  memberRouteSource,
+  guardianRouteSource,
+  adminUserRouteSource,
+  memberAgePolicySource,
+  smokeApiSource,
+  adminUserManagementApiSource,
+  packageJsonSource,
+  releaseRunnerSource,
+  readmeSource,
+  qaPlanSource,
+  releaseChecklistSource,
+] = await Promise.all([
+  readFile("src/components/screens/members-screen.tsx", "utf8"),
+  readFile("src/components/screens/admin-users-screen.tsx", "utf8"),
+  readFile("src/app/api/v1/members/[memberId]/route.ts", "utf8"),
+  readFile("src/app/api/v1/members/[memberId]/guardians/route.ts", "utf8"),
+  readFile("src/app/api/v1/admin/users/[userId]/route.ts", "utf8"),
+  readFile("src/lib/member-age-policy.ts", "utf8"),
+  readFile("scripts/smoke-api.mjs", "utf8"),
+  readFile("scripts/check-admin-user-management-api.mjs", "utf8"),
+  readFile("package.json", "utf8"),
+  readFile("scripts/run-release-checks.mjs", "utf8"),
+  readFile("README.md", "utf8"),
+  readFile("docs/QA_TEST_PLAN.md", "utf8"),
+  readFile("docs/RELEASE_CHECKLIST.md", "utf8"),
+]);
+const packageJson = JSON.parse(packageJsonSource);
+
+assert(
+  /data-testid=\{`member-profile-age-summary-\$\{member\.id\}`\}/.test(membersScreenSource) &&
+    /data-testid=\{`member-profile-contact-summary-\$\{member\.id\}`\}/.test(membersScreenSource),
+  "member profile summary must expose stable age/contact hooks for saved-value UI regression checks",
+);
+assert(
+  membersScreenSource.includes('data-testid={`member-age-group-select-${member.id}`}') &&
+    membersScreenSource.includes('ageGroup: event.target.value as Member["ageGroup"]') &&
+    membersScreenSource.includes('data-testid={`member-profile-submit-${member.id}`}'),
+  "member profile form must keep age editing wired to the saved profile submit action",
+);
+assert(
+  membersScreenSource.includes("getProfileMemberSignature(member)") &&
+    membersScreenSource.includes("sourceMemberSignature") &&
+    membersScreenSource.includes("dirty: false") &&
+    membersScreenSource.includes('feedback: saved ? "회원 기본 정보를 저장했습니다."'),
+  "member profile draft must resync saved server snapshots without losing save feedback",
+);
+assert(
+  /data-testid=\{`member-profile-feedback-\$\{member\.id\}`\}[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
+  "member profile save feedback must stay announced as a polite status message",
+);
+assert(
+  membersScreenSource.includes('data-testid={`member-guardian-search-input-${member.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-guardian-search-result-${member.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-guardian-submit-${member.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-guardian-current-${member.id}-${guardianId}`}') &&
+    membersScreenSource.includes('data-testid={`member-guardian-unlink-${member.id}-${guardianId}`}'),
+  "member guardian edit UI must keep searchable select, current-link, submit, and unlink hooks",
+);
+assert(
+  membersScreenSource.includes('member.guardianIds.length > 0 ? "변경할 학부모 검색" : "학부모 검색"') &&
+    membersScreenSource.includes('member.guardianIds.length > 0 ? "변경" : "연결"') &&
+    membersScreenSource.includes("replaceGuardian(member.id, { guardianUserId: draft.guardianUserId })") &&
+    membersScreenSource.includes("unlinkGuardian(member.id, { guardianUserId })"),
+  "member guardian edit UI must allow changing and unlinking an existing guardian after first registration",
+);
+assert(
+  /data-testid=\{`member-guardian-feedback-\$\{member\.id\}`\}[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
+  "member guardian link feedback must stay announced as a polite status message",
+);
+assert(
+  /data-testid="member-invite-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
+  "member invitation feedback must stay announced as a polite status message",
+);
+assert(
+  membersScreenSource.includes("updateGuardianLinkDraft(member, {") &&
+    membersScreenSource.includes("guardianSearch: event.target.value") &&
+    membersScreenSource.includes('guardianUserId: ""') &&
+    membersScreenSource.includes("getGuardianSearchResults(member)") &&
+    !/<select[\s\S]{0,360}guardianUserId/.test(membersScreenSource),
+  "member guardian edit UI must use search results instead of regressing to a scroll-only select",
+);
+assert(
+  memberAgePolicySource.includes('member.ageGroup !== "adult"') &&
+    membersScreenSource.includes("canMemberHaveGuardianLink(member)") &&
+    membersScreenSource.includes('data-testid={!canMemberHaveGuardianLink(member) ? `member-guardian-ineligible-${member.id}` : undefined}') &&
+    membersScreenSource.includes("성인 회원은 학부모 연결 대상이 아닙니다.") &&
+    adminUsersScreenSource.includes("canMemberHaveGuardianLink(member)") &&
+    adminUsersScreenSource.includes('placeholder="유소년/청소년 이름, 연락처, 지점 검색"'),
+  "guardian link UI must hide adult members from guardian-child linking surfaces",
+);
+assert(
+  memberRouteSource.includes('Pick<Member, "ageGroup"') &&
+    memberRouteSource.includes("getAccessibleMemberIds(user, db, [member.branchId]).includes(member.id)") &&
+    memberRouteSource.includes("hasRestrictedProfileFields") &&
+    memberRouteSource.includes("canManageMember") &&
+    memberRouteSource.includes("patch.ageGroup = body.ageGroup") &&
+    memberRouteSource.includes('message: canManageMember ? "회원 정보를 변경했습니다." : "회원 긴급 연락처를 변경했습니다."'),
+  "member update API must keep manager-only age/profile editing and family contact-only editing",
+);
+assertAppearsAfter(
+  memberRouteSource,
+  "request.json()",
+  "if (!canManageMember && !canUpdateOwnContact)",
+  "member update API must authorize member/profile edits before reading request body",
+);
+assert(
+  guardianRouteSource.includes("export async function POST") &&
+    guardianRouteSource.includes("export async function PUT") &&
+    guardianRouteSource.includes("export async function DELETE") &&
+    guardianRouteSource.includes("canMemberHaveGuardianLink(member)") &&
+    guardianRouteSource.includes("replaceGuardianUserLinks") &&
+    guardianRouteSource.includes("unlinkGuardianUser(candidate, member.id)") &&
+    guardianRouteSource.includes("linkGuardianUser(candidate, member.id, member.branchId)") &&
+    guardianRouteSource.includes('message: "보호자-자녀 연결을 변경했습니다."'),
+  "guardian link API must keep add/replace/delete handlers and reciprocal child-member updates",
+);
+assert(
+  guardianRouteSource.includes("성인 회원은 학부모 계정에 연결할 수 없습니다.") &&
+    adminUserRouteSource.includes("findAdultGuardianChildMemberIds") &&
+    adminUserRouteSource.includes("성인 회원은 학부모 자녀로 연결할 수 없습니다."),
+  "guardian link APIs must reject adult members as guardian-child links",
+);
+assertAppearsAfter(
+  guardianRouteSource,
+  "request.json()",
+  "if (selectedScope.response)",
+  "guardian link API must verify selected branch scope before reading request body",
+);
+
+for (const snippet of [
+  "owner member age group update did not persist",
+  "owner member profile update did not sync linked user name",
+  "guardian replace must atomically replace member guardian ids",
+  "guardian replace must remove previous guardian child ids",
+  "guardian replace must update next guardian child ids",
+  "guardian unlink did not update member guardian ids",
+  "guardian unlink did not update guardian child ids",
+  "adult member guardian link must be rejected",
+  "adult member guardian link rejection must not mutate guardian ids",
+]) {
+  assert(smokeApiSource.includes(snippet), `smoke API must keep runtime regression coverage: ${snippet}`);
+}
+assert(
+  adminUserManagementApiSource.includes("admin user update must reject adult member ids as guardian children") &&
+    adminUserManagementApiSource.includes('childMemberIds: ["member-jiho"]'),
+  "admin user management API test must keep adult guardian-child rejection coverage",
+);
+
+assert.equal(
+  packageJson.scripts["test:member-profile-guardian-edit"],
+  "node scripts/check-member-profile-guardian-edit.mjs",
+  "package.json must expose test:member-profile-guardian-edit",
+);
+assert.equal(
+  packageJson.scripts["test:guardian-age-policy-ui"],
+  "node scripts/check-guardian-age-policy-ui.mjs",
+  "package.json must expose the rendered guardian age policy UI check",
+);
+assert.equal(
+  packageJson.scripts["test:admin-user-guardian-bottom-safe-area"],
+  "node scripts/check-admin-user-guardian-bottom-safe-area.mjs",
+  "package.json must expose the admin guardian edit bottom safe-area UI check",
+);
+assert(
+  releaseRunnerSource.includes('["run", "test:member-profile-guardian-edit"]') &&
+    releaseRunnerSource.includes('["run", "test:guardian-age-policy-ui"]') &&
+    releaseRunnerSource.includes('["run", "test:admin-user-guardian-bottom-safe-area"]') &&
+    releaseRunnerSource.includes('"npm run test:guardian-age-policy-ui"') &&
+    releaseRunnerSource.includes('"npm run test:admin-user-guardian-bottom-safe-area"'),
+  "test:release must run member profile/guardian edit and rendered guardian age policy guards",
+);
+
+for (const [label, source] of [
+  ["README", readmeSource],
+  ["QA plan", qaPlanSource],
+  ["release checklist", releaseChecklistSource],
+]) {
+  assert(source.includes("npm run test:member-profile-guardian-edit"), `${label} must document test:member-profile-guardian-edit`);
+}
+
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      checked: [
+        "manager member age edits stay visible in the saved profile summary",
+        "member/guardian contact-only profile edits remain restricted",
+        "stale adult guardian-child links cannot authorize guardian member profile edits",
+        "guardian link UI supports search, replace, and unlink after first registration",
+        "guardian link UI/API rejects adult members as guardian-child links",
+        "rendered guardian age policy UI check is wired into release",
+        "admin guardian edit bottom safe-area UI check is wired into release",
+        "guardian link API keeps reciprocal member.guardianIds and user.childMemberIds updates",
+        "smoke API covers runtime profile and guardian link persistence",
+        "release/docs include the focused regression guard",
+      ],
+    },
+    null,
+    2,
+  ),
+);

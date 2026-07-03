@@ -1,0 +1,15 @@
+.data
+.next
+node_modules
+coverage
+mobile
+native
+docs
+design-tokens
+db
+.claude
+.github
+*.md
+tsconfig.tsbuildinfo
+*.log
+파이널유도멀티짐

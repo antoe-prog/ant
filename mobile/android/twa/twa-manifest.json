@@ -1,0 +1,51 @@
+{
+  "packageId": "kr.co.finaljudo.multigym",
+  "host": "final-judo.vercel.app",
+  "name": "파이널 유도 멀티짐 운영",
+  "launcherName": "파이널 유도",
+  "display": "standalone",
+  "themeColor": "#102A43",
+  "themeColorDark": "#102A43",
+  "navigationColor": "#102A43",
+  "navigationColorDark": "#102A43",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#F7F9FB",
+  "enableNotifications": false,
+  "startUrl": "/login",
+  "iconUrl": "http://127.0.0.1:3000/icons/final-judo-icon-512.png",
+  "maskableIconUrl": "http://127.0.0.1:3000/icons/final-judo-icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "/Users/sny0219/Documents/파이널유도멀티짐/.data/android-test-keystore.jks",
+    "alias": "finaljudo-test"
+  },
+  "appVersionName": "0.1.0-test.1",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "Bubblewrap CLI",
+  "fallbackType": "webview",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://final-judo.vercel.app/",
+  "minSdkVersion": 23,
+  "orientation": "portrait",
+  "fingerprints": [
+    {
+      "name": "finaljudo-test",
+      "value": "3C:94:19:E9:5B:14:C1:9C:94:A3:2C:5C:8A:D1:3D:AE:AE:E1:64:9E:06:ED:58:7C:F0:D6:E4:2C:5E:C9:37:3B"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "0.1.0-test.1"
+}

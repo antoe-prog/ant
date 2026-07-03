@@ -1,0 +1,13 @@
+DO NOT INSTALL THIS FOLDER'S APK FOR FIELD WEBVIEW QA
+
+The APKs in this TWA/Bubblewrap output folder can open through a browser/TWA/Custom Tab path.
+That is the path that can show an Android top URL/search bar such as final-judo.vercel.app.
+
+Install this APK instead:
+- .data/mobile-builds/android-capacitor-webview-20260702/INSTALL_ONLY_final-judo-native-webview-debug.apk
+
+Desktop copy:
+- /Users/sny0219/Desktop/INSTALL_ONLY_final-judo-native-webview-debug.apk
+
+Package: kr.co.finaljudo.multigym
+SHA-256: 950bf2d6b1c1871310671dcdc3bc0b892530500f5b309b0b42d66db988887411

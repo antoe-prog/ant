@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="enableNotification">false</bool>
+    <bool name="enableSiteSettingsShortcut">true</bool>
+    <color name="backgroundColor">#F7F9FB</color>
+    <color name="colorPrimary">#102A43</color>
+    <color name="colorPrimaryDark">#102A43</color>
+    <color name="navigationColor">#102A43</color>
+    <color name="navigationColorDark">#102A43</color>
+    <color name="navigationDividerColor">#000000</color>
+    <color name="navigationDividerColorDark">#000000</color>
+    <color name="shortcut_background">#F5F5F5</color>
+    <integer name="splashScreenFadeOutDuration">300</integer>
+    <string name="appName" translatable="false">파이널 유도 멀티짐 운영</string>
+    <string name="assetStatements">
+    [{
+        \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+        \"target\": {
+            \"namespace\": \"web\",
+            \"site\": \"https://final-judo.vercel.app\"
+        }
+    }]
+    
+  </string>
+    <string name="fallbackType" translatable="false">webview</string>
+    <string name="fullScopeUrl" translatable="false">https://final-judo.vercel.app/</string>
+    <string name="generatorApp" translatable="false">Bubblewrap CLI</string>
+    <string name="hostName" translatable="false">final-judo.vercel.app</string>
+    <string name="launchUrl" translatable="false">https://final-judo.vercel.app/login</string>
+    <string name="launcherName" translatable="false">파이널 유도</string>
+    <string name="orientation" translatable="false">portrait</string>
+    <string name="providerAuthority" translatable="false">kr.co.finaljudo.multigym.fileprovider</string>
+</resources>

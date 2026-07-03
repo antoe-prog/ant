@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+html, body {
+  touch-action: manipulation;
+}
+
+:root {
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f7f9fb;
+  --color-neutral-100: #eef2f6;
+  --color-neutral-200: #d9e1ea;
+  --color-neutral-300: #b8c4d0;
+  --color-neutral-500: #64748b;
+  --color-neutral-700: #334155;
+  --color-neutral-900: #111827;
+
+  --color-brand-navy-50: #eaf3fb;
+  --color-brand-navy-100: #cfe4f6;
+  --color-brand-navy-500: #2f80c9;
+  --color-brand-navy-600: #256daa;
+  --color-brand-navy-700: #1f4f7a;
+  --color-brand-navy-900: #102a43;
+  --color-brand-tatami-50: #eaf8f0;
+  --color-brand-tatami-500: #2ea66f;
+  --color-brand-tatami-700: #1f7a4f;
+  --color-brand-belt-red-50: #fdecec;
+  --color-brand-belt-red-500: #d64545;
+  --color-brand-belt-red-700: #a83232;
+  --color-brand-gold-50: #fff6da;
+  --color-brand-gold-500: #d99a00;
+  --color-brand-gold-700: #946200;
+  --color-brand-cobalt-50: #eaf0ff;
+  --color-brand-cobalt-500: #4d6fea;
+  --color-brand-cobalt-700: #3448b5;
+  --color-brand-violet-50: #f2ecff;
+  --color-brand-violet-500: #7c5cd6;
+  --color-brand-violet-700: #5b3ba6;
+  --color-brand-teal-50: #e7faf8;
+  --color-brand-teal-500: #16a39a;
+  --color-brand-teal-700: #11756d;
+
+  --color-semantic-primary-bg: var(--color-brand-navy-50);
+  --color-semantic-primary-border: #8dc2eb;
+  --color-semantic-primary-text: var(--color-brand-navy-700);
+  --color-semantic-success-bg: var(--color-brand-tatami-50);
+  --color-semantic-success-border: #8ad9b2;
+  --color-semantic-success-text: var(--color-brand-tatami-700);
+  --color-semantic-warning-bg: var(--color-brand-gold-50);
+  --color-semantic-warning-border: #f1c65b;
+  --color-semantic-warning-text: var(--color-brand-gold-700);
+  --color-semantic-danger-bg: var(--color-brand-belt-red-50);
+  --color-semantic-danger-border: #f2a3a3;
+  --color-semantic-danger-text: var(--color-brand-belt-red-700);
+  --color-semantic-info-bg: var(--color-brand-cobalt-50);
+  --color-semantic-info-border: #a8b8ff;
+  --color-semantic-info-text: var(--color-brand-cobalt-700);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-card: 8px;
+  --radius-modal: 8px;
+  --radius-pill: 999px;
+
+  --shadow-raised: 0 1px 2px rgba(16, 42, 67, 0.08);
+  --shadow-popover: 0 8px 24px rgba(16, 42, 67, 0.14);
+  --shadow-overlay: 0 16px 40px rgba(16, 42, 67, 0.18);
+  --shadow-focus: 0 0 0 3px rgba(47, 128, 201, 0.24);
+
+  --background: var(--color-neutral-50);
+  --foreground: var(--color-neutral-900);
+  --surface: var(--color-neutral-0);
+  --border: var(--color-neutral-200);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-brand-navy-50: #eaf3fb;
+  --color-brand-navy-100: #cfe4f6;
+  --color-brand-navy-500: #2f80c9;
+  --color-brand-navy-600: #256daa;
+  --color-brand-navy-700: #1f4f7a;
+  --color-brand-navy-900: #102a43;
+  --color-brand-tatami-50: #eaf8f0;
+  --color-brand-tatami-500: #2ea66f;
+  --color-brand-tatami-700: #1f7a4f;
+  --color-brand-belt-red-50: #fdecec;
+  --color-brand-belt-red-500: #d64545;
+  --color-brand-belt-red-700: #a83232;
+  --color-brand-gold-50: #fff6da;
+  --color-brand-gold-500: #d99a00;
+  --color-brand-gold-700: #946200;
+  --color-brand-cobalt-50: #eaf0ff;
+  --color-brand-cobalt-500: #4d6fea;
+  --color-brand-cobalt-700: #3448b5;
+  --color-brand-violet-50: #f2ecff;
+  --color-brand-violet-500: #7c5cd6;
+  --color-brand-violet-700: #5b3ba6;
+  --color-brand-teal-50: #e7faf8;
+  --color-brand-teal-500: #16a39a;
+  --color-brand-teal-700: #11756d;
+  --font-sans: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-navy-500);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

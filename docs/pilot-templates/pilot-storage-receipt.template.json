@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "archiveManifest": ".data/pilot-archives/final-judo-pilot-20260715/pilot-archive-manifest.json",
+  "archiveManifestSha256": "TODO: pilot-archive-manifest.json SHA-256",
+  "archiveManifestSizeBytes": 0,
+  "uploadedAt": "TODO: 2026-07-15T03:00:00+09:00",
+  "uploadedBy": "TODO: 업로드 담당자",
+  "storageProvider": "TODO: Google Drive, S3, GCS, SharePoint 등",
+  "storageLocation": "TODO: https://, s3://, gs://, drive:// 등 최종 보관 위치",
+  "evidence": "TODO: 업로드 완료 화면, 권한 설정, 또는 CI 로그 링크",
+  "retentionPolicy": {
+    "minimumRetentionDays": 365,
+    "owner": "TODO: 보관 책임자",
+    "accessReviewDueOn": "TODO: 2027-07-15",
+    "evidence": "TODO: 보존 정책 또는 접근 권한 검토 증빙"
+  },
+  "uploadedArtifacts": [
+    {
+      "key": "pilotArtifactManifest",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/pilot-artifact-manifest.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "prePilotPreflight",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/01-prePilotPreflight.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "prePilotEvidence",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/02-prePilotEvidence.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "prePilotMarkdown",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/03-prePilotMarkdown.md",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "prePilotReadinessEvidence",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/04-prePilotReadinessEvidence.csv",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "launchPackage",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/05-launchPackage.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "passwordRotationEvidence",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/06-passwordRotationEvidence.csv",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "postPilotPreflight",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/07-postPilotPreflight.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "postPilotEvidence",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/08-postPilotEvidence.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "postPilotMarkdown",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/09-postPilotMarkdown.md",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "fieldEvidence",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/10-fieldEvidence.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    },
+    {
+      "key": "closeoutPackage",
+      "archivedPath": ".data/pilot-archives/final-judo-pilot-20260715/artifacts/11-closeoutPackage.json",
+      "sizeBytes": 0,
+      "sha256": "TODO",
+      "storageLocation": "TODO: 최종 보관 위치"
+    }
+  ]
+}

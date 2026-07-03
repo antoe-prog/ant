@@ -1,0 +1,766 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import net from "node:net";
+
+const nextBin = "node_modules/next/dist/bin/next";
+const defaultPilotPassword = "FinalJudoPilot!2026";
+const stamp = Date.now();
+const stampPhoneSuffix = String(stamp % 100000000).padStart(8, "0");
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : null;
+
+      server.close(() => {
+        if (!port) {
+          reject(new Error("Could not allocate a free localhost port."));
+          return;
+        }
+
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function waitForServer(baseUrl, child, timeoutMs = 30000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (child.exitCode !== null) {
+      throw new Error(`Admin user API test server exited before ${baseUrl} became reachable.`);
+    }
+
+    try {
+      const response = await fetch(baseUrl, { method: "GET", redirect: "manual" });
+
+      if (response.status >= 200 && response.status < 500) {
+        return;
+      }
+    } catch {
+      // Wait until Next start finishes binding the port.
+    }
+
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for admin user API test server at ${baseUrl}. Run npm run build before this check.`);
+}
+
+async function stopServer(child) {
+  if (child.exitCode !== null) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGTERM");
+      }
+      resolve();
+    }, 5000);
+
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.kill("SIGINT");
+  });
+}
+
+function createClient(baseUrl) {
+  let cookie = "";
+
+  return {
+    async request(pathname, init = {}, options = {}) {
+      const response = await fetch(`${baseUrl}${pathname}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...(cookie ? { Cookie: cookie } : {}),
+          ...(init.headers ?? {}),
+        },
+      });
+      const setCookie = response.headers.get("set-cookie");
+
+      if (setCookie) {
+        cookie = setCookie.split(";")[0];
+      }
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!options.allowError && !response.ok) {
+        throw new Error(`${response.status} ${payload.error?.code ?? ""} ${payload.error?.message ?? ""}`.trim());
+      }
+
+      return { payload, response };
+    },
+  };
+}
+
+function assertCookieMaxAge(result, expectedMaxAge, label) {
+  const setCookie = result.response.headers.get("set-cookie") ?? "";
+
+  assert(
+    setCookie.includes(`Max-Age=${expectedMaxAge}`),
+    `${label} must set session cookie Max-Age=${expectedMaxAge}; received ${setCookie}`,
+  );
+}
+
+async function loginRole(client, role) {
+  const result = await client.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ role }),
+  });
+
+  assert.equal(result.payload.data.user.role, role, `${role} role login mismatch`);
+  assert(!result.payload.data.user.passwordHash, `${role} login must not expose password hash`);
+  assertCookieMaxAge(result, 60 * 60 * 8, `${role} role login`);
+
+  return result.payload.data;
+}
+
+async function loginCredentials(client, phone, password, options = {}) {
+  const result = await client.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ phone, password, ...(options.keepSignedIn ? { keepSignedIn: true } : {}) }),
+  });
+
+  assert.equal(result.payload.data.user.phone, phone, `${phone} credential login mismatch`);
+  assert(!result.payload.data.user.passwordHash, `${phone} login must not expose password hash`);
+  assertCookieMaxAge(
+    result,
+    options.keepSignedIn ? 60 * 60 * 24 * 30 : 60 * 60 * 8,
+    `${phone} credential login`,
+  );
+
+  return result.payload.data;
+}
+
+async function runAssertions(baseUrl) {
+  const anonymous = createClient(baseUrl);
+  const admin = createClient(baseUrl);
+  await loginRole(admin, "admin");
+
+  const owner = createClient(baseUrl);
+  await loginRole(owner, "owner");
+
+  const member = createClient(baseUrl);
+  await loginRole(member, "member");
+
+  const coach = createClient(baseUrl);
+  await loginRole(coach, "coach");
+  const coachBootstrap = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert.equal(coachBootstrap.payload.data.db.payments.length, 0, "coach bootstrap must not include payment records");
+
+  const publicSignupClient = createClient(baseUrl);
+  const publicRegisterPhone = `010${stampPhoneSuffix}`;
+  const publicRegister = await publicSignupClient.request(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: "휴대폰 가입 확인",
+        password: `FJ-Public-${stamp}!`,
+        phone: publicRegisterPhone,
+      }),
+    },
+  );
+  assert.equal(publicRegister.response.status, 200, "public register API must create phone signup accounts");
+  assert.equal(publicRegister.payload.data?.ok, true, "public register API must return success");
+  assert(publicRegister.payload.data?.userId, "public register API must return a user id");
+  assert(publicRegister.payload.data?.memberId, "public register API must return a linked member id");
+
+  const publicRegisterLogin = await publicSignupClient.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      keepSignedIn: true,
+      password: `FJ-Public-${stamp}!`,
+      phone: publicRegisterPhone,
+    }),
+  });
+  assert.equal(publicRegisterLogin.response.status, 200, "phone signup user must be able to log in with the same password");
+  assertCookieMaxAge(publicRegisterLogin, 60 * 60 * 24 * 30, "phone signup remembered login");
+
+  const unauthenticatedUpdate = await anonymous.request(
+    "/api/v1/admin/users/user-member",
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedUpdate.response.status, 401, "unauthenticated admin user update must require login before validation");
+
+  const unauthenticatedPasswordIssue = await anonymous.request(
+    "/api/v1/admin/users/user-member/password",
+    {
+      method: "POST",
+      body: JSON.stringify({ temporaryPassword: "short" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    unauthenticatedPasswordIssue.response.status,
+    401,
+    "unauthenticated admin password issue must require login before validation",
+  );
+
+  const unauthenticatedRoleUpdate = await anonymous.request(
+    "/api/v1/admin/users/user-member/roles",
+    {
+      method: "PUT",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedRoleUpdate.response.status, 401, "unauthenticated role update must require login before validation");
+
+  const unauthenticatedInvitation = await anonymous.request(
+    "/api/v1/admin/users/invitations",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedInvitation.response.status, 401, "unauthenticated user invitation must require login before validation");
+
+  const ownerRoleUpdate = await owner.request(
+    "/api/v1/admin/users/user-member/roles",
+    {
+      method: "PUT",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerRoleUpdate.response.status, 403, "owner must not reach role update validation through admin roles API");
+
+  const memberInvitation = await member.request(
+    "/api/v1/admin/users/invitations",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(memberInvitation.response.status, 403, "member must not reach invitation validation through admin invitation API");
+
+  const unauthenticatedBranchCreate = await anonymous.request(
+    "/api/v1/admin/branches",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedBranchCreate.response.status, 401, "unauthenticated branch create must require login before validation");
+
+  const unauthenticatedBranchUpdate = await anonymous.request(
+    "/api/v1/admin/branches/branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedBranchUpdate.response.status, 401, "unauthenticated branch update must require login before validation");
+
+  const unauthenticatedBranchOwner = await anonymous.request(
+    "/api/v1/admin/branches/branch-gangnam/owner",
+    {
+      method: "PUT",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedBranchOwner.response.status, 401, "unauthenticated branch owner assign must require login before validation");
+
+  const ownerBranchCreate = await owner.request(
+    "/api/v1/admin/branches",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerBranchCreate.response.status, 403, "owner must not reach branch create validation through admin branch API");
+
+  const ownerBranchUpdate = await owner.request(
+    "/api/v1/admin/branches/branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerBranchUpdate.response.status, 403, "owner must not reach branch update validation through admin branch API");
+
+  const ownerBranchOwnerAssign = await owner.request(
+    "/api/v1/admin/branches/branch-gangnam/owner",
+    {
+      method: "PUT",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerBranchOwnerAssign.response.status, 403, "owner must not reach branch owner validation through admin branch API");
+
+  const inviteEmail = `admin-user-api-${stamp}@example.com`;
+  const invitePhone = `011${stampPhoneSuffix}`;
+  let result = await admin.request("/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      branchIds: ["branch-gangnam"],
+      email: inviteEmail,
+      name: `관리 테스트 ${stamp}`,
+      phone: invitePhone,
+      role: "member",
+    }),
+  });
+  const invitedUserId = result.payload.data.invitation.userId;
+  const inviteToken = result.payload.data.invitation.token;
+
+  assert(invitedUserId, "admin invitation must return a user id");
+  assert(inviteToken, "admin invitation must return an invitation token");
+
+  const pendingInviteeLogin = await inviteeLoginBeforeAccept(baseUrl, invitePhone, `FJ-Pending-${stamp}!`);
+  assert.equal(pendingInviteeLogin.response.status, 403, "pending invited user login must not look like a password failure");
+  assert.equal(
+    pendingInviteeLogin.payload.error?.code,
+    "ACCOUNT_PENDING",
+    "pending invited user login must return account-pending status",
+  );
+
+  const acceptedPassword = `FJ-Accept-${stamp}!`;
+  const invitee = createClient(baseUrl);
+  result = await invitee.request(`/api/v1/auth/invitations/${inviteToken}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ password: acceptedPassword }),
+  });
+  assert.equal(result.payload.data.user.id, invitedUserId, "accepted invitation user mismatch");
+
+  const approvalEmail = `admin-user-approve-${stamp}@example.com`;
+  const approvalPhone = `010${String((Number(String(stamp).slice(-8)) + 2) % 100000000).padStart(8, "0")}`;
+  result = await admin.request("/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      branchIds: ["branch-gangnam"],
+      email: approvalEmail,
+      name: `승인 테스트 ${stamp}`,
+      phone: approvalPhone,
+      role: "member",
+    }),
+  });
+  const approvalUserId = result.payload.data.invitation.userId;
+  const approvalPendingLogin = await inviteeLoginBeforeAccept(baseUrl, approvalPhone, `FJ-Approve-Pending-${stamp}!`);
+
+  assert.equal(approvalPendingLogin.response.status, 403, "pending approval user login must be blocked before admin approval");
+  assert.equal(approvalPendingLogin.payload.error?.code, "ACCOUNT_PENDING", "pending approval user login must return ACCOUNT_PENDING");
+
+  const memberApproval = await member.request(
+    `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`,
+    { method: "POST" },
+    { allowError: true },
+  );
+  assert.equal(memberApproval.response.status, 403, "member must not approve invitations");
+
+  const invalidApprovalScope = await admin.request(
+    `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-missing`,
+    { method: "POST" },
+    { allowError: true },
+  );
+  assert.equal(invalidApprovalScope.response.status, 403, "invitation approval must reject invalid selectedBranchId");
+
+  result = await admin.request(`/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`, {
+    method: "POST",
+  });
+  const approval = result.payload.data.approval;
+  const approvedUser = result.payload.data.db.users.find((user) => user.id === approvalUserId);
+  const approveAudit = result.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.invite.approve" && log.targetId === approvalUserId,
+  );
+  const approveResponseText = JSON.stringify(result.payload);
+
+  assert.equal(approval.userId, approvalUserId, "invitation approval must return approved user id");
+  assert(approval.temporaryPassword, "invitation approval must return a temporary password for token-only invites");
+  assert(approval.temporaryPassword.length >= 12, "invitation approval temporary password must be 12+ characters");
+  assert(approvedUser, "invitation approval must return approved user in snapshot");
+  assert(approveAudit, "invitation approval audit log missing");
+  assert.equal(approvedUser?.invitationStatus, "accepted", "invitation approval must persist accepted status");
+  assert(approvedUser?.acceptedAt, "invitation approval must set accepted timestamp");
+  assert(!approvedUser?.invitationToken, "invitation approval snapshot must clear invitation token");
+  assert(!("passwordHash" in approvedUser), "invitation approval response must not expose password hash");
+  assert(!approveResponseText.includes("passwordHash"), "invitation approval response must not include passwordHash keys");
+  assert.equal(approveAudit?.after?.passwordIssued, true, "invitation approval audit must record password issuance");
+  assert(!("temporaryPassword" in approveAudit.after), "invitation approval audit must not expose temporary password");
+
+  const approvedLogin = createClient(baseUrl);
+  const approvedBootstrap = await loginCredentials(approvedLogin, approvalPhone, approval.temporaryPassword);
+  assert.equal(approvedBootstrap.user.id, approvalUserId, "approved invited user must log in with generated temporary password");
+
+  const repeatApproval = await admin.request(
+    `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`,
+    { method: "POST" },
+    { allowError: true },
+  );
+  assert.equal(repeatApproval.response.status, 409, "accepted invitation must not be approved twice");
+
+  const shortPasswordUpdate = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        email: inviteEmail,
+        name: `관리 테스트 ${stamp}`,
+        password: "short",
+        phone: invitePhone,
+        reason: `short password check ${stamp}`,
+        role: "member",
+        title: "비밀번호 검증 대상",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(shortPasswordUpdate.response.status, 400, "short admin-updated password must be rejected");
+
+  const defaultPasswordUpdate = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        email: inviteEmail,
+        name: `관리 테스트 ${stamp}`,
+        password: defaultPilotPassword,
+        phone: invitePhone,
+        reason: `default password check ${stamp}`,
+        role: "member",
+        title: "비밀번호 검증 대상",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(defaultPasswordUpdate.response.status, 422, "default pilot password must be rejected for admin update");
+
+  const updatedEmail = `admin-user-api-updated-${stamp}@example.com`;
+  const updatedPhoneSuffix = String((Number(String(stamp).slice(-8)) + 1) % 100000000).padStart(8, "0");
+  const updatedPhone = `010${updatedPhoneSuffix}`;
+  const updatedPassword = `FJ-Updated-${stamp}!`;
+  const updateReason = `admin user api update ${stamp}`;
+
+  const invalidMemberLinkUpdate = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-songpa"],
+        email: updatedEmail,
+        memberIds: ["member-minjae"],
+        name: `관리 수정 ${stamp}`,
+        phone: updatedPhone,
+        reason: `invalid member link ${stamp}`,
+        role: "member",
+        title: "수정된 회원",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(invalidMemberLinkUpdate.response.status, 422, "admin user update must reject member links outside assigned branches");
+
+  const invalidAdultGuardianChildUpdate = await admin.request(
+    "/api/v1/admin/users/user-guardian?selectedBranchId=branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        childMemberIds: ["member-jiho"],
+        email: "guardian@finaljudo.kr",
+        name: "이하린",
+        phone: "01072483619",
+        reason: `invalid adult guardian child ${stamp}`,
+        role: "guardian",
+        title: "학부모",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    invalidAdultGuardianChildUpdate.response.status,
+    422,
+    "admin user update must reject adult member ids as guardian children",
+  );
+  assert.match(
+    invalidAdultGuardianChildUpdate.payload.error?.message ?? "",
+    /성인 회원/,
+    "admin user adult guardian-child rejection must explain the age policy",
+  );
+
+  result = await admin.request(`/api/v1/admin/users/${invitedUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      branchIds: ["branch-songpa"],
+      email: updatedEmail,
+      memberIds: ["member-harin"],
+      name: `관리 수정 ${stamp}`,
+      password: updatedPassword,
+      phone: updatedPhone,
+      reason: updateReason,
+      role: "member",
+      title: "수정된 회원",
+    }),
+  });
+
+  const responseText = JSON.stringify(result.payload);
+  const updatedUser = result.payload.data.db.users.find((user) => user.id === invitedUserId);
+  const updateAudit = result.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.update" && log.targetId === invitedUserId,
+  );
+
+  assert.equal(updatedUser?.email, updatedEmail, "admin user update must persist email");
+  assert.equal(updatedUser?.phone, updatedPhone, "admin user update must persist phone");
+  assert.equal(updatedUser?.name, `관리 수정 ${stamp}`, "admin user update must persist name");
+  assert.equal(updatedUser?.role, "member", "admin user update must persist role");
+  assert.deepEqual(updatedUser?.branchIds, ["branch-songpa"], "admin user update must persist branch ids");
+  assert.deepEqual(updatedUser?.memberIds, ["member-harin"], "admin user update must persist member app links");
+  assert(updatedUser?.passwordUpdatedAt, "admin user password update must persist timestamp");
+  assert(!("passwordHash" in updatedUser), "admin user update response must not expose password hash");
+  assert(!responseText.includes(updatedPassword), "admin user update response must not expose raw password");
+  assert(!responseText.includes("passwordHash"), "admin user update response must not include passwordHash keys");
+  assert.equal(updateAudit?.after?.reason, updateReason, "admin user update audit must include reason");
+  assert.equal(updateAudit?.after?.passwordUpdated, true, "admin user update audit must mark password update");
+  assert(!("password" in updateAudit.after), "admin user update audit must not expose raw password");
+  assert(!("passwordHash" in updateAudit.after), "admin user update audit must not expose password hash");
+
+  const updatedLogin = createClient(baseUrl);
+  const updatedBootstrap = await loginCredentials(updatedLogin, updatedPhone, updatedPassword);
+  assert.equal(updatedBootstrap.user.id, invitedUserId, "admin-updated password must allow login");
+  assert.deepEqual(updatedBootstrap.user.memberIds, ["member-harin"], "linked member ids must be present after credential login");
+  assert(
+    updatedBootstrap.db.members.some(
+      (member) => member.id === "member-harin" && member.name === `관리 수정 ${stamp}` && member.emergencyContact === updatedPhone,
+    ),
+    "linked member data must be included in member app bootstrap with synced profile",
+  );
+
+  const ownerPasswordIssue = await owner.request(
+    `/api/v1/admin/users/${invitedUserId}/password`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reason: `owner blocked password issue ${stamp}`,
+        temporaryPassword: "short",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerPasswordIssue.response.status, 403, "owner must not reach admin password validation through password API");
+
+  const reissuedPassword = `FJ-Reissued-${stamp}!`;
+  result = await admin.request(`/api/v1/admin/users/${invitedUserId}/password?selectedBranchId=branch-songpa`, {
+    method: "POST",
+    body: JSON.stringify({
+      reason: `admin password issue ${stamp}`,
+      temporaryPassword: reissuedPassword,
+    }),
+  });
+  const passwordIssueText = JSON.stringify(result.payload);
+  const passwordIssueAudit = result.payload.data.db.auditLogs.find(
+    (log) => log.action === "auth.password_reset.complete" && log.targetId === invitedUserId,
+  );
+
+  assert.equal(result.payload.data.password.temporaryPassword, reissuedPassword, "admin password issue must return temporary password once");
+  assert(!passwordIssueText.includes("passwordHash"), "admin password issue response must not include passwordHash keys");
+  assert(passwordIssueAudit, "admin password issue must create an audit log");
+  assert.equal(passwordIssueAudit?.after?.mode, "manual", "admin password issue audit must record manual mode");
+  assert(!("temporaryPassword" in passwordIssueAudit.after), "admin password issue audit must not expose temporary password");
+  assert(!("passwordHash" in passwordIssueAudit.after), "admin password issue audit must not expose password hash");
+
+  const reissuedLogin = createClient(baseUrl);
+  const reissuedBootstrap = await loginCredentials(reissuedLogin, updatedPhone, reissuedPassword);
+  assert.equal(reissuedBootstrap.user.id, invitedUserId, "admin-reissued password must allow login");
+
+  const ownerUpdate = await owner.request(
+    `/api/v1/admin/users/${invitedUserId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        email: updatedEmail,
+        name: "대표 수정 차단",
+        phone: updatedPhone,
+        reason: `owner blocked update ${stamp}`,
+        role: "member",
+        title: "대표 수정 차단",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerUpdate.response.status, 403, "owner must not update users through admin user API");
+
+  const selfDemotion = await admin.request(
+    "/api/v1/admin/users/user-admin",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        email: "admin@finaljudo.kr",
+        name: "정유진",
+        phone: "01028476013",
+        reason: `self demotion block ${stamp}`,
+        role: "owner",
+        title: "총괄 운영 관리자",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(selfDemotion.response.status, 422, "admin self-demotion must be blocked");
+
+  const selfDelete = await admin.request(
+    "/api/v1/admin/users/user-admin",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `self delete block ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(selfDelete.response.status, 422, "admin self-delete must be blocked");
+
+  const linkedCoachDelete = await admin.request(
+    "/api/v1/admin/users/user-coach",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `linked coach delete block ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(linkedCoachDelete.response.status, 422, "linked coach delete must be blocked");
+  assert(
+    Array.isArray(linkedCoachDelete.payload.error?.details?.blockingReasons),
+    "linked coach delete response must include blocking reasons",
+  );
+
+  const ownerDelete = await owner.request(
+    `/api/v1/admin/users/${invitedUserId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `owner blocked delete ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(ownerDelete.response.status, 403, "owner must not delete users through admin user API");
+
+  const deleteReason = `admin user api delete ${stamp}`;
+  result = await admin.request(`/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-songpa`, {
+    method: "DELETE",
+    body: JSON.stringify({ reason: deleteReason }),
+  });
+
+  const deleteAudit = result.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.delete" && log.targetId === invitedUserId,
+  );
+
+  assert(!result.payload.data.db.users.some((user) => user.id === invitedUserId), "admin user delete must remove target user");
+  assert.equal(deleteAudit?.after?.reason, deleteReason, "admin user delete audit must include reason");
+
+  return [
+    "admin-only user update/delete",
+    "authentication-first admin user API guards",
+    "coach bootstrap payment record exclusion",
+    "public register API phone signup login flow",
+    "authentication-first admin user role and invitation guards",
+    "authentication-first admin branch API guards",
+    "admin invitation approval login flow",
+    "user update profile and branch assignment",
+    "member app link update and bootstrap visibility",
+    "adult members are rejected as guardian children",
+    "optional password update login",
+    "dedicated password issue login and audit redaction",
+    "password hash and raw password redaction",
+    "short/default password rejection",
+    "self-demotion and self-delete protection",
+    "linked coach delete protection",
+    "user.update and user.delete audit logs",
+  ];
+}
+
+async function inviteeLoginBeforeAccept(baseUrl, phone, password) {
+  const invitee = createClient(baseUrl);
+
+  return invitee.request(
+    "/api/v1/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ phone, password }),
+    },
+    { allowError: true },
+  );
+}
+
+async function main() {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "final-judo-admin-user-api-"));
+  const port = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const dbFile = path.join(tempDir, "runtime-db.json");
+  const child = spawn(process.execPath, [nextBin, "start", "--port", String(port), "--hostname", "127.0.0.1"], {
+    env: {
+      ...process.env,
+      FINAL_JUDO_ENABLE_DEMO_LOGIN: "1",
+      PILOT_DB_FILE: dbFile,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const serverOutput = [];
+
+  child.stdout.on("data", (chunk) => {
+    serverOutput.push(chunk.toString());
+  });
+  child.stderr.on("data", (chunk) => {
+    serverOutput.push(chunk.toString());
+  });
+
+  try {
+    await waitForServer(baseUrl, child);
+    const checked = await runAssertions(baseUrl);
+
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          baseUrl,
+          checked,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    const output = serverOutput.join("").trim();
+
+    if (output) {
+      console.error(output);
+    }
+
+    throw error;
+  } finally {
+    await stopServer(child);
+    await rm(tempDir, { force: true, recursive: true });
+  }
+}
+
+await main();

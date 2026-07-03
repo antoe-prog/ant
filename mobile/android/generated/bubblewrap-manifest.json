@@ -1,0 +1,12 @@
+{
+  "packageId": "kr.co.finaljudo.multigym",
+  "host": "strong-ends-tan.loca.lt",
+  "name": "파이널 유도 멀티짐 운영",
+  "launcherName": "파이널 유도",
+  "startUrl": "https://strong-ends-tan.loca.lt/app",
+  "manifestUrl": "https://strong-ends-tan.loca.lt/manifest.webmanifest",
+  "display": "standalone",
+  "orientation": "portrait",
+  "minSdkVersion": 23,
+  "targetSdkVersion": 35
+}

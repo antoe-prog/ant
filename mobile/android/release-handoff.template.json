@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "YYYY-MM-DDTHH:mm:ssZ",
+  "packageName": "kr.co.finaljudo.multigym",
+  "productionOrigin": "TODO_PRODUCTION_ORIGIN",
+  "releaseSha256": "TODO_RELEASE_SHA256_FINGERPRINT",
+  "workflow": {
+    "source": "github-actions",
+    "runUrl": "https://github.com/OWNER/REPO/actions/runs/RUN_ID",
+    "artifactName": "final-judo-android-twa",
+    "buildArtifacts": true,
+    "evidence": "TODO_ANDROID_WORKFLOW_EVIDENCE_URI"
+  },
+  "artifacts": {
+    "doctorReport": {
+      "path": ".data/android-twa-doctor.json",
+      "sha256": "TODO_SHA256",
+      "sizeBytes": 0
+    },
+    "assetLinks": {
+      "path": "mobile/android/generated/assetlinks.json",
+      "sha256": "TODO_SHA256",
+      "sizeBytes": 0
+    },
+    "buildPlan": {
+      "path": "mobile/android/generated/build-plan.json",
+      "sha256": "TODO_SHA256",
+      "sizeBytes": 0
+    },
+    "apk": {
+      "path": "mobile/android/twa/app-release-signed.apk",
+      "sha256": "TODO_SHA256",
+      "sizeBytes": 0
+    },
+    "aab": {
+      "path": "mobile/android/twa/app-release-bundle.aab",
+      "sha256": "TODO_SHA256",
+      "sizeBytes": 0
+    }
+  },
+  "digitalAssetLinks": {
+    "deployedUrl": "TODO_ANDROID_ASSETLINKS_DEPLOYED_URL",
+    "verified": false,
+    "evidence": "TODO_ANDROID_ASSETLINKS_EVIDENCE_URI"
+  },
+  "signing": {
+    "playAppSigningDecision": "google-play-app-signing",
+    "keystoreCustody": "secret-store",
+    "uploadKeyOwner": "Final Judo operations owner",
+    "keystoreNotCommitted": true,
+    "evidence": "TODO_ANDROID_SIGNING_EVIDENCE_URI"
+  },
+  "deviceSmoke": {
+    "device": "Galaxy Android Chrome / installed TWA",
+    "installed": false,
+    "loginVerified": false,
+    "coachAttendanceVerified": false,
+    "notificationPermissionChecked": false,
+    "noBrowserAddressBar": false,
+    "noHorizontalOverflow": false,
+    "evidence": "TODO_ANDROID_DEVICE_SMOKE_EVIDENCE_URI"
+  },
+  "signoff": {
+    "signedOffBy": "Final Judo PM",
+    "signedOffAt": "YYYY-MM-DDTHH:mm:ssZ",
+    "evidence": "TODO_ANDROID_SIGNOFF_EVIDENCE_URI"
+  }
+}
