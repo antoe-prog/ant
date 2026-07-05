@@ -34,7 +34,7 @@ type OperationalKpiCardProps = {
 };
 
 const buttonVariants = {
-  primary: "border-brand-navy-600 bg-brand-navy-600 text-white hover:bg-brand-navy-700",
+  primary: "border-brand-teal-700 bg-brand-teal-700 text-white hover:bg-brand-teal-800",
   secondary: "border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50",
   ghost: "border-transparent bg-transparent text-zinc-700 hover:bg-zinc-100",
   danger: "border-red-600 bg-red-600 text-white hover:bg-red-700",

@@ -28,7 +28,7 @@ export function ChildSwitcher({
             <button
               className={`flex min-h-11 min-w-0 flex-col justify-center rounded-md border px-2 py-1.5 text-left transition ${
                 selected
-                  ? "border-brand-navy-600 bg-brand-navy-50 text-brand-navy-900"
+                  ? "border-brand-teal-700 bg-brand-teal-50 text-brand-teal-800"
                   : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
               }`}
               data-testid="guardian-child-chip"

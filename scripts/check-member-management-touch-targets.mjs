@@ -320,6 +320,13 @@ async function captureOwnerMembers(context) {
     await page.getByTestId("member-create-toggle").click();
     await page.waitForSelector("#member-create-form", { timeout: 15000 });
 
+    // 요약 카드로 접힌 회원 상세를 모두 펼친 뒤 내부 컨트롤을 측정한다.
+    const detailToggles = page.locator('[data-testid^="member-detail-toggle-"]');
+    const detailToggleCount = await detailToggles.count();
+    for (let index = 0; index < detailToggleCount; index += 1) {
+      await detailToggles.nth(index).click();
+    }
+
     const firstGuardianSearch = page.locator('[data-testid^="member-guardian-search-input-"]').first();
     await firstGuardianSearch.waitFor({ state: "visible", timeout: 15000 });
     await firstGuardianSearch.fill("010");

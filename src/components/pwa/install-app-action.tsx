@@ -143,7 +143,7 @@ export function InstallAppAction() {
       data-testid="pwa-install-action"
     >
       <div className="flex min-w-0 items-center gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-brand-navy-700">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-brand-teal-700">
           <Icon className="h-4 w-4" aria-hidden />
         </div>
         <div className="min-w-0">

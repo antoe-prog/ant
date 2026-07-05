@@ -38,10 +38,12 @@ html, body {
   --color-brand-teal-50: #e7faf8;
   --color-brand-teal-500: #16a39a;
   --color-brand-teal-700: #11756d;
+  --color-brand-teal-800: #0d5d57;
 
-  --color-semantic-primary-bg: var(--color-brand-navy-50);
-  --color-semantic-primary-border: #8dc2eb;
-  --color-semantic-primary-text: var(--color-brand-navy-700);
+  /* 브랜드 primary는 teal로 일원화한다 (navy는 레거시 토큰으로 유지) */
+  --color-semantic-primary-bg: var(--color-brand-teal-50);
+  --color-semantic-primary-border: #7edcd4;
+  --color-semantic-primary-text: var(--color-brand-teal-700);
   --color-semantic-success-bg: var(--color-brand-tatami-50);
   --color-semantic-success-border: #8ad9b2;
   --color-semantic-success-text: var(--color-brand-tatami-700);
@@ -112,6 +114,7 @@ html, body {
   --color-brand-teal-50: #e7faf8;
   --color-brand-teal-500: #16a39a;
   --color-brand-teal-700: #11756d;
+  --color-brand-teal-800: #0d5d57;
   --font-sans: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -129,7 +132,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-brand-navy-500);
+  outline: 2px solid var(--color-brand-teal-500);
   outline-offset: 2px;
   box-shadow: var(--shadow-focus);
 }

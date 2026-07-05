@@ -54,14 +54,16 @@
       "teal": {
         "50": { "$type": "color", "$value": "#E7FAF8" },
         "500": { "$type": "color", "$value": "#16A39A" },
-        "700": { "$type": "color", "$value": "#11756D" }
+        "700": { "$type": "color", "$value": "#11756D" },
+        "800": { "$type": "color", "$value": "#0D5D57" }
       }
     },
     "semantic": {
       "primary": {
-        "bg": { "$type": "color", "$value": "{color.brand.navy.50}" },
-        "border": { "$type": "color", "$value": "#8DC2EB" },
-        "text": { "$type": "color", "$value": "{color.brand.navy.700}" }
+        "$description": "브랜드 primary는 teal로 일원화 (navy는 레거시 참조용으로 유지)",
+        "bg": { "$type": "color", "$value": "{color.brand.teal.50}" },
+        "border": { "$type": "color", "$value": "#7EDCD4" },
+        "text": { "$type": "color", "$value": "{color.brand.teal.700}" }
       },
       "success": {
         "bg": { "$type": "color", "$value": "{color.brand.tatami.50}" },

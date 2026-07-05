@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
+import { Bell, ChevronDown, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberStatus, UserRole } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -174,6 +174,22 @@ export function MembersScreen() {
   const [query, setQueryState] = useState(getInitialMemberQuery);
   const [statusFilter, setStatusFilterState] = useState<MemberStatus | "all">(getInitialMemberStatusFilter);
   const [memberSort, setMemberSort] = useState<"default" | "name" | "recent">("default");
+  // 관리자 회원 카드는 기본 요약 상태로 접고, 탭하면 상세(상태 변경·정보 수정·보호자·메모)가 열린다.
+  const [expandedMemberIds, setExpandedMemberIds] = useState<Set<string>>(() => new Set());
+
+  function toggleMemberDetail(memberId: string) {
+    setExpandedMemberIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(memberId)) {
+        next.delete(memberId);
+      } else {
+        next.add(memberId);
+      }
+
+      return next;
+    });
+  }
 
   // 새로고침·뒤로가기·딥링크에서 목록 필터 상태가 유지되도록 URL에 동기화한다.
   function setQuery(value: string) {
@@ -1038,6 +1054,8 @@ export function MembersScreen() {
               coachMemberListCollapsible && !coachMemberListExpanded && memberIndex >= coachMemberMobileVisibleLimit;
             const guardianLinkDraft = getGuardianLinkDraft(member);
             const guardianSearchResults = getGuardianSearchResults(member);
+            // 관리자 뷰만 접힘/펼침을 적용하고, 가족·코치 뷰는 기존 그대로 항상 펼친다.
+            const memberDetailExpanded = !canManageMembers || expandedMemberIds.has(member.id);
             const selectedGuardian =
               guardianUsers.find((guardian) => guardian.id === guardianLinkDraft.guardianUserId) ?? null;
 
@@ -1051,6 +1069,37 @@ export function MembersScreen() {
               data-testid={isFamilyRole ? "family-member-profile-card" : isCoachRole ? "coach-member-profile-card" : undefined}
               key={member.id}
             >
+              {canManageMembers ? (
+                <button
+                  aria-controls={`member-detail-${member.id}`}
+                  aria-expanded={memberDetailExpanded}
+                  className="-m-1 flex w-full items-start justify-between gap-3 rounded-md p-1 text-left transition hover:bg-zinc-50"
+                  data-testid={`member-detail-toggle-${member.id}`}
+                  type="button"
+                  onClick={() => toggleMemberDetail(member.id)}
+                >
+                  <span className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+                      <UserRound className="h-5 w-5" aria-hidden />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-base font-semibold text-zinc-950">{member.name}</span>
+                      <span className="mt-1 block text-sm text-zinc-600">
+                        {member.belt} · {member.level}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${statusClasses[member.status]}`}>
+                      {memberStatusLabels[member.status]}
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 text-zinc-400 transition-transform ${memberDetailExpanded ? "rotate-180" : ""}`}
+                      aria-hidden
+                    />
+                  </span>
+                </button>
+              ) : (
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
@@ -1067,6 +1116,7 @@ export function MembersScreen() {
 	                  {memberStatusLabels[member.status]}
 	                </span>
 	              </div>
+              )}
 
 		              {isFamilyRole && member.alerts.length > 0 ? (
 		                <div
@@ -1080,7 +1130,7 @@ export function MembersScreen() {
 	                </div>
 	              ) : null}
 
-              {canManageMembers ? (
+              {canManageMembers && memberDetailExpanded ? (
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 상태</span>
                   <select
@@ -1130,6 +1180,8 @@ export function MembersScreen() {
                 </div>
               </dl>
 
+              {memberDetailExpanded ? (
+              <div id={`member-detail-${member.id}`}>
               {noticePublisherRoles.has(context.user.role) || canManageMembers ? (
 	                <div className="mt-2 flex flex-wrap gap-1.5">
                   {noticePublisherRoles.has(context.user.role) ? (
@@ -1631,6 +1683,8 @@ export function MembersScreen() {
                   </form>
                 ) : null}
               </div>
+              </div>
+              ) : null}
             </article>
             );
           })}

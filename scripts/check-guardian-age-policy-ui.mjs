@@ -98,6 +98,8 @@ try {
 	  );
 
 	  const adultMemberCard = page.locator('[data-member-id="member-jiho"]');
+  // 관리자 카드가 요약 상태로 접혀 있으므로 상세를 먼저 펼친다.
+  await page.getByTestId("member-detail-toggle-member-jiho").click();
   const ineligibleCopy = page.getByTestId("member-guardian-ineligible-member-jiho");
   const adultGuardianSearchCount = await adultMemberCard.getByTestId("member-guardian-search-input-member-jiho").count();
   const memberScreenshotPath = join(outDir, "owner-member-adult-guardian-ineligible.png");
