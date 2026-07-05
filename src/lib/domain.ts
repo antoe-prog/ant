@@ -60,6 +60,13 @@ export type AppUser = {
 
 export type MemberStatus = "active" | "trial" | "paused" | "withdrawn";
 
+export type MemberGender = "male" | "female";
+
+export const memberGenderLabels: Record<MemberGender, string> = {
+  male: "남성",
+  female: "여성",
+};
+
 export type Member = {
   id: string;
   branchId: string;
@@ -68,6 +75,9 @@ export type Member = {
   ageGroup: "kids" | "teen" | "adult";
   level: string;
   belt: string;
+  gender?: MemberGender;
+  birthDate?: string;
+  address?: string;
   guardianIds: string[];
   primaryCoachId: string;
   emergencyContact: string;

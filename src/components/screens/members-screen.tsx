@@ -3,7 +3,8 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, ChevronDown, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
-import type { CounselingNote, CounselingNoteVisibility, Member, MemberStatus, UserRole } from "@/lib/domain";
+import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, UserRole } from "@/lib/domain";
+import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
@@ -26,6 +27,7 @@ const statusClasses: Record<MemberStatus, string> = {
   withdrawn: "border-zinc-200 bg-zinc-50 text-zinc-600",
 };
 const memberStatusOptions: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
+const memberGenderOptions: MemberGender[] = ["male", "female"];
 
 function getInitialMemberQuery() {
   if (typeof window === "undefined") {
@@ -104,11 +106,14 @@ type GuardianLinkDraft = {
 
 type ProfileDraft = {
   ageGroup: Member["ageGroup"];
+  address: string;
   alertsText: string;
   belt: string;
+  birthDate: string;
   dirty?: boolean;
   emergencyContact: string;
   feedback?: string;
+  gender: Member["gender"] | "";
   level: string;
   name: string;
   sourceMemberSignature: string;
@@ -148,13 +153,16 @@ function getProfileMemberSignature(member: Member) {
     member.ageGroup,
     member.belt,
     member.level,
+    member.gender ?? "",
+    member.birthDate ?? "",
+    member.address ?? "",
     member.emergencyContact,
     member.alerts.join("\n"),
   ].join("\u001f");
 }
 
 function profileDraftTouchesEditableField(patch: Partial<ProfileDraft>) {
-  return ["ageGroup", "alertsText", "belt", "emergencyContact", "level", "name"].some((key) =>
+  return ["ageGroup", "address", "alertsText", "belt", "birthDate", "emergencyContact", "gender", "level", "name"].some((key) =>
     Object.prototype.hasOwnProperty.call(patch, key),
   );
 }
@@ -565,10 +573,13 @@ export function MembersScreen() {
   function createProfileDraft(member: Member): ProfileDraft {
     return {
       ageGroup: member.ageGroup,
+      address: member.address ?? "",
       alertsText: member.alerts.join("\n"),
       belt: member.belt,
+      birthDate: member.birthDate ?? "",
       dirty: false,
       emergencyContact: formatPhoneNumber(member.emergencyContact),
+      gender: member.gender ?? "",
       level: member.level,
       name: member.name,
       sourceMemberSignature: getProfileMemberSignature(member),
@@ -647,8 +658,11 @@ export function MembersScreen() {
       ? {
           alerts: nextAlerts,
           ageGroup: draft.ageGroup,
+          address: draft.address.trim(),
           belt: draft.belt.trim(),
+          birthDate: draft.birthDate.trim(),
           emergencyContact,
+          gender: draft.gender,
           level: draft.level.trim(),
           name: memberName,
         }
@@ -658,9 +672,12 @@ export function MembersScreen() {
       ...(saved
         ? {
             ageGroup: draft.ageGroup,
+            address: draft.address.trim(),
             alertsText: nextAlerts.join("\n"),
             belt: draft.belt.trim(),
+            birthDate: draft.birthDate.trim(),
             emergencyContact,
+            gender: draft.gender,
             level: draft.level.trim(),
             name: canManageMembers ? memberName : draft.name,
           }
@@ -1377,6 +1394,52 @@ export function MembersScreen() {
                             data-touch-target="member-profile-field"
                             value={getProfileDraft(member).level}
                             onChange={(event) => updateProfileDraft(member, { level: event.target.value, feedback: undefined })}
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-xs font-semibold text-zinc-500">성별</span>
+                          <select
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
+                            data-testid={`member-gender-input-${member.id}`}
+                            value={getProfileDraft(member).gender}
+                            onChange={(event) =>
+                              updateProfileDraft(member, {
+                                gender: event.target.value as ProfileDraft["gender"],
+                                feedback: undefined,
+                              })
+                            }
+                          >
+                            <option value="">선택 안함</option>
+                            {memberGenderOptions.map((gender) => (
+                              <option key={gender} value={gender}>
+                                {memberGenderLabels[gender]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-xs font-semibold text-zinc-500">생년월일</span>
+                          <input
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
+                            data-testid={`member-birth-date-input-${member.id}`}
+                            max={new Date().toISOString().slice(0, 10)}
+                            type="date"
+                            value={getProfileDraft(member).birthDate}
+                            onChange={(event) => updateProfileDraft(member, { birthDate: event.target.value, feedback: undefined })}
+                          />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1 block text-xs font-semibold text-zinc-500">주소</span>
+                          <input
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            data-touch-target="member-profile-field"
+                            data-testid={`member-address-input-${member.id}`}
+                            maxLength={100}
+                            placeholder="도로명 주소"
+                            value={getProfileDraft(member).address}
+                            onChange={(event) => updateProfileDraft(member, { address: event.target.value, feedback: undefined })}
                           />
                         </label>
                       </>

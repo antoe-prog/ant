@@ -9,7 +9,12 @@ export const runtime = "nodejs";
 
 const memberStatuses: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
 const ageGroups: Member["ageGroup"][] = ["kids", "teen", "adult"];
-type MemberPatchPayload = Partial<Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">>;
+const memberGenders: NonNullable<Member["gender"]>[] = ["male", "female"];
+type MemberPatchPayload = Partial<Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">> & {
+  gender?: Member["gender"] | "";
+  birthDate?: string;
+  address?: string;
+};
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : null;
@@ -22,7 +27,10 @@ function hasRestrictedProfileFields(body: MemberPatchPayload) {
     body.name !== undefined ||
     body.level !== undefined ||
     body.belt !== undefined ||
-    body.alerts !== undefined
+    body.alerts !== undefined ||
+    body.gender !== undefined ||
+    body.birthDate !== undefined ||
+    body.address !== undefined
   );
 }
 
@@ -146,6 +154,40 @@ export async function PATCH(
     }
 
     patch.belt = belt;
+  }
+
+  if (body.gender !== undefined) {
+    if (body.gender === "") {
+      patch.gender = undefined;
+    } else if (!memberGenders.includes(body.gender)) {
+      return jsonError(400, "VALIDATION_ERROR", "성별 값이 올바르지 않습니다.");
+    } else {
+      patch.gender = body.gender;
+    }
+  }
+
+  if (body.birthDate !== undefined) {
+    const birthDate = cleanText(body.birthDate) ?? "";
+
+    if (birthDate === "") {
+      patch.birthDate = undefined;
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(birthDate))) {
+      return jsonError(400, "VALIDATION_ERROR", "생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.");
+    } else if (Date.parse(birthDate) > Date.now()) {
+      return jsonError(400, "VALIDATION_ERROR", "생년월일은 오늘 이전 날짜여야 합니다.");
+    } else {
+      patch.birthDate = birthDate;
+    }
+  }
+
+  if (body.address !== undefined) {
+    const address = cleanText(body.address) ?? "";
+
+    if (address.length > 100) {
+      return jsonError(400, "VALIDATION_ERROR", "주소는 100자 이내로 입력해 주세요.");
+    }
+
+    patch.address = address === "" ? undefined : address;
   }
 
   if (body.alerts !== undefined) {
