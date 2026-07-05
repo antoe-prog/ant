@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, ChevronDown, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberStatus, UserRole } from "@/lib/domain";
@@ -156,6 +156,84 @@ function getProfileMemberSignature(member: Member) {
 function profileDraftTouchesEditableField(patch: Partial<ProfileDraft>) {
   return ["ageGroup", "alertsText", "belt", "emergencyContact", "level", "name"].some((key) =>
     Object.prototype.hasOwnProperty.call(patch, key),
+  );
+}
+
+// 관리자 뷰에서는 회원 상세를 오버레이 창(다이얼로그)으로, 가족·코치 뷰에서는 기존처럼 인라인으로 보여준다.
+function MemberDetailContainer({
+  inline,
+  member,
+  statusBadge,
+  onClose,
+  children,
+}: {
+  inline: boolean;
+  member: Member;
+  statusBadge: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (inline) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [inline, onClose]);
+
+  if (inline) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/40 sm:items-center sm:p-6"
+      data-testid={`member-detail-dialog-${member.id}`}
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        aria-label={`${member.name} 상세 정보`}
+        aria-modal="true"
+        className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+              <UserRound className="h-4 w-4" aria-hidden />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-base font-semibold text-zinc-950">{member.name}</span>
+              <span className="block text-xs text-zinc-500">
+                {member.belt} · {member.level}
+              </span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {statusBadge}
+            <button
+              aria-label="상세 닫기"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+              data-testid={`member-detail-close-${member.id}`}
+              type="button"
+              onClick={onClose}
+            >
+              <X className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
+        </div>
+        <div className="overflow-y-auto px-4 pb-6">{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -1130,24 +1208,6 @@ export function MembersScreen() {
 	                </div>
 	              ) : null}
 
-              {canManageMembers && memberDetailExpanded ? (
-                <label className="mt-4 block">
-                  <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 상태</span>
-                  <select
-                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                    data-testid="member-status-select"
-                    value={member.status}
-                    onChange={(event) => updateMemberStatus(member.id, event.target.value as MemberStatus)}
-                  >
-                    {memberStatusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {memberStatusLabels[status]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-
               <dl
                 className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-zinc-100 pt-4 text-sm"
                 data-testid={`member-profile-summary-${member.id}`}
@@ -1181,7 +1241,34 @@ export function MembersScreen() {
               </dl>
 
               {memberDetailExpanded ? (
+              <MemberDetailContainer
+                inline={!canManageMembers}
+                member={member}
+                statusBadge={
+                  <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${statusClasses[member.status]}`}>
+                    {memberStatusLabels[member.status]}
+                  </span>
+                }
+                onClose={() => toggleMemberDetail(member.id)}
+              >
               <div id={`member-detail-${member.id}`}>
+              {canManageMembers ? (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 상태</span>
+                  <select
+                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    data-testid="member-status-select"
+                    value={member.status}
+                    onChange={(event) => updateMemberStatus(member.id, event.target.value as MemberStatus)}
+                  >
+                    {memberStatusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {memberStatusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               {noticePublisherRoles.has(context.user.role) || canManageMembers ? (
 	                <div className="mt-2 flex flex-wrap gap-1.5">
                   {noticePublisherRoles.has(context.user.role) ? (
@@ -1684,6 +1771,7 @@ export function MembersScreen() {
                 ) : null}
               </div>
               </div>
+              </MemberDetailContainer>
               ) : null}
             </article>
             );

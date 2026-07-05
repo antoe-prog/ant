@@ -320,12 +320,22 @@ async function captureOwnerMembers(context) {
     await page.getByTestId("member-create-toggle").click();
     await page.waitForSelector("#member-create-form", { timeout: 15000 });
 
-    // 요약 카드로 접힌 회원 상세를 모두 펼친 뒤 내부 컨트롤을 측정한다.
+    // 회원 상세는 오버레이 다이얼로그로 한 번에 하나씩 열린다.
+    // 보호자 검색 입력이 있는 카드를 찾을 때까지 순서대로 열어 본다.
     const detailToggles = page.locator('[data-testid^="member-detail-toggle-"]');
     const detailToggleCount = await detailToggles.count();
-    for (let index = 0; index < detailToggleCount; index += 1) {
+    let guardianDialogFound = false;
+    for (let index = 0; index < detailToggleCount && !guardianDialogFound; index += 1) {
       await detailToggles.nth(index).click();
+      await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+      guardianDialogFound =
+        (await page.locator('[data-testid^="member-guardian-search-input-"]').count()) > 0;
+      if (!guardianDialogFound) {
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 0, { timeout: 15000 });
+      }
     }
+    assert(guardianDialogFound, "at least one member detail dialog must expose a guardian search input");
 
     const firstGuardianSearch = page.locator('[data-testid^="member-guardian-search-input-"]').first();
     await firstGuardianSearch.waitFor({ state: "visible", timeout: 15000 });
