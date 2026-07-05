@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
@@ -31,8 +31,10 @@ const appCases = [
   { id: "admin-branches", role: "admin", next: "/app/admin/branches" },
   { id: "admin-roles", role: "admin", next: "/app/admin/roles" },
   { id: "admin-audit", role: "admin", next: "/app/admin/audit-logs" },
+  { id: "admin-members", role: "admin", next: "/app/members" },
   { id: "admin-notices", role: "admin", next: "/app/notices" },
   { id: "owner-dashboard", role: "owner", next: "/app/dashboard" },
+  { id: "owner-members", role: "owner", next: "/app/members" },
   { id: "owner-branches", role: "owner", next: "/app/owner/branches" },
   { id: "owner-reports", role: "owner", next: "/app/owner/reports" },
   { id: "owner-notices", role: "owner", next: "/app/notices" },
@@ -198,6 +200,31 @@ function assertNoticeMutationSnapshotRestored(beforeSnapshot, afterSnapshot) {
   return true;
 }
 
+function cleanVisibleCopyOutputDir() {
+  if (!existsSync(outDir)) {
+    return [];
+  }
+
+  const removed = [];
+
+  for (const entry of readdirSync(outDir, { withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const shouldRemove = entry.name.endsWith(".png") || entry.name === "visible-app-copy-stability-report.json";
+
+    if (!shouldRemove) {
+      continue;
+    }
+
+    unlinkSync(join(outDir, entry.name));
+    removed.push(entry.name);
+  }
+
+  return removed.sort();
+}
+
 async function verifyNotificationReadToneDown(page, testCaseId, beforeLayout) {
   const readAction = page.locator('[data-testid="notification-read-action"]').first();
   const readActionCount = await readAction.count();
@@ -319,6 +346,7 @@ async function main() {
   );
 
   mkdirSync(outDir, { recursive: true });
+  const cleanedOutputFiles = cleanVisibleCopyOutputDir();
   const beforeDevDataReset = await resetVisibleCopyDevData("before");
   const beforeNoticeMutationSnapshot = readNoticeMutationSnapshot();
   let afterDevDataReset = {
@@ -400,7 +428,21 @@ async function main() {
           },
           { pattern: blockedFormPlaceholderPattern.source, flags: blockedFormPlaceholderPattern.flags },
         );
-        const layout = await page.evaluate(() => ({
+        const layout = await page.evaluate(() => {
+          const authRoleShortcutButtons = Array.from(document.querySelectorAll("main button")).filter((button) => {
+            const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
+
+            return /^(대표|코치|학부모|회원|총괄 어드민)(로 시작| 선택| 유지)$/.test(text);
+          });
+          const finalWordmarks = Array.from(document.querySelectorAll('[data-testid="final-wordmark"]'));
+          const finalWordmarkLinkHeights = Array.from(document.querySelectorAll('a[aria-label="FINAL 대시보드로 이동"]'))
+            .map((link) => Math.round(link.getBoundingClientRect().height))
+            .filter((height) => height > 0);
+          const finalWordmarkVisualHeights = finalWordmarks
+            .map((wordmark) => Math.round(wordmark.getBoundingClientRect().height))
+            .filter((height) => height > 0);
+
+          return {
           pathname: location.pathname,
           clientWidth: document.documentElement.clientWidth,
           scrollWidth: document.documentElement.scrollWidth,
@@ -450,6 +492,10 @@ async function main() {
             .map((link) => link.textContent?.trim() ?? "")
             .filter(Boolean)
             .join("|"),
+          mobileBottomNavNoticeHref:
+            document.querySelector('[data-testid="mobile-bottom-navigation"] a[data-mobile-route-id="notices"]')?.getAttribute("href") ?? "",
+          mobileBottomNavNoticeLabel:
+            document.querySelector('[data-testid="mobile-bottom-navigation"] a[data-mobile-route-id="notices"]')?.textContent?.trim() ?? "",
           mobileBottomNavRouteIds: Array.from(document.querySelectorAll('[data-testid="mobile-bottom-navigation"] a'))
             .map((link) => link.getAttribute("data-mobile-route-id") ?? "")
             .filter(Boolean)
@@ -635,7 +681,8 @@ async function main() {
             '[data-notification-kind="notice"] [data-testid="notification-detail-link"]',
           ).length,
           notificationNoticeContentLinkCount: document.querySelectorAll(
-            '[data-notification-kind="notice"] [data-testid="notification-notice-content-link"][href="/app/notices"]',
+            // 공지 하이라이트 딥링크(?highlight=)를 허용하기 위해 접두 일치로 확인한다.
+            '[data-notification-kind="notice"] [data-testid="notification-notice-content-link"][href^="/app/notices"]',
           ).length,
           notificationRequestDetailLinkCount: document.querySelectorAll(
             '[data-notification-kind="request"] [data-testid="notification-detail-link"][href="/app/requests"]',
@@ -680,9 +727,40 @@ async function main() {
           authSignupInvitationInputCount: document.querySelectorAll('[data-testid="signup-invitation-input"]').length,
           authSignupNameInputCount: document.querySelectorAll('[data-testid="signup-name-input"]').length,
           authSignupPhoneInputCount: document.querySelectorAll('[data-testid="signup-phone-input"]').length,
-          authRoleShortcutButtonCount: Array.from(document.querySelectorAll("main button")).filter((button) =>
-            /대표|코치|학부모|회원|총괄/.test(button.textContent ?? ""),
-          ).length,
+          authSelectRoleLoginLinkHeight:
+            Math.round(document.querySelector('[data-testid="select-role-login-link"]')?.getBoundingClientRect().height ?? 0),
+          authPasswordInputMinPaddingRight: (() => {
+            const paddings = Array.from(
+              document.querySelectorAll("#login-password-input, #signup-password-input, #invite-password-input"),
+            )
+              .map((input) => Math.round(Number.parseFloat(getComputedStyle(input).paddingRight)))
+              .filter((padding) => padding > 0);
+
+            return paddings.length > 0 ? Math.min(...paddings) : 0;
+          })(),
+          authPasswordVisibilityToggleCount: document.querySelectorAll('[data-testid$="password-visibility-toggle"]').length,
+          authPasswordVisibilityToggleMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid$="password-visibility-toggle"]'))
+              .map((button) => Math.round(button.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
+          authPasswordVisibilityToggleMinWidth: (() => {
+            const widths = Array.from(document.querySelectorAll('[data-testid$="password-visibility-toggle"]'))
+              .map((button) => Math.round(button.getBoundingClientRect().width))
+              .filter((width) => width > 0);
+
+            return widths.length > 0 ? Math.min(...widths) : 0;
+          })(),
+          authRoleShortcutButtonCount: authRoleShortcutButtons.length,
+          authRoleShortcutButtonMinHeight:
+            authRoleShortcutButtons.length > 0
+              ? Math.min(...authRoleShortcutButtons.map((button) => Math.round(button.getBoundingClientRect().height)).filter((height) => height > 0))
+              : 0,
+          authRoleShortcutButtonText: authRoleShortcutButtons
+            .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "")
+            .join("|"),
           authSubmitButtonCount: Array.from(document.querySelectorAll("main button")).filter((button) =>
             /로그인|회원가입|비밀번호 설정 후 초대 수락|재설정 요청/.test(button.textContent ?? ""),
           ).length,
@@ -851,7 +929,11 @@ async function main() {
           adminUserDeleteFormCount: document.querySelectorAll('[data-testid^="admin-user-delete-form-"]').length,
           adminUserListRowCount: document.querySelectorAll('[data-testid="admin-user-list-row"]').length,
           adminUserInvitePanelCount: document.querySelectorAll('[data-testid="admin-user-invite-panel"]').length,
+          adminUserMemberCreateLinkHeight:
+            Math.round(document.querySelector('[data-testid="admin-user-member-create-link"]')?.getBoundingClientRect().height ?? 0),
           adminUserInviteToggleText: document.querySelector('[data-testid="admin-user-invite-toggle"]')?.textContent?.trim() ?? "",
+          adminUserInviteToggleHeight:
+            Math.round(document.querySelector('[data-testid="admin-user-invite-toggle"]')?.getBoundingClientRect().height ?? 0),
           adminUserBottomNavTop: Math.round(document.querySelector('[data-testid="mobile-bottom-navigation"]')?.getBoundingClientRect().top ?? 0),
           adminUserFirstActionStackBottom: Math.round(
             document.querySelector('[data-testid^="admin-user-action-stack-"]')?.getBoundingClientRect().bottom ?? 0,
@@ -939,6 +1021,8 @@ async function main() {
           adminAuditVisibleReadLogCount: Array.from(
             document.querySelectorAll('section[aria-label="변경 기록 목록"] article'),
           ).filter((article) => article.textContent?.includes("변경 기록 조회")).length,
+          adminAuditRefreshHeight:
+            Math.round(document.querySelector('[data-testid="admin-audit-refresh"]')?.getBoundingClientRect().height ?? 0),
           adminAuditSummaryBarCount: document.querySelectorAll('[data-testid="admin-audit-summary-bar"]').length,
           adminAuditSummaryBarHeight:
             Math.round(document.querySelector('[data-testid="admin-audit-summary-bar"]')?.getBoundingClientRect().height ?? 0),
@@ -1254,6 +1338,9 @@ async function main() {
               .filter((height) => height > 0),
           ),
           memberPaymentCheckoutActionCount: document.querySelectorAll('[data-testid="member-payment-checkout-action"]').length,
+          memberPaymentCheckoutActionTexts: Array.from(document.querySelectorAll('[data-testid="member-payment-checkout-action"]')).map((action) =>
+            action.textContent?.replace(/\s+/g, " ").trim() ?? "",
+          ),
           memberPaymentCheckoutActionMinHeight: Math.min(
             ...Array.from(document.querySelectorAll('[data-testid="member-payment-checkout-action"]'))
               .map((action) => Math.round(action.getBoundingClientRect().height))
@@ -1341,17 +1428,38 @@ async function main() {
               .filter((height) => height > 0),
           ),
           noticeExpandedButtonCount: Array.from(document.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "접기").length,
-          finalWordmarkCount: document.querySelectorAll('[data-testid="final-wordmark"]').length,
-          finalWordmarkMinTouchHeight: Math.min(
-            ...Array.from(document.querySelectorAll('a[aria-label="FINAL 대시보드로 이동"]'))
-              .map((link) => Math.round(link.getBoundingClientRect().height))
-              .filter((height) => height > 0),
-          ),
+          finalWordmarkCount: finalWordmarks.length,
+          finalWordmarkLinkCount: finalWordmarkLinkHeights.length,
+          finalWordmarkMinTouchHeight: finalWordmarkLinkHeights.length > 0 ? Math.min(...finalWordmarkLinkHeights) : 0,
+          finalWordmarkVisualMinHeight: finalWordmarkVisualHeights.length > 0 ? Math.min(...finalWordmarkVisualHeights) : 0,
           rasterFinalLogoCount: document.querySelectorAll('img[alt="FINAL"]').length,
           familyRepeatedScreenHeaderCount: Array.from(document.querySelectorAll("h1")).filter((heading) =>
             ["수업/출석", "내 프로필", "자녀 회원", "결제 상태", "공지"].includes(heading.textContent?.trim() ?? ""),
           ).length,
           familyMemberSearchInputCount: document.querySelectorAll('input[placeholder="이름, 레벨, 연락처 검색"]').length,
+          memberStatusFilterCount: document.querySelectorAll('[data-testid^="member-status-filter-"]').length,
+          memberStatusFilterMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid^="member-status-filter-"]'))
+              .map((button) => Math.round(button.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
+          memberEmergencyContactCallCount: document.querySelectorAll('[data-testid^="member-emergency-contact-call-"]').length,
+          memberEmergencyContactCallMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid^="member-emergency-contact-call-"]'))
+              .map((link) => Math.round(link.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
+          memberEmergencyContactCallMinWidth: (() => {
+            const widths = Array.from(document.querySelectorAll('[data-testid^="member-emergency-contact-call-"]'))
+              .map((link) => Math.round(link.getBoundingClientRect().width))
+              .filter((width) => width > 0);
+
+            return widths.length > 0 ? Math.min(...widths) : 0;
+          })(),
           familyMemberProfileCardCount: document.querySelectorAll('[data-testid="family-member-profile-card"]').length,
           familyMemberFeedbackHeadingCount: document.querySelectorAll('[data-testid="family-member-feedback-heading"]').length,
           familyMemberFeedbackCardCount: document.querySelectorAll('[data-testid="family-member-feedback-card"]').length,
@@ -1363,6 +1471,12 @@ async function main() {
           ).length,
           familyMemberEmptyAlertCopyCount: Array.from(document.querySelectorAll('[data-testid="family-member-profile-card"]')).filter((card) =>
             /등록된 주의사항 없음/.test(card.textContent ?? ""),
+          ).length,
+          memberProfileEmptyAlertCopyCount: Array.from(document.querySelectorAll("article")).filter((card) =>
+            /등록된 주의사항 없음/.test(card.textContent ?? ""),
+          ).length,
+          memberProfileEmptyNoteCopyCount: Array.from(document.querySelectorAll("article")).filter((card) =>
+            /아직 상담\/주의 메모가 없습니다|아직 코치 피드백이 없습니다/.test(card.textContent ?? ""),
           ).length,
           familyMemberAlertStripCount: document.querySelectorAll('[data-testid="family-member-alert-strip"]').length,
           familyMemberAlertStripMaxHeight: Math.max(
@@ -1395,12 +1509,34 @@ async function main() {
             }).length;
           })(),
           memberNoteEditorCount: document.querySelectorAll('[data-testid^="member-note-editor-"]:not([data-testid^="member-note-editor-toggle-"])').length,
+          memberGuardianPhoneCallCount: document.querySelectorAll('[data-testid^="member-guardian-phone-call-"]').length,
+          memberGuardianPhoneCallMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid^="member-guardian-phone-call-"]'))
+              .map((link) => Math.round(link.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
           coachMemberProfileCardCount: document.querySelectorAll('[data-testid="coach-member-profile-card"]').length,
           coachVisibleMemberProfileCardCount: Array.from(document.querySelectorAll('[data-testid="coach-member-profile-card"]')).filter((card) => {
             const rect = card.getBoundingClientRect();
             const style = getComputedStyle(card);
             return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
           }).length,
+          coachMemberNoticeActionMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid^="member-send-notice-"]'))
+              .map((link) => Math.round(link.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
+          coachMemberPaymentActionMinHeight: (() => {
+            const heights = Array.from(document.querySelectorAll('[data-testid^="member-create-payment-"]'))
+              .map((link) => Math.round(link.getBoundingClientRect().height))
+              .filter((height) => height > 0);
+
+            return heights.length > 0 ? Math.min(...heights) : 0;
+          })(),
           coachMemberListToggleCount: document.querySelectorAll('[data-testid="coach-member-list-toggle"]').length,
           coachMemberListToggleMinHeight: Math.min(
             ...Array.from(document.querySelectorAll('[data-testid="coach-member-list-toggle"]'))
@@ -1426,6 +1562,12 @@ async function main() {
               );
             }).length;
           })(),
+          coachMemberBottomSafeAreaCount: document.querySelectorAll('[data-testid="coach-member-bottom-safe-area"]').length,
+          coachMemberBottomSafeAreaMinHeight: Math.min(
+            ...Array.from(document.querySelectorAll('[data-testid="coach-member-bottom-safe-area"]'))
+              .map((spacer) => Math.round(spacer.getBoundingClientRect().height))
+              .filter((height) => height > 0),
+          ),
           coachMemberNoteSectionCount: document.querySelectorAll('[data-testid="coach-member-note-section"]').length,
           coachMemberNoteClosedSectionCount: document.querySelectorAll('[data-testid="coach-member-note-section"][data-note-state="closed"]').length,
           coachMemberNoteOpenSectionCount: document.querySelectorAll('[data-testid="coach-member-note-section"][data-note-state="open"]').length,
@@ -1450,6 +1592,8 @@ async function main() {
             /상담\/주의 메모/.test(card.textContent ?? "") && /아직 상담\/주의 메모가 없습니다/.test(card.textContent ?? ""),
           ).length,
           ownerBranchComparisonGraphCount: document.querySelectorAll('[data-testid="owner-dashboard-branch-comparison-graph"]').length,
+          adminDashboardClassesLinkHeight:
+            Math.round(document.querySelector('[data-testid="admin-dashboard-classes-link"]')?.getBoundingClientRect().height ?? 0),
           ownerBranchComparisonRowCount: document.querySelectorAll('[data-testid="owner-dashboard-branch-comparison-row"]').length,
           ownerBranchComparisonRowMaxHeight: Math.max(
             0,
@@ -1516,6 +1660,16 @@ async function main() {
           ),
           ownerBranchComparisonText:
             document.querySelector('[data-testid="owner-dashboard-branch-comparison-graph"]')?.textContent ?? "",
+          ownerDashboardPeriodFilterCount: document.querySelectorAll('[data-testid="owner-dashboard-period-filter"]').length,
+          ownerDashboardPeriodOptionCount: document.querySelectorAll('[data-testid="owner-dashboard-period-option"]').length,
+          ownerDashboardPeriodOptionText: Array.from(document.querySelectorAll('[data-testid="owner-dashboard-period-option"]'))
+            .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "")
+            .join("|"),
+          ownerDashboardPeriodOptionMinHeight: Math.min(
+            ...Array.from(document.querySelectorAll('[data-testid="owner-dashboard-period-option"]'))
+              .map((button) => Math.round(button.getBoundingClientRect().height))
+              .filter((height) => height > 0),
+          ),
           ownerDashboardGraphBoardHeight:
             Math.round(document.querySelector('[data-testid="owner-dashboard-graph-board"]')?.getBoundingClientRect().height ?? 0),
           ownerDashboardSecondaryGraphGridCount: document.querySelectorAll('[data-testid="owner-dashboard-secondary-graph-grid"]').length,
@@ -1608,6 +1762,29 @@ async function main() {
               .map((button) => Math.round(button.getBoundingClientRect().height))
               .filter((height) => height > 0),
           ),
+          ownerBranchBottomSafeAreaCount: document.querySelectorAll('[data-testid="owner-branch-bottom-safe-area"]').length,
+          ownerBranchBottomSafeAreaHeight: Math.round(document.querySelector('[data-testid="owner-branch-bottom-safe-area"]')?.getBoundingClientRect().height ?? 0),
+          ownerBranchActionBottomNavClearanceAtScrollEnd: (() => {
+            const bottomNav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
+            const actions = Array.from(
+              document.querySelectorAll('[data-testid="owner-branch-action-link"], [data-testid="owner-branch-action-toggle"]'),
+            );
+
+            if (!bottomNav || actions.length === 0) {
+              return 0;
+            }
+
+            const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            const navTop = bottomNav.getBoundingClientRect().top;
+
+            return Math.min(
+              ...actions.map((action) => {
+                const actionBottomAtScrollEnd = action.getBoundingClientRect().bottom + window.scrollY - maxScrollY;
+
+                return Math.round(navTop - actionBottomAtScrollEnd);
+              }),
+            );
+          })(),
           coachDashboardFlowGraphCount: document.querySelectorAll('[data-testid="coach-dashboard-flow-graph"]').length,
           coachDashboardFlowGraphHeight: Math.round(
             document.querySelector('[data-testid="coach-dashboard-flow-graph"]')?.getBoundingClientRect().height ?? 0,
@@ -1888,6 +2065,11 @@ async function main() {
           ownerReportSecondaryGraphTileCount: document.querySelectorAll('[data-testid="owner-report-secondary-graph-tile"]').length,
           ownerReportSecondaryGraphGridHeight:
             Math.round(document.querySelector('[data-testid="owner-report-secondary-graph-grid"]')?.getBoundingClientRect().height ?? 0),
+          ownerReportSecondaryGraphTileMinWidth: Math.min(
+            ...Array.from(document.querySelectorAll('[data-testid="owner-report-secondary-graph-tile"], [data-testid="owner-report-secondary-graph-toggle"]'))
+              .map((tile) => Math.round(tile.getBoundingClientRect().width))
+              .filter((width) => width > 0),
+          ),
           ownerReportSecondaryGraphLabelOverflow: Math.max(
             0,
             ...Array.from(document.querySelectorAll('[data-testid="owner-report-secondary-graph-label"]')).map(
@@ -1974,7 +2156,8 @@ async function main() {
                   .filter((height) => height > 0),
               )
             : 0,
-	        }));
+	        };
+        });
 
         await page.screenshot({ path: screenshotPath, fullPage: true, caret: "initial" });
         const screenshotSizeBytes = statSync(screenshotPath).size;
@@ -1990,13 +2173,24 @@ async function main() {
         assert.equal(layout.hasAppError, false, `${testCase.id} must not render a runtime error page`);
         assert.equal(layout.scrollWidth, layout.clientWidth, `${testCase.id} must not overflow horizontally`);
         assert(layout.finalWordmarkCount > 0, `${testCase.id} must render the vector FINAL wordmark`);
-        assert(layout.finalWordmarkMinTouchHeight >= 44, `${testCase.id} FINAL wordmark link must keep a 44px touch height`);
+        assert(layout.finalWordmarkVisualMinHeight >= 28, `${testCase.id} FINAL wordmark must keep a readable visual height`);
+        if (testCase.role) {
+          assert(layout.finalWordmarkLinkCount > 0, `${testCase.id} must render the FINAL dashboard link`);
+          assert(layout.finalWordmarkMinTouchHeight >= 44, `${testCase.id} FINAL wordmark link must keep a 44px touch height`);
+        } else {
+          assert.equal(layout.finalWordmarkLinkCount, 0, `${testCase.id} public auth wordmark must not pretend to be a dashboard link`);
+          assert.equal(layout.finalWordmarkMinTouchHeight, 0, `${testCase.id} public auth wordmark link touch height must be explicit 0`);
+        }
         assert.equal(layout.rasterFinalLogoCount, 0, `${testCase.id} must not render the old raster FINAL logo`);
         assert(screenshotSizeBytes > 10_000, `${testCase.id} screenshot must be non-empty, got ${screenshotSizeBytes} bytes`);
 
         if (testCase.id === "auth-login" || testCase.id === "auth-login-registered") {
           assert.equal(layout.authFormCount, 1, "login must render one credential form");
           assert.equal(layout.authPasswordInputCount, 1, "login must render one password field");
+          assert.equal(layout.authPasswordVisibilityToggleCount, 1, "login must render one password visibility toggle");
+          assert(layout.authPasswordVisibilityToggleMinHeight >= 44, "login password visibility toggle must keep a 44px touch height");
+          assert(layout.authPasswordVisibilityToggleMinWidth >= 44, "login password visibility toggle must keep a 44px touch width");
+          assert(layout.authPasswordInputMinPaddingRight >= 48, "login password input must reserve space for the visibility toggle");
           assert.equal(layout.authSignupLinkCount, 1, "login must expose one signup link");
           assert.equal(layout.authSubmitButtonCount, 1, "login must render one primary login action");
         }
@@ -2015,6 +2209,11 @@ async function main() {
           assert.equal(layout.authSignupNameInputCount, 1, "signup must render one name input");
           assert.equal(layout.authSignupPhoneInputCount, 1, "signup must render one phone input");
           assert.equal(layout.authPasswordInputCount, 2, "signup must render password and confirmation fields");
+          assert.equal(layout.authPasswordVisibilityToggleCount, 1, "signup must render one password visibility toggle");
+          assert(layout.authPasswordVisibilityToggleMinHeight >= 44, "signup password visibility toggle must keep a 44px touch height");
+          assert(layout.authPasswordVisibilityToggleMinWidth >= 44, "signup password visibility toggle must keep a 44px touch width");
+          assert(layout.authPasswordInputMinPaddingRight >= 48, "signup password input must reserve space for the visibility toggle");
+          assert.equal(layout.authRoleShortcutButtonCount, 0, "signup submit text must not be counted as a role shortcut");
           assert.equal(layout.authSubmitButtonCount, 1, "signup must render one primary signup action");
         }
 
@@ -2026,12 +2225,32 @@ async function main() {
         if (testCase.id === "auth-invite-accept") {
           assert.equal(layout.authFormCount, 1, "invite accept must render one password setup form");
           assert.equal(layout.authPasswordInputCount, 2, "invite accept must render password and confirmation fields");
+          assert.equal(layout.authPasswordVisibilityToggleCount, 1, "invite accept must render one password visibility toggle");
+          assert(layout.authPasswordVisibilityToggleMinHeight >= 44, "invite accept password visibility toggle must keep a 44px touch height");
+          assert(layout.authPasswordVisibilityToggleMinWidth >= 44, "invite accept password visibility toggle must keep a 44px touch width");
+          assert(layout.authPasswordInputMinPaddingRight >= 48, "invite accept password input must reserve space for the visibility toggle");
           assert.equal(layout.authSubmitButtonCount, 1, "invite accept must render one accept action");
         }
 
         if (testCase.id === "auth-select-role") {
           assert.equal(layout.authFormCount, 0, "select-role must not render credential or invitation forms");
-          assert(layout.authRoleShortcutButtonCount > 0, "select-role must keep local role shortcut buttons in development checks");
+          assert.equal(layout.authRoleShortcutButtonCount, 5, "select-role must keep the five local role shortcut buttons in development checks");
+          assert(layout.authRoleShortcutButtonMinHeight >= 44, "select-role role shortcuts must keep a 44px touch height");
+          assert.equal(
+            layout.authRoleShortcutButtonText,
+            "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
+            "select-role role shortcut labels must stay scoped to role selection buttons",
+          );
+          assert(layout.authSelectRoleLoginLinkHeight >= 44, "select-role login link must keep a 44px touch height");
+        }
+
+        if (testCase.id === "admin-dashboard") {
+          assert(layout.adminDashboardClassesLinkHeight >= 44, "admin dashboard classes shortcut must keep a 44px touch height");
+        }
+
+        if (testCase.id.endsWith("-members")) {
+          assert.equal(layout.memberProfileEmptyAlertCopyCount, 0, `${testCase.id} must not repeat empty warning copy inside member cards`);
+          assert.equal(layout.memberProfileEmptyNoteCopyCount, 0, `${testCase.id} must not repeat empty counseling/feedback copy inside member cards`);
         }
 
         if (testCase.id === "admin-users") {
@@ -2040,6 +2259,8 @@ async function main() {
           assert.equal(layout.adminUserRoleFilterButtonCount, 4, "admin users must render owner/coach/guardian/member role filter cards");
           assert.equal(layout.adminUserRoleFilterRoles, "owner|coach|guardian|member", "admin users role filter cards must keep the requested role order");
           assert(layout.adminUserRoleFilterButtonMinHeight >= 44, "admin users role filter cards must stay tappable on mobile");
+          assert(layout.adminUserMemberCreateLinkHeight >= 44, "admin users member create shortcut must keep a 44px touch height");
+          assert(layout.adminUserInviteToggleHeight >= 44, "admin users invite toggle must keep a 44px touch height");
           assert(layout.adminUserListRowCount > 0, "admin users must render user list rows");
           assert(layout.adminUserEditToggleCount >= layout.adminUserListRowCount, "admin users must render an edit toggle for each visible user");
           assert.equal(
@@ -2116,8 +2337,10 @@ async function main() {
 
         if (testCase.id === "admin-audit") {
           assert.equal(layout.adminAuditVisibleReadLogCount, 0, "admin audit logs must hide read-audit noise by default");
+          assert(layout.adminAuditRefreshHeight >= 44, "admin audit logs refresh action must keep a 44px touch height");
           assert.equal(layout.adminAuditSummaryBarCount, 1, "admin audit logs must render one compact summary bar");
-          assert(layout.adminAuditSummaryBarHeight <= 34, "admin audit logs summary must stay a one-line compact status bar");
+          assert(layout.adminAuditSummaryBarHeight >= 44, "admin audit logs summary must keep a readable 44px scan height");
+          assert(layout.adminAuditSummaryBarHeight <= 56, "admin audit logs summary must stay compact after readability padding");
           assert(layout.adminAuditListRowCount > 0, "admin audit logs must render compact log rows");
           assert(layout.adminAuditListRowCount <= 5, "admin audit logs must limit default mobile log rows before explicit expansion");
           assert(layout.adminAuditListToggleCount <= 1, "admin audit logs must not render duplicate list expansion controls");
@@ -2146,7 +2369,8 @@ async function main() {
 
         if (testCase.id === "admin-settings") {
           assert.equal(layout.adminSettingsSummaryBarCount, 1, "admin settings must render one compact summary bar");
-          assert(layout.adminSettingsSummaryBarHeight <= 24, "admin settings summary must stay a one-line compact status bar");
+          assert(layout.adminSettingsSummaryBarHeight >= 44, "admin settings summary must keep a readable 44px scan height");
+          assert(layout.adminSettingsSummaryBarHeight <= 56, "admin settings summary must stay compact after readability padding");
           assert.equal(layout.adminSettingsReadinessEditorToggleCount, 1, "admin settings must render one readiness edit toggle");
           assert(layout.adminSettingsReadinessEditorToggleHeight >= 44, "admin settings readiness edit toggle must keep a 44px touch height");
           assert.equal(layout.adminSettingsReadinessListToggleCount, 1, "admin settings must render one readiness detail toggle");
@@ -2191,6 +2415,7 @@ async function main() {
           assert(layout.adminSettingsOperationLogToggleHeight >= 44, "admin settings operation log toggle must keep a 44px touch height");
           assert.equal(layout.adminSettingsOperationLogFormCount, 0, "admin settings operation log form must stay collapsed by default");
           assert.equal(layout.adminSettingsOperationLogSummaryCount, 1, "admin settings must show one operation log summary");
+          assert(layout.adminSettingsOperationLogSummaryHeight >= 44, "admin settings operation log summary must keep a stable 44px rail");
           assert(layout.adminSettingsOperationLogSummaryHeight <= 52, "admin settings operation log summary must stay one compact row");
           assert(
             !layout.adminSettingsOperationLogSummaryText.includes("입력이 필요할 때만"),
@@ -2200,6 +2425,7 @@ async function main() {
           assert(layout.adminSettingsIncidentCreateToggleHeight >= 44, "admin settings incident create toggle must keep a 44px touch height");
           assert.equal(layout.adminSettingsIncidentCreateFormCount, 0, "admin settings incident create form must stay collapsed by default");
           assert.equal(layout.adminSettingsIncidentCreateSummaryCount, 1, "admin settings must show one incident summary");
+          assert(layout.adminSettingsIncidentCreateSummaryHeight >= 44, "admin settings incident create summary must keep a stable 44px rail");
           assert(layout.adminSettingsIncidentCreateSummaryHeight <= 52, "admin settings incident create summary must stay one compact row");
           assert(
             !layout.adminSettingsIncidentCreateSummaryText.includes("새 현장 이슈가 생겼을 때만"),
@@ -2217,7 +2443,8 @@ async function main() {
 
         if (testCase.id === "admin-roles") {
           assert.equal(layout.adminRoleSummaryGridCount, 1, "admin roles must render the compact summary grid");
-          assert(layout.adminRoleSummaryGridHeight <= 30, "admin roles summary must stay a one-line compact status bar");
+          assert(layout.adminRoleSummaryGridHeight >= 44, "admin roles summary must keep a readable 44px scan height");
+          assert(layout.adminRoleSummaryGridHeight <= 56, "admin roles summary must stay compact after readability padding");
           assert.equal(layout.adminRoleInvitePanelCount, 1, "admin roles must render one compact invite action panel");
           assert(layout.adminRoleInvitePanelHeight <= 56, "admin roles invite panel must stay compact when collapsed");
           assert(layout.adminRoleInvitePanelWidth <= 276, "admin roles invite panel must stay near two-thirds width on mobile");
@@ -2288,8 +2515,11 @@ async function main() {
         }
 
         if (testCase.role === "member" || testCase.role === "guardian") {
+          const expectedFamilyNoticeLabel = testCase.next === "/app/notices" ? "공지" : "알림";
           const expectedFamilyBottomNavLabels =
-            testCase.role === "guardian" ? "홈|수업|자녀|결제|알림" : "홈|수업|내 정보|결제|알림";
+            testCase.role === "guardian"
+              ? `홈|수업|자녀|결제|${expectedFamilyNoticeLabel}`
+              : `홈|수업|내 정보|결제|${expectedFamilyNoticeLabel}`;
           const isFamilyAccountPage = testCase.id === "member-account" || testCase.id === "guardian-account";
 
           assert.equal(layout.mobileSessionRailCount, 0, `${testCase.id} must not repeat account/session actions below the FINAL header`);
@@ -2319,8 +2549,8 @@ async function main() {
           );
           if (layout.mobileBottomNavNoticeBadgeCount > 0) {
             assert(
-              layout.mobileBottomNavNoticeAriaLabel.includes("알림, 미확인 공지") ||
-                layout.mobileBottomNavNoticeAriaLabel.includes("알림, 확인 필요 결제"),
+              layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedFamilyNoticeLabel}, 미확인 공지`) ||
+                layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedFamilyNoticeLabel}, 확인 필요 결제`),
               `${testCase.id} bottom notice badge must expose an actionable notification aria label`,
             );
             assert.equal(
@@ -2345,9 +2575,15 @@ async function main() {
           const expectedAdminBottomNavRouteIds =
             testCase.id === "admin-notices"
               ? "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|notices"
+              : testCase.id === "admin-members"
+              ? "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|members"
               : "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|adminSettings";
           const expectedAdminBottomNavLabels =
-            testCase.id === "admin-notices" ? "대시보드|지점|사용자|권한|변경 기록|알림" : "대시보드|지점|사용자|권한|변경 기록|설정";
+            testCase.id === "admin-notices"
+              ? "대시보드|지점|사용자|권한|변경 기록|공지"
+              : testCase.id === "admin-members"
+              ? "대시보드|지점|사용자|권한|변경 기록|회원"
+              : "대시보드|지점|사용자|권한|변경 기록|설정";
 
           assert.equal(layout.mobileBottomNavLinkCount, 6, `${testCase.id} admin bottom navigation must stay focused on six management actions`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} admin bottom navigation must render as a fixed grid`);
@@ -2362,6 +2598,7 @@ async function main() {
         }
 
         if (testCase.role === "coach") {
+          const expectedCoachNoticeLabel = testCase.id === "coach-notices" ? "공지" : "알림";
           assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} coach bottom navigation must show five actions including promotions and notices`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} coach bottom navigation must render as a fixed grid`);
           assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} coach bottom navigation must allocate one grid column per action`);
@@ -2372,7 +2609,7 @@ async function main() {
           );
           assert.equal(
             layout.mobileBottomNavLabels,
-            "홈|수업/출석|회원|승급 심사|알림",
+            `홈|수업/출석|회원|승급 심사|${expectedCoachNoticeLabel}`,
             `${testCase.id} coach bottom navigation labels must keep unread badges out of visible menu text`,
           );
           assert.equal(
@@ -2382,8 +2619,8 @@ async function main() {
           );
           if (layout.mobileBottomNavNoticeBadgeCount > 0) {
             assert(
-              layout.mobileBottomNavNoticeAriaLabel.includes("알림, 미확인 공지") ||
-                layout.mobileBottomNavNoticeAriaLabel.includes("알림, 확인 필요 결제"),
+              layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedCoachNoticeLabel}, 미확인 공지`) ||
+                layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedCoachNoticeLabel}, 확인 필요 결제`),
               `${testCase.id} bottom notice badge must expose an actionable notification aria label`,
             );
             assert.equal(
@@ -2420,14 +2657,21 @@ async function main() {
         if (testCase.id === "member-members" || testCase.id === "guardian-members") {
           assert.equal(layout.familyMemberSearchInputCount, 0, `${testCase.id} must not render the staff search header`);
           assert(layout.familyMemberProfileCardCount > 0, `${testCase.id} must render compact profile cards without the repeated header`);
+          assert(layout.memberEmergencyContactCallCount > 0, `${testCase.id} must render a tappable emergency contact call target`);
+          assert(layout.memberEmergencyContactCallMinHeight >= 44, `${testCase.id} emergency contact call target must keep 44px touch height`);
+          assert(layout.memberEmergencyContactCallMinWidth >= 112, `${testCase.id} emergency contact call target must keep a stable phone-width target`);
           assert(layout.familyMemberFeedbackHeadingCount > 0, `${testCase.id} must label visible notes as coach feedback`);
           assert.equal(layout.familyMemberFeedbackVisibilityMetaCount, 0, `${testCase.id} must not expose staff note visibility metadata`);
-          assert.equal(layout.familyMemberWarningHeadingCount, 0, `${testCase.id} must not render a full warning section in the family app`);
-          assert.equal(layout.familyMemberEmptyAlertCopyCount, 0, `${testCase.id} must hide empty warning copy from the family app`);
-          assert(
-            layout.familyMemberAlertStripMaxHeight <= 72,
-            `${testCase.id} family alert strip must stay compact when safety notes exist`,
-          );
+	          assert.equal(layout.familyMemberWarningHeadingCount, 0, `${testCase.id} must not render a full warning section in the family app`);
+	          assert.equal(layout.familyMemberEmptyAlertCopyCount, 0, `${testCase.id} must hide empty warning copy from the family app`);
+	          assert(
+	            layout.familyMemberAlertStripMaxHeight >= 44,
+	            `${testCase.id} family alert strip must keep a stable 44px scan height when safety notes exist`,
+	          );
+	          assert(
+	            layout.familyMemberAlertStripMaxHeight <= 72,
+	            `${testCase.id} family alert strip must stay compact when safety notes exist`,
+	          );
         }
 
         if (testCase.id === "guardian-members") {
@@ -2435,16 +2679,24 @@ async function main() {
         }
 
         if (testCase.id === "coach-members") {
+          assert(layout.memberStatusFilterCount > 0, "coach members must render visible member status filters");
+          assert(layout.memberStatusFilterMinHeight >= 44, "coach members status filters must keep 44px touch height");
           assert(layout.memberNoteEditorToggleCount > 0, "coach members must render note editor toggles");
           assert(layout.memberNoteEditorToggleMinHeight >= 44, "coach members note editor toggles must keep 44px touch height");
           assert.equal(layout.memberNoteEditorToggleBottomNavOverlapCount, 0, "coach members note editor toggles must not overlap the mobile bottom navigation");
           assert.equal(layout.memberNoteEditorCount, 0, "coach members must keep note editors collapsed by default");
           assert(layout.coachMemberProfileCardCount > 1, "coach members must render the assigned member cards");
           assert(layout.coachVisibleMemberProfileCardCount <= 1, "coach members must keep the mobile default list short enough to avoid bottom navigation overlap");
+          assert(layout.memberEmergencyContactCallCount > 0, "coach members must render tappable emergency contact call targets");
+          assert(layout.memberEmergencyContactCallMinHeight >= 44, "coach members emergency contact call targets must keep 44px touch height");
+          assert(layout.memberEmergencyContactCallMinWidth >= 112, "coach members emergency contact call targets must keep a stable phone-width target");
+          assert(layout.coachMemberNoticeActionMinHeight >= 44, "coach members personal notice action must keep 44px touch height");
           assert.equal(layout.coachMemberListToggleCount, 1, "coach members must expose a mobile assigned-member expansion control");
           assert(layout.coachMemberListToggleMinHeight >= 44, "coach members assigned-member expansion control must keep a 44px touch height");
           assert(layout.coachMemberListToggleText.includes("담당 회원"), "coach members assigned-member expansion control must use clear member-list copy");
           assert.equal(layout.coachMemberListToggleBottomNavOverlapCount, 0, "coach members assigned-member expansion control must not overlap the mobile bottom navigation");
+          assert.equal(layout.coachMemberBottomSafeAreaCount, 1, "coach members must keep one bottom safe-area spacer after the assigned-member expansion control");
+          assert(layout.coachMemberBottomSafeAreaMinHeight >= 112, "coach members bottom safe-area spacer must keep the expansion control above mobile navigation");
           assert(layout.coachMemberNoteSectionCount > 0, "coach members must render counseling note sections");
           assert(layout.coachMemberNoteClosedSectionCount > 0, "coach members must keep counseling note sections closed by default");
           assert.equal(layout.coachMemberNoteOpenSectionCount, 0, "coach members must not open counseling note sections by default");
@@ -2462,6 +2714,8 @@ async function main() {
           assert.equal(layout.requestsScreenCount, 0, `${testCase.id} must not render the requests screen inside notices`);
           assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must activate the notices bottom-nav item`);
           assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", `${testCase.id} must label the active notices tab as 공지`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", `${testCase.id} active notices tab must keep the notices href`);
           assert(
             layout.familyNoticeReadActionCount === 0 || layout.familyNoticeReadActionMinHeight >= 44,
             `${testCase.id} family notice read actions must keep 44px touch height when unread notices exist`,
@@ -2496,6 +2750,8 @@ async function main() {
           assert.equal(layout.requestsScreenCount, 0, `${testCase.id} must not render the requests screen`);
           assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must keep the notices bottom-nav item active`);
           assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "알림", `${testCase.id} must label the notification inbox tab as 알림`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notifications", `${testCase.id} notification inbox tab must open the notification inbox`);
           assert.equal(layout.notificationSummaryCardCount, 0, `${testCase.id} must not render duplicate summary cards`);
           assert.equal(layout.notificationSummaryGridCount, 0, `${testCase.id} must not render a duplicate summary grid`);
           assert.equal(layout.notificationDuplicateSummaryTextCount, 0, `${testCase.id} must not render duplicate summary helper text`);
@@ -2554,7 +2810,14 @@ async function main() {
             assert(layout.notificationPaymentCheckoutLinkCount > 0, `${testCase.id} must deep-link payable payment alerts to checkout preparation`);
           }
           if (layout.notificationPaymentCheckoutLinkCount > 0) {
-            assert(layout.notificationPaymentCheckoutLinkText.includes("결제"), `${testCase.id} payment alert checkout links must be clearly labeled`);
+            assert(
+              /납부 정보 확인|납부 확인 중|납부 확인|학부모 확인/.test(layout.notificationPaymentCheckoutLinkText),
+              `${testCase.id} payment alert checkout links must use payment-info confirmation copy`,
+            );
+            assert(
+              !/결제하기|결제 진행/.test(layout.notificationPaymentCheckoutLinkText),
+              `${testCase.id} payment alert checkout links must not imply live payment approval`,
+            );
           }
           assert.equal(
             layout.notificationNoticeDetailLinkCount,
@@ -2586,6 +2849,8 @@ async function main() {
           assert.equal(layout.requestsScreenCount, 0, "coach notices must not render the requests screen inside notices");
           assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", "coach notices must activate the notices bottom-nav item");
           assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", "coach notices must mark only notices as the current bottom-nav item");
+          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", "coach notices must label the active notices tab as 공지");
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", "coach notices active bottom tab must keep the notices href");
           assert.equal(layout.noticeOperationsPanelCount, 0, "coach notices must not render owner/admin notice operations");
           assert.equal(layout.noticeActionQueueCount, 0, "coach notices must not render owner/admin notice action queues");
           assert.equal(layout.noticeFollowUpBoardCount, 0, "coach notices must not render owner/admin read-status detail");
@@ -2611,6 +2876,8 @@ async function main() {
         if (testCase.id === "owner-notices" || testCase.id === "admin-notices") {
           assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must activate the notices bottom-nav item`);
           assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", `${testCase.id} must label the active notices tab as 공지`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", `${testCase.id} active notices tab must keep the notices href`);
           assert.equal(layout.noticeOperationsPanelCount, 0, `${testCase.id} must remove the separate notice operations card panel`);
           assert.equal(layout.noticeOperationsPanelHeight, 0, `${testCase.id} must not reserve space for the removed operations panel`);
           assert.equal(layout.noticeOperationsToggleCount, 0, `${testCase.id} must remove the separate operations detail toggle`);
@@ -2667,8 +2934,17 @@ async function main() {
           assert.equal(layout.memberPaymentFilterSelectCount, 0, `${testCase.id} must not render the large payment filter select`);
           assert(layout.memberPaymentCompactCardCount > 0, `${testCase.id} must render compact payment cards`);
           assert.equal(layout.memberPaymentDateLineCount, layout.memberPaymentCompactCardCount, `${testCase.id} must show one compact due/expires date line per payment`);
-          assert(layout.memberPaymentDateLineMaxHeight <= 42, `${testCase.id} payment date line must stay low-density`);
+          assert(layout.memberPaymentDateLineMaxHeight >= 44, `${testCase.id} payment date line must keep a stable 44px scan height`);
+          assert(layout.memberPaymentDateLineMaxHeight <= 48, `${testCase.id} payment date line must stay compact`);
           assert(layout.memberPaymentCheckoutActionCount > 0, `${testCase.id} must keep payment checkout actions on payable cards`);
+          assert(
+            layout.memberPaymentCheckoutActionTexts.some((text) => text.includes("납부 정보 확인")),
+            `${testCase.id} checkout action must use payment-info confirmation copy`,
+          );
+          assert(
+            layout.memberPaymentCheckoutActionTexts.every((text) => !text.includes("결제하기")),
+            `${testCase.id} checkout action must not imply live payment approval`,
+          );
           assert(layout.memberPaymentCheckoutActionMinHeight >= 44, `${testCase.id} checkout actions must keep a 44px touch height`);
           assert.equal(
             layout.memberPaymentCheckoutLinkCardCount,
@@ -2702,6 +2978,13 @@ async function main() {
         }
 
         if (testCase.id === "owner-dashboard") {
+          assert.equal(layout.ownerDashboardPeriodFilterCount, 1, "owner dashboard must render one period filter");
+          assert.equal(layout.ownerDashboardPeriodOptionCount, 3, "owner dashboard period filter must render today/7d/30d options");
+          assert.equal(layout.ownerDashboardPeriodOptionText, "오늘|7일|30일", "owner dashboard period filter must keep compact Korean labels");
+          assert(
+            layout.ownerDashboardPeriodOptionMinHeight >= 44,
+            "owner dashboard period filter options must keep a 44px touch target",
+          );
           assert(layout.ownerDashboardGraphBoardHeight <= 205, "owner dashboard top graph board must stay compact enough to surface branch comparison quickly");
           assert.equal(layout.ownerDashboardSecondaryGraphGridCount, 1, "owner dashboard must render one compact secondary graph grid");
           assert.equal(layout.ownerDashboardGraphRowCount, 4, "owner dashboard must show four priority secondary graph rows without clipping");
@@ -2721,16 +3004,17 @@ async function main() {
           assert(layout.ownerBranchComparisonRowCount > 0, "owner dashboard branch comparison graph must render branch rows");
           assert.equal(layout.ownerBranchComparisonRowBottomNavOverlap, 0, "owner dashboard branch comparison row must not sit under the bottom navigation");
           assert(
-            layout.ownerBranchComparisonRowBottomNavClearance >= 16,
-            "owner dashboard branch comparison row must keep visible clearance from the bottom navigation",
+            layout.ownerBranchComparisonRowBottomNavClearance >= 24,
+            "owner dashboard branch comparison row must keep breathing room from the bottom navigation",
           );
           assert.equal(layout.ownerBranchComparisonCardBottomNavOverlap, 0, "owner dashboard branch comparison card must not sit under the bottom navigation");
           assert(
-            layout.ownerBranchComparisonCardBottomNavClearance >= 16,
-            "owner dashboard branch comparison card must keep visible clearance from the bottom navigation",
+            layout.ownerBranchComparisonCardBottomNavClearance >= 24,
+            "owner dashboard branch comparison card must keep breathing room from the bottom navigation",
           );
           assert.equal(layout.ownerBranchMetricGridCount, layout.ownerBranchComparisonRowCount, "owner dashboard branch rows must render compact metric grids");
           assert(layout.ownerBranchComparisonRowMaxHeight <= 108, "owner dashboard branch comparison rows must stay compact above the bottom nav");
+          assert(layout.ownerBranchMetricGridMaxHeight >= 32, "owner dashboard branch metric grids must stay readable on mobile");
           assert(layout.ownerBranchMetricGridMaxHeight <= 40, "owner dashboard branch metric grids must stay compact on mobile");
           for (const label of ["출석", "결제 위험"]) {
             assert(layout.ownerBranchComparisonText.includes(label), `owner dashboard branch comparison graph must show ${label}`);
@@ -2751,6 +3035,12 @@ async function main() {
           assert(layout.ownerBranchActionLinkMinHeight >= 44, "owner branches action links must keep a 44px touch height");
           assert.equal(layout.ownerBranchActionToggleCount, layout.ownerBranchHealthGraphCount, "owner branches must render one action expansion toggle per branch");
           assert(layout.ownerBranchActionToggleMinHeight >= 44, "owner branches action toggles must keep a 44px touch height");
+          assert.equal(layout.ownerBranchBottomSafeAreaCount, 1, "owner branches must render one mobile bottom safe-area spacer");
+          assert(layout.ownerBranchBottomSafeAreaHeight >= 112, "owner branches bottom safe-area spacer must reserve mobile bottom space");
+          assert(
+            layout.ownerBranchActionBottomNavClearanceAtScrollEnd >= 24,
+            "owner branches last action row must clear the mobile bottom navigation at scroll end",
+          );
           for (const label of ["회원 유지", "수업 채움", "결제 위험"]) {
             assert(layout.ownerBranchHealthText.includes(label), `owner branches graph must show ${label}`);
           }
@@ -2886,7 +3176,7 @@ async function main() {
           assert(!layout.attendanceStatusFilterButtonText.includes("보강0"), "coach classes status filters must hide zero-count deleted request chip");
 	          assert.equal(layout.attendanceStatusFilterGroupOverflow, 0, "coach classes status filter grid must not require horizontal scrolling");
           assert(layout.attendanceUncheckedFilterLabelHeight >= 44, "coach classes unchecked filter label must keep a 44px touch height");
-          assert(layout.attendanceUncheckedFilterBoxHeight >= 24, "coach classes unchecked filter checkbox must remain visually tappable");
+	          assert(layout.attendanceUncheckedFilterBoxHeight >= 28, "coach classes unchecked filter checkbox must remain visually clear");
           assert(layout.attendanceStatusFilterButtonMinHeight >= 44, "coach classes status filter buttons must keep a 44px touch height");
           assert(layout.coachClassRosterToggleCount > 1, "coach classes must render roster toggles for each class card");
           assert.equal(layout.coachClassRosterLongLabelCount, 0, "coach classes roster toggles must keep compact mobile labels");
@@ -2953,10 +3243,12 @@ async function main() {
           assert(layout.ownerReportTrendSummaryGridHeight <= 106, "owner reports trend summary graph rail must stay compact on mobile");
           assert(layout.ownerReportTrendSummaryRowMaxHeight <= 24, "owner reports trend summary rows must not become cards again");
           assert(layout.ownerReportTrendSummaryTileMaxHeight <= 24, "owner reports trend summary direct rows must not become tall tiles again");
-          assert(layout.ownerReportGraphBoardHeight <= 160, "owner reports top graph board must stay compact enough for the trend section to surface quickly");
+          assert(layout.ownerReportGraphBoardHeight <= 230, "owner reports top graph board must stay compact enough for the trend section to surface quickly");
           assert.equal(layout.ownerReportSecondaryGraphGridCount, 1, "owner reports must render one compact secondary graph grid");
           assert.equal(layout.ownerReportSecondaryGraphTileCount, 3, "owner reports secondary graph must show only three priority KPI tiles by default");
-          assert(layout.ownerReportSecondaryGraphGridHeight <= 52, "owner reports secondary graph grid must stay as a single compact mobile rail");
+          assert(layout.ownerReportSecondaryGraphGridHeight >= 92, "owner reports secondary graph grid must use readable two-column KPI tiles on mobile");
+          assert(layout.ownerReportSecondaryGraphGridHeight <= 128, "owner reports secondary graph grid must stay compact after the two-column mobile layout");
+          assert(layout.ownerReportSecondaryGraphTileMinWidth >= 140, "owner reports secondary graph tiles must not regress to narrow four-column mobile cells");
           assert.equal(layout.ownerReportSecondaryGraphLabelOverflow, 0, "owner reports graph labels must not be clipped on mobile");
           assert.equal(layout.ownerReportSecondaryGraphOverflow, 0, "owner reports secondary graph grid must not require horizontal scrolling");
           assert.equal(layout.ownerReportSecondaryGraphToggleCount, 1, "owner reports secondary graph must expose a compact more button");
@@ -3061,8 +3353,14 @@ async function main() {
                   createOpenState.formWidth >= createOpenState.panelWidth - 20,
                   "admin branches opened create form must use the expanded panel width",
                 );
-                assert(createOpenState.panelHeight <= 220, "admin branches opened create panel must stay compact on mobile");
-                assert(createOpenState.formHeight <= 176, "admin branches opened create form must not push branch cards too far down");
+                assert(
+                  createOpenState.panelHeight <= 160,
+                  "admin branches opened create panel must stay compact as a two-row mobile form",
+                );
+                assert(
+                  createOpenState.formHeight <= 112,
+                  "admin branches opened create form must keep branch cards close on mobile",
+                );
                 assert(createOpenState.minFieldWidth >= 104, "admin branches opened create form fields must stay readable on narrow mobile");
                 assert(createOpenState.submitButtonHeight >= 44, "admin branches create submit action must keep a 44px touch height");
                 assert(createOpenState.submitButtonText.includes("생성"), "admin branches create form must expose submit action");
@@ -3092,7 +3390,11 @@ async function main() {
                   const fieldControlWidths = Array.from(fieldGrid?.querySelectorAll("input, select") ?? [])
                     .map((control) => Math.round(control.getBoundingClientRect().width))
                     .filter((width) => width > 0);
+                  const fieldControlHeights = Array.from(fieldGrid?.querySelectorAll("input, select") ?? [])
+                    .map((control) => Math.round(control.getBoundingClientRect().height))
+                    .filter((height) => height > 0);
                   const policyGrid = form?.querySelector("fieldset");
+                  const policyControl = policyGrid?.querySelector("label");
                   const rect = (element) => {
                     if (!element) {
                       return null;
@@ -3112,10 +3414,12 @@ async function main() {
                     detailGridCount: card?.querySelectorAll('[data-testid="admin-branch-detail-grid"]').length ?? 0,
                     fieldGrid: rect(fieldGrid),
                     fieldGridControlCount: fieldControlWidths.length,
+                    fieldGridMinControlHeight: Math.min(...fieldControlHeights),
                     fieldGridMinControlWidth: Math.min(...fieldControlWidths),
                     form: rect(form),
                     formCount: document.querySelectorAll('[data-testid^="admin-branch-settings-form-"]').length,
                     inputCount: form?.querySelectorAll("input").length ?? 0,
+                    policyControl: rect(policyControl),
                     policyGrid: rect(policyGrid),
                     save: rect(saveButton),
                     bottomNav: rect(bottomNav),
@@ -3133,7 +3437,9 @@ async function main() {
                 assert(settingsOpenState.card.height <= 280, "admin branches opened card must stay compact enough for mobile");
                 assert(settingsOpenState.fieldGrid.height <= 92, "admin branches settings field grid must use inline labels in two compact rows");
                 assert.equal(settingsOpenState.fieldGridControlCount, 4, "admin branches settings field grid must keep four remaining branch controls");
+                assert(settingsOpenState.fieldGridMinControlHeight >= 44, "admin branches settings field controls must keep a 44px touch height");
                 assert(settingsOpenState.fieldGridMinControlWidth >= 100, "admin branches settings field controls must stay readable on narrow mobile");
+                assert(settingsOpenState.policyControl?.height >= 44, "admin branches settings policy toggle must keep a 44px touch height");
                 assert(settingsOpenState.policyGrid.height <= 48, "admin branches settings policy toggles must stay in one compact row");
                 assert(settingsOpenState.save.height >= 44, "admin branches settings save action must keep a 44px touch height");
                 assert(
@@ -3161,8 +3467,10 @@ async function main() {
                     settingsOpenCardHeight: settingsOpenState.card.height,
                     settingsOpenDetailGridCount: settingsOpenState.detailGridCount,
                     settingsOpenFieldGridHeight: settingsOpenState.fieldGrid.height,
+                    settingsOpenFieldGridMinControlHeight: settingsOpenState.fieldGridMinControlHeight,
                     settingsOpenFieldGridMinControlWidth: settingsOpenState.fieldGridMinControlWidth,
                     settingsOpenFormHeight: settingsOpenState.form.height,
+                    settingsOpenPolicyControlHeight: settingsOpenState.policyControl.height,
                     settingsOpenSaveBottom: settingsOpenState.save.bottom,
                     settingsOpenSaveHeight: settingsOpenState.save.height,
                   },
@@ -3218,22 +3526,30 @@ async function main() {
 
               await page.locator("#admin-user-search").fill("검색없는사용자");
               await page.waitForSelector('[data-testid="admin-user-empty-filter-state"]', { timeout: 10000 });
-              const emptyFilterScreenshotPath = join(outDir, "admin-users-empty-filter-state.png");
-              await page.screenshot({ path: emptyFilterScreenshotPath, fullPage: false, caret: "initial" });
-              const emptyFilterState = await page.evaluate(() => ({
-                clearButtonCount: document.querySelectorAll('[data-testid="admin-user-search-clear"]').length,
-                emptyStateCount: document.querySelectorAll('[data-testid="admin-user-empty-filter-state"]').length,
-                emptyStateText: document.querySelector('[data-testid="admin-user-empty-filter-state"]')?.textContent ?? "",
-                listRowCount: document.querySelectorAll('[data-testid="admin-user-list-row"]').length,
+	              const emptyFilterScreenshotPath = join(outDir, "admin-users-empty-filter-state.png");
+	              await page.screenshot({ path: emptyFilterScreenshotPath, fullPage: false, caret: "initial" });
+	              const emptyFilterState = await page.evaluate(() => ({
+	                clearButtonCount: document.querySelectorAll('[data-testid="admin-user-search-clear"]').length,
+	                clearButtonHeight: Math.round(
+	                  document.querySelector('[data-testid="admin-user-search-clear"]')?.getBoundingClientRect().height ?? 0,
+	                ),
+	                clearButtonWidth: Math.round(
+	                  document.querySelector('[data-testid="admin-user-search-clear"]')?.getBoundingClientRect().width ?? 0,
+	                ),
+	                emptyStateCount: document.querySelectorAll('[data-testid="admin-user-empty-filter-state"]').length,
+	                emptyStateText: document.querySelector('[data-testid="admin-user-empty-filter-state"]')?.textContent ?? "",
+	                listRowCount: document.querySelectorAll('[data-testid="admin-user-list-row"]').length,
                 locationSearch: window.location.search,
                 resetButtonCount: document.querySelectorAll('[data-testid="admin-user-empty-filter-reset"]').length,
               }));
               const emptyFilterScreenshotSizeBytes = statSync(emptyFilterScreenshotPath).size;
 
               assert.equal(emptyFilterState.listRowCount, 0, "admin users unmatched search must hide stale list rows");
-              assert.equal(emptyFilterState.emptyStateCount, 1, "admin users unmatched search must show one compact empty state");
-              assert.equal(emptyFilterState.clearButtonCount, 1, "admin users search input must expose a clear control");
-              assert.equal(emptyFilterState.resetButtonCount, 1, "admin users empty state must expose a reset action");
+	              assert.equal(emptyFilterState.emptyStateCount, 1, "admin users unmatched search must show one compact empty state");
+	              assert.equal(emptyFilterState.clearButtonCount, 1, "admin users search input must expose a clear control");
+	              assert(emptyFilterState.clearButtonHeight >= 44, "admin users search clear control must keep a 44px touch height");
+	              assert(emptyFilterState.clearButtonWidth >= 44, "admin users search clear control must keep a 44px touch width");
+	              assert.equal(emptyFilterState.resetButtonCount, 1, "admin users empty state must expose a reset action");
               assert(emptyFilterState.emptyStateText.includes("조건에 맞는 사용자가 없습니다."), "admin users empty state must use compact app copy");
               assert(emptyFilterState.locationSearch.includes("q="), "admin users search query must be reflected in the URL for refresh recovery");
               assert(
@@ -3889,6 +4205,11 @@ async function main() {
     baseUrl,
     viewport: "390x844",
     generatedAt: new Date().toISOString(),
+    outputCleanup: {
+      outDir,
+      removedCount: cleanedOutputFiles.length,
+      removedFiles: cleanedOutputFiles,
+    },
     devDataReset: {
       before: beforeDevDataReset,
       after: afterDevDataReset,
@@ -3904,7 +4225,9 @@ async function main() {
       messageCount: messages.length,
       hasLoadingCopy: layout.hasLoadingCopy,
       finalWordmarkCount: layout.finalWordmarkCount,
+      finalWordmarkLinkCount: layout.finalWordmarkLinkCount,
       finalWordmarkMinTouchHeight: layout.finalWordmarkMinTouchHeight,
+      finalWordmarkVisualMinHeight: layout.finalWordmarkVisualMinHeight,
       rasterFinalLogoCount: layout.rasterFinalLogoCount,
       screenshotPath,
       screenshotSizeBytes,
@@ -3926,6 +4249,8 @@ async function main() {
         ? layout.mobileBottomNavLinkMinWidth
         : 0,
       mobileBottomNavLabels: layout.mobileBottomNavLabels,
+      mobileBottomNavNoticeHref: layout.mobileBottomNavNoticeHref,
+      mobileBottomNavNoticeLabel: layout.mobileBottomNavNoticeLabel,
       mobileBottomNavRouteIds: layout.mobileBottomNavRouteIds,
       mobileBottomNavActiveRouteIds: layout.mobileBottomNavActiveRouteIds,
       mobileBottomNavCurrentRouteIds: layout.mobileBottomNavCurrentRouteIds,
@@ -4002,10 +4327,17 @@ async function main() {
       accountBranchListHeadingCount: layout.accountBranchListHeadingCount,
       authFormCount: layout.authFormCount,
       authPasswordInputCount: layout.authPasswordInputCount,
+      authPasswordInputMinPaddingRight: layout.authPasswordInputMinPaddingRight,
+      authPasswordVisibilityToggleCount: layout.authPasswordVisibilityToggleCount,
+      authPasswordVisibilityToggleMinHeight: layout.authPasswordVisibilityToggleMinHeight,
+      authPasswordVisibilityToggleMinWidth: layout.authPasswordVisibilityToggleMinWidth,
       authRegisteredNoticeText: layout.authRegisteredNoticeText,
       authSignupLinkCount: layout.authSignupLinkCount,
       authSignupInvitationInputCount: layout.authSignupInvitationInputCount,
+      authSelectRoleLoginLinkHeight: layout.authSelectRoleLoginLinkHeight,
       authRoleShortcutButtonCount: layout.authRoleShortcutButtonCount,
+      authRoleShortcutButtonMinHeight: layout.authRoleShortcutButtonMinHeight,
+      authRoleShortcutButtonText: layout.authRoleShortcutButtonText,
       authSubmitButtonCount: layout.authSubmitButtonCount,
       blockedPlaceholderHitCount: blockedPlaceholderHits.length,
       adminRoleInvitePanelCount: layout.adminRoleInvitePanelCount,
@@ -4035,8 +4367,10 @@ async function main() {
       adminBranchSettingsOpenCardHeight: interaction?.branches?.settingsOpenCardHeight ?? 0,
       adminBranchSettingsOpenDetailGridCount: interaction?.branches?.settingsOpenDetailGridCount ?? 0,
       adminBranchSettingsOpenFieldGridHeight: interaction?.branches?.settingsOpenFieldGridHeight ?? 0,
+      adminBranchSettingsOpenFieldGridMinControlHeight: interaction?.branches?.settingsOpenFieldGridMinControlHeight ?? 0,
       adminBranchSettingsOpenFieldGridMinControlWidth: interaction?.branches?.settingsOpenFieldGridMinControlWidth ?? 0,
       adminBranchSettingsOpenFormHeight: interaction?.branches?.settingsOpenFormHeight ?? 0,
+      adminBranchSettingsOpenPolicyControlHeight: interaction?.branches?.settingsOpenPolicyControlHeight ?? 0,
       adminBranchSettingsOpenSaveBottom: interaction?.branches?.settingsOpenSaveBottom ?? 0,
       adminBranchSettingsOpenSaveHeight: interaction?.branches?.settingsOpenSaveHeight ?? 0,
       adminBranchCardCount: layout.adminBranchCardCount,
@@ -4060,6 +4394,10 @@ async function main() {
       ownerBranchComparisonCardBottomNavClearance: layout.ownerBranchComparisonCardBottomNavClearance,
       ownerBranchMetricGridCount: layout.ownerBranchMetricGridCount,
       ownerBranchMetricGridMaxHeight: layout.ownerBranchMetricGridMaxHeight,
+      ownerDashboardPeriodFilterCount: layout.ownerDashboardPeriodFilterCount,
+      ownerDashboardPeriodOptionCount: layout.ownerDashboardPeriodOptionCount,
+      ownerDashboardPeriodOptionText: layout.ownerDashboardPeriodOptionText,
+      ownerDashboardPeriodOptionMinHeight: layout.ownerDashboardPeriodOptionMinHeight,
       ownerDashboardGraphBoardHeight: layout.ownerDashboardGraphBoardHeight,
       ownerDashboardSecondaryGraphGridCount: layout.ownerDashboardSecondaryGraphGridCount,
       ownerDashboardGraphRowCount: layout.ownerDashboardGraphRowCount,
@@ -4084,6 +4422,9 @@ async function main() {
       ownerBranchActionLinkMinHeight: layout.ownerBranchActionLinkMinHeight,
       ownerBranchActionToggleCount: layout.ownerBranchActionToggleCount,
       ownerBranchActionToggleMinHeight: layout.ownerBranchActionToggleMinHeight,
+      ownerBranchBottomSafeAreaCount: layout.ownerBranchBottomSafeAreaCount,
+      ownerBranchBottomSafeAreaHeight: layout.ownerBranchBottomSafeAreaHeight,
+      ownerBranchActionBottomNavClearanceAtScrollEnd: layout.ownerBranchActionBottomNavClearanceAtScrollEnd,
       coachDashboardFlowGraphCount: layout.coachDashboardFlowGraphCount,
       coachDashboardFlowGraphHeight: layout.coachDashboardFlowGraphHeight,
       coachDashboardFlowRowCount: layout.coachDashboardFlowRowCount,
@@ -4130,6 +4471,7 @@ async function main() {
       memberPaymentDateLineCount: layout.memberPaymentDateLineCount,
       memberPaymentDateLineMaxHeight: layout.memberPaymentDateLineMaxHeight,
       memberPaymentCheckoutActionCount: layout.memberPaymentCheckoutActionCount,
+      memberPaymentCheckoutActionTexts: layout.memberPaymentCheckoutActionTexts,
       memberPaymentCheckoutActionMinHeight: layout.memberPaymentCheckoutActionMinHeight,
       memberPaymentCheckoutStateBadgeCount: layout.memberPaymentCheckoutStateBadgeCount,
       memberPaymentCheckoutStateBadgeMaxHeight: layout.memberPaymentCheckoutStateBadgeMaxHeight,
@@ -4147,24 +4489,37 @@ async function main() {
       memberGuardianPriorityCellMinHeight: layout.memberGuardianPriorityCellMinHeight,
       memberGuardianPriorityCellMaxHeight: layout.memberGuardianPriorityCellMaxHeight,
       familyMemberSearchInputCount: layout.familyMemberSearchInputCount,
+      memberStatusFilterCount: layout.memberStatusFilterCount,
+      memberStatusFilterMinHeight: layout.memberStatusFilterMinHeight,
+      memberEmergencyContactCallCount: layout.memberEmergencyContactCallCount,
+      memberEmergencyContactCallMinHeight: layout.memberEmergencyContactCallMinHeight,
+      memberEmergencyContactCallMinWidth: layout.memberEmergencyContactCallMinWidth,
       familyMemberProfileCardCount: layout.familyMemberProfileCardCount,
       familyMemberFeedbackHeadingCount: layout.familyMemberFeedbackHeadingCount,
       familyMemberFeedbackCardCount: layout.familyMemberFeedbackCardCount,
       familyMemberFeedbackVisibilityMetaCount: layout.familyMemberFeedbackVisibilityMetaCount,
       familyMemberWarningHeadingCount: layout.familyMemberWarningHeadingCount,
       familyMemberEmptyAlertCopyCount: layout.familyMemberEmptyAlertCopyCount,
+      memberProfileEmptyAlertCopyCount: layout.memberProfileEmptyAlertCopyCount,
+      memberProfileEmptyNoteCopyCount: layout.memberProfileEmptyNoteCopyCount,
       familyMemberAlertStripCount: layout.familyMemberAlertStripCount,
       familyMemberAlertStripMaxHeight: layout.familyMemberAlertStripMaxHeight,
       memberNoteEditorToggleCount: layout.memberNoteEditorToggleCount,
       memberNoteEditorToggleMinHeight: layout.memberNoteEditorToggleMinHeight,
       memberNoteEditorToggleBottomNavOverlapCount: layout.memberNoteEditorToggleBottomNavOverlapCount,
       memberNoteEditorCount: layout.memberNoteEditorCount,
+      memberGuardianPhoneCallCount: layout.memberGuardianPhoneCallCount,
+      memberGuardianPhoneCallMinHeight: layout.memberGuardianPhoneCallMinHeight,
       coachMemberProfileCardCount: layout.coachMemberProfileCardCount,
       coachVisibleMemberProfileCardCount: layout.coachVisibleMemberProfileCardCount,
+      coachMemberNoticeActionMinHeight: layout.coachMemberNoticeActionMinHeight,
+      coachMemberPaymentActionMinHeight: layout.coachMemberPaymentActionMinHeight,
       coachMemberListToggleCount: layout.coachMemberListToggleCount,
       coachMemberListToggleMinHeight: layout.coachMemberListToggleMinHeight,
       coachMemberListToggleText: layout.coachMemberListToggleText,
       coachMemberListToggleBottomNavOverlapCount: layout.coachMemberListToggleBottomNavOverlapCount,
+      coachMemberBottomSafeAreaCount: layout.coachMemberBottomSafeAreaCount,
+      coachMemberBottomSafeAreaMinHeight: layout.coachMemberBottomSafeAreaMinHeight,
       coachMemberNoteSectionCount: layout.coachMemberNoteSectionCount,
       coachMemberNoteClosedSectionCount: layout.coachMemberNoteClosedSectionCount,
       coachMemberNoteOpenSectionCount: layout.coachMemberNoteOpenSectionCount,
@@ -4240,6 +4595,7 @@ async function main() {
       ownerReportSecondaryGraphGridCount: layout.ownerReportSecondaryGraphGridCount,
       ownerReportSecondaryGraphTileCount: layout.ownerReportSecondaryGraphTileCount,
       ownerReportSecondaryGraphGridHeight: layout.ownerReportSecondaryGraphGridHeight,
+      ownerReportSecondaryGraphTileMinWidth: layout.ownerReportSecondaryGraphTileMinWidth,
       ownerReportSecondaryGraphLabelOverflow: layout.ownerReportSecondaryGraphLabelOverflow,
       ownerReportSecondaryGraphOverflow: layout.ownerReportSecondaryGraphOverflow,
       ownerReportSecondaryGraphToggleCount: layout.ownerReportSecondaryGraphToggleCount,
@@ -4256,31 +4612,34 @@ async function main() {
       ownerActionQueueItemMaxHeight: layout.ownerActionQueueItemMaxHeight,
       ownerActionQueueToggleCount: layout.ownerActionQueueToggleCount,
       ownerActionQueueToggleHeight: layout.ownerActionQueueToggleHeight,
-	      ownerReportPriorityBranchRowCount: layout.ownerReportPriorityBranchRowCount,
-	      ownerReportPriorityBranchRowMaxHeight: layout.ownerReportPriorityBranchRowMaxHeight,
-	      ownerReportPriorityBranchToggleCount: layout.ownerReportPriorityBranchToggleCount,
-	      ownerReportPriorityBranchToggleHeight: layout.ownerReportPriorityBranchToggleHeight,
-	      ownerReportRiskPaymentSummaryCount: layout.ownerReportRiskPaymentSummaryCount,
-	      ownerReportRiskPaymentSummaryMaxHeight: layout.ownerReportRiskPaymentSummaryMaxHeight,
-	      ownerReportRiskPaymentListCount: layout.ownerReportRiskPaymentListCount,
+      ownerReportPriorityBranchRowCount: layout.ownerReportPriorityBranchRowCount,
+      ownerReportPriorityBranchRowMaxHeight: layout.ownerReportPriorityBranchRowMaxHeight,
+      ownerReportPriorityBranchToggleCount: layout.ownerReportPriorityBranchToggleCount,
+      ownerReportPriorityBranchToggleHeight: layout.ownerReportPriorityBranchToggleHeight,
+      ownerReportRiskPaymentSummaryCount: layout.ownerReportRiskPaymentSummaryCount,
+      ownerReportRiskPaymentSummaryMaxHeight: layout.ownerReportRiskPaymentSummaryMaxHeight,
+      ownerReportRiskPaymentListCount: layout.ownerReportRiskPaymentListCount,
       ownerReportRiskPaymentRowCount: layout.ownerReportRiskPaymentRowCount,
       ownerReportRiskPaymentToggleCount: layout.ownerReportRiskPaymentToggleCount,
       ownerReportRiskPaymentToggleHeight: layout.ownerReportRiskPaymentToggleHeight,
       ownerReportInternalPanelCount: layout.ownerReportInternalPanelCount,
       ownerReportVisibleCodeCount: layout.ownerReportVisibleCodeCount,
       ownerReportVisibleControlMinHeight: layout.ownerReportVisibleControlMinHeight,
-	      adminUserSummaryGridCount: layout.adminUserSummaryGridCount,
-	      adminUserProtectedDeleteRowCount: layout.adminUserProtectedDeleteRowCount,
-	      adminUserProtectedDeleteToggleCount: layout.adminUserProtectedDeleteToggleCount,
-	      adminUserDisabledDeleteToggleCount: layout.adminUserDisabledDeleteToggleCount,
-	      adminUserEnabledDeleteToggleCount: layout.adminUserEnabledDeleteToggleCount,
-	      adminUserDeleteBlockerSummaryCount: layout.adminUserDeleteBlockerSummaryCount,
-	      adminUserDeleteBlockerSummaryText: layout.adminUserDeleteBlockerSummaryText,
-	      adminUserDeleteBlockerVisibleText: layout.adminUserDeleteBlockerVisibleText,
-	      adminUserDeleteBlockerSummaryMaxHeight: layout.adminUserDeleteBlockerSummaryMaxHeight,
-	      adminUserProtectedActionStackMaxHeight: layout.adminUserProtectedActionStackMaxHeight,
+      adminDashboardClassesLinkHeight: layout.adminDashboardClassesLinkHeight,
+      adminUserSummaryGridCount: layout.adminUserSummaryGridCount,
+      adminUserProtectedDeleteRowCount: layout.adminUserProtectedDeleteRowCount,
+      adminUserProtectedDeleteToggleCount: layout.adminUserProtectedDeleteToggleCount,
+      adminUserDisabledDeleteToggleCount: layout.adminUserDisabledDeleteToggleCount,
+      adminUserEnabledDeleteToggleCount: layout.adminUserEnabledDeleteToggleCount,
+      adminUserDeleteBlockerSummaryCount: layout.adminUserDeleteBlockerSummaryCount,
+      adminUserDeleteBlockerSummaryText: layout.adminUserDeleteBlockerSummaryText,
+      adminUserDeleteBlockerVisibleText: layout.adminUserDeleteBlockerVisibleText,
+      adminUserDeleteBlockerSummaryMaxHeight: layout.adminUserDeleteBlockerSummaryMaxHeight,
+      adminUserProtectedActionStackMaxHeight: layout.adminUserProtectedActionStackMaxHeight,
       adminUserInvitePanelCount: layout.adminUserInvitePanelCount,
+      adminUserMemberCreateLinkHeight: layout.adminUserMemberCreateLinkHeight,
       adminUserInviteToggleText: layout.adminUserInviteToggleText,
+      adminUserInviteToggleHeight: layout.adminUserInviteToggleHeight,
       adminUserBottomNavTop: layout.adminUserBottomNavTop,
       adminUserFirstActionStackBottom: layout.adminUserFirstActionStackBottom,
       adminUserFirstActionOverlapBottomNavCount: layout.adminUserFirstActionOverlapBottomNavCount,
@@ -4365,6 +4724,7 @@ async function main() {
       adminSettingsVisibleCodeCount: layout.adminSettingsVisibleCodeCount,
       adminSettingsVisibleInternalPanelCount: layout.adminSettingsVisibleInternalPanelCount,
       adminAuditVisibleReadLogCount: layout.adminAuditVisibleReadLogCount,
+      adminAuditRefreshHeight: layout.adminAuditRefreshHeight,
       adminAuditSummaryBarCount: layout.adminAuditSummaryBarCount,
       adminAuditSummaryBarHeight: layout.adminAuditSummaryBarHeight,
       adminAuditListRowCount: layout.adminAuditListRowCount,

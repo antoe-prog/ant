@@ -42,7 +42,7 @@ export function FinalWordmark({ size = "md", ariaHidden = false, className = "" 
         fontWeight="900"
         fontStyle="italic"
         fill="currentColor"
-        letterSpacing="-2"
+        letterSpacing="0"
       >
         FINAL
       </text>

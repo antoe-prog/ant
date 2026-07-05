@@ -92,7 +92,7 @@ const adultAccess = getFamilyPaymentCheckoutAccess(adultUser, {
 });
 
 assert.equal(adultAccess.canOpen, true, "adult member must be able to open checkout preparation");
-assert.equal(adultAccess.label, "결제하기", "adult member checkout action label mismatch");
+assert.equal(adultAccess.label, "납부 정보 확인", "adult member checkout action label must avoid live payment copy");
 assert.equal(getPaymentCheckoutAmount(adultPayment), 170000, "adult checkout amount mismatch");
 assert.equal(
   getFamilyPaymentPlanLine(adultPayment.planName, "teen"),
@@ -111,7 +111,21 @@ const guardianAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
 });
 
 assert.equal(guardianAccess.canOpen, true, "guardian must be able to open child checkout preparation");
-assert.equal(guardianAccess.label, "결제하기", "guardian checkout action label mismatch");
+assert.equal(guardianAccess.label, "납부 정보 확인", "guardian checkout action label must avoid live payment copy");
+const guardianPendingAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
+  ...youthPayment,
+  member: youthMember,
+  onlinePayment: {
+    amount: 30000,
+    checkoutUrl: "/app/payments?checkout=fj_pay_yuna",
+    provider: "mock",
+    providerPaymentId: "fj_pay_yuna",
+    requestedAt: "2026-06-28T09:00:00.000Z",
+    requestedByUserId: "user-owner",
+    status: "pending",
+  },
+});
+assert.equal(guardianPendingAccess.label, "납부 확인 중", "pending family checkout action must avoid live-payment progress copy");
 assert.deepEqual(
   getAccessibleMemberIds(
     { ...guardianUser, childMemberIds: ["member-yuna", "member-stale-child"] },
@@ -193,6 +207,10 @@ assert(
   "family payment cards must render a checkout action affordance",
 );
 assert(
+  paymentsScreenSource.includes("{familyCheckoutAccess.label}") && !paymentsScreenSource.includes("결제하기"),
+  "family payment card action copy must come from the shared checkout access label and avoid live payment wording",
+);
+assert(
   paymentsScreenSource.includes("member-payment-checkout-state-badge"),
   "family payment cards must render blocked checkout states as passive badges",
 );
@@ -254,8 +272,9 @@ assert(
 );
 assert(
   paymentNotificationTargetSource.includes('actionLabel: checkoutAccess.label') &&
-    paymentNotificationTargetSource.includes('checkoutAccess.state === "guardian_required" ? "학부모 확인" : "결제 확인"') &&
-    !paymentNotificationTargetSource.includes('actionLabel: "보기"'),
+    paymentNotificationTargetSource.includes('checkoutAccess.state === "guardian_required" ? "학부모 확인" : "납부 확인"') &&
+    !paymentNotificationTargetSource.includes('actionLabel: "보기"') &&
+    !notificationsScreenSource.includes("결제 진행 필요"),
   "payment notifications must split checkout action copy from non-payable confirmation fallback",
 );
 assert(
@@ -296,10 +315,11 @@ assert(
   "checkout screen must hide payment details for forbidden direct checkout routes",
 );
 assert(
-    checkoutScreenSource.includes("payment-checkout-provider-status") &&
+  checkoutScreenSource.includes("payment-checkout-provider-status") &&
     checkoutScreenSource.includes("납부 방법 안내 상태") &&
-    checkoutScreenSource.includes("납부 방법 안내") &&
-    checkoutScreenSource.includes("도장에서 안내한 납부 방법을 확인한 뒤 진행해 주세요."),
+    checkoutScreenSource.includes("납부 정보 접수") &&
+    checkoutScreenSource.includes("선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.") &&
+    !checkoutScreenSource.includes("결제 진행하기"),
   "checkout screen must explain the non-integrated payment state without exposing unfinished copy",
 );
 assert(
@@ -340,6 +360,7 @@ assert(
 assert(
   !checkoutScreenSource.includes("결제 연결 전") &&
     !checkoutScreenSource.includes("실 결제 연결 전") &&
+    !checkoutScreenSource.includes("온라인 결제 준비") &&
     !checkoutScreenSource.includes("온라인 결제 준비 중") &&
     !checkoutScreenSource.includes("납부 안내 대기") &&
     !checkoutScreenSource.includes("온라인 납부 방법이 열리면"),

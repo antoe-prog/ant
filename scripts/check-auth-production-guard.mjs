@@ -82,10 +82,13 @@ const inviteApproveRouteSource = readFileSync("src/app/api/v1/admin/users/[userI
 const adminUsersScreenSource = readFileSync("src/components/screens/admin-users-screen.tsx", "utf8");
 const serverDbSource = readFileSync("src/server/db.ts", "utf8");
 const loginScreenSource = readFileSync("src/components/screens/login-screen.tsx", "utf8");
+const selectRoleScreenSource = readFileSync("src/components/screens/select-role-screen.tsx", "utf8");
 const loginRouteSource = readFileSync("src/app/api/v1/auth/login/route.ts", "utf8");
+const bootstrapRouteSource = readFileSync("src/app/api/v1/me/bootstrap/route.ts", "utf8");
 const appStoreSource = readFileSync("src/store/app-store.tsx", "utf8");
 const apiClientSource = readFileSync("src/lib/api-client.ts", "utf8");
 const serverApiSource = readFileSync("src/server/api.ts", "utf8");
+const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 
 assert(signupScreenSource.includes("휴대폰 번호로 회원가입"), "signup must render the phone signup heading");
 assert(signupScreenSource.includes('data-testid="signup-phone-input"'), "signup must collect a phone number");
@@ -119,8 +122,33 @@ assert(
   loginScreenSource.includes("회원가입이 완료되었습니다. 휴대폰 번호와 비밀번호로 로그인해 주세요."),
   "registered login notice must tell phone signup users to use their phone number and password",
 );
+assert(
+  appStoreSource.includes('const publicAuthPathnames = new Set(["/signup", "/reset-password"]);') &&
+    appStoreSource.includes("an app restart with only the HttpOnly session cookie can show account switch UI") &&
+    appStoreSource.includes("apiClient.getOptionalBootstrap(null)"),
+  "login/select-role must silently restore HttpOnly cookie sessions even without localStorage",
+);
+assert(
+  bootstrapRouteSource.includes('request.nextUrl.searchParams.get("optional") === "1"') &&
+    bootstrapRouteSource.includes("return jsonOk(null);"),
+  "optional bootstrap must return a 200/null response instead of a 401 for anonymous auth entry screens",
+);
+assert(apiClientSource.includes("getOptionalBootstrap"), "client API must expose optional bootstrap for cookie-only auth entry restore");
+assert.equal(
+  packageJson.scripts?.["test:phone-signup-login-flow"],
+  "node scripts/check-phone-signup-login-flow.mjs",
+  "phone signup must keep an executable same-password login regression check",
+);
 assert(loginScreenSource.includes('data-testid="login-keep-signed-in-checkbox"'), "login form must expose a keep-signed-in checkbox");
 assert(loginScreenSource.includes("30일 동안 다시 로그인하지 않습니다."), "login form must explain the remembered session period");
+assert(
+  loginScreenSource.includes('data-testid="login-account-switch-button"') && loginScreenSource.includes("inline-flex min-h-11"),
+  "authenticated login account switch action must keep a 44px touch target",
+);
+assert(
+  selectRoleScreenSource.includes('data-testid="select-role-login-link"') && selectRoleScreenSource.includes("inline-flex min-h-11"),
+  "select-role login link must keep a 44px touch target",
+);
 assert(!loginScreenSource.includes("관리자 승인 후 로그인"), "registered login notice must not imply a second admin approval step");
 assert(loginRouteSource.includes("keepSignedIn?: boolean"), "login API must accept an explicit keep-signed-in flag");
 assert(
@@ -191,7 +219,9 @@ console.log(
         "invitation accept password length policy",
         "invitation accept API failure messages reach the form",
         "registered login notice uses phone/password copy",
+        "login/select-role restore cookie-only sessions",
         "login keep-signed-in checkbox and 30-day cookie policy",
+        "authenticated login and select-role account navigation touch targets",
         "production auth ignores localStorage user-id fallback headers",
         "admin invitation approval action",
         "visible admin invitation approval label",

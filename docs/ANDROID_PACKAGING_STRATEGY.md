@@ -25,8 +25,8 @@ Play Store 또는 운영 릴리즈용 AAB/APK는 **Trusted Web Activity(TWA) + B
 - `mobile/android/twa`: Digital Asset Links가 아직 맞지 않는 설치본도 Chrome 주소창 대신 앱 내부 WebView fallback으로 열리도록 `fallbackType=webview`를 유지
 - `mobile/android/assetlinks.template.json`: 운영 도메인에 배포할 Digital Asset Links 템플릿
 - `scripts/check-android-packaging.mjs`: PWA/TWA 패키징 정적 검증
-- `scripts/check-android-twa-doctor.mjs`: 운영 origin, 릴리즈 지문, JDK/Android SDK/adb/npx/ANDROID_HOME 준비 상태 JSON/Markdown 점검과 macOS/환경변수/CI 설치 힌트
-- `scripts/build-android-twa.mjs`: 운영 도메인과 릴리즈 인증서 지문을 받아 Android 패키징 입력 파일을 생성하고, Java/keytool/sdkmanager/adb/npx/ANDROID_HOME 준비 상태를 `buildReady/buildBlockers`로 출력하며, 선택적으로 Bubblewrap 빌드를 실행하는 보조 스크립트
+- `scripts/check-android-twa-doctor.mjs`: 운영 origin, 릴리즈 지문, JDK/Android SDK/adb/npx/ANDROID_HOME 준비 상태 JSON/Markdown 점검과 macOS/환경변수/CI 설치 힌트. 환경변수가 비어도 repo-local `.data/toolchains/jdk`, `.data/toolchains/android-sdk` fallback을 함께 확인한다
+- `scripts/build-android-twa.mjs`: 운영 도메인과 릴리즈 인증서 지문을 받아 Android 패키징 입력 파일을 생성하고, Java/keytool/sdkmanager/adb/npx/ANDROID_HOME 준비 상태를 `buildReady/buildBlockers`로 출력하며, 선택적으로 Bubblewrap 빌드를 실행하는 보조 스크립트. doctor와 같은 repo-local toolchain fallback을 Bubblewrap 실행 PATH에도 적용한다
 - `scripts/check-android-role-apks.mjs`: `.data/mobile-builds/role-apks-20260617/role-apk-build-report.json`의 역할별 APK 4개, 현재 워크스페이스 경로, SHA-256/크기, assetlinks 역할 coverage를 검증하고 stale 절대경로는 `--write`로 정규화
 - `scripts/check-android-release-handoff.mjs`: APK/AAB, doctor report, assetlinks/build-plan, signing custody, 주소창/공유/더보기 브라우저 UI 비노출을 포함한 기기 설치 smoke, 승인 증빙 manifest 검증
 - `scripts/create-android-release-handoff-draft.mjs`: Android 산출물에서 release handoff 초안의 파일 해시와 크기 자동 생성
@@ -36,6 +36,7 @@ Play Store 또는 운영 릴리즈용 AAB/APK는 **Trusted Web Activity(TWA) + B
 - `mobile/android/release-handoff.template.json`: Android 파일럿 배포 handoff manifest 템플릿
 - `.github/workflows/android-twa.yml`: 운영 origin/릴리즈 지문을 입력받아 CI에서 doctor, TWA 입력 파일 생성, 선택적 APK/AAB 빌드, artifact 업로드를 수행하는 수동 workflow
 - `npm run test:android-packaging`: release 체인에 포함되는 패키징 준비 검증
+- `npm run test:android-play-release-artifacts`: 최신 Play release report와 Desktop AAB/APK 복사본, Gradle 버전, Android Capacitor 운영 URL, 서명 검증 파일을 대조해 업로드 파일 혼동 차단
 - `npm run test:android-role-apks`: 이미 생성된 역할별 Android APK 4개가 현재 워크스페이스 산출물과 일치하는지 검증
 - `npm run android:twa:doctor`: 로컬/CI Android TWA 빌드 준비 상태 점검
 - `npm run android:release-handoff:draft`: Android 산출물 기반 handoff 초안 생성
@@ -46,19 +47,23 @@ Play Store 또는 운영 릴리즈용 AAB/APK는 **Trusted Web Activity(TWA) + B
 - `npm run android:twa:prepare`: 운영 도메인 기준 TWA 입력 파일 생성
 - `npm run android:twa:build`: 로컬 JDK/Android SDK/Bubblewrap 환경에서 APK/AAB 빌드 시도
 - `npm run android:cap:build`: 내부 설치용 주소창 없는 Capacitor WebView debug APK 생성
+- `npm run android:play:build`: Play Console 업로드용 Capacitor release AAB/APK 생성
 
 ## APK/AAB 생성 전 필수 조건
 
 1. 운영 Next 앱을 실제 HTTPS 도메인에 배포한다. 예시 명령의 `https://app.finaljudo.kr`는 형식 예시이며, 실행 전 확정된 운영 도메인으로 바꾼다.
 2. `https://<운영도메인>/manifest.webmanifest`가 현재 PWA manifest를 반환해야 한다.
 3. `https://<운영도메인>/.well-known/assetlinks.json`에 릴리즈 키 SHA-256 지문이 들어간 Digital Asset Links를 배포한다.
-4. 로컬 또는 CI에 JDK, Android SDK, Bubblewrap 실행 환경을 준비한다.
+4. 로컬 `.data/toolchains` fallback 또는 CI에 JDK, Android SDK, Bubblewrap 실행 환경을 준비한다.
 5. 릴리즈 keystore는 저장소에 커밋하지 않고 안전한 비밀 저장소에서 관리한다.
+6. Play Console에 올린 적 있는 패키지는 `mobile/android-cap/app/build.gradle`의 `versionCode`를 이전 업로드보다 크게 올린 뒤 새 AAB를 만든다.
 
 ## 실행 예시
 
 ```bash
 npm run test:android-packaging
+
+npm run test:android-play-release-artifacts
 
 npm run test:android-role-apks
 
@@ -87,6 +92,9 @@ npm run android:twa:build -- \
 npm run android:cap:build -- \
   --url=https://final-judo.vercel.app/login
 
+npm run android:play:build -- \
+  --url=https://final-judo.vercel.app/login
+
 npm run android:release-handoff:draft -- \
   --doctor=.data/android-twa-doctor.json \
   --assetlinks=mobile/android/generated/assetlinks.json \
@@ -100,11 +108,11 @@ npm run android:release-handoff -- \
   --out=.data/android-release-handoff.report.json
 ```
 
-`android:twa:doctor`는 기본 모드에서 현재 blockers를 JSON으로 보고하고 exit 0으로 끝난다. `--markdown=.data/android-twa-doctor.md`를 함께 넘기면 담당자에게 바로 공유할 수 있는 점검표와 macOS/환경변수/CI 설치 힌트도 생성한다. 그래서 `test:release` 안에서는 운영 origin/서명 지문/JDK/Android SDK가 아직 없다는 사실을 명확히 보여주는 준비 상태표로 사용한다. 실제 APK/AAB 생성 직전에는 `--strict`를 붙여 하나라도 빠진 조건이 있으면 실패하게 하고, `--out=.data/android-twa-doctor.json --markdown=.data/android-twa-doctor.md` 결과를 릴리즈 증빙으로 보관한다.
+`android:twa:doctor`는 기본 모드에서 현재 blockers를 JSON으로 보고하고 exit 0으로 끝난다. `--markdown=.data/android-twa-doctor.md`를 함께 넘기면 담당자에게 바로 공유할 수 있는 점검표와 macOS/환경변수/CI 설치 힌트도 생성한다. 그래서 `test:release` 안에서는 운영 origin/서명 지문/Android toolchain 준비 상태를 명확히 보여주는 준비 상태표로 사용한다. 로컬에서는 환경변수가 비어 있어도 `.data/toolchains/jdk`, `.data/toolchains/android-sdk`를 fallback으로 확인해 Java/SDK 준비 상태를 과잉 blocker로 잡지 않는다. 실제 APK/AAB 생성 직전에는 `--strict`를 붙여 하나라도 빠진 조건이 있으면 실패하게 하고, `--out=.data/android-twa-doctor.json --markdown=.data/android-twa-doctor.md` 결과를 릴리즈 증빙으로 보관한다.
 
 `android:twa:doctor`, `android:twa:prepare`, `android:twa:build`, `android:release-handoff`는 `localhost`, `.example`, `.test`, `.local`, `TODO`, `TBD`, `placeholder`, `<https-origin>` 같은 예시/임시 origin을 실제 운영 origin으로 인정하지 않는다. 또한 TWA origin은 API base URL이 아니라 `/login`과 `/app/dashboard`를 서빙하는 웹앱 origin이어야 하므로 `api.*` 호스트는 기본 차단한다. API 호스트가 실제 웹앱도 함께 서빙한다는 운영자 확인이 있을 때만 `--allow-api-origin-webapp`을 붙여 예외 처리한다. 운영 도메인이 확정되기 전에는 APK/AAB 산출을 진행하지 않고 blocked 리포트로 남긴다.
 
-`android:twa:prepare`는 `mobile/android/generated/` 아래에 `bubblewrap-manifest.json`, `assetlinks.json`, `build-plan.json`을 만든다. `assetlinks.json`은 운영 도메인의 `/.well-known/assetlinks.json`으로 배포해야 한다. 이 단계는 APK/AAB를 만들지 않으므로 JDK/Android SDK가 없어도 입력 파일을 생성하지만, 출력 JSON의 `buildReady=false`와 `buildBlockers`에는 Java, keytool, sdkmanager, adb, npx, `ANDROID_HOME`/`ANDROID_SDK_ROOT` 준비 상태가 남는다.
+`android:twa:prepare`는 `mobile/android/generated/` 아래에 `bubblewrap-manifest.json`, `assetlinks.json`, `build-plan.json`을 만든다. `assetlinks.json`은 운영 도메인의 `/.well-known/assetlinks.json`으로 배포해야 한다. 이 단계는 APK/AAB를 만들지 않으므로 JDK/Android SDK가 없어도 입력 파일을 생성하지만, 출력 JSON의 `buildReady`와 `buildBlockers`에는 Java, keytool, sdkmanager, adb, npx, `ANDROID_HOME`/`ANDROID_SDK_ROOT` 또는 repo-local `.data/toolchains` 준비 상태가 남는다.
 
 설치 APK에서 상단에 `final-judo.vercel.app` 같은 Chrome 주소창, 공유 버튼, 더보기 버튼이 보이면 앱이 네이티브 WebView가 아니라 TWA/Custom Tab 경로로 열린 것이다. 이 설치본은 사용자 체감상 브라우저처럼 보이므로 현장 배포용으로 쓰지 않는다.
 
@@ -128,6 +136,32 @@ npm run android:cap:build -- \
 현장 설치자는 `INSTALL_ONLY_final-judo-native-webview-debug.apk`만 설치한다. `final-judo-native-webview-debug.apk`는 같은 해시의 동등본으로 남지만, 현장 전달용으로는 `INSTALL_ONLY_` 파일명을 우선한다. 아래 경로는 파일명이 `app-debug.apk`라 헷갈리기 쉽지만 TWA/Bubblewrap 산출물이므로 내부 현장 검증 APK로 설치하지 않는다.
 
 - `mobile/android/twa/app/build/outputs/apk/debug/app-debug.apk`
+
+Play Console 업로드용 release AAB/APK는 다음 명령으로 만든다. 이 명령은 `versionCode`가 `.data/mobile-builds`에 남은 최근 Play 빌드 리포트보다 크지 않으면 실패하므로, 재업로드 전 중복 versionCode를 먼저 막는다.
+
+```bash
+npm run android:play:build -- \
+  --url=https://final-judo.vercel.app/login
+```
+
+생성 파일:
+
+- `.data/mobile-builds/android-play-release-<timestamp>/final-judo-play-release.aab`
+- `.data/mobile-builds/android-play-release-<timestamp>/final-judo-release.apk`
+- `.data/mobile-builds/android-play-release-<timestamp>/google-play-release-report.json`
+- `~/Desktop/final-judo-play-release.aab`
+- `~/Desktop/final-judo-release.apk`
+
+빌드 후에는 다음 검증으로 Desktop 업로드 파일과 timestamped 산출물이 같은 파일인지 확인한다.
+
+```bash
+npm run test:android-play-release-artifacts
+```
+
+이 검증은 최신 `google-play-release-report.json`의 `versionCode`/`versionName`, `https://final-judo.vercel.app/login` 실행 URL, AAB/APK byte size와 SHA-256, `~/Desktop/final-judo-play-release.aab`, `~/Desktop/final-judo-release.apk`, jarsigner/apksigner 검증 파일, APK badging, AAB 내부 TWA/Custom Tabs 런타임 미포함을 대조한다.
+
+아래 TWA/Bubblewrap 산출물은 Play release WebView 산출물이 아니므로 현장 설치 APK나 Play upload 파일로 혼용하지 않는다.
+
 - `mobile/android/twa/app/build/outputs/apk/release/app-release-unsigned.apk`
 - `mobile/android/twa/**/*.apk`
 
@@ -135,7 +169,7 @@ TWA APK 출력 폴더에 `DO_NOT_INSTALL_FOR_FIELD_WEBVIEW.txt`가 있으면 그
 
 동일한 packageId의 이전 APK가 다른 서명키로 설치되어 있으면 Android가 업데이트 설치를 거부할 수 있다. 이때는 기존 `파이널유도멀티짐` 앱을 삭제한 뒤 새 APK를 설치한다. 운영 배포에서는 여전히 release signing SHA-256이 들어간 `assetlinks.json`을 도메인에 배포해 TWA 검증 또는 release-signed Capacitor 빌드 handoff를 통과해야 한다.
 
-`android:twa:build`는 위 `buildBlockers`가 모두 해소된 경우에만 Bubblewrap init/build를 실행한다. 이 가드는 macOS의 `/usr/bin/java` shim처럼 명령은 있어도 실제 JRE가 없는 상태, Android SDK home 미설정, adb/platform-tools 누락을 빌드 시작 전에 차단한다.
+`android:twa:build`는 위 `buildBlockers`가 모두 해소된 경우에만 Bubblewrap init/build를 실행한다. 이 가드는 macOS의 `/usr/bin/java` shim처럼 명령은 있어도 실제 JRE가 없는 상태, Android SDK home 미설정, adb/platform-tools 누락을 빌드 시작 전에 차단한다. 로컬 fallback이 확인되면 해당 JDK/SDK 경로를 `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `PATH`에 반영해 Bubblewrap 실행에도 같은 toolchain을 사용한다.
 
 ## GitHub Actions 패키징 경로
 
@@ -173,12 +207,23 @@ npm run android:release-handoff -- \
 
 ## 현재 로컬 상태
 
-2026-06-29 기준 내부 설치용 Capacitor WebView debug APK는 로컬에서 생성되어 있다.
+2026-07-05 기준 내부 설치용 Capacitor WebView debug APK와 Play Console 업로드용 Capacitor release AAB/APK는 로컬에서 생성되어 있다.
 
 - `.data/mobile-builds/android-capacitor-webview-20260629/INSTALL_ONLY_final-judo-native-webview-debug.apk`
 - `.data/mobile-builds/android-capacitor-webview-20260629/final-judo-native-webview-debug.apk` (동등본)
 - `~/Desktop/INSTALL_ONLY_final-judo-native-webview-debug.apk`
 - `~/Desktop/final-judo-native-webview-debug.apk`
+
+Play Console 업로드용 최신 로컬 산출물:
+
+- `.data/mobile-builds/android-play-release-20260705043652/final-judo-play-release.aab`
+- `.data/mobile-builds/android-play-release-20260705043652/final-judo-release.apk`
+- `.data/mobile-builds/android-play-release-20260705043652/google-play-release-report.json`
+- `~/Desktop/final-judo-play-release.aab`
+- `~/Desktop/final-judo-release.apk`
+- `versionCode 39`, `versionName 1.0.38`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
+- AAB SHA-256 `40ada39701d18155503c7b630e264ed0dad30dd2ffa27bd424441fd177cb5639`, APK SHA-256 `d2921abb1c5f0171b4ce2faba89b732d1737c4627d165eb64a51efc15687d2ab`
+- 배포 증빙: Vercel production deployment `dpl_Fij6HqEV3cKmh9EidhpshvskkNiZ`, alias `https://final-judo.vercel.app`
 
 이 APK는 `capacitor-native-webview` 패키징 리포트에서 `kr.co.finaljudo.multigym.MainActivity` 실행, 요청한 `server.url`, TWA/Custom Tabs 런타임 미포함, debug signing 검증을 통과했다. Android 상단에 `final-judo.vercel.app` URL 바, 공유 버튼, 더보기 버튼이 보이면 이 WebView APK가 아니라 TWA/Custom Tab 또는 브라우저 경로 산출물이 설치된 것이다.
 

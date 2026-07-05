@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeGitHubRepository } from "./lib/github-repository.mjs";
 
@@ -12,6 +12,7 @@ const artifactPaths = {
   actionChecklist: path.join(workspace, "p1-handoff-action-checklist.json"),
   androidDoctor: path.join(workspace, "android-twa-doctor.json"),
   androidDoctorMarkdown: path.join(workspace, "android-twa-doctor.md"),
+  androidPlayRelease: null,
   androidRoleApks: path.join(workspace, "mobile-builds", "role-apks-20260617", "role-apk-build-report.json"),
   bundleManifest: path.join(workspace, "p1-handoff-bundle-manifest.json"),
   dispatchReport: path.join(workspace, "p1-handoff-dispatch-report.json"),
@@ -178,6 +179,26 @@ function storageReceiptReady(document) {
 
 function nestedNextActions(document) {
   return Array.isArray(document?.nextActions) ? document.nextActions.map(text).filter(Boolean) : [];
+}
+
+async function findLatestAndroidPlayReleaseReport(workspacePath) {
+  const mobileBuildsDir = path.join(workspacePath, "mobile-builds");
+
+  try {
+    const entries = await readdir(mobileBuildsDir, { withFileTypes: true });
+    const candidates = entries
+      .filter((entry) => entry.isDirectory() && /^android-play-release-\d{14}$/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((a, b) => b.localeCompare(a));
+
+    if (candidates.length > 0) {
+      return path.join(mobileBuildsDir, candidates[0], "google-play-release-report.json");
+    }
+  } catch {
+    // Missing build directory is reported by the normal artifact summary below.
+  }
+
+  return path.join(mobileBuildsDir, "android-play-release-latest", "google-play-release-report.json");
 }
 
 function requirementRows(readiness) {
@@ -360,6 +381,59 @@ function summarizeAndroidRoleApks(readResult) {
     blockerCount: ready ? 0 : 1,
     roleCount: outputs.length,
     nextAction: ready ? "" : "npm run test:android-role-apks -- --write",
+  };
+}
+
+function summarizeAndroidPlayRelease(readResult) {
+  if (!readResult.exists) {
+    return {
+      key: "androidPlayRelease",
+      label: "Android Play AAB/APK release report",
+      status: "missing",
+      releaseDecision: "missing",
+      path: rel(artifactPaths.androidPlayRelease),
+      blockerCount: 1,
+      nextAction: "npm run android:play:build -- --origin=https://final-judo.vercel.app",
+    };
+  }
+
+  const document = readResult.json;
+  const artifacts = document?.artifacts ?? {};
+  const sizes = document?.sizes ?? {};
+  const hashes = document?.sha256 ?? {};
+  const signing = document?.signing ?? {};
+  const ready =
+    document?.ok === true &&
+    text(document?.packageName) === "kr.co.finaljudo.multigym" &&
+    Number(document?.versionCode) > 0 &&
+    text(document?.versionName) &&
+    text(artifacts.aab) &&
+    text(artifacts.apk) &&
+    text(artifacts.desktopAab) &&
+    text(artifacts.desktopApk) &&
+    Number(sizes.aabBytes) > 0 &&
+    Number(sizes.apkBytes) > 0 &&
+    /^[a-f0-9]{64}$/i.test(text(hashes.aab)) &&
+    /^[a-f0-9]{64}$/i.test(text(hashes.apk)) &&
+    hashes.aab === hashes.desktopAab &&
+    hashes.apk === hashes.desktopApk &&
+    signing.aabVerified === true &&
+    signing.apkVerified === true;
+
+  return {
+    key: "androidPlayRelease",
+    label: "Android Play AAB/APK release report",
+    status: ready ? "ready" : "blocked",
+    releaseDecision: ready ? "artifact_ready_release_blocked" : "blocked",
+    generatedAt: document?.generatedAt ?? null,
+    path: rel(artifactPaths.androidPlayRelease),
+    blockerCount: ready ? 0 : 1,
+    packageName: text(document?.packageName) || null,
+    versionCode: Number(document?.versionCode) || null,
+    versionName: text(document?.versionName) || null,
+    aabBytes: Number(sizes.aabBytes) || 0,
+    apkBytes: Number(sizes.apkBytes) || 0,
+    nextAction: ready ? "" : "npm run android:play:build -- --origin=https://final-judo.vercel.app",
   };
 }
 
@@ -1058,10 +1132,13 @@ function createMarkdown(report) {
 }
 
 const blockers = [];
+artifactPaths.androidPlayRelease = await findLatestAndroidPlayReleaseReport(workspace);
+
 const artifacts = {
   actionChecklist: await readJsonArtifact("actionChecklist", artifactPaths.actionChecklist, blockers),
   androidDoctor: await readJsonArtifact("androidDoctor", artifactPaths.androidDoctor, blockers, { required: false }),
   androidDoctorMarkdown: await readTextArtifact("androidDoctorMarkdown", artifactPaths.androidDoctorMarkdown, blockers),
+  androidPlayRelease: await readJsonArtifact("androidPlayRelease", artifactPaths.androidPlayRelease, blockers, { required: false }),
   androidRoleApks: await readJsonArtifact("androidRoleApks", artifactPaths.androidRoleApks, blockers, { required: false }),
   bundleManifest: await readJsonArtifact("bundleManifest", artifactPaths.bundleManifest, blockers),
   dispatchReport: await readJsonArtifact("dispatchReport", artifactPaths.dispatchReport, blockers),
@@ -1134,6 +1211,7 @@ releaseCustody.prerequisitesReady = isReady(readiness) && isReady(artifacts.evid
 releaseCustody.prerequisiteAction = releaseCustodyPrerequisiteAction();
 const androidDoctorSummary = summarizeAndroidDoctor(artifacts.androidDoctor);
 const androidDoctorMarkdownSummary = summarizeAndroidDoctorMarkdown(artifacts.androidDoctorMarkdown);
+const androidPlayReleaseSummary = summarizeAndroidPlayRelease(artifacts.androidPlayRelease);
 const androidRoleApksSummary = summarizeAndroidRoleApks(artifacts.androidRoleApks);
 const iosCapacitorConnectionSummary = summarizeIosCapacitorConnection(artifacts.iosCapacitorConnection);
 const iosIpaDoctorSummary = summarizeIosIpaDoctor(artifacts.iosIpaDoctor);
@@ -1239,6 +1317,7 @@ const supportArtifacts = [
   summarizeDocument("actionChecklist", "P1 handoff action checklist", artifacts.actionChecklist),
   androidDoctorSummary,
   androidDoctorMarkdownSummary,
+  androidPlayReleaseSummary,
   androidRoleApksSummary,
   iosCapacitorConnectionSummary,
   iosIpaDoctorSummary,
@@ -1277,6 +1356,7 @@ const report = {
     "P1 readiness report status",
     "Android TWA doctor JSON status",
     "Android TWA doctor Markdown availability",
+    "Android Play AAB/APK release report integrity",
     "Android role APK build report integrity",
     "iOS IPA doctor JSON status",
     "iOS IPA doctor Markdown availability",

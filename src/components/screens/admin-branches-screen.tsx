@@ -116,7 +116,18 @@ export function AdminBranchesScreen() {
 
   useEffect(() => {
     function openHashTarget() {
-      const branchId = window.location.hash.slice(1).match(/^settings-(.+)$/)?.[1];
+      const hashTarget = window.location.hash.slice(1);
+      const panelTarget = new URLSearchParams(window.location.search).get("panel");
+
+      if (hashTarget === "create" || panelTarget === "create") {
+        setBranchCreateOpen(true);
+        setOwnerEditorBranchId(null);
+        setSettingsEditorBranchId(null);
+        window.setTimeout(() => scrollBranchPanelIntoView("admin-branch-create-form"), 0);
+        return;
+      }
+
+      const branchId = hashTarget.match(/^settings-(.+)$/)?.[1];
 
       if (!branchId) {
         return;
@@ -290,10 +301,10 @@ export function AdminBranchesScreen() {
             </button>
           </div>
           {branchCreateOpen ? (
-            <form className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" id="admin-branch-create-form" onSubmit={handleCreateBranch}>
-              <div className="grid grid-cols-2 gap-2 md:contents">
+            <form className="mt-1.5 grid gap-1.5 md:grid-cols-[1fr_1fr_1fr_auto]" id="admin-branch-create-form" onSubmit={handleCreateBranch}>
+              <div className="grid grid-cols-2 gap-1.5 md:contents">
                 <label>
-                  <span className="mb-1 block text-xs font-semibold text-zinc-500">지점명</span>
+                  <span className="sr-only">지점명</span>
                   <input
                     className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                     placeholder="지점명 입력"
@@ -302,7 +313,7 @@ export function AdminBranchesScreen() {
                   />
                 </label>
                 <label>
-                  <span className="mb-1 block text-xs font-semibold text-zinc-500">지역</span>
+                  <span className="sr-only">지역</span>
                   <input
                     className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                     placeholder="지역 입력"
@@ -311,9 +322,9 @@ export function AdminBranchesScreen() {
                   />
                 </label>
               </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-2 md:contents">
+              <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-1.5 md:contents">
                 <label className="min-w-0">
-                  <span className="mb-1 block text-xs font-semibold text-zinc-500">대표 배정</span>
+                  <span className="sr-only">대표 배정</span>
                   <select
                     className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                     value={newBranchOwnerId}
@@ -464,11 +475,11 @@ export function AdminBranchesScreen() {
                   id={`admin-branch-settings-form-${branch.id}`}
                   onSubmit={(event) => void handleUpdateBranch(event, branch)}
                 >
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1">
                     <label className="relative min-w-0">
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">지점명</span>
                       <input
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                         value={edit.name}
                         onChange={(event) => updateBranchEdit(branch.id, { name: event.target.value })}
                       />
@@ -476,7 +487,7 @@ export function AdminBranchesScreen() {
                     <label className="relative min-w-0">
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">지역</span>
                       <input
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                         value={edit.district}
                         onChange={(event) => updateBranchEdit(branch.id, { district: event.target.value })}
                       />
@@ -484,7 +495,7 @@ export function AdminBranchesScreen() {
                     <label className="relative min-w-0">
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">상태</span>
                       <select
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition focus:border-teal-500"
                         value={edit.status}
                         onChange={(event) => updateBranchEdit(branch.id, { status: event.target.value as BranchStatus })}
                       >
@@ -495,7 +506,7 @@ export function AdminBranchesScreen() {
                     <label className="relative min-w-0">
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">시간대</span>
                       <select
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                         value={edit.timezone}
                         onChange={(event) => updateBranchEdit(branch.id, { timezone: event.target.value })}
                       >
@@ -512,7 +523,7 @@ export function AdminBranchesScreen() {
                   </div>
                   <fieldset className="grid gap-2">
                     <legend className="sr-only">지점 정책 토글</legend>
-                    <label className="flex min-h-10 items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2 text-xs font-medium leading-4 text-zinc-700">
+                    <label className="flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2 text-xs font-medium leading-4 text-zinc-700">
                       <input
                         className="h-5 w-5 shrink-0 accent-teal-700"
                         checked={edit.attendanceEditRequiresReason}

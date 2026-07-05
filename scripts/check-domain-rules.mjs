@@ -527,6 +527,21 @@ assert.equal(
   "미확인 공지 3건, 임박 승급 심사 1건",
   "coach notification label must mention imminent promotion exams without payment follow-ups",
 );
+assert.equal(
+  notificationAlerts.formatNotificationActionableLabel(
+    notificationAlerts.getNotificationAlertCounts({ db: dbWithPromotions, selectedBranchId: "branch-gangnam", user: guardian }),
+  ),
+  "미확인 공지 4건, 확인 필요 결제 1건, 임박 승급 심사 1건",
+  "guardian notification label must keep comma separators for assistive text when all alert types are present",
+);
+assert.equal(
+  notificationAlerts.formatNotificationActionableLabel(
+    notificationAlerts.getNotificationAlertCounts({ db: dbWithPromotions, selectedBranchId: "branch-gangnam", user: guardian }),
+    " · ",
+  ),
+  "미확인 공지 4건 · 확인 필요 결제 1건 · 임박 승급 심사 1건",
+  "notification inbox visual summary must use a consistent separator across all alert types",
+);
 
 console.log(
   JSON.stringify(

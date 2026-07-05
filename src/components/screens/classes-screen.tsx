@@ -523,6 +523,7 @@ export function ClassesScreen() {
           {classCreateFormOpen ? (
             <form
               className="mt-3 grid gap-3 lg:grid-cols-[0.9fr_1.2fr_0.8fr_0.8fr_0.8fr_0.8fr]"
+              data-testid="class-create-form"
               id="class-create-form"
               onSubmit={handleCreateClass}
             >
@@ -530,7 +531,8 @@ export function ClassesScreen() {
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
                   <select
-                    className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    data-testid="class-create-field"
                     value={selectedCreateBranchId}
                     onChange={(event) => {
                       setNewClassBranchId(event.target.value);
@@ -549,7 +551,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">수업명</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="class-create-field"
                   placeholder="수업명 입력"
                   value={newClassName}
                   onChange={(event) => setNewClassName(event.target.value)}
@@ -558,7 +561,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">연령</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   value={newClassAgeGroup}
                   onChange={(event) => setNewClassAgeGroup(event.target.value as Member["ageGroup"])}
                 >
@@ -572,7 +576,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">레벨</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   value={newClassLevel}
                   onChange={(event) => setNewClassLevel(event.target.value)}
                 />
@@ -580,7 +585,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">코치</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   value={selectedCoachId}
                   onChange={(event) => setNewClassCoachId(event.target.value)}
                 >
@@ -594,7 +600,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">정원</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   min={1}
                   max={80}
                   type="number"
@@ -605,7 +612,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">시작</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   type="datetime-local"
                   value={newClassStartsAt}
                   onChange={(event) => {
@@ -617,7 +625,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">종료</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   type="datetime-local"
                   value={newClassEndsAt}
                   onChange={(event) => setNewClassEndsAt(event.target.value)}
@@ -626,7 +635,8 @@ export function ClassesScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">장소</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="class-create-field"
                   value={newClassRoom}
                   onChange={(event) => setNewClassRoom(event.target.value)}
                 />
@@ -652,7 +662,8 @@ export function ClassesScreen() {
                 </div>
               </div>
               <button
-                className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                data-testid="class-create-submit"
                 disabled={!selectedCreateBranchId || !selectedCoachId || !newClassName.trim()}
                 type="submit"
               >
@@ -686,11 +697,11 @@ export function ClassesScreen() {
 	                </div>
                 <div className="flex min-w-0 items-center gap-1">
 	                  <label className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 sm:gap-2 sm:px-3 sm:text-sm">
-	                    <input
-	                      checked={showUncheckedOnly}
-	                      className="h-6 w-6 rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
-	                      data-testid="attendance-unchecked-filter"
-	                      type="checkbox"
+		                    <input
+		                      checked={showUncheckedOnly}
+		                      className="h-7 w-7 rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+		                      data-testid="attendance-unchecked-filter"
+		                      type="checkbox"
 	                      onChange={(event) => {
                           setShowReasonRequiredOnly(false);
                           setShowUncheckedOnly(event.target.checked);
@@ -753,20 +764,20 @@ export function ClassesScreen() {
                     {showAttendanceSearchInput ? (
 	                    <div className="relative">
 	                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden />
-	                      <input
-	                        className="h-10 w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-10 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/10"
-	                        data-testid="attendance-roster-search"
-	                        id="attendance-roster-search"
-	                        placeholder="이름, 띠, 레벨 검색"
+		                      <input
+		                        className="h-11 w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-12 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/10"
+		                        data-testid="attendance-roster-search"
+		                        id="attendance-roster-search"
+		                        placeholder="이름, 띠, 레벨 검색"
 	                        type="search"
 	                        value={attendanceSearch}
 	                        onChange={(event) => setAttendanceSearch(event.target.value)}
 	                      />
-	                      <button
-	                        aria-label={attendanceSearch ? "출석 명단 검색어 지우기" : "출석 명단 검색 닫기"}
-	                        className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-	                        data-testid="attendance-roster-search-clear"
-	                        type="button"
+		                      <button
+		                        aria-label={attendanceSearch ? "출석 명단 검색어 지우기" : "출석 명단 검색 닫기"}
+		                        className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+		                        data-testid="attendance-roster-search-clear"
+		                        type="button"
 	                        onClick={() => {
                             if (attendanceSearch) {
                               setAttendanceSearch("");
@@ -807,14 +818,14 @@ export function ClassesScreen() {
                 ) : null}
 	                {lastAttendanceChange ? (
 	                  <div
-	                    className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
+	                    className="flex min-h-11 flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
 	                    data-testid="attendance-undo-panel"
 	                  >
 	                    <span className="font-semibold">
 	                      최근 변경: {lastAttendanceChange.memberName} · {attendanceStatusLabels[lastAttendanceChange.nextStatus]}
 	                    </span>
 	                    <button
-	                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-blue-300 bg-white px-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+	                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-blue-300 bg-white px-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
 	                      data-testid="attendance-undo-last"
 	                      disabled={attendanceSyncPending}
 	                      type="button"
@@ -828,7 +839,7 @@ export function ClassesScreen() {
 	                {hasPendingAttendance ? (
 	                  <button
 	                    aria-label="대기 출석 저장 재시도"
-	                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+	                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
 	                    disabled={attendanceSyncPending}
 	                    type="button"
 	                    onClick={() => void syncPendingAttendance()}
@@ -1105,12 +1116,14 @@ export function ClassesScreen() {
                 {canManageClasses ? (
                   <form
                     className="mt-3 grid gap-3 border-b border-zinc-100 pb-4 sm:grid-cols-[1fr_0.5fr_auto]"
+                    data-testid="class-edit-form"
                     onSubmit={(event) => handleUpdateClass(event, session)}
                   >
                     <label>
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">장소 수정</span>
                       <input
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        data-testid="class-edit-input"
                         value={getClassEdit(session).room}
                         onChange={(event) => updateClassEdit(session, "room", event.target.value)}
                       />
@@ -1118,7 +1131,8 @@ export function ClassesScreen() {
                     <label>
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">정원 수정</span>
                       <input
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        data-testid="class-edit-input"
                         min={session.enrolledMemberIds.length}
                         max={80}
                         type="number"
@@ -1127,7 +1141,8 @@ export function ClassesScreen() {
                       />
                     </label>
                     <button
-                      className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                      className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                      data-testid="class-edit-submit"
                       type="submit"
                     >
                       <Save className="h-4 w-4" aria-hidden />
@@ -1213,7 +1228,7 @@ export function ClassesScreen() {
                                   <button
                                     aria-controls={`attendance-note-editor-${attendanceNoteKey}`}
                                     aria-expanded={noteEditorOpen}
-                                    className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
+                                    className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
                                     data-testid={`attendance-note-toggle-${session.id}-${member.id}`}
                                     type="button"
                                     onClick={() => setAttendanceNoteEditorOpen(attendanceNoteKey, !noteEditorOpen)}
@@ -1227,7 +1242,7 @@ export function ClassesScreen() {
                                       </label>
                                       <input
                                         data-testid={`attendance-note-${session.id}-${member.id}`}
-                                        className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                                        className="mt-2 h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                                         id={`attendance-note-${attendanceNoteKey}`}
                                         maxLength={80}
                                         onChange={(event) =>
@@ -1249,7 +1264,7 @@ export function ClassesScreen() {
                                       <div className="mt-2 flex flex-wrap gap-2" aria-label={`${member.name} 빠른 메모`}>
                                         {attendanceNotePresets.map((preset) => (
                                           <button
-                                            className="inline-flex min-h-10 items-center justify-center rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
+                                            className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
                                             data-testid={`attendance-note-preset-${session.id}-${member.id}-${preset.id}`}
                                             key={preset.id}
                                             type="button"
@@ -1260,7 +1275,7 @@ export function ClassesScreen() {
                                         ))}
                                         {attendanceRecord ? (
                                           <button
-                                            className="inline-flex min-h-10 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                            className="inline-flex min-h-11 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                                             data-testid={`attendance-note-save-${session.id}-${member.id}`}
                                             disabled={!noteValue.trim() || reasonSavingKey === attendanceNoteKey}
                                             type="button"
@@ -1437,7 +1452,7 @@ export function ClassesScreen() {
 
           {shouldShowMobileSaveStatusPanel ? (
             <div
-              className="fixed inset-x-2 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-20 rounded-md border border-zinc-200 bg-white px-3 py-2 shadow-[0_10px_28px_rgba(15,23,42,0.16)] lg:hidden"
+              className="fixed inset-x-2 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-20 rounded-md border border-zinc-200 bg-white px-3 py-2 shadow-[0_10px_28px_rgba(15,23,42,0.16)] lg:hidden"
               data-testid="coach-mobile-save-status-panel"
             >
               <div className="flex min-h-11 items-center justify-between gap-3">
@@ -1453,7 +1468,8 @@ export function ClassesScreen() {
                   {hasPendingAttendance ? (
                     <button
                       aria-label="대기 출석 재시도"
-                      className="inline-flex min-h-9 items-center justify-center gap-1 rounded-md border border-amber-300 bg-white px-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md border border-amber-300 bg-white px-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      data-testid="attendance-retry-mobile"
                       disabled={attendanceSyncPending}
                       type="button"
                       onClick={() => void syncPendingAttendance()}
@@ -1462,7 +1478,10 @@ export function ClassesScreen() {
                       재시도
                     </button>
                   ) : null}
-                  <span className={`inline-flex min-h-9 items-center rounded-md border px-2 text-sm font-semibold ${syncStatusClasses[attendanceSync.status]}`}>
+                  <span
+                    className={`inline-flex min-h-11 items-center rounded-md border px-2 text-sm font-semibold ${syncStatusClasses[attendanceSync.status]}`}
+                    data-testid="attendance-sync-status-mobile"
+                  >
                     {syncStatusLabels[attendanceSync.status]}
                   </span>
                 </div>
@@ -1473,7 +1492,7 @@ export function ClassesScreen() {
                     최근 변경 {lastAttendanceChange.memberName} · {attendanceStatusLabels[lastAttendanceChange.nextStatus]}
                   </p>
                   <button
-                    className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-blue-300 bg-white px-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-blue-300 bg-white px-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                     data-testid="attendance-undo-last-mobile"
                     disabled={attendanceSyncPending}
                     type="button"

@@ -81,16 +81,37 @@ async function collectInboxState(page) {
       (box) =>
         box.visible &&
         box.testId &&
-        ["notification-filter-all", "notification-filter-unread", "notification-filter-important", "notification-bulk-read-filtered", "notification-read-action"].includes(box.testId) &&
+        [
+          "notification-filter-all",
+          "notification-filter-unread",
+          "notification-filter-important",
+          "notification-filter-payment",
+          "notification-filter-promotion",
+          "notification-bulk-read-filtered",
+          "notification-read-action",
+        ].includes(box.testId) &&
         (box.width < 44 || box.height < 44),
     );
     const bottomNav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
     const bottomNavRect = rectFor(bottomNav);
+    const filterToolbar = document.querySelector('[data-testid="notification-filter-toolbar"]');
+    const filterToolbarRect = rectFor(filterToolbar);
+    const filterToolbarElement = filterToolbar instanceof HTMLElement ? filterToolbar : null;
+    const filterToolbarButtons = filterToolbar ? Array.from(filterToolbar.querySelectorAll("button")) : [];
+    const nestedFilterFrames = filterToolbar
+      ? Array.from(filterToolbar.querySelectorAll("div")).filter((element) => {
+          const className = typeof element.className === "string" ? element.className : "";
+
+          return className.includes("border") && className.includes("bg-white") && className.includes("p-0.5");
+        })
+      : [];
     const lastCard = Array.from(document.querySelectorAll('[data-testid="notification-inbox-card"]')).at(-1);
     const lastAction = lastCard?.querySelector('[data-testid="notification-detail-link"], [data-testid="notification-read-action"]');
     const lastCardRect = rectFor(lastCard);
     const lastActionRect = rectFor(lastAction);
     const safeAreaRect = rectFor(document.querySelector('[data-testid="notification-bottom-safe-area"]'));
+    const viewportHeight = window.innerHeight;
+    const intersectsViewport = (rect) => Boolean(rect && rect.bottom > 0 && rect.top < viewportHeight);
 
     return {
       actionableSummary: text('[data-testid="notification-actionable-count-summary"]'),
@@ -101,11 +122,22 @@ async function collectInboxState(page) {
         document.querySelectorAll("[data-nextjs-dialog]").length +
         Array.from(document.querySelectorAll("nextjs-portal")).filter((portal) => (portal.textContent ?? "").trim().length > 0).length,
       heading: text("main h1"),
+      filterToolbarButtonCount: filterToolbarButtons.length,
+      filterToolbarHeight: filterToolbarRect?.height ?? 0,
+      filterToolbarNestedFrameCount: nestedFilterFrames.length,
+      filterToolbarOverflow: filterToolbarElement ? filterToolbarElement.scrollWidth - filterToolbarElement.clientWidth : 0,
+      filterToolbarVisible: Boolean(filterToolbarRect && filterToolbarRect.height > 0),
       importantFilterText: text('[data-testid="notification-filter-important"]'),
       inboxText: text('[data-testid="notifications-screen"]'),
       noticeCardHeights: Array.from(document.querySelectorAll('[data-notification-kind="notice"][data-testid="notification-inbox-card"]'))
         .map((card) => Math.round(card.getBoundingClientRect().height))
         .filter((height) => height > 0),
+      paymentActionLabels: Array.from(document.querySelectorAll('[data-notification-kind="payment"] [data-testid="notification-detail-link"]'))
+        .map((link) => link.getAttribute("data-notification-action-label") ?? link.textContent?.replace(/\s+/g, " ").trim() ?? "")
+        .filter(Boolean),
+      paymentTitles: Array.from(document.querySelectorAll('[data-notification-kind="payment"] h2'))
+        .map((heading) => heading.textContent?.replace(/\s+/g, " ").trim() ?? "")
+        .filter(Boolean),
       readActionCount: document.querySelectorAll('[data-testid="notification-read-action"]').length,
       readActionWidths: boxes
         .filter((box) => box.testId === "notification-read-action" && box.visible)
@@ -115,13 +147,43 @@ async function collectInboxState(page) {
       safeAreaCount: document.querySelectorAll('[data-testid="notification-bottom-safe-area"]').length,
       safeAreaHeight: safeAreaRect?.height ?? 0,
       scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
       clientWidth: document.documentElement.clientWidth,
+      viewportHeight,
       bottomCardClearance: bottomNavRect && lastCardRect ? bottomNavRect.top - lastCardRect.bottom : null,
       bottomActionClearance: bottomNavRect && lastActionRect ? bottomNavRect.top - lastActionRect.bottom : null,
+      lastActionIntersectsViewport: intersectsViewport(lastActionRect),
+      lastCardIntersectsViewport: intersectsViewport(lastCardRect),
       undersizedVisibleTargets,
       unreadFilterText: text('[data-testid="notification-filter-unread"]'),
     };
   });
+}
+
+async function seedGuardianPendingOnlinePayment(page) {
+  await page.goto(
+    new URL(`/api/v1/dev/auto-login?role=owner&next=${encodeURIComponent("/app/payments")}`, baseUrl).toString(),
+    { waitUntil: "load" },
+  );
+
+  const result = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/payments/pay-yuna/online-checkout?selectedBranchId=branch-gangnam", {
+      method: "POST",
+    });
+    const payload = await response.json().catch(() => null);
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      checkoutStatus: payload?.data?.checkout?.status ?? null,
+      provider: payload?.data?.checkout?.provider ?? null,
+    };
+  });
+
+  assert.equal(result.ok, true, `guardian pending payment seed must create a local online checkout: ${JSON.stringify(result)}`);
+  assert.equal(result.checkoutStatus, "pending", "guardian pending payment seed must produce a pending checkout state");
+
+  return result;
 }
 
 async function verifyFamilyCase(browser, testCase) {
@@ -135,6 +197,7 @@ async function verifyFamilyCase(browser, testCase) {
   const beforeScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-before.png`);
   const afterReadScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-after-read.png`);
   const scrollEndScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-scroll-end.png`);
+  const pendingPaymentSeed = testCase.role === "guardian" ? await seedGuardianPendingOnlinePayment(page) : null;
 
   page.on("console", (message) => {
     if (message.type() === "error") {
@@ -164,10 +227,38 @@ async function verifyFamilyCase(browser, testCase) {
     );
     assert(beforeState.readActionCount > 0, `${testCase.id} notifications must start with at least one unread notice action`);
     assert.equal(beforeState.deleteActionCount, 0, `${testCase.id} notifications must not expose notice delete actions to family roles`);
+    assert.doesNotMatch(
+      beforeState.inboxText,
+      /결제 진행 필요|결제 진행 중|결제하기/,
+      `${testCase.id} notifications must not imply live payment progress before provider connection`,
+    );
+    assert(
+      beforeState.paymentActionLabels.includes("납부 정보 확인"),
+      `${testCase.id} payable payment notification action must use payment-info confirmation copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
+    );
+    if (testCase.role === "guardian") {
+      assert(
+        beforeState.paymentTitles.some((title) => title.includes("한유나 납부 정보 확인 필요")),
+        `guardian notifications must show pending payment info-confirmation copy: ${JSON.stringify(beforeState.paymentTitles)}`,
+      );
+      assert(
+        beforeState.paymentActionLabels.includes("납부 확인 중"),
+        `guardian pending payment action must use payment-confirmation copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
+      );
+    }
     assert(
       beforeState.readActionWidths.every((width) => width <= 56),
       `${testCase.id} notifications must keep mobile read actions compact: ${JSON.stringify(beforeState.readActionWidths)}`,
     );
+    assert.equal(beforeState.filterToolbarVisible, true, `${testCase.id} notifications must render a flat filter toolbar`);
+    assert(beforeState.filterToolbarButtonCount >= 3, `${testCase.id} notifications must render filter buttons inside the toolbar`);
+    assert.equal(
+      beforeState.filterToolbarNestedFrameCount,
+      0,
+      `${testCase.id} notifications must not put filter controls inside a nested bordered card frame`,
+    );
+    assert(beforeState.filterToolbarHeight <= 112, `${testCase.id} notifications filter toolbar must stay compact: ${beforeState.filterToolbarHeight}`);
+    assert(beforeState.filterToolbarOverflow <= 0, `${testCase.id} notifications filter toolbar must not overflow horizontally: ${beforeState.filterToolbarOverflow}`);
     assert.equal(beforeState.safeAreaCount, 1, `${testCase.id} notifications must keep the mobile bottom safe area spacer`);
     assert.equal(beforeState.safeAreaHeight, 112, `${testCase.id} notifications must keep enough mobile bottom breathing room`);
     assert.equal(beforeState.scrollWidth, beforeState.clientWidth, `${testCase.id} notifications must not overflow horizontally`);
@@ -204,6 +295,18 @@ async function verifyFamilyCase(browser, testCase) {
       `${testCase.id} notifications must keep remaining mobile read actions compact after reading: ${JSON.stringify(afterReadState.readActionWidths)}`,
     );
     assert.equal(afterReadState.scrollWidth, afterReadState.clientWidth, `${testCase.id} notifications must not overflow horizontally after reading`);
+    if (afterReadState.scrollHeight <= afterReadState.viewportHeight + 1 && afterReadState.lastCardIntersectsViewport) {
+      assert(
+        afterReadState.bottomCardClearance !== null && afterReadState.bottomCardClearance >= 40,
+        `${testCase.id} visible bottom notification card must keep breathing room after read feedback: ${afterReadState.bottomCardClearance}`,
+      );
+    }
+    if (afterReadState.scrollHeight <= afterReadState.viewportHeight + 1 && afterReadState.lastActionIntersectsViewport) {
+      assert(
+        afterReadState.bottomActionClearance !== null && afterReadState.bottomActionClearance >= 64,
+        `${testCase.id} visible bottom notification action must keep breathing room after read feedback: ${afterReadState.bottomActionClearance}`,
+      );
+    }
     await page.evaluate(() => window.scrollTo(0, document.scrollingElement?.scrollHeight ?? document.body.scrollHeight));
     await page.waitForTimeout(250);
     await page.screenshot({ path: scrollEndScreenshotPath, fullPage: false });
@@ -233,6 +336,7 @@ async function verifyFamilyCase(browser, testCase) {
       messages,
       beforeState,
       afterReadState,
+      pendingPaymentSeed,
       scrollEndState,
     };
   } finally {

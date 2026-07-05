@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 function parseArgs(argv) {
@@ -135,10 +136,64 @@ function validateSha256Fingerprint(value) {
     : { ok: false, reason: "release key fingerprint must be 32 colon-separated SHA-256 hex bytes" };
 }
 
-function checkCommand(name, args) {
+function uniqueTruthy(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function executablePath(rootDir, segments) {
+  return path.join(rootDir, ...segments);
+}
+
+function resolveJavaHome(rootDir) {
+  return uniqueTruthy([
+    process.env.JAVA_HOME,
+    executablePath(rootDir, [".data", "toolchains", "jdk", "Contents", "Home"]),
+    path.join(os.homedir(), "java", "jdk-21.0.5+11", "Contents", "Home"),
+  ]).find((candidate) => existsSync(path.join(candidate, "bin", "java")) && existsSync(path.join(candidate, "bin", "keytool"))) ?? null;
+}
+
+function resolveAndroidHome(rootDir) {
+  return uniqueTruthy([
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    executablePath(rootDir, [".data", "toolchains", "android-sdk"]),
+    path.join(os.homedir(), "Library", "Android", "sdk"),
+  ]).find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function createToolchainContext(rootDir) {
+  const javaHome = resolveJavaHome(rootDir);
+  const androidHome = resolveAndroidHome(rootDir);
+  const pathEntries = uniqueTruthy([
+    javaHome ? path.join(javaHome, "bin") : null,
+    androidHome ? path.join(androidHome, "cmdline-tools", "latest", "bin") : null,
+    androidHome ? path.join(androidHome, "platform-tools") : null,
+    androidHome ? path.join(androidHome, "build-tools", "35.0.0") : null,
+    process.env.PATH ?? "",
+  ]);
+
+  return {
+    javaHome,
+    androidHome,
+    env: {
+      ...process.env,
+      ...(javaHome ? { JAVA_HOME: javaHome } : {}),
+      ...(androidHome ? { ANDROID_HOME: androidHome, ANDROID_SDK_ROOT: androidHome } : {}),
+      PATH: pathEntries.join(path.delimiter),
+    },
+  };
+}
+
+function firstExistingCommand(candidates) {
+  return candidates.find((candidate) => candidate && (candidate.includes(path.sep) ? existsSync(candidate) : true));
+}
+
+function checkCommand(name, args, { candidates = [name], env = process.env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(name, args, {
+    const command = firstExistingCommand(candidates) ?? name;
+    const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
     let output = "";
     const timeout = setTimeout(() => {
@@ -157,6 +212,7 @@ function checkCommand(name, args) {
         command: name,
         ok: false,
         reason: error.message,
+        ...(command !== name ? { value: command } : {}),
       });
     });
     child.on("close", (code, signal) => {
@@ -166,6 +222,7 @@ function checkCommand(name, args) {
       resolve({
         command: name,
         ok: code === 0,
+        ...(command !== name ? { value: command } : {}),
         ...(firstLine ? { version: firstLine.slice(0, 180) } : {}),
         ...(signal ? { reason: `terminated by ${signal}` } : {}),
         ...(code !== 0 && !signal ? { reason: `exit code ${code}` } : {}),
@@ -320,20 +377,37 @@ function createMarkdown(report) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const rootDir = process.cwd();
+const toolchain = createToolchainContext(rootDir);
 const originValue = resolveOriginValue(args);
 const origin = validateHttpsOrigin(originValue, { allowApiOriginWebapp: args.allowApiOriginWebapp });
 const sha256 = validateSha256Fingerprint(args.sha256);
 const checks = {
   origin,
   sha256,
-  java: await checkCommand("java", ["-version"]),
-  keytool: await checkCommand("keytool", ["-help"]),
-  sdkmanager: await checkCommand("sdkmanager", ["--version"]),
-  adb: await checkCommand("adb", ["version"]),
-  npx: await checkCommand("npx", ["--version"]),
+  java: await checkCommand("java", ["-version"], {
+    candidates: [toolchain.javaHome ? path.join(toolchain.javaHome, "bin", "java") : null, "java"],
+    env: toolchain.env,
+  }),
+  keytool: await checkCommand("keytool", ["-help"], {
+    candidates: [toolchain.javaHome ? path.join(toolchain.javaHome, "bin", "keytool") : null, "keytool"],
+    env: toolchain.env,
+  }),
+  sdkmanager: await checkCommand("sdkmanager", ["--version"], {
+    candidates: [
+      toolchain.androidHome ? path.join(toolchain.androidHome, "cmdline-tools", "latest", "bin", "sdkmanager") : null,
+      "sdkmanager",
+    ],
+    env: toolchain.env,
+  }),
+  adb: await checkCommand("adb", ["version"], {
+    candidates: [toolchain.androidHome ? path.join(toolchain.androidHome, "platform-tools", "adb") : null, "adb"],
+    env: toolchain.env,
+  }),
+  npx: await checkCommand("npx", ["--version"], { env: toolchain.env }),
   androidHome: {
-    ok: Boolean(process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT),
-    value: process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? null,
+    ok: Boolean(toolchain.androidHome),
+    value: toolchain.androidHome,
   },
 };
 const requiredChecks = ["origin", "sha256", "java", "keytool", "sdkmanager", "adb", "npx", "androidHome"];
@@ -346,8 +420,12 @@ const blockers = requiredChecks
 const installHints = createInstallHints({ origin, sha256, checks });
 const nextActions = [];
 
-if (!origin.ok || !sha256.ok) {
+if (!origin.ok && !sha256.ok) {
   nextActions.push("실제 HTTPS 운영 웹앱 origin과 release signing SHA-256 fingerprint를 설정합니다.");
+} else if (!origin.ok) {
+  nextActions.push("실제 HTTPS 운영 웹앱 origin을 설정합니다.");
+} else if (!sha256.ok) {
+  nextActions.push("release signing SHA-256 fingerprint를 설정합니다.");
 }
 
 if (!checks.java.ok || !checks.keytool.ok || !checks.sdkmanager.ok || !checks.adb.ok || !checks.androidHome.ok) {
@@ -362,6 +440,10 @@ const report = {
   ok: blockers.length === 0,
   generatedAt: new Date().toISOString(),
   packageName: "kr.co.finaljudo.multigym",
+  toolchain: {
+    javaHome: toolchain.javaHome,
+    androidHome: toolchain.androidHome,
+  },
   checks,
   blockers,
   installHints,

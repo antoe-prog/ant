@@ -606,8 +606,14 @@ async function run() {
       "attendance roster search state must not overflow horizontally",
     );
 
-    const rosterSearchClear = page.getByTestId("attendance-roster-search-clear");
-    await rosterSearchClear.click();
+	    const rosterSearchClear = page.getByTestId("attendance-roster-search-clear");
+	    const rosterSearchClearBox = await rosterSearchClear.boundingBox();
+	    assert(rosterSearchClearBox, "attendance roster search clear control must be visible after typing");
+	    assert(
+	      rosterSearchClearBox.height >= 44 && rosterSearchClearBox.width >= 44,
+	      `attendance roster search clear control must keep a 44px touch target, got ${rosterSearchClearBox.width}x${rosterSearchClearBox.height}`,
+	    );
+	    await rosterSearchClear.click();
     await adultClassCard.getByText("최민재").waitFor({ timeout: 10000 });
 
     const lateStatusFilter = page.getByTestId("attendance-status-filter-late");

@@ -557,21 +557,21 @@ export function AdminSettingsScreen() {
       <SectionHeader title="운영 설정" />
 
       <section
-        className="grid grid-cols-3 overflow-hidden rounded-md border border-zinc-200 bg-white"
+        className="grid min-h-11 grid-cols-3 overflow-hidden rounded-md border border-zinc-200 bg-white"
         aria-label="운영 설정 요약"
         data-testid="admin-settings-summary-bar"
       >
-        <div className="flex min-w-0 items-center justify-center gap-1 px-1.5 py-0.5 text-center">
-          <p className="truncate text-[11px] font-medium leading-4 text-zinc-600">역할</p>
-          <p className="text-xs font-semibold leading-4 tabular-nums text-zinc-950">{userRoles.length}</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 px-2 py-1 text-center">
+          <p className="truncate text-xs font-medium leading-4 text-zinc-600">역할</p>
+          <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{userRoles.length}</p>
         </div>
-        <div className="flex min-w-0 items-center justify-center gap-1 border-l border-zinc-200 bg-teal-50 px-1.5 py-0.5 text-center">
-          <p className="truncate text-[11px] font-medium leading-4 text-teal-700">지점</p>
-          <p className="text-xs font-semibold leading-4 tabular-nums text-zinc-950">{context.db.branches.length}</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 border-l border-zinc-200 bg-teal-50 px-2 py-1 text-center">
+          <p className="truncate text-xs font-medium leading-4 text-teal-700">지점</p>
+          <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{context.db.branches.length}</p>
         </div>
-        <div className="flex min-w-0 items-center justify-center gap-1 border-l border-zinc-200 bg-amber-50 px-1.5 py-0.5 text-center">
-          <p className="truncate text-[11px] font-medium leading-4 text-amber-700">기록</p>
-          <p className="text-xs font-semibold leading-4 tabular-nums text-zinc-950">{auditPolicies.length}</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 border-l border-zinc-200 bg-amber-50 px-2 py-1 text-center">
+          <p className="truncate text-xs font-medium leading-4 text-amber-700">기록</p>
+          <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{auditPolicies.length}</p>
         </div>
       </section>
 
@@ -1218,7 +1218,7 @@ export function AdminSettingsScreen() {
               </div>
             ) : (
               <div
-                className="mt-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600"
+                className="mt-3 flex min-h-11 items-center rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600"
                 data-testid="admin-settings-operation-log-summary"
               >
                 <p>
@@ -1416,7 +1416,7 @@ export function AdminSettingsScreen() {
               </div>
             ) : (
               <div
-                className="mt-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600"
+                className="mt-3 flex min-h-11 items-center rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600"
                 data-testid="admin-settings-incident-create-summary"
               >
                 <p>새 이슈는 기록 버튼에서 추가</p>

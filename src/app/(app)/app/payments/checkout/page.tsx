@@ -7,9 +7,9 @@ function firstParam(value: string | string[] | undefined) {
 export default async function PaymentCheckoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ paymentId?: string | string[] | undefined }>;
+  searchParams: Promise<{ method?: string | string[] | undefined; paymentId?: string | string[] | undefined }>;
 }) {
   const params = await searchParams;
 
-  return <PaymentCheckoutScreen paymentId={firstParam(params.paymentId)} />;
+  return <PaymentCheckoutScreen initialPaymentMethod={firstParam(params.method)} paymentId={firstParam(params.paymentId)} />;
 }

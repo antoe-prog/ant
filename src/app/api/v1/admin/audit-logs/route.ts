@@ -16,6 +16,8 @@ const auditActions: readonly AuditAction[] = [
   "member.create",
   "member.update",
   "counseling_note.create",
+  "promotion.create",
+  "promotion.update",
   "class.create",
   "class.update",
   "payment.create",

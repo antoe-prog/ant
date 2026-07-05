@@ -519,7 +519,7 @@ export function OwnerReportsScreen() {
           </div>
         </div>
 
-        <div className="mt-1.5 grid min-w-0 grid-cols-4 gap-1" data-testid="owner-report-secondary-graph-grid">
+        <div className="mt-1.5 grid min-w-0 grid-cols-2 gap-1.5" data-testid="owner-report-secondary-graph-grid">
           {ownerReportVisibleSecondaryGraphRows.map((row) => {
             const compactLabel =
               row.label === "지점 건강도"
@@ -537,7 +537,7 @@ export function OwnerReportsScreen() {
             return (
               <Link
                 aria-label={`${row.label}: ${row.value}`}
-                className="group block min-h-11 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1 transition hover:bg-zinc-100"
+                className="group block min-h-11 min-w-0 rounded-md bg-zinc-50 px-2 py-1.5 transition hover:bg-zinc-100"
                 data-owner-report-graph-id={row.id}
                 data-owner-report-graph-row={`owner-report-graph-row-${row.id}`}
                 data-testid="owner-report-secondary-graph-tile"
@@ -545,13 +545,13 @@ export function OwnerReportsScreen() {
                 key={row.label}
               >
                 <div className="flex min-w-0 items-center justify-between gap-1">
-                  <p className="min-w-0 truncate text-[11px] font-semibold leading-4 text-zinc-600" data-testid="owner-report-secondary-graph-label">
+                  <p className="min-w-0 truncate text-xs font-semibold leading-4 text-zinc-600" data-testid="owner-report-secondary-graph-label">
                     {compactLabel}
                   </p>
                   {row.badge ? <span className={`shrink-0 text-[10px] font-semibold ${row.toneClass.guide}`}>{row.badge}</span> : null}
                 </div>
                 <div className="mt-0.5 flex min-w-0 items-center justify-between gap-1">
-                  <span className="min-w-0 truncate text-xs font-semibold tabular-nums text-zinc-950">{row.value}</span>
+                  <span className="min-w-0 truncate text-sm font-semibold tabular-nums text-zinc-950">{row.value}</span>
                   <ArrowRight className="h-3 w-3 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" aria-hidden />
                 </div>
                 <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
@@ -564,7 +564,7 @@ export function OwnerReportsScreen() {
             <button
               aria-label={showAllOwnerSecondaryGraphs ? "보조 운영 지표 접기" : `${ownerReportHiddenSecondaryGraphLabel || "보조 운영 지표"} 보기`}
               aria-expanded={showAllOwnerSecondaryGraphs}
-              className="inline-flex min-h-11 min-w-0 items-center justify-center rounded-md border border-zinc-200 bg-white px-1 text-center text-[10px] font-semibold leading-4 text-zinc-700 transition hover:bg-zinc-50"
+              className="inline-flex min-h-11 min-w-0 items-center justify-center rounded-md border border-zinc-200 bg-white px-2 text-center text-xs font-semibold leading-4 text-zinc-700 transition hover:bg-zinc-50"
               data-testid="owner-report-secondary-graph-toggle"
               onClick={() => setShowAllOwnerSecondaryGraphs((current) => !current)}
               type="button"

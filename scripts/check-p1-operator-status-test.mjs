@@ -92,6 +92,7 @@ assert(pendingDispatchArtifact?.nextAction.includes("dispatch receipt 초안"));
 assert(!pendingDispatchArtifact?.nextAction.includes("fill every owner"));
 const pendingAndroidDoctorArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "androidDoctor");
 const pendingAndroidDoctorMarkdownArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "androidDoctorMarkdown");
+const pendingAndroidPlayReleaseArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "androidPlayRelease");
 const pendingAndroidRoleApksArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "androidRoleApks");
 const pendingIosCapacitorConnectionArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "iosCapacitorConnection");
 const pendingIosIpaDoctorArtifact = pendingReport.supportArtifacts.find((artifact) => artifact.key === "iosIpaDoctor");
@@ -108,6 +109,9 @@ assert(pendingAndroidDoctorArtifact?.nextAction.includes("origin"));
 assert(pendingAndroidDoctorArtifact?.nextAction.includes("APK/AAB"));
 assert.equal(pendingAndroidDoctorMarkdownArtifact?.status, "ready");
 assert.equal(pendingAndroidDoctorMarkdownArtifact?.path.endsWith("android-twa-doctor.md"), true);
+assert.equal(pendingAndroidPlayReleaseArtifact?.status, "missing");
+assert.equal(pendingAndroidPlayReleaseArtifact?.path.endsWith("google-play-release-report.json"), true);
+assert(pendingAndroidPlayReleaseArtifact?.nextAction.includes("android:play:build"));
 assert.equal(pendingAndroidRoleApksArtifact?.status, "missing");
 assert.equal(pendingAndroidRoleApksArtifact?.path.endsWith("role-apk-build-report.json"), true);
 assert.equal(pendingIosCapacitorConnectionArtifact?.status, "ready");
@@ -147,12 +151,14 @@ assert.equal(pendingOutReport.summary.totalActions, pendingReport.summary.totalA
 assert(pendingMarkdownSource.includes("# P1 Operator Status"));
 assert(pendingMarkdownSource.includes("Android TWA doctor status"));
 assert(pendingMarkdownSource.includes("Android TWA doctor Markdown"));
+assert(pendingMarkdownSource.includes("Android Play AAB/APK release report"));
 assert(pendingMarkdownSource.includes("Android role APK build report"));
 assert(pendingMarkdownSource.includes("iOS Capacitor service connection"));
 assert(pendingMarkdownSource.includes("iOS IPA doctor status"));
 assert(pendingMarkdownSource.includes("iOS IPA doctor Markdown"));
 assert(pendingMarkdownSource.includes("android-twa-doctor.json"));
 assert(pendingMarkdownSource.includes("android-twa-doctor.md"));
+assert(pendingMarkdownSource.includes("google-play-release-report.json"));
 assert(pendingMarkdownSource.includes("role-apk-build-report.json"));
 assert(pendingMarkdownSource.includes("ios-capacitor-connection.json"));
 assert(pendingMarkdownSource.includes("ios-ipa-doctor.json"));
@@ -299,6 +305,35 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "role-apks-20260617",
     bytes: 1000 + index,
     sha256: String(index + 1).padStart(64, "a"),
   })),
+});
+await writeJson(path.join(readyWorkspace, "mobile-builds", "android-play-release-20260715030045", "google-play-release-report.json"), {
+  ok: true,
+  generatedAt: "2026-07-15T03:00:46.000Z",
+  packageName: "kr.co.finaljudo.multigym",
+  versionCode: 22,
+  versionName: "1.0.21",
+  launchUrl: "https://app.finaljudo.kr/login",
+  artifacts: {
+    aab: path.join(readyWorkspace, "mobile-builds", "android-play-release-20260715030045", "final-judo-play-release.aab"),
+    apk: path.join(readyWorkspace, "mobile-builds", "android-play-release-20260715030045", "final-judo-release.apk"),
+    desktopAab: "/Users/operator/Desktop/final-judo-play-release.aab",
+    desktopApk: "/Users/operator/Desktop/final-judo-release.apk",
+  },
+  sizes: {
+    aabBytes: 3131035,
+    apkBytes: 3312688,
+  },
+  sha256: {
+    aab: "b".repeat(64),
+    apk: "c".repeat(64),
+    desktopAab: "b".repeat(64),
+    desktopApk: "c".repeat(64),
+  },
+  signing: {
+    uploadKeyAlias: "finaljudo-upload",
+    aabVerified: true,
+    apkVerified: true,
+  },
 });
 await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-capacitor-connection.json"), {
   ok: true,
@@ -546,6 +581,16 @@ assert.equal(readyReport.iosProvisioningProfileInventory?.matchingProfilesWithRe
 assert.equal(readyReport.iosProvisioningProfileInventory?.rawUdidWritten, false);
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "androidDoctor" && artifact.status === "ready"));
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "androidDoctorMarkdown" && artifact.status === "ready"));
+assert(
+  readyReport.supportArtifacts.some(
+    (artifact) =>
+      artifact.key === "androidPlayRelease" &&
+      artifact.status === "ready" &&
+      artifact.packageName === "kr.co.finaljudo.multigym" &&
+      artifact.versionCode === 22 &&
+      artifact.versionName === "1.0.21",
+  ),
+);
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "androidRoleApks" && artifact.status === "ready"));
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "iosCapacitorConnection" && artifact.status === "ready"));
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "iosIpaDoctor" && artifact.status === "ready"));
@@ -561,6 +606,7 @@ assert(readyMarkdownSource.includes("Access checked at: 2026-07-15T03:06:30.000Z
 assert(readyMarkdownSource.includes("Default branch: `main`"));
 assert(readyMarkdownSource.includes("Permissions: admin, maintain, pull, push, triage"));
 assert(readyMarkdownSource.includes("Issue publish ready: yes"));
+assert(readyMarkdownSource.includes("Android Play AAB/APK release report"));
 assert(readyMarkdownSource.includes("iOS IPA doctor status"));
 assert(readyMarkdownSource.includes("iOS IPA doctor Markdown"));
 assert(readyMarkdownSource.includes("## iOS Local Profile Inventory"));
@@ -735,6 +781,7 @@ console.log(
         "blocked P1 handoff workspace produces operator status JSON and Markdown",
         "Android TWA doctor JSON status is exposed in operator status artifacts",
         "Android TWA doctor Markdown is exposed in operator status artifacts",
+        "Android Play AAB/APK release report is exposed in operator status artifacts",
         "iOS IPA doctor JSON status is exposed in operator status artifacts",
         "iOS IPA doctor Markdown is exposed in operator status artifacts",
         "iOS local provisioning profile inventory is exposed without raw UDIDs",

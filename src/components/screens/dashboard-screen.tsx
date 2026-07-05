@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { formatCompactTimeRange, formatCurrency, formatDate, formatDateKey } from "@/lib/format";
@@ -407,7 +408,7 @@ function GuardianLearningSummaryPanel({
 
 export function DashboardScreen() {
   const context = useApiContext();
-  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
   const [ownerPeriod, setOwnerPeriod] = useState<OwnerPeriod>("today");
   const [showOwnerDashboardDetails, setShowOwnerDashboardDetails] = useState(false);
   const { data, loading, error, reload } = useResource(
@@ -1014,12 +1015,17 @@ export function DashboardScreen() {
         <SectionHeader
           title="대표 운영 대시보드"
           action={
-            <div className="inline-flex rounded-md border border-zinc-200 bg-white p-1" aria-label="조회 기간">
+            <div
+              className="inline-flex rounded-md border border-zinc-200 bg-white p-1"
+              aria-label="조회 기간"
+              data-testid="owner-dashboard-period-filter"
+            >
               {ownerPeriodOptions.map((option) => (
                 <button
-                  className={`min-h-10 rounded px-3 text-sm font-semibold transition ${
+                  className={`min-h-11 rounded px-3 text-sm font-semibold transition ${
                     ownerPeriod === option.id ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"
                   }`}
+                  data-testid="owner-dashboard-period-option"
                   key={option.id}
                   type="button"
                   aria-pressed={ownerPeriod === option.id}
@@ -1061,7 +1067,7 @@ export function DashboardScreen() {
           <div className="mt-1.5 grid min-w-0 grid-cols-2 gap-1 sm:grid-cols-3" data-testid="owner-dashboard-secondary-graph-grid">
             {ownerOperationalGraphRows.slice(1, 5).map((row) => (
               <Link
-                className="group block min-h-[48px] min-w-0 rounded-md bg-zinc-50 px-2 py-1 transition hover:bg-zinc-100"
+                className="group block min-h-11 min-w-0 rounded-md bg-zinc-50 px-2 py-0.5 transition hover:bg-zinc-100"
                 data-testid={`owner-dashboard-graph-row-${row.id}`}
                 href={row.actionHref}
                 key={row.id}
@@ -1072,11 +1078,11 @@ export function DashboardScreen() {
                   </p>
                   <span className={`shrink-0 text-[11px] font-semibold ${row.toneClass}`}>{row.guide}</span>
                 </div>
-                <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                   <span className="min-w-0 break-words text-sm font-semibold tabular-nums text-zinc-950">{row.value}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" aria-hidden />
                 </div>
-                <div className="mt-1 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
+                <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                   <div className={`h-full rounded-full ${row.accentClass}`} style={{ width: `${row.progress}%` }} />
                 </div>
                 <p className="mt-1 hidden truncate text-[11px] leading-4 text-zinc-500 sm:block">{row.helper}</p>
@@ -1085,9 +1091,9 @@ export function DashboardScreen() {
           </div>
         </section>
 
-        <section className="mt-3 grid gap-3 xl:grid-cols-[1.2fr_0.8fr]" data-testid="owner-dashboard-detail-panel">
-          <div className="order-2 overflow-hidden rounded-lg border border-zinc-200 bg-white xl:order-1">
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-3 py-3">
+        <section className="mt-2 grid gap-2 xl:mt-3 xl:grid-cols-[1.2fr_0.8fr]" data-testid="owner-dashboard-detail-panel">
+          <div className="order-1 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-3 py-2.5">
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-zinc-950">지점 비교</h2>
                 <p className="mt-0.5 text-xs leading-5 text-zinc-500">
@@ -1107,7 +1113,7 @@ export function DashboardScreen() {
             </div>
             <div className="divide-y divide-zinc-100" data-testid="owner-dashboard-branch-comparison-graph">
               {ownerVisibleBranchComparisonRows.map((row) => (
-                <article className="min-w-0 px-3 py-2" data-testid="owner-dashboard-branch-comparison-row" key={row.branch.id}>
+                <article className="min-w-0 px-3 py-1.5" data-testid="owner-dashboard-branch-comparison-row" key={row.branch.id}>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="break-words font-semibold text-zinc-950">{row.branch.name}</p>
@@ -1119,31 +1125,31 @@ export function DashboardScreen() {
                       {row.status}
                     </span>
                   </div>
-                  <div className="mt-2 grid grid-cols-3 gap-1.5" data-testid="owner-dashboard-branch-metric-grid">
-                    <div className="min-w-0 rounded-md bg-zinc-50 px-2 py-1.5">
+                  <div className="mt-1 grid grid-cols-3 gap-1" data-testid="owner-dashboard-branch-metric-grid">
+                    <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[11px] font-semibold text-zinc-500">회원</p>
-                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.activeMembers}명</p>
+                        <p className="truncate text-[10px] font-semibold text-zinc-500">회원</p>
+                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.activeMembers}명</p>
                       </div>
-                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
+                      <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${row.memberPercent}%` }} />
                       </div>
                     </div>
-                    <div className="min-w-0 rounded-md bg-zinc-50 px-2 py-1.5">
+                    <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[11px] font-semibold text-zinc-500">출석</p>
-                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.attendanceRate}</p>
+                        <p className="truncate text-[10px] font-semibold text-zinc-500">출석</p>
+                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.attendanceRate}</p>
                       </div>
-                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
+                      <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-teal-500" style={{ width: `${row.attendancePercent}%` }} />
                       </div>
                     </div>
-                    <div className="min-w-0 rounded-md bg-zinc-50 px-2 py-1.5">
+                    <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[11px] font-semibold text-zinc-500">결제 위험</p>
-                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.riskPayments}건</p>
+                        <p className="truncate text-[10px] font-semibold text-zinc-500">결제 위험</p>
+                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.riskPayments}건</p>
                       </div>
-                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
+                      <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-red-500" style={{ width: `${row.riskPercent}%` }} />
                       </div>
                     </div>
@@ -1153,18 +1159,18 @@ export function DashboardScreen() {
             </div>
           </div>
 
-          <div className="order-1 grid gap-3 xl:order-2">
-            <div className="rounded-lg border border-zinc-200 bg-white p-3" data-testid="owner-dashboard-risk-summary">
+          <div className="order-2 grid gap-2 xl:gap-3">
+            <div className="rounded-lg border border-zinc-200 bg-white p-2 xl:p-3" data-testid="owner-dashboard-risk-summary">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-zinc-950">위험 알림</h2>
+                  <h2 className="text-sm font-semibold text-zinc-950 xl:text-base">위험 알림</h2>
                 </div>
-                <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700" aria-hidden />
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 xl:h-5 xl:w-5" aria-hidden />
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-1.5">
+              <div className="mt-1.5 grid grid-cols-2 gap-1 xl:mt-2 xl:gap-1.5">
                 {riskAlerts.map((alert) => (
-                  <div className={`min-w-0 rounded-md border px-2 py-2 ${alert.tone}`} key={alert.id}>
-                    <p className="break-words text-xs font-semibold leading-4">{alert.title}</p>
+                  <div className={`min-w-0 rounded-md border px-2 py-1 ${alert.tone} xl:py-1.5`} key={alert.id}>
+                    <p className="break-words text-[11px] font-semibold leading-4 xl:text-xs">{alert.title}</p>
                     <p className="mt-1 hidden text-xs leading-4 sm:block">{alert.body}</p>
                   </div>
                 ))}
@@ -1228,7 +1234,8 @@ export function DashboardScreen() {
         title="대시보드"
         action={
           <Link
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            className="inline-flex h-11 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            data-testid="admin-dashboard-classes-link"
             href="/app/classes"
           >
             <CalendarCheck className="h-4 w-4" aria-hidden />

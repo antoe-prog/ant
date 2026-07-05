@@ -2,13 +2,15 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, Copy, CreditCard, ExternalLink, Pencil, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
+import { Bell, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberStatus, UserRole } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
@@ -171,6 +173,7 @@ export function MembersScreen() {
   } = useAppStore();
   const [query, setQueryState] = useState(getInitialMemberQuery);
   const [statusFilter, setStatusFilterState] = useState<MemberStatus | "all">(getInitialMemberStatusFilter);
+  const [memberSort, setMemberSort] = useState<"default" | "name" | "recent">("default");
 
   // 새로고침·뒤로가기·딥링크에서 목록 필터 상태가 유지되도록 URL에 동기화한다.
   function setQuery(value: string) {
@@ -182,7 +185,7 @@ export function MembersScreen() {
     setStatusFilterState(value);
     syncMemberListParamToUrl("status", value === "all" ? null : value);
   }
-  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
   const [inviteBranchId, setInviteBranchId] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -271,15 +274,22 @@ export function MembersScreen() {
       statusFilter === "all"
         ? (scopedData ?? [])
         : (scopedData ?? []).filter((member) => member.status === statusFilter);
+    const searched = keyword
+      ? statusScoped.filter((member) =>
+          matchesMemberSearch(keyword, [member.name, member.level, member.belt, member.emergencyContact]),
+        )
+      : statusScoped;
 
-    if (!keyword) {
-      return statusScoped;
+    if (memberSort === "name") {
+      return [...searched].sort((left, right) => left.name.localeCompare(right.name, "ko"));
     }
 
-    return statusScoped.filter((member) =>
-      matchesMemberSearch(keyword, [member.name, member.level, member.belt, member.emergencyContact]),
-    );
-  }, [context.user.role, data, guardianChildId, query, statusFilter]);
+    if (memberSort === "recent") {
+      return [...searched].sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+    }
+
+    return searched;
+  }, [context.user.role, data, guardianChildId, memberSort, query, statusFilter]);
 
   useEffect(() => {
     if (!canEditOwnContact || !data?.length) {
@@ -364,9 +374,9 @@ export function MembersScreen() {
 
     try {
       await navigator.clipboard.writeText(link);
-      setInviteFeedback("초대 링크를 복사했습니다.");
+      setInviteFeedback(invitationLinkCopySuccessMessage);
     } catch {
-      setInviteFeedback("초대 링크를 열어 주소를 복사해 주세요.");
+      setInviteFeedback(invitationLinkCopyFallbackMessage);
     }
   }
 
@@ -651,9 +661,9 @@ export function MembersScreen() {
           action={
             <label className="relative block w-full sm:w-72">
               <span className="sr-only">회원 검색</span>
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-zinc-400" aria-hidden />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden />
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-9 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="member-search-input"
                 placeholder="이름, 레벨, 연락처 검색"
                 value={query}
@@ -662,7 +672,7 @@ export function MembersScreen() {
               {query ? (
                 <button
                   aria-label="검색어 지우기"
-                  className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
                   data-testid="member-search-clear"
                   type="button"
                   onClick={() => setQuery("")}
@@ -684,7 +694,7 @@ export function MembersScreen() {
       ) : null}
 
       {showMembersScreenHeader && (data?.length ?? 0) > 0 ? (
-        <div aria-label="회원 상태 필터" className="mb-3 flex flex-wrap gap-1.5" role="group">
+        <div aria-label="회원 상태 필터" className="mb-2 flex flex-wrap gap-1.5" role="group">
           {(
             [
               { label: "전체", value: "all" as const, count: data?.length ?? 0 },
@@ -701,7 +711,7 @@ export function MembersScreen() {
               return (
                 <button
                   aria-pressed={selected}
-                  className={`inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 text-xs font-semibold transition ${
+                  className={`inline-flex min-h-11 items-center gap-1 rounded-md border px-3 text-xs font-semibold transition ${
                     selected
                       ? "border-teal-600 bg-teal-600 text-white"
                       : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
@@ -716,6 +726,21 @@ export function MembersScreen() {
                 </button>
               );
             })}
+          {canManageMembers ? (
+            <label className="ml-auto inline-flex min-h-11 items-center">
+              <span className="sr-only">회원 정렬</span>
+              <select
+                className="h-11 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 outline-none transition focus:border-teal-500"
+                data-testid="member-sort-select"
+                value={memberSort}
+                onChange={(event) => setMemberSort(event.target.value as "default" | "name" | "recent")}
+              >
+                <option value="default">기본 순서</option>
+                <option value="name">이름순</option>
+                <option value="recent">최근 등록순</option>
+              </select>
+            </label>
+          ) : null}
         </div>
       ) : null}
 
@@ -748,7 +773,8 @@ export function MembersScreen() {
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
                   <select
-                    className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    data-testid="member-invite-field"
                     value={selectedInviteBranchId}
                     onChange={(event) => setInviteBranchId(event.target.value)}
                   >
@@ -763,7 +789,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">이름</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-invite-field"
                   placeholder="초대 이름"
                   value={inviteName}
                   onChange={(event) => setInviteName(event.target.value)}
@@ -772,7 +799,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">휴대폰 번호</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-invite-field"
                   inputMode="tel"
                   placeholder="휴대폰 번호 입력"
                   type="tel"
@@ -783,7 +811,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">이메일(선택)</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-invite-field"
                   placeholder="연락 이메일"
                   type="email"
                   value={inviteEmail}
@@ -793,7 +822,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">역할</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-invite-field"
                   value={inviteRole}
                   onChange={(event) => setInviteRole(event.target.value as UserRole)}
                 >
@@ -806,7 +836,9 @@ export function MembersScreen() {
               </label>
               <Button
                 className="self-end"
+                data-testid="member-invite-submit"
                 disabled={!selectedInviteBranchId || !inviteName.trim() || !invitePhone.trim()}
+                size="lg"
                 type="submit"
                 variant="primary"
               >
@@ -822,14 +854,14 @@ export function MembersScreen() {
                   <p className="text-sm font-semibold text-teal-900">초대 링크가 준비됐습니다.</p>
                   <div className="flex flex-wrap gap-2">
                     <a
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
                       href={invitePath}
                     >
                       <ExternalLink className="h-4 w-4" aria-hidden />
                       초대 링크 열기
                     </a>
                     <button
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
                       type="button"
                       onClick={() => void handleCopyInvitationLink()}
                     >
@@ -873,7 +905,8 @@ export function MembersScreen() {
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
                   <select
-                    className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    data-testid="member-create-field"
                     value={selectedCreateBranchId}
                     onChange={(event) => setNewMemberBranchId(event.target.value)}
                   >
@@ -888,7 +921,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">이름</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-create-field"
                   placeholder="회원명"
                   value={newMemberName}
                   onChange={(event) => setNewMemberName(event.target.value)}
@@ -897,7 +931,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">연령</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
                   value={newMemberAgeGroup}
                   onChange={(event) => setNewMemberAgeGroup(event.target.value as Member["ageGroup"])}
                 >
@@ -911,7 +946,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">상태</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
                   value={newMemberStatus}
                   onChange={(event) => setNewMemberStatus(event.target.value as MemberStatus)}
                 >
@@ -925,7 +961,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">레벨</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
                   value={newMemberLevel}
                   onChange={(event) => setNewMemberLevel(event.target.value)}
                 />
@@ -933,7 +970,8 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">띠</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
                   value={newMemberBelt}
                   onChange={(event) => setNewMemberBelt(event.target.value)}
                 />
@@ -941,14 +979,16 @@ export function MembersScreen() {
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">연락처</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-create-field"
                   placeholder="연락 가능한 번호"
                   value={newMemberEmergencyContact}
                   onChange={(event) => setNewMemberEmergencyContact(event.target.value)}
                 />
               </label>
               <button
-                className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                data-testid="member-create-submit"
                 disabled={!selectedCreateBranchId || !newMemberName.trim() || !newMemberEmergencyContact.trim()}
                 type="submit"
               >
@@ -972,6 +1012,17 @@ export function MembersScreen() {
         />
       ) : (
         <>
+        {hiddenCoachMemberCount > 0 ? (
+          <button
+            aria-expanded={coachMemberListExpanded}
+            className="mb-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
+            data-testid="coach-member-list-toggle"
+            type="button"
+            onClick={() => setCoachMemberListExpanded((current) => !current)}
+          >
+            {coachMemberListExpanded ? "담당 회원 접기" : `담당 회원 ${hiddenCoachMemberCount}명 더 보기`}
+          </button>
+        ) : null}
         <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredMembers.map((member, memberIndex) => {
             const showProfileForm = canManageMembers || editingContactMemberId === member.id;
@@ -981,7 +1032,7 @@ export function MembersScreen() {
             const noteListExpanded = isNoteListExpanded(member.id);
             const latestMemberNote = memberNotes[0];
             const visibleMemberNotes = isCoachRole ? (noteListExpanded ? memberNotes : []) : memberNotes.slice(0, 3);
-            const showAlertSection = !isFamilyRole && (!isCoachRole || member.alerts.length > 0);
+            const showAlertSection = !isFamilyRole && member.alerts.length > 0;
             const showCoachNoteListToggle = isCoachRole && memberNotes.length > 0;
             const coachMemberCollapsedOnMobile =
               coachMemberListCollapsible && !coachMemberListExpanded && memberIndex >= coachMemberMobileVisibleLimit;
@@ -992,7 +1043,7 @@ export function MembersScreen() {
 
             return (
             <article
-              className={`min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4 ${
+              className={`min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white ${isCoachRole ? "p-2.5 sm:p-4" : "p-4"} ${
                 coachMemberCollapsedOnMobile ? "hidden lg:block" : ""
               }`}
               data-coach-member-mobile-state={isCoachRole ? (coachMemberCollapsedOnMobile ? "hidden" : "visible") : undefined}
@@ -1017,11 +1068,11 @@ export function MembersScreen() {
 	                </span>
 	              </div>
 
-	              {isFamilyRole && member.alerts.length > 0 ? (
-	                <div
-	                  className="mt-3 flex min-w-0 items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-950"
-	                  data-testid="family-member-alert-strip"
-	                >
+		              {isFamilyRole && member.alerts.length > 0 ? (
+		                <div
+		                  className="mt-3 flex min-h-11 min-w-0 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-950"
+		                  data-testid="family-member-alert-strip"
+		                >
 	                  <span className="shrink-0 rounded bg-white px-2 py-0.5 text-xs font-semibold text-amber-700">확인 필요</span>
 	                  <p className="min-w-0 break-words">
 	                    {member.alerts.slice(0, 2).join(" · ")}
@@ -1033,7 +1084,8 @@ export function MembersScreen() {
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 상태</span>
                   <select
-                    className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                    data-testid="member-status-select"
                     value={member.status}
                     onChange={(event) => updateMemberStatus(member.id, event.target.value as MemberStatus)}
                   >
@@ -1067,20 +1119,22 @@ export function MembersScreen() {
                   >
                     <a
                       aria-label={`${member.name} 비상 연락처로 전화`}
-                      className="rounded-sm underline decoration-zinc-300 underline-offset-2 transition hover:text-teal-700"
+                      className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 text-sm font-semibold text-zinc-950 no-underline transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                      data-testid={`member-emergency-contact-call-${member.id}`}
                       href={`tel:${member.emergencyContact.replace(/[^0-9+]/g, "")}`}
                     >
-                      {formatPhoneNumber(member.emergencyContact)}
+                      <Phone className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+                      <span className="truncate">{formatPhoneNumber(member.emergencyContact)}</span>
                     </a>
                   </dd>
                 </div>
               </dl>
 
               {noticePublisherRoles.has(context.user.role) || canManageMembers ? (
-                <div className="mt-3 flex flex-wrap gap-1.5">
+	                <div className="mt-2 flex flex-wrap gap-1.5">
                   {noticePublisherRoles.has(context.user.role) ? (
                     <Link
-                      className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+	                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                       data-testid={`member-send-notice-${member.id}`}
                       href={`/app/notices?noticeCompose=1&noticeTarget=member&noticeTargetMemberId=${encodeURIComponent(member.id)}&noticeMemberSearch=${encodeURIComponent(member.name)}`}
                     >
@@ -1090,7 +1144,7 @@ export function MembersScreen() {
                   ) : null}
                   {canManageMembers ? (
                     <Link
-                      className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+	                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                       data-testid={`member-create-payment-${member.id}`}
                       href={`/app/payments?payMemberId=${encodeURIComponent(member.id)}&payMemberSearch=${encodeURIComponent(member.name)}`}
                     >
@@ -1141,6 +1195,7 @@ export function MembersScreen() {
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">이름</span>
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
                             data-testid={`member-profile-name-input-${member.id}`}
                             value={getProfileDraft(member).name}
                             onChange={(event) => updateProfileDraft(member, { name: event.target.value, feedback: undefined })}
@@ -1150,6 +1205,7 @@ export function MembersScreen() {
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">연령</span>
                           <select
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
                             data-testid={`member-age-group-select-${member.id}`}
                             value={getProfileDraft(member).ageGroup}
                             onChange={(event) =>
@@ -1170,6 +1226,7 @@ export function MembersScreen() {
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">띠</span>
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
                             value={getProfileDraft(member).belt}
                             onChange={(event) => updateProfileDraft(member, { belt: event.target.value, feedback: undefined })}
                           />
@@ -1178,6 +1235,7 @@ export function MembersScreen() {
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">레벨</span>
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
                             value={getProfileDraft(member).level}
                             onChange={(event) => updateProfileDraft(member, { level: event.target.value, feedback: undefined })}
                           />
@@ -1188,6 +1246,7 @@ export function MembersScreen() {
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">긴급 연락처</span>
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        data-touch-target="member-profile-field"
                         data-testid={`member-emergency-contact-input-${member.id}`}
                         placeholder="연락 가능한 번호"
                         value={getProfileDraft(member).emergencyContact}
@@ -1275,10 +1334,12 @@ export function MembersScreen() {
                             {guardian?.phone ? (
                               <a
                                 aria-label={`${guardian?.name ?? "보호자"} 연락처로 전화`}
-                                className="mt-0.5 block truncate font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition hover:text-teal-700"
+                                className="mt-1 inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 font-semibold text-zinc-700 no-underline transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                                data-testid={`member-guardian-phone-call-${member.id}-${guardianId}`}
                                 href={`tel:${guardian.phone.replace(/[^0-9+]/g, "")}`}
                               >
-                                {formatPhoneNumber(guardian.phone)}
+                                <Phone className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+                                <span className="truncate">{formatPhoneNumber(guardian.phone)}</span>
                               </a>
                             ) : null}
                           </span>
@@ -1378,6 +1439,7 @@ export function MembersScreen() {
                         <Button
                           data-testid={`member-guardian-submit-${member.id}`}
                           disabled={!guardianLinkDraft.guardianUserId}
+                          size="lg"
                           type="submit"
                           variant="secondary"
                         >
@@ -1413,15 +1475,11 @@ export function MembersScreen() {
               {showAlertSection ? (
                 <div className="mt-4 border-t border-zinc-100 pt-4">
                   <p className="text-xs font-medium text-zinc-500">주의사항</p>
-                  {member.alerts.length > 0 ? (
-                    <ul className="mt-2 space-y-1 text-sm leading-6 text-zinc-700">
-                      {member.alerts.map((alert) => (
-                        <li key={alert}>{alert}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-zinc-500">등록된 주의사항 없음</p>
-                  )}
+                  <ul className="mt-2 space-y-1 text-sm leading-6 text-zinc-700">
+                    {member.alerts.map((alert) => (
+                      <li key={alert}>{alert}</li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 
@@ -1507,10 +1565,6 @@ export function MembersScreen() {
                       );
                     })}
                   </ul>
-                ) : !isCoachRole ? (
-                  <p className="mt-2 text-sm text-zinc-500">
-                    {isFamilyRole ? "아직 코치 피드백이 없습니다." : "아직 상담/주의 메모가 없습니다."}
-                  </p>
                 ) : null}
 
                 {canCreateNotes && isNoteEditorOpen(member.id) ? (
@@ -1523,7 +1577,8 @@ export function MembersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">유형</span>
                         <select
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="member-note-field"
                           value={getNoteDraft(member.id).noteType}
                           onChange={(event) =>
                             updateNoteDraft(member.id, { noteType: event.target.value as CounselingNote["noteType"] })
@@ -1539,7 +1594,8 @@ export function MembersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">볼 수 있는 대상</span>
                         <select
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="member-note-field"
                           value={getNoteDraft(member.id).visibility}
                           onChange={(event) =>
                             updateNoteDraft(member.id, { visibility: event.target.value as CounselingNoteVisibility })
@@ -1568,7 +1624,7 @@ export function MembersScreen() {
                       <p className="min-h-5 text-xs font-medium text-zinc-500">
                         {getNoteDraft(member.id).feedback ?? "저장하면 선택한 대상이 볼 수 있습니다."}
                       </p>
-                      <Button disabled={!getNoteDraft(member.id).body.trim()} type="submit" variant="secondary">
+                      <Button data-testid="member-note-submit" disabled={!getNoteDraft(member.id).body.trim()} size="lg" type="submit" variant="secondary">
                         메모 저장
                       </Button>
                     </div>
@@ -1579,17 +1635,7 @@ export function MembersScreen() {
             );
           })}
         </div>
-        {hiddenCoachMemberCount > 0 ? (
-          <button
-            aria-expanded={coachMemberListExpanded}
-            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
-            data-testid="coach-member-list-toggle"
-            type="button"
-            onClick={() => setCoachMemberListExpanded((current) => !current)}
-          >
-            {coachMemberListExpanded ? "담당 회원 접기" : `담당 회원 ${hiddenCoachMemberCount}명 더 보기`}
-          </button>
-        ) : null}
+        {isCoachRole ? <div className="h-28 lg:hidden" data-testid="coach-member-bottom-safe-area" aria-hidden /> : null}
         </>
       )}
     </div>

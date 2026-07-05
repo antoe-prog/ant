@@ -35,8 +35,9 @@ export function OwnerBranchesScreen() {
       {branches.length === 0 ? (
         <EmptyState title="배정된 지점이 없습니다" />
       ) : (
-        <section className="grid min-w-0 gap-3 xl:grid-cols-2" aria-label="대표 지점 목록">
-          {branches.map((branch) => {
+        <>
+          <section className="grid min-w-0 gap-3 xl:grid-cols-2" aria-label="대표 지점 목록">
+            {branches.map((branch) => {
             const settings = normalizeBranchSettings(branch.settings);
             const members = context.db.members.filter((member) => member.branchId === branch.id);
             const activeMembers = members.filter((member) => member.status === "active");
@@ -95,8 +96,8 @@ export function OwnerBranchesScreen() {
             ].sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label));
             const visibleActionLinks = actionsOpen ? actionLinks : actionLinks.slice(0, 2);
 
-            return (
-              <article className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-3" key={branch.id}>
+              return (
+                <article className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-3" key={branch.id}>
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-teal-700">{branch.district}</p>
@@ -193,10 +194,12 @@ export function OwnerBranchesScreen() {
                     {actionsOpen ? "접기" : "더 보기"}
                   </button>
                 </div>
-              </article>
-            );
-          })}
-        </section>
+                </article>
+              );
+            })}
+          </section>
+          <div aria-hidden="true" className="h-28 lg:hidden" data-testid="owner-branch-bottom-safe-area" />
+        </>
       )}
     </div>
   );

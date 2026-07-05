@@ -1,11 +1,13 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Copy, ExternalLink, KeyRound, Pencil, Save, Search, Trash2, UserCheck, UserCog, UserPlus, X } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { userRoles, type AppUser, type Member, type MockDatabase, type UserRole } from "@/lib/domain";
 import { formatPhoneNumber } from "@/lib/format";
+import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { matchesMemberSearch } from "@/lib/notice-member-search";
 import { roleLabels, roleManagementScopeLabels } from "@/lib/roles";
@@ -30,20 +32,12 @@ type UserEditDraft = {
   title: string;
 };
 
-function getInitialUserQuery() {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return new URLSearchParams(window.location.search).get("q")?.trim() ?? "";
+function getUserQueryFromParams(params: Pick<URLSearchParams, "get">) {
+  return params.get("q")?.trim() ?? "";
 }
 
-function getInitialRoleFilter(): UserRole | "all" {
-  if (typeof window === "undefined") {
-    return "all";
-  }
-
-  const role = new URLSearchParams(window.location.search).get("role");
+function getRoleFilterFromParams(params: Pick<URLSearchParams, "get">): UserRole | "all" {
+  const role = params.get("role");
 
   return adminUserRoleFilters.includes(role as UserRole) ? (role as UserRole) : "all";
 }
@@ -167,15 +161,20 @@ function clearUserPanelHash(userId: string) {
 }
 
 export function AdminUsersScreen() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const context = useApiContext();
   const { approveInvitation, createInvitation, deleteUser, resetUserPassword, updateUser } = useAppStore();
-  const [query, setQuery] = useState(getInitialUserQuery);
+  const queryParam = getUserQueryFromParams(searchParams);
+  const roleFilterParam = getRoleFilterFromParams(searchParams);
+  const previousListFilterParamRef = useRef({ query: queryParam, role: roleFilterParam });
+  const [query, setQuery] = useState(queryParam);
   const [inviteFormOpen, setInviteFormOpen] = useState(false);
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
   const [inviteRole, setInviteRole] = useState<UserRole>("coach");
-  const [selectedRoleFilter, setSelectedRoleFilter] = useState<UserRole | "all">(getInitialRoleFilter);
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<UserRole | "all">(roleFilterParam);
   const [inviteBranchIds, setInviteBranchIds] = useState<string[]>([]);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [invitePath, setInvitePath] = useState<string | null>(null);
@@ -244,6 +243,8 @@ export function AdminUsersScreen() {
   const pendingInvitations = context.db.users.filter((user) => user.invitationStatus === "pending");
   const activeUsers = context.db.users.filter((user) => user.invitationStatus !== "pending");
   const hasActiveListFilter = selectedRoleFilter !== "all" || Boolean(query.trim());
+  const listStatusTotalCount =
+    selectedRoleFilter === "all" ? context.db.users.length : context.db.users.filter((user) => user.role === selectedRoleFilter).length;
   const inviteCanSubmit =
     Boolean(inviteName.trim()) &&
     Boolean(invitePhone.trim()) &&
@@ -326,42 +327,55 @@ export function AdminUsersScreen() {
   }, [context.db.users]);
 
   useEffect(() => {
-    function syncFiltersFromUrl() {
-      setQuery(getInitialUserQuery());
-      setSelectedRoleFilter(getInitialRoleFilter());
+    if (
+      previousListFilterParamRef.current.query === queryParam &&
+      previousListFilterParamRef.current.role === roleFilterParam
+    ) {
+      return;
     }
 
-    window.addEventListener("popstate", syncFiltersFromUrl);
+    previousListFilterParamRef.current = { query: queryParam, role: roleFilterParam };
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setQuery(queryParam);
+        setSelectedRoleFilter(roleFilterParam);
+      }
+    });
 
     return () => {
-      window.removeEventListener("popstate", syncFiltersFromUrl);
+      cancelled = true;
     };
-  }, []);
+  }, [queryParam, roleFilterParam]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
     const trimmedQuery = query.trim();
 
     if (trimmedQuery) {
-      params.set("q", trimmedQuery);
+      url.searchParams.set("q", trimmedQuery);
     } else {
-      params.delete("q");
+      url.searchParams.delete("q");
     }
 
     if (selectedRoleFilter === "all") {
-      params.delete("role");
+      url.searchParams.delete("role");
     } else {
-      params.set("role", selectedRoleFilter);
+      url.searchParams.set("role", selectedRoleFilter);
     }
 
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {
-      window.history.replaceState(null, "", nextUrl);
+      router.replace(nextUrl, { scroll: false });
     }
-  }, [query, selectedRoleFilter]);
+  }, [query, router, selectedRoleFilter]);
 
   function getUserEditDraft(user: AppUser) {
     return userEditDrafts[user.id] ?? createUserEditDraft(user);
@@ -562,9 +576,9 @@ export function AdminUsersScreen() {
 
     try {
       await navigator.clipboard.writeText(link);
-      setInviteFeedback("초대 링크를 복사했습니다.");
+      setInviteFeedback(invitationLinkCopySuccessMessage);
     } catch {
-      setInviteFeedback("초대 링크를 열어 주소를 복사해 주세요.");
+      setInviteFeedback(invitationLinkCopyFallbackMessage);
     }
   }
 
@@ -573,9 +587,9 @@ export function AdminUsersScreen() {
 
     try {
       await navigator.clipboard.writeText(link);
-      setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "초대 링크를 복사했습니다." }));
+      setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: invitationLinkCopySuccessMessage }));
     } catch {
-      setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "초대 링크를 열어 주소를 복사해 주세요." }));
+      setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: invitationLinkCopyFallbackMessage }));
     }
   }
 
@@ -663,9 +677,10 @@ export function AdminUsersScreen() {
               <label className="sr-only" htmlFor="admin-user-search">
                 사용자 검색
               </label>
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-zinc-400" aria-hidden />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden />
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="admin-user-search-input"
                 id="admin-user-search"
                 placeholder="사용자, 휴대폰, 역할, 회원 검색"
                 value={query}
@@ -674,7 +689,7 @@ export function AdminUsersScreen() {
               {query ? (
                 <button
                   aria-label="검색어 지우기"
-                  className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
                   data-testid="admin-user-search-clear"
                   type="button"
                   onClick={() => setQuery("")}
@@ -684,7 +699,7 @@ export function AdminUsersScreen() {
               ) : null}
             </div>
             <Link
-              className="inline-flex min-h-10 items-center justify-center gap-1 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
               data-testid="admin-user-member-create-link"
               href="/app/members"
             >
@@ -721,7 +736,7 @@ export function AdminUsersScreen() {
           </div>
           {hasActiveListFilter ? (
             <button
-              className="inline-flex min-h-10 w-fit items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+              className="inline-flex min-h-11 w-fit items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
               data-testid="admin-user-role-filter-reset"
               type="button"
               onClick={resetListFilters}
@@ -771,7 +786,8 @@ export function AdminUsersScreen() {
             <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">이름</span>
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="admin-user-invite-field"
                 placeholder="이름"
                 value={inviteName}
                 onChange={(event) => setInviteName(event.target.value)}
@@ -780,7 +796,8 @@ export function AdminUsersScreen() {
             <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">휴대폰 번호</span>
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="admin-user-invite-field"
                 inputMode="tel"
                 placeholder="휴대폰 번호 입력"
                 type="tel"
@@ -791,7 +808,8 @@ export function AdminUsersScreen() {
             <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">이메일(선택)</span>
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="admin-user-invite-field"
                 placeholder="연락 이메일"
                 type="email"
                 value={inviteEmail}
@@ -801,7 +819,8 @@ export function AdminUsersScreen() {
             <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">역할</span>
               <select
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="admin-user-invite-field"
                 value={inviteRole}
                 onChange={(event) => {
                   const nextRole = event.target.value as UserRole;
@@ -819,7 +838,7 @@ export function AdminUsersScreen() {
                 ))}
               </select>
             </label>
-            <Button className="self-end" disabled={!inviteCanSubmit} type="submit" variant="primary">
+            <Button className="self-end" disabled={!inviteCanSubmit} size="lg" type="submit" variant="primary">
               초대 생성
             </Button>
           </div>
@@ -832,7 +851,7 @@ export function AdminUsersScreen() {
               <legend className="text-xs font-semibold text-zinc-600">담당 지점</legend>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {context.db.branches.map((branch) => (
-                  <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700" key={branch.id}>
+                  <label className="flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700" key={branch.id}>
                     <input
                       className="h-4 w-4 accent-teal-700"
                       checked={inviteBranchIds.includes(branch.id)}
@@ -854,7 +873,7 @@ export function AdminUsersScreen() {
               <p className="text-sm font-semibold text-teal-900">초대 링크가 준비됐습니다.</p>
               <div className="flex flex-wrap gap-2">
                 <a
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
                   data-testid="admin-user-invite-link-open"
                   href={invitePath}
                 >
@@ -862,7 +881,7 @@ export function AdminUsersScreen() {
                   초대 링크 열기
                 </a>
                 <button
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
                   data-testid="admin-user-invite-link-copy"
                   type="button"
                   onClick={() => void handleCopyInvitationLink()}
@@ -881,15 +900,15 @@ export function AdminUsersScreen() {
         <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 sm:py-4">
           <div>
             <h2 className="text-base font-semibold text-zinc-950">사용자 목록</h2>
-            <p className="mt-1 text-xs font-semibold text-zinc-500">
-              {selectedRoleFilter === "all" ? "전체" : roleLabels[selectedRoleFilter]} {filteredUsers.length}명
+            <p className="mt-1 text-xs font-semibold text-zinc-500" data-testid="admin-user-list-status-label" aria-live="polite">
+              {filteredUsers.length}/{listStatusTotalCount}명 표시
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               aria-controls="admin-user-invite-form"
               aria-expanded={inviteFormOpen}
-              className="inline-flex min-h-10 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+              className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
               data-testid="admin-user-invite-toggle"
               type="button"
               onClick={() => setInviteFormOpen((current) => !current)}
@@ -906,7 +925,10 @@ export function AdminUsersScreen() {
           <span>관리 항목</span>
           <span>담당 지점</span>
         </div>
-        <div className="divide-y divide-zinc-100">
+        <div
+          className="max-h-36 divide-y divide-zinc-100 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] sm:max-h-72 lg:max-h-none lg:overflow-visible"
+          data-testid="admin-user-list-scroll-region"
+        >
           {filteredUsers.map((user) => {
             const visibleEmail = getVisibleUserEmail(user.email);
             const visiblePhone = user.phone ? formatPhoneNumber(user.phone) : null;
@@ -975,7 +997,7 @@ export function AdminUsersScreen() {
 
             return (
               <article
-                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 md:grid-cols-[1.1fr_0.7fr_0.7fr_1fr] md:items-start"
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 py-2 md:grid-cols-[1.1fr_0.7fr_0.7fr_1fr] md:items-start"
                 data-admin-user-delete-blockers={deleteBlockerSummary}
                 data-admin-user-delete-protected={canOpenDelete ? "false" : "true"}
                 data-admin-user-id={user.id}
@@ -987,8 +1009,13 @@ export function AdminUsersScreen() {
                 <div className="min-w-0">
                   <p className="font-semibold text-zinc-950">{user.name}</p>
                   <p className="mt-0.5 text-sm text-zinc-500">{user.title}</p>
-                  {visiblePhone ? <p className="mt-1 text-xs font-semibold text-zinc-600">{visiblePhone}</p> : null}
-                  {visibleEmail ? <p className="mt-1 break-all text-xs text-zinc-500">{visibleEmail}</p> : null}
+                  {visiblePhone || visibleEmail ? (
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-4 text-zinc-500">
+                      {visiblePhone ? <span className="shrink-0 font-semibold text-zinc-600">{visiblePhone}</span> : null}
+                      {visiblePhone && visibleEmail ? <span className="shrink-0 text-zinc-300">·</span> : null}
+                      {visibleEmail ? <span className="min-w-0 truncate">{visibleEmail}</span> : null}
+                    </p>
+                  ) : null}
                   {linkedMemberSummary ? (
                     <p
                       className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-teal-700"
@@ -1008,7 +1035,7 @@ export function AdminUsersScreen() {
                       data-testid={`admin-user-pending-invite-link-actions-${user.id}`}
                     >
                       <a
-                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-teal-200 bg-white px-2.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
+                        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-teal-200 bg-white px-2.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
                         data-admin-user-action="open-invitation-link"
                         data-testid={`admin-user-pending-invite-link-open-${user.id}`}
                         href={pendingInvitePath}
@@ -1017,7 +1044,7 @@ export function AdminUsersScreen() {
                         링크 열기
                       </a>
                       <button
-                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md bg-teal-700 px-2.5 text-xs font-semibold text-white transition hover:bg-teal-800"
+                        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-teal-700 px-2.5 text-xs font-semibold text-white transition hover:bg-teal-800"
                         data-admin-user-action="copy-invitation-link"
                         data-testid={`admin-user-pending-invite-link-copy-${user.id}`}
                         type="button"
@@ -1168,7 +1195,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">이름</span>
                         <input
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-admin-user-edit-control="true"
                           value={editDraft.name}
                           onChange={(event) => updateUserEditDraft(user, { name: event.target.value })}
                         />
@@ -1176,7 +1204,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">휴대폰 번호</span>
                         <input
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-admin-user-edit-control="true"
                           inputMode="tel"
                           type="tel"
                           value={editDraft.phone}
@@ -1187,7 +1216,8 @@ export function AdminUsersScreen() {
                     <label>
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">이메일(선택)</span>
                       <input
-                        className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        data-admin-user-edit-control="true"
                         type="email"
                         value={editDraft.email}
                         onChange={(event) => updateUserEditDraft(user, { email: event.target.value })}
@@ -1214,7 +1244,8 @@ export function AdminUsersScreen() {
                           <input
                             aria-invalid={passwordEntered && !passwordReady}
                             autoComplete="new-password"
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            data-admin-user-edit-control="true"
                             data-testid={`admin-user-password-input-${user.id}`}
                             minLength={12}
                             placeholder="12자 이상"
@@ -1228,7 +1259,8 @@ export function AdminUsersScreen() {
                           <input
                             aria-invalid={passwordEntered && !passwordReady}
                             autoComplete="new-password"
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            data-admin-user-edit-control="true"
                             data-testid={`admin-user-password-confirm-input-${user.id}`}
                             minLength={12}
                             placeholder="다시 입력"
@@ -1248,7 +1280,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">역할</span>
                         <select
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-admin-user-edit-control="true"
                           value={editDraft.role}
                           onChange={(event) => {
                             const nextRole = event.target.value as UserRole;
@@ -1273,7 +1306,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">설명</span>
                         <input
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-admin-user-edit-control="true"
                           value={editDraft.title}
                           onChange={(event) => updateUserEditDraft(user, { title: event.target.value })}
                         />
@@ -1289,7 +1323,7 @@ export function AdminUsersScreen() {
                         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                           {context.db.branches.map((branch) => (
                             <label
-                              className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                              className="flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
                               key={branch.id}
                             >
                               <input
@@ -1309,7 +1343,7 @@ export function AdminUsersScreen() {
                         <legend className="px-1 text-xs font-semibold text-zinc-600">앱 연결 회원</legend>
                         {selectedMember ? (
                           <div
-                            className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2"
+                            className="flex min-h-11 flex-wrap items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2"
                             data-testid={`admin-user-member-link-selected-${user.id}`}
                           >
                             <span className="min-w-0 flex-1 text-sm font-semibold text-teal-900">
@@ -1317,7 +1351,7 @@ export function AdminUsersScreen() {
                             </span>
                             <button
                               aria-label={`${selectedMember.name} 연결 해제`}
-                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-teal-200 bg-white text-teal-800 transition hover:bg-teal-100"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-teal-200 bg-white text-teal-800 transition hover:bg-teal-100"
                               data-testid={`admin-user-member-link-clear-${user.id}`}
                               type="button"
                               onClick={() => updateUserEditDraft(user, { memberIds: [], memberLinkSearch: "" })}
@@ -1329,7 +1363,8 @@ export function AdminUsersScreen() {
                         <label>
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 앱에 표시할 본인 정보 검색</span>
                           <input
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                            data-admin-user-edit-control="true"
                             data-testid={`admin-user-member-link-search-input-${user.id}`}
                             placeholder="이름, 연락처, 지점 검색"
                             value={editDraft.memberLinkSearch}
@@ -1377,7 +1412,7 @@ export function AdminUsersScreen() {
                           </p>
                         )}
                         <Link
-                          className="inline-flex min-h-10 w-fit items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                          className="inline-flex min-h-11 w-fit items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                           data-testid={`admin-user-member-link-create-shortcut-${user.id}`}
                           href="/app/members"
                         >
@@ -1392,7 +1427,7 @@ export function AdminUsersScreen() {
                         {linkableMembers.length > 0 ? (
                           <>
                             <div
-                              className="scroll-mb-56 flex min-h-10 flex-wrap gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 lg:scroll-mb-0"
+                              className="scroll-mb-56 flex min-h-11 flex-wrap gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 lg:scroll-mb-0"
                               data-testid={`admin-user-guardian-child-selected-list-${user.id}`}
                             >
                               {selectedChildMembers.length > 0 ? (
@@ -1407,12 +1442,12 @@ export function AdminUsersScreen() {
                                     </span>
                                     <button
                                       aria-label={`${member.name} 자녀 연결 해제`}
-                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-teal-800 transition hover:bg-teal-50"
+                                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-teal-800 transition hover:bg-teal-50"
                                       data-testid={`admin-user-guardian-child-clear-${user.id}-${member.id}`}
                                       type="button"
                                       onClick={() => toggleGuardianChildMember(user, member.id)}
                                     >
-                                      <X className="h-3.5 w-3.5" aria-hidden />
+                                      <X className="h-4 w-4" aria-hidden />
                                     </button>
                                   </span>
                                 ))
@@ -1423,7 +1458,8 @@ export function AdminUsersScreen() {
                             <label>
                               <span className="mb-1 block text-xs font-semibold text-zinc-500">자녀 회원 검색</span>
                               <input
-                                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                                data-admin-user-edit-control="true"
                                 data-testid={`admin-user-guardian-child-search-input-${user.id}`}
                                 placeholder="유소년/청소년 이름, 연락처, 지점 검색"
                                 value={editDraft.memberLinkSearch}
@@ -1518,7 +1554,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-red-700">삭제 사유</span>
                         <input
-                          className="h-10 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-red-500"
+                          className="h-11 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-red-500"
+                          data-testid={`admin-user-delete-reason-input-${user.id}`}
                           placeholder="삭제 사유 입력"
                           value={deleteReason}
                           onChange={(event) => setDeleteReasons((current) => ({ ...current, [user.id]: event.target.value }))}
@@ -1529,7 +1566,7 @@ export function AdminUsersScreen() {
                       </p>
                       {userFeedback ? <p className="mt-2 text-xs font-semibold text-red-800">{userFeedback}</p> : null}
                     </div>
-                    <Button className="self-end" disabled={!deleteReason.trim() || deletePending} size="sm" type="submit" variant="danger">
+                    <Button className="self-end" disabled={!deleteReason.trim() || deletePending} size="lg" type="submit" variant="danger">
                       <Trash2 className="h-4 w-4" aria-hidden />
                       {deletePending ? "삭제 중" : "계정 삭제"}
                     </Button>
@@ -1545,7 +1582,8 @@ export function AdminUsersScreen() {
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">비밀번호 재발급 사유</span>
                         <input
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                          data-testid={`admin-user-password-reset-reason-input-${user.id}`}
                           placeholder="재발급 사유 입력"
                           value={resetReason}
                           onChange={(event) => updatePasswordReason(user.id, event.target.value)}
@@ -1559,9 +1597,9 @@ export function AdminUsersScreen() {
                       {resetFeedback ? <p className="mt-2 text-xs font-semibold text-zinc-600">{resetFeedback}</p> : null}
                     </div>
                     <Button
-                      className="min-h-10 w-full self-end sm:w-auto"
+                      className="min-h-11 w-full self-end sm:w-auto"
                       disabled={!resetReason.trim() || resetPending}
-                      size="sm"
+                      size="lg"
                       type="submit"
                       variant="secondary"
                     >
@@ -1577,7 +1615,7 @@ export function AdminUsersScreen() {
             <div className="grid gap-3 px-4 py-8 text-center" data-testid="admin-user-empty-filter-state">
               <p className="text-sm font-semibold text-zinc-950">조건에 맞는 사용자가 없습니다.</p>
               <button
-                className="mx-auto inline-flex min-h-10 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                className="mx-auto inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                 data-testid="admin-user-empty-filter-reset"
                 type="button"
                 onClick={resetListFilters}
@@ -1586,6 +1624,7 @@ export function AdminUsersScreen() {
               </button>
             </div>
           ) : null}
+          <div className="h-24 lg:hidden" aria-hidden="true" data-testid="admin-user-list-bottom-safe-area" />
         </div>
       </section>
     </div>

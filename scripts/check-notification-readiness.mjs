@@ -17,6 +17,7 @@ const domain = readFileSync("src/lib/domain.ts", "utf8");
 const noticeHelpers = readFileSync("src/lib/notices.ts", "utf8");
 const noticePermissions = readFileSync("src/lib/notice-permissions.ts", "utf8");
 const noticeMemberSearch = readFileSync("src/lib/notice-member-search.ts", "utf8");
+const paymentCheckoutAccess = readFileSync("src/lib/payment-checkout-access.ts", "utf8");
 const serverDb = readFileSync("src/server/db.ts", "utf8");
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
 const pushConfigRoute = readFileSync("src/app/api/v1/notifications/push-config/route.ts", "utf8");
@@ -124,6 +125,12 @@ assert(noticesScreen.includes("NoticeFilter"), "notices screen must define notic
 assert(noticesScreen.includes("notice-filter-unread"), "notices screen must expose an unread notice filter control");
 assert(noticesScreen.includes("notice-filter-important"), "notices screen must expose an important notice filter control");
 assert(noticesScreen.includes("notice-bulk-read-filtered"), "notices screen must expose a filtered bulk read control");
+assert(noticesScreen.includes('data-testid="notice-list-search-input"'), "operator notice inbox must expose a title/body search input");
+assert(noticesScreen.includes('data-testid="notice-list-search-clear"'), "operator notice inbox must expose a search clear action");
+assert(noticesScreen.includes('data-testid="notice-list-search-empty-clear"'), "operator notice inbox must expose a no-result search clear action");
+assert(noticesScreen.includes('data-testid="notice-list-status-label"'), "operator notice inbox must expose filtered count status");
+assert(noticesScreen.includes("검색 결과가 없습니다"), "operator notice inbox must explain no-result searches");
+assert(noticesScreen.includes("noticeSearchKeyword"), "operator notice inbox must filter notices by title/body search text");
 assert(noticesScreen.includes('data-testid="family-notice-filter-grid"'), "family notice toolbar must use a fixed grid instead of a clipped scroll row");
 assert(noticesScreen.includes('data-testid="family-notice-detail-toggle"'), "family notice long body must expand from the content area");
 assertExcludes(noticesScreen, '{bodyExpanded ? "접기" : "자세히"}', "family notice screen must not restore repeated 자세히 row buttons");
@@ -138,6 +145,16 @@ assert(noticesScreen.includes("setNoticeFeedback(result.message)"), "notice comp
 assert(
   /data-testid="notice-create-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(noticesScreen),
   "notice composer delivery feedback must stay announced as a polite status message",
+);
+assert(
+  /function clearNoticeFeedback\(\)[\s\S]*setNoticeFeedback\(null\);[\s\S]*setDeleteFeedback\(null\);[\s\S]*setPushFeedback\(null\);[\s\S]*setReadFeedback\(null\);/.test(
+    noticesScreen,
+  ),
+  "notice composer and notice actions must share stale feedback cleanup",
+);
+assert(
+  noticesScreen.includes('setNoticeFeedback("제목, 내용, 대상 정보를 확인해 주세요.");'),
+  "notice composer must explain incomplete publish forms through the status feedback",
 );
 assert(noticesScreen.includes('context.user.role === "coach" ? "담당 회원 전체" : "지점 전체"'), "coach branch target copy must describe assigned members");
 assert(noticesScreen.includes("noticeMemberSearch"), "notice composer must search personal target members instead of relying on a long select");
@@ -217,6 +234,11 @@ assert(notificationsScreen.includes("getFamilyPaymentCheckoutAccess"), "notifica
 assert(notificationsScreen.includes("paymentNotificationTarget"), "notification inbox payment alerts must choose a role-safe payment target");
 assert(notificationsScreen.includes("/app/payments/checkout?paymentId="), "notification inbox must deep-link payable family payment alerts to checkout preparation");
 assert(notificationsScreen.includes('actionLabel: checkoutAccess.label'), "notification inbox payment alerts must reuse checkout action copy for payable family users");
+assert(notificationsScreen.includes("납부 정보 확인 필요"), "notification inbox pending payment copy must ask for payment info confirmation");
+assert(notificationsScreen.includes("납부 확인"), "notification inbox fallback payment action must use payment confirmation copy");
+assert(paymentCheckoutAccess.includes('label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 정보 확인"'), "payable family checkout action must use payment-info confirmation copy");
+assertExcludes(paymentCheckoutAccess, "결제하기", "family checkout live-payment action copy");
+assertExcludes(notificationsScreen, "결제 진행 필요", "notification inbox live-payment implication copy");
 assertExcludes(notificationsScreen, "apiClient.getRequests(context)", "notification inbox request alert fetch");
 assertExcludes(notificationsScreen, "isRequestNotificationCandidate(request)", "notification inbox request alert predicate");
 assertExcludes(notificationsScreen, "requestNotificationTarget", "notification inbox request target builder");
@@ -235,6 +257,13 @@ assert(notificationsScreen.includes("읽음 처리"), "notification inbox bulk r
 assert(notificationsScreen.includes("읽음 완료"), "notification inbox bulk read action must show done copy when no unread notices remain");
 assert(notificationsScreen.includes("data-notification-bulk-read-state"), "notification inbox bulk read action must expose active/done state for regression checks");
 assertExcludes(notificationsScreen, "공지 읽음 처리", "notification inbox repeated bulk read copy");
+assert(notificationsScreen.includes('data-testid="notification-filter-toolbar"'), "notification inbox must expose a flat filter toolbar");
+assert(notificationsScreen.includes("flex min-w-0 flex-wrap gap-1.5"), "notification inbox filters must wrap as a flat toolbar");
+assertExcludes(
+  notificationsScreen,
+  'className="min-w-0 rounded-md border border-zinc-200 bg-white p-0.5"',
+  "notification inbox nested filter card frame",
+);
 assert(notificationsScreen.includes("공지 읽음 상태를 저장하지 못했습니다."), "notification inbox bulk read failure copy must stay notice-scoped");
 assert(notificationsScreen.includes("markNoticesAsRead"), "notification inbox must persist notice read state");
 assert(appStore.includes("markNoticeAsRead: (noticeId: string) => Promise<boolean>"), "single notice read action must report persistence success");
@@ -274,7 +303,11 @@ assertExcludes(notificationsScreen, "먼저 볼 항목", "notification inbox dup
 assertExcludes(notificationsScreen, "결제/요청", "notification inbox duplicate follow-up summary helper");
 assert(notificationsScreen.includes("notification-follow-up-state-badge"), "notification inbox must render follow-up states as badges");
 assert(notificationsScreen.includes("getNotificationAlertCounts"), "notification inbox must reuse shared actionable notification counts");
-assert(notificationsScreen.includes("formatNotificationActionableLabel(notificationCounts)"), "notification inbox must reuse shared actionable notification label copy");
+assert(notificationsScreen.includes("formatNotificationActionableLabel(notificationCounts"), "notification inbox must reuse shared actionable notification label copy");
+assert(
+  notificationsScreen.includes('formatNotificationActionableLabel(notificationCounts, " · ")'),
+  "notification inbox visual summary must pass a consistent middle-dot separator to the shared label helper",
+);
 assert(notificationsScreen.includes('data-testid="notification-actionable-count-summary"'), "notification inbox must explain unread notice and follow-up counts without adding cards");
 assert(notificationsScreen.includes("미확인 공지"), "notification inbox count summary must keep notice-unread copy compact");
 assert(notificationAlerts.includes("확인 필요 결제"), "notification inbox count summary must distinguish actionable payment follow-ups through shared copy");
@@ -302,6 +335,7 @@ assert(notificationAlerts.includes("getAccessibleMemberIds(user, db, scopeBranch
 assert(notificationAlerts.includes("unreadNoticeCount"), "shared notification alerts must calculate unread notice count");
 assert(notificationAlerts.includes("paymentAlertCount"), "shared notification alerts must include scoped payment alerts");
 assert(notificationAlerts.includes("formatNotificationActionableLabel"), "shared notification alerts must expose a count label helper");
+assert(notificationAlerts.includes('separator = ", "'), "shared notification label helper must keep the comma separator as its accessible default");
 assert(notificationAlerts.includes("확인 필요 결제"), "shared notification label must name payment follow-ups explicitly");
 assertExcludes(appShell, "requestAlertCount", "app shell scoped request alerts in notification badge");
 assertExcludes(appShell, "isRequestNotificationCandidate", "app shell request alert predicate");

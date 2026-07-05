@@ -6,9 +6,14 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const db = await readServerDb();
+  const optional = request.nextUrl.searchParams.get("optional") === "1";
   const { user, response } = requireSession(request, db);
 
   if (!user) {
+    if (optional) {
+      return jsonOk(null);
+    }
+
     return response;
   }
 

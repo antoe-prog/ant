@@ -18,6 +18,7 @@ const files = {
   appLoading: "src/app/(app)/loading.tsx",
   appManifest: "src/app/manifest.ts",
   apiClient: "src/lib/api-client.ts",
+  bootstrapRoute: "src/app/api/v1/me/bootstrap/route.ts",
   auditLogsRoute: "src/app/api/v1/admin/audit-logs/route.ts",
   authLoginRoute: "src/app/api/v1/auth/login/route.ts",
   authInvitationAcceptRoute: "src/app/api/v1/auth/invitations/[token]/accept/route.ts",
@@ -32,6 +33,7 @@ const files = {
   childSwitcher: "src/components/domain/child-switcher.tsx",
   dashboardScreen: "src/components/screens/dashboard-screen.tsx",
   inviteAcceptScreen: "src/components/screens/invite-accept-screen.tsx",
+  invitationLinkCopy: "src/lib/invitation-link-copy.ts",
   loginScreen: "src/components/screens/login-screen.tsx",
   signupPage: "src/app/(auth)/signup/page.tsx",
   signupScreen: "src/components/screens/signup-screen.tsx",
@@ -96,6 +98,9 @@ const files = {
   nextConfig: "next.config.ts",
   eslintConfig: "eslint.config.mjs",
   packageJson: "package.json",
+  loginKeepSignedInScript: "scripts/check-login-keep-signed-in.mjs",
+  p1OperatorStatusScript: "scripts/check-p1-operator-status.mjs",
+  p1OperatorStatusTest: "scripts/check-p1-operator-status-test.mjs",
   pilotImport: "scripts/import-pilot-data.mjs",
   productionPreflightTest: "scripts/check-production-preflight-test.mjs",
   releaseRunner: "scripts/run-release-checks.mjs",
@@ -177,9 +182,13 @@ const files = {
   familyContactEditDeepLinkReport:
     ".data/mobile-builds/ios/family-contact-edit-deeplink-20260628/summary.json",
   memberManagementFormCollapseReport:
-    ".data/mobile-builds/ios/member-management-form-collapse-20260630/summary.json",
+    ".data/mobile-builds/ios/member-management-touch-targets-20260705/summary.json",
   classCreateFormCollapseReport:
     ".data/mobile-builds/ios/class-create-form-collapse-20260630/summary.json",
+  memberManagementTouchTargetsScript: "scripts/check-member-management-touch-targets.mjs",
+  classManagementTouchTargetsScript: "scripts/check-class-management-touch-targets.mjs",
+  classManagementTouchTargetsReport:
+    ".data/mobile-builds/ios/class-management-touch-targets-20260705/summary.json",
   memberProfileGuardianSyncReport:
     ".data/mobile-builds/ios/member-profile-guardian-sync-20260630/summary.json",
   memberProfileDraftSyncReport:
@@ -195,12 +204,21 @@ const files = {
   adminUserGuardianBottomSafeAreaScript: "scripts/check-admin-user-guardian-bottom-safe-area.mjs",
   adminUserGuardianBottomSafeAreaReport:
     ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701/summary.json",
+  adminUserListSafeAreaIosReport:
+    ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701/admin-user-list-safe-area-ios-sim-summary.json",
+  adminUserManagementTouchTargetsScript: "scripts/check-admin-user-management-touch-targets.mjs",
+  adminUserManagementTouchTargetsReport:
+    ".data/mobile-builds/ios/admin-user-management-touch-targets-20260705/summary.json",
   adminAuditBottomSafeAreaScript: "scripts/check-admin-audit-bottom-safe-area.mjs",
   adminAuditBottomSafeAreaReport:
     ".data/mobile-builds/ios/admin-audit-bottom-safe-area-20260701/summary.json",
+  adminAuditSearchScript: "scripts/check-admin-audit-search.mjs",
+  adminAuditSearchReport: ".data/mobile-builds/ios/admin-audit-search-20260704/summary.json",
   coachClassesBottomSafeAreaScript: "scripts/check-coach-classes-bottom-safe-area.mjs",
   coachClassesBottomSafeAreaReport:
     ".data/mobile-builds/ios/coach-classes-bottom-safe-area-20260701/summary.json",
+  coachClassesBottomSafeAreaIosReport:
+    ".data/mobile-builds/ios/coach-classes-bottom-safe-area-20260701/ios-sim-summary.json",
   adminBranchSelectedScopeReport:
     ".data/mobile-builds/ios/admin-branch-selected-scope-20260701/summary.json",
   familyClassPersonalAttendanceReport:
@@ -224,6 +242,10 @@ const files = {
     ".data/mobile-builds/ios/notification-inbox-density-20260629/summary.json",
   notificationReadActionEvidenceReport:
     ".data/mobile-builds/ios/notification-read-action-feedback-20260628/summary.json",
+  notificationPaymentCopyEvidenceReport:
+    ".data/mobile-builds/ios/notification-payment-copy-20260705/summary.json",
+  noticeNotificationNavLabelReport:
+    ".data/mobile-builds/ios/notice-notification-nav-label-20260705/summary.json",
   readNoticeToneDownEvidenceReport:
     ".data/mobile-builds/ios/read-notice-tone-down-20260628/summary.json",
   familyNotificationSettingsHiddenReport:
@@ -233,7 +255,21 @@ const files = {
   paymentCheckoutEvidenceReport:
     ".data/mobile-builds/ios/payment-checkout-prep-20260628/evidence.json",
   familyPaymentCheckoutScript: "scripts/check-family-payment-checkout.mjs",
+  paymentCheckoutMethodFlowScript: "scripts/check-payment-checkout-method-flow.mjs",
+  paymentCreateTouchTargetsScript: "scripts/check-payment-create-touch-targets.mjs",
+  paymentCreateTouchTargetsReport:
+    ".data/mobile-builds/ios/payment-create-touch-targets-20260704/summary.json",
+  operatorListSearchReport:
+    ".data/mobile-builds/ios/operator-list-search-20260704/summary.json",
+  operatorListSearchTouchReport:
+    ".data/mobile-builds/ios/operator-list-search-touch-20260704/summary.json",
+  ownerDashboardDetailToggleReport:
+    ".data/mobile-builds/ios/owner-dashboard-detail-toggle-20260701/summary.json",
+  finalWordmarkLetterSpacingReport:
+    ".data/mobile-builds/ios/final-wordmark-letter-spacing-20260704/summary.json",
   p1Readiness: ".data/p1-readiness.json",
+  p1OperatorStatusCurrent: ".data/p1-operator-status.current.json",
+  p1OperatorStatusCurrentMarkdown: ".data/p1-operator-status.current.md",
   androidTwaDoctor: ".data/android-twa-doctor.json",
   iosIpaDoctor: ".data/mobile-builds/ios/ios-ipa-doctor.json",
   p5P10InternalAudit: p5P10AuditPaths.json,
@@ -269,6 +305,8 @@ const screenshotFiles = [
   ".data/mobile-builds/ios/payment-checkout-prep-20260628/member-checkout-safearea.jpg",
   ".data/mobile-builds/ios/payment-checkout-prep-20260628/guardian-payments-card.jpg",
   ".data/mobile-builds/ios/payment-checkout-prep-20260628/guardian-checkout-ready.jpg",
+  ".data/mobile-builds/ios/payment-checkout-save-opt-in-20260705/payment-checkout-save-opt-in-ios-sim.png",
+  ".data/mobile-builds/ios/payment-checkout-woori-copy-ios-20260705/payment-checkout-woori-copy-ios-sim.png",
   ".data/mobile-builds/ios/guardian-payment-child-sync-20260630/guardian-payment-child-sync-ios-sim.png",
   ".data/mobile-builds/ios/notice-delete-20260630/owner-notice-delete-ios-sim.png",
   ".data/mobile-builds/ios/family-payment-state-badge-compact-20260630/guardian-payments-state-badge-compact-ios-sim.png",
@@ -307,6 +345,8 @@ const screenshotFiles = [
   ".data/mobile-builds/ios/admin-users-delete-guard-20260624/admin-users-delete-guard-ios-sim-scrolled.jpg",
   ".data/mobile-builds/ios/admin-users-delete-protection-chip-20260624/admin-users-delete-protection-chip-ios-sim-scrolled.jpg",
   ".data/mobile-builds/ios/admin-users-filter-state-20260624/admin-users-empty-filter-ios-sim.jpg",
+  ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701/admin-user-list-safe-area-browser.png",
+  ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701/admin-user-list-safe-area-ios-sim.png",
   ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701/admin-user-guardian-bottom-safe-area-browser.png",
   ".data/mobile-builds/ios/admin-audit-filter-compact-20260624/admin-audit-filter-collapsed-ios-sim.jpg",
     ".data/mobile-builds/ios/admin-audit-compact-rows-20260624/admin-audit-compact-rows-browser.png",
@@ -341,6 +381,7 @@ const screenshotFiles = [
   ".data/mobile-builds/ios/admin-branches-create-responsive-20260625/admin-branches-collapsed-browser.png",
   ".data/mobile-builds/ios/admin-branches-create-responsive-20260625/admin-branches-create-open-browser.png",
   ".data/mobile-builds/ios/admin-branches-create-responsive-20260625/admin-branches-ios-sim.jpg",
+  ".data/mobile-builds/ios/admin-branch-create-compact-20260704/admin-branches-create-compact-ios-sim.png",
   ".data/mobile-builds/ios/admin-branches-settings-density-20260625/admin-branches-collapsed-browser.png",
   ".data/mobile-builds/ios/admin-branches-settings-density-20260625/admin-branches-settings-open-browser.png",
   ".data/mobile-builds/ios/admin-branches-settings-density-20260625/admin-branches-settings-ios-sim.jpg",
@@ -473,6 +514,10 @@ const screenshotFiles = [
   ".data/mobile-builds/ios/notification-kind-badge-density-20260630/guardian-notifications-kind-badge-ios-sim.png",
   ".data/mobile-builds/ios/notification-bottom-safe-area-20260630/guardian-notifications-bottom-safe-ios-sim.png",
   ".data/mobile-builds/ios/notification-bottom-card-clearance-20260630/guardian-notifications-bottom-card-clearance-ios-sim.png",
+  ".data/mobile-builds/ios/notification-payment-copy-ios-20260705/guardian-notifications-payment-copy-ios-sim.png",
+  ".data/mobile-builds/ios/notification-filter-toolbar-ios-20260705/guardian-notifications-filter-toolbar-ios-sim.png",
+  ".data/mobile-builds/ios/notice-notification-nav-label-20260705/member-notices-bottom-nav-ios-sim.png",
+  ".data/mobile-builds/ios/notice-notification-nav-label-20260705/member-notifications-bottom-nav-ios-sim.png",
   ".data/mobile-builds/ios/coach-attendance-history-collapse-20260630/coach-classes-attendance-history-collapsed-ios-sim.png",
   ".data/mobile-builds/ios/coach-classes-mobile-list-collapse-20260630/coach-classes-list-collapsed-ios-sim.png",
   ".data/mobile-builds/ios/admin-audit-bottom-safe-area-20260701/admin-audit-bottom-safe-area-browser.png",
@@ -631,6 +676,7 @@ const sources = Object.fromEntries(
 );
 const packageJson = JSON.parse(sources.packageJson);
 const p1Readiness = JSON.parse(sources.p1Readiness);
+const p1OperatorStatusCurrent = JSON.parse(sources.p1OperatorStatusCurrent);
 const androidTwaDoctor = JSON.parse(sources.androidTwaDoctor);
 const iosIpaDoctor = JSON.parse(sources.iosIpaDoctor);
 const p5P10InternalAudit = JSON.parse(sources.p5P10InternalAudit);
@@ -679,8 +725,12 @@ const memberGuardianReentrySyncReport = JSON.parse(sources.memberGuardianReentry
 const guardianPaymentChildSyncReport = JSON.parse(sources.guardianPaymentChildSyncReport);
 const noticeDeleteEvidenceReport = JSON.parse(sources.noticeDeleteEvidenceReport);
 const adminUserGuardianBottomSafeAreaReport = JSON.parse(sources.adminUserGuardianBottomSafeAreaReport);
+const adminUserListSafeAreaIosReport = JSON.parse(sources.adminUserListSafeAreaIosReport);
+const adminUserManagementTouchTargetsReport = JSON.parse(sources.adminUserManagementTouchTargetsReport);
 const adminAuditBottomSafeAreaReport = JSON.parse(sources.adminAuditBottomSafeAreaReport);
+const adminAuditSearchReport = JSON.parse(sources.adminAuditSearchReport);
 const coachClassesBottomSafeAreaReport = JSON.parse(sources.coachClassesBottomSafeAreaReport);
+const coachClassesBottomSafeAreaIosReport = JSON.parse(sources.coachClassesBottomSafeAreaIosReport);
 const adminBranchSelectedScopeReport = JSON.parse(sources.adminBranchSelectedScopeReport);
 const familyClassPersonalAttendanceReport = JSON.parse(sources.familyClassPersonalAttendanceReport);
 const memberDashboardPaymentCheckoutLinkReport = JSON.parse(sources.memberDashboardPaymentCheckoutLinkReport);
@@ -694,10 +744,17 @@ const adminInviteLinkActionsReport = JSON.parse(sources.adminInviteLinkActionsRe
 const notificationsInboxEvidenceReport = JSON.parse(sources.notificationsInboxEvidenceReport);
 const notificationInboxDensityEvidenceReport = JSON.parse(sources.notificationInboxDensityEvidenceReport);
 const notificationReadActionEvidenceReport = JSON.parse(sources.notificationReadActionEvidenceReport);
+const notificationPaymentCopyEvidenceReport = JSON.parse(sources.notificationPaymentCopyEvidenceReport);
+const noticeNotificationNavLabelReport = JSON.parse(sources.noticeNotificationNavLabelReport);
 const readNoticeToneDownEvidenceReport = JSON.parse(sources.readNoticeToneDownEvidenceReport);
+const operatorListSearchReport = JSON.parse(sources.operatorListSearchReport);
+const operatorListSearchTouchReport = JSON.parse(sources.operatorListSearchTouchReport);
+const ownerDashboardDetailToggleReport = JSON.parse(sources.ownerDashboardDetailToggleReport);
+const finalWordmarkLetterSpacingReport = JSON.parse(sources.finalWordmarkLetterSpacingReport);
 const familyNotificationSettingsHiddenReport = JSON.parse(sources.familyNotificationSettingsHiddenReport);
 const familyNotificationAlwaysOnGuardReport = JSON.parse(sources.familyNotificationAlwaysOnGuardReport);
 const paymentCheckoutEvidenceReport = JSON.parse(sources.paymentCheckoutEvidenceReport);
+const paymentCreateTouchTargetsReport = JSON.parse(sources.paymentCreateTouchTargetsReport);
 
 function assertIncludes(source, snippet, label) {
   assert(source.includes(snippet), `${label} must include ${snippet}`);
@@ -831,8 +888,10 @@ for (const snippet of [
   'data-testid="mobile-session-role-switch"',
   'data-testid="mobile-session-logout-button"',
   "data-mobile-route-id={route.id}",
-  'const mobileRouteHref = route.id === "notices" ? "/app/notifications" : route.href;',
-  'const mobileRouteLabel = route.id === "notices" ? "알림" : routeLabel;',
+  'const isNoticeScreenPath = pathname === "/app/notices" || pathname.startsWith("/app/notices/");',
+  'const useNotificationInboxMobileRoute = route.id === "notices" && !isNoticeScreenPath;',
+  'const mobileRouteHref = useNotificationInboxMobileRoute ? "/app/notifications" : route.href;',
+  'const mobileRouteLabel = useNotificationInboxMobileRoute ? "알림" : routeLabel;',
   "const mobileRouteAriaLabel =",
   'aria-label={mobileRouteAriaLabel}',
   'renderNotificationBadge("mobile-notice-unread-badge", "mobile")',
@@ -1162,9 +1221,14 @@ for (const snippet of ['label: "코치 공개"', 'label: "학부모 공개"', 'l
   assertExcludes(sources.membersScreen, snippet, "member counseling visibility internal labels");
 }
 assertIncludes(sources.membersScreen, 'placeholder="상담 내용과 다음 확인 일정"', "member counseling note compact placeholder");
-assertIncludes(sources.membersScreen, "아직 상담/주의 메모가 없습니다.", "member counseling note empty-state copy");
 assertIncludes(sources.membersScreen, "저장하면 선택한 대상이 볼 수 있습니다.", "member counseling note save helper copy");
 assertIncludes(sources.membersScreen, "볼 수 있는 대상", "member counseling visibility app-safe field label");
+assertIncludes(sources.membersScreen, "memberNotes.length}건", "member counseling note count replaces repeated empty copy");
+assertIncludes(
+  sources.membersScreen,
+  "const showAlertSection = !isFamilyRole && member.alerts.length > 0;",
+  "member warning section must stay hidden when there are no alerts",
+);
 assertIncludes(sources.membersScreen, "openNoteEditorMemberIds", "coach member note editor collapsed state");
 assertIncludes(sources.membersScreen, "expandedNoteMemberIds", "coach member note list compact state");
 assertIncludes(sources.membersScreen, "coachMemberListExpanded", "coach member mobile list collapsed state");
@@ -1189,6 +1253,9 @@ assertExcludes(
   "member counseling note long placeholder",
 );
 assertExcludes(sources.membersScreen, "공개된 상담/주의 메모가 없습니다.", "member counseling note internal empty-state copy");
+assertExcludes(sources.membersScreen, "등록된 주의사항 없음", "member warning empty-state copy");
+assertExcludes(sources.membersScreen, "아직 상담/주의 메모가 없습니다.", "member counseling repeated empty-state copy");
+assertExcludes(sources.membersScreen, "아직 코치 피드백이 없습니다.", "family feedback repeated empty-state copy");
 assertExcludes(sources.membersScreen, "저장 후 선택한 대상에게 공유됩니다.", "member counseling note passive helper copy");
 assertExcludes(sources.membersScreen, "공개 범위", "member counseling visibility internal field label");
 assertIncludes(sources.counselingNotesRoute, "메모를 볼 수 있는 대상이 올바르지 않습니다.", "counseling note validation error app-safe target label");
@@ -1252,6 +1319,16 @@ assertIncludes(sources.noticesScreen, 'className="min-h-11 min-w-0 px-1.5 text-s
 assertExcludes(sources.noticesScreen, 'data-testid="family-notice-status-badge"', "member and guardian notices avoid redundant filter-count status badge");
 assertIncludes(sources.noticesScreen, 'const singleReadButtonLabel = showNoticeDeliveryMeta ? "읽음" : "확인";', "member and guardian individual read button compact app copy");
 assertIncludes(sources.noticesScreen, "const showCompactReadAction = !showNoticeDeliveryMeta && !read;", "member and guardian compact notice read action guard");
+assertIncludes(sources.noticesScreen, "const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null)", "notices screen exposes single read pending state");
+assertIncludes(sources.noticesScreen, "function clearNoticeFeedback()", "notices screen centralizes stale feedback cleanup");
+assertIncludes(sources.noticesScreen, "setNoticeFeedback(null);", "notices screen clears stale create feedback before other notice actions");
+assertIncludes(sources.noticesScreen, "setDeleteFeedback(null);", "notices screen clears stale delete feedback before other notice actions");
+assertIncludes(sources.noticesScreen, "setPushFeedback(null);", "notices screen clears stale push feedback before other notice actions");
+assertIncludes(sources.noticesScreen, "setReadFeedback(null);", "notices screen clears stale read feedback before other notice actions");
+assertIncludes(sources.noticesScreen, 'setNoticeFeedback("제목, 내용, 대상 정보를 확인해 주세요.");', "notice composer explains incomplete publish forms");
+assertIncludes(sources.noticesScreen, "async function handleMarkNoticeAsRead", "notices screen single read actions use a feedback handler");
+assertIncludes(sources.noticesScreen, "공지 확인을 저장했습니다.", "notices screen confirms single notice read persistence");
+assertExcludes(sources.noticesScreen, "onClick={() => void markNoticeAsRead(notice.id)}", "notices screen must not silently mark one notice as read");
 assertIncludes(sources.noticesScreen, 'data-testid="family-notice-read-action"', "member and guardian compact notice read action test id");
 assertIncludes(sources.noticesScreen, 'className="inline-flex min-h-11 shrink-0 items-center justify-center', "member and guardian notice read action touch target");
 assertIncludes(sources.noticesScreen, 'data-testid="notice-read-state-badge"', "admin notice read-state badge is gated away from family cards");
@@ -1434,8 +1511,9 @@ assertIncludes(sources.notificationsAliasRoute, "NotificationsScreen", "notifica
 assertIncludes(sources.notificationsScreen, 'data-testid="notifications-screen"', "notifications screen has a dedicated screen hook");
 assertIncludes(sources.notificationsScreen, "notification-filter-unread", "notifications screen exposes unread filtering");
 assertIncludes(sources.notificationsScreen, "grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]", "notifications screen keeps read action compact beside filters");
-assertIncludes(sources.notificationsScreen, 'className="min-w-0 rounded-md border border-zinc-200 bg-white p-0.5"', "notifications screen keeps filters as one compact segmented control");
-assertIncludes(sources.notificationsScreen, "grid grid-cols-3 gap-0.5", "notifications screen keeps filter options in one compact row");
+assertIncludes(sources.notificationsScreen, 'data-testid="notification-filter-toolbar"', "notifications screen exposes flat filter toolbar for mobile QA");
+assertIncludes(sources.notificationsScreen, "flex min-w-0 flex-wrap gap-1.5", "notifications screen keeps filters as a flat wrapping toolbar");
+assertExcludes(sources.notificationsScreen, 'className="min-w-0 rounded-md border border-zinc-200 bg-white p-0.5"', "notifications screen must not restore nested filter card frame");
 assertIncludes(sources.notificationsScreen, 'className="whitespace-nowrap"', "notifications screen keeps compact filter labels on one line");
 assertIncludes(sources.notificationsScreen, 'ariaLabel: "공지 미확인"', "notifications screen unread filter exposes notice-only scope to assistive tech");
 assertIncludes(sources.notificationsScreen, 'label: "미확인"', "notifications screen unread filter uses compact visible copy");
@@ -1544,6 +1622,9 @@ assertIncludes(sources.visibleAppCopyScript, "/api/v1/dev/reset", "visible copy 
 assertIncludes(sources.visibleAppCopyScript, "assertNoticeMutationSnapshotRestored", "visible copy scan verifies notification read clicks do not persist test state");
 assertIncludes(sources.visibleAppCopyScript, "shouldRunVisibleCopyScan", "visible copy scan validates CLI arguments before running browser interactions");
 assertIncludes(sources.visibleAppCopyScript, "The scan accepts no positional arguments", "visible copy scan help exits without starting browser interactions");
+assertIncludes(sources.visibleAppCopyScript, "cleanVisibleCopyOutputDir", "visible copy scan cleans stale screenshots before writing current evidence");
+assertIncludes(sources.visibleAppCopyScript, 'entry.name.endsWith(".png")', "visible copy scan removes stale PNG screenshots from the current output folder only");
+assertIncludes(sources.visibleAppCopyScript, "outputCleanup", "visible copy report records output cleanup evidence");
 assertIncludes(sources.visibleAppCopyScript, "notificationPaymentCheckoutLinkCount", "visible copy scan checks notification payment checkout links");
 assertIncludes(sources.notificationsScreen, "canShowPaymentNotificationForRole(context.user.role)", "notifications screen hides payment alerts from coach role");
 assertIncludes(sources.notificationsScreen, "isPaymentNotificationCandidate(payment)", "notifications screen uses shared payment alert predicate");
@@ -1556,8 +1637,16 @@ const notificationPaymentTargetSource = sources.notificationsScreen.slice(
   sources.notificationsScreen.indexOf("function buildPaymentNotification"),
 );
 assertIncludes(notificationPaymentTargetSource, 'actionLabel: checkoutAccess.label', "notifications screen reuses checkout action label for payable family users");
-assertIncludes(notificationPaymentTargetSource, 'checkoutAccess.state === "guardian_required" ? "학부모 확인" : "결제 확인"', "notifications screen uses specific non-payable payment action labels");
+assertIncludes(notificationPaymentTargetSource, 'checkoutAccess.state === "guardian_required" ? "학부모 확인" : "납부 확인"', "notifications screen uses specific non-payable payment action labels");
 assertExcludes(notificationPaymentTargetSource, 'actionLabel: "보기"', "payment notification fallback must not restore generic view copy");
+assertIncludes(sources.notificationsScreen, "납부 정보 확인 필요", "notifications screen pending payment copy asks for payment info confirmation");
+assertIncludes(
+  sources.paymentCheckoutAccess,
+  'label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 정보 확인"',
+  "family checkout ready action uses payment-info confirmation copy",
+);
+assertExcludes(sources.paymentCheckoutAccess, "결제하기", "family checkout ready action must not imply live payment approval");
+assertExcludes(sources.notificationsScreen, "결제 진행 필요", "notifications screen must not imply live payment progress from pending alerts");
 assertExcludes(sources.notificationsScreen, "notification-summary-card", "notifications screen avoids duplicate summary cards");
 assertExcludes(sources.notificationsScreen, "읽음 처리 필요", "notifications screen avoids duplicate unread summary helper");
 assertExcludes(sources.notificationsScreen, "먼저 볼 항목", "notifications screen avoids duplicate important summary helper");
@@ -1734,13 +1823,19 @@ for (const [label, source] of [
 }
 for (const snippet of [
   'data-testid="admin-user-summary-grid"',
-  "function getInitialUserQuery",
-  "function getInitialRoleFilter",
-  "window.history.replaceState(null, \"\", nextUrl)",
+  "useRouter",
+  "useSearchParams",
+  "function getUserQueryFromParams",
+  "function getRoleFilterFromParams",
+  "previousListFilterParamRef",
+  "router.replace(nextUrl, { scroll: false })",
 	  'id="admin-user-search"',
+	  'data-testid="admin-user-search-input"',
 	  'data-testid="admin-user-search-clear"',
+	  'data-testid="admin-user-list-status-label"',
 	  'data-testid="admin-user-empty-filter-state"',
 	  'data-testid="admin-user-empty-filter-reset"',
+	  'data-testid="admin-user-role-filter-reset"',
 	  'placeholder="사용자, 휴대폰, 역할, 회원 검색"',
 	  "function getLinkedUserMembers",
 	  "function getLinkedMemberDisplay",
@@ -1820,6 +1915,14 @@ for (const snippet of [
 		]) {
 		  assertIncludes(sources.adminUsersScreen, snippet, "admin users dense forms and password edit visibility");
 		}
+for (const snippet of [
+  "function getInitialUserQuery",
+  "function getInitialRoleFilter",
+  "window.addEventListener(\"popstate\"",
+  "window.history.replaceState(null, \"\", nextUrl)",
+]) {
+  assertExcludes(sources.adminUsersScreen, snippet, "admin users search must use Next search params instead of stale window-only filters");
+}
 for (const snippet of [
   'data-testid="admin-user-mobile-scope-summary"',
   'data-testid="admin-user-delete-blocker-summary"',
@@ -2079,6 +2182,76 @@ assertIncludes(
   "internal simulator evidence only",
   "notifications inbox evidence must not be treated as release readiness",
 );
+assert.equal(notificationPaymentCopyEvidenceReport.ok, true, "notification payment copy mobile evidence must pass");
+assertIncludes(
+  notificationPaymentCopyEvidenceReport.browserPath,
+  "Playwright fallback used",
+  "notification payment copy evidence must record Browser fallback",
+);
+const guardianNotificationPaymentCopyCase = notificationPaymentCopyEvidenceReport.cases?.find((testCase) => testCase.role === "guardian");
+assert(guardianNotificationPaymentCopyCase, "notification payment copy evidence must cover guardian role");
+assert.equal(
+  guardianNotificationPaymentCopyCase.pendingPaymentSeed?.checkoutStatus,
+  "pending",
+  "guardian payment copy evidence must seed a pending checkout",
+);
+assert(
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentTitles ?? []).includes("한유나 납부 정보 확인 필요"),
+  "guardian payment copy evidence must show pending payment info-confirmation title",
+);
+assert(
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 확인 중"),
+  "guardian payment copy evidence must show pending payment confirmation action copy",
+);
+assert(
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 정보 확인"),
+  "guardian payment copy evidence must show payable payment info-confirmation action copy",
+);
+assert(
+  !/결제 진행 필요|결제 진행 중|결제하기/.test(guardianNotificationPaymentCopyCase.beforeState?.inboxText ?? ""),
+  "guardian payment copy evidence must not imply live payment progress",
+);
+assert(
+  guardianNotificationPaymentCopyCase.beforeScreenshotPath && existsSync(guardianNotificationPaymentCopyCase.beforeScreenshotPath),
+  "guardian payment copy browser screenshot must exist",
+);
+assert(
+  statSync(guardianNotificationPaymentCopyCase.beforeScreenshotPath).size > 10_000,
+  "guardian payment copy browser screenshot must be non-empty",
+);
+assert.equal(noticeNotificationNavLabelReport.ok, true, "notice/notification nav label evidence must pass");
+assert.equal(
+  noticeNotificationNavLabelReport.policy?.noticesPath?.expectedLabel,
+  "공지",
+  "notice/notification nav label evidence must record notices path label",
+);
+assert.equal(
+  noticeNotificationNavLabelReport.policy?.notificationsPath?.expectedLabel,
+  "알림",
+  "notice/notification nav label evidence must record notifications path label",
+);
+for (const [id, expected] of [
+  ["admin-notices", { label: "공지", href: "/app/notices" }],
+  ["owner-notices", { label: "공지", href: "/app/notices" }],
+  ["coach-notices", { label: "공지", href: "/app/notices" }],
+  ["member-notices", { label: "공지", href: "/app/notices" }],
+  ["guardian-notices", { label: "공지", href: "/app/notices" }],
+  ["member-notifications", { label: "알림", href: "/app/notifications" }],
+  ["guardian-notifications", { label: "알림", href: "/app/notifications" }],
+  ["member-dashboard", { label: "알림", href: "/app/notifications" }],
+  ["guardian-dashboard", { label: "알림", href: "/app/notifications" }],
+]) {
+  const page = noticeNotificationNavLabelReport.visibleCopyBottomNav?.[id];
+
+  assert(page, `notice/notification nav label evidence must include ${id}`);
+  assert.equal(page.mobileBottomNavNoticeLabel, expected.label, `${id} nav label evidence must match the path policy`);
+  assert.equal(page.mobileBottomNavNoticeHref, expected.href, `${id} nav href evidence must match the path policy`);
+}
+for (const screenshot of Object.values(noticeNotificationNavLabelReport.iosScreenshots ?? {})) {
+  assert(screenshot?.path && existsSync(screenshot.path), "notice/notification nav iOS screenshot must exist");
+  assert(screenshot.sizeBytes > 10_000, "notice/notification nav iOS screenshot summary must record a non-empty image");
+  assert(statSync(screenshot.path).size === screenshot.sizeBytes, "notice/notification nav iOS screenshot summary size must match disk");
+}
 assert.equal(notificationInboxDensityEvidenceReport.ok, true, "notification inbox density evidence must pass");
 assert.equal(
   notificationInboxDensityEvidenceReport.surface,
@@ -2190,6 +2363,158 @@ for (const expected of [
     `read notice tone-down evidence must verify ${expected}`,
   );
 }
+assert.equal(operatorListSearchReport.ok, true, "operator list search evidence must pass");
+assert.equal(operatorListSearchReport.consoleMessages?.length ?? 0, 0, "operator list search evidence must be console-clean");
+for (const [key, value] of Object.entries(operatorListSearchReport.controls?.noticesEmpty ?? {})) {
+  if (["input", "clear", "emptyClear"].includes(key)) {
+    assert(value?.height >= 44, `operator notice empty search ${key} control must keep a 44px touch height`);
+  }
+}
+assert(
+  operatorListSearchReport.controls?.noticesEmpty?.bottomNavClearance >= 24,
+  "operator notice empty search clear action must stay above bottom navigation",
+);
+assert.equal(operatorListSearchTouchReport.ok, true, "operator notice empty search touch simulator evidence must pass");
+for (const [key, value] of Object.entries(operatorListSearchTouchReport.browserProof?.controls ?? {})) {
+  if (["input", "clear", "emptyClear"].includes(key)) {
+    assert(value?.height >= 44, `operator notice touch summary ${key} control must not keep stale sub-44px evidence`);
+  }
+}
+assert(
+  operatorListSearchTouchReport.browserProof?.controls?.bottomNavClearance >= 24,
+  "operator notice touch summary clear action must stay above bottom navigation",
+);
+assert(
+  operatorListSearchTouchReport.iosSimulator?.screenshot &&
+    existsSync(operatorListSearchTouchReport.iosSimulator.screenshot),
+  "operator notice empty search simulator screenshot must exist",
+);
+assert(
+  statSync(operatorListSearchTouchReport.iosSimulator.screenshot).size > 10_000,
+  "operator notice empty search simulator screenshot must be non-empty",
+);
+assert.equal(
+  operatorListSearchTouchReport.releaseDecision,
+  "internal_simulator_evidence_only_not_ipa_ready",
+  "operator notice empty search simulator evidence must not be treated as IPA readiness",
+);
+assert.equal(ownerDashboardDetailToggleReport.ok, true, "owner dashboard detail toggle simulator evidence must pass");
+assert.equal(ownerDashboardDetailToggleReport.role, "owner", "owner dashboard detail toggle evidence must target owner role");
+assert.equal(
+  ownerDashboardDetailToggleReport.route,
+  "/app/dashboard",
+  "owner dashboard detail toggle evidence must target the dashboard route",
+);
+assert(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerDashboardDetailToggleHeight >= 44,
+  "owner dashboard detail toggle summary must keep the detail toggle tappable",
+);
+assert.equal(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerDashboardDetailToggleBottomNavOverlap,
+  0,
+  "owner dashboard detail toggle summary must keep the detail toggle above the bottom nav",
+);
+assert(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerDashboardDetailToggleBottomNavClearance >= 24,
+  "owner dashboard detail toggle summary must keep detail toggle clearance above the bottom nav",
+);
+assert.equal(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerBranchComparisonRowBottomNavOverlap,
+  0,
+  "owner dashboard detail toggle summary must keep branch comparison rows above the bottom nav",
+);
+assert(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerBranchComparisonRowBottomNavClearance >= 24,
+  "owner dashboard detail toggle summary must not keep stale sub-24px row clearance evidence",
+);
+assert.equal(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerBranchComparisonCardBottomNavOverlap,
+  0,
+  "owner dashboard detail toggle summary must keep branch comparison card above the bottom nav",
+);
+assert(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerBranchComparisonCardBottomNavClearance >= 24,
+  "owner dashboard detail toggle summary must not keep stale sub-24px card clearance evidence",
+);
+assert.equal(
+  ownerDashboardDetailToggleReport.browserVisibleCopy?.ownerDashboardRiskSummaryBottomNavOverlap,
+  0,
+  "owner dashboard detail toggle summary must keep risk summary above the bottom nav",
+);
+assert(
+  ownerDashboardDetailToggleReport.screenshotPath && existsSync(ownerDashboardDetailToggleReport.screenshotPath),
+  "owner dashboard detail toggle simulator screenshot must exist",
+);
+assert(
+  statSync(ownerDashboardDetailToggleReport.screenshotPath).size > 10_000,
+  "owner dashboard detail toggle simulator screenshot must be non-empty",
+);
+assert.equal(
+  ownerDashboardDetailToggleReport.releaseDecision,
+  "internal_simulator_evidence_only_not_ipa_ready",
+  "owner dashboard detail toggle simulator evidence must not be treated as IPA readiness",
+);
+assert.equal(finalWordmarkLetterSpacingReport.ok, true, "FINAL wordmark letter-spacing evidence must pass");
+assert.equal(
+  finalWordmarkLetterSpacingReport.source,
+  files.finalWordmark,
+  "FINAL wordmark letter-spacing evidence must point to the vector source",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.checks?.letterSpacing,
+  "0",
+  "FINAL wordmark letter-spacing evidence must record zero letter spacing",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.checks?.negativeLetterSpacingBlocked,
+  true,
+  "FINAL wordmark letter-spacing evidence must block negative letter spacing",
+);
+assert(
+  finalWordmarkLetterSpacingReport.browserProof?.authLogin?.finalWordmarkVisualMinHeight >= 28,
+  "FINAL wordmark evidence must keep public auth wordmark visually readable",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.browserProof?.authLogin?.finalWordmarkLinkCount,
+  0,
+  "FINAL wordmark evidence must not count public auth wordmark as an app link",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.browserProof?.authLogin?.finalWordmarkMinTouchHeight,
+  0,
+  "FINAL wordmark evidence must keep public auth dashboard-link touch height explicit zero",
+);
+assert(
+  finalWordmarkLetterSpacingReport.browserProof?.ownerDashboard?.finalWordmarkLinkCount > 0,
+  "FINAL wordmark evidence must keep app dashboard wordmark linked",
+);
+assert(
+  finalWordmarkLetterSpacingReport.browserProof?.ownerDashboard?.finalWordmarkMinTouchHeight >= 44,
+  "FINAL wordmark evidence must keep app dashboard wordmark touch target",
+);
+assert(
+  finalWordmarkLetterSpacingReport.browserProof?.ownerDashboard?.finalWordmarkVisualMinHeight >= 28,
+  "FINAL wordmark evidence must keep app dashboard wordmark visually readable",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.browserProof?.nullWordmarkEvidenceCount,
+  0,
+  "FINAL wordmark evidence must not keep null/Infinity wordmark measurements",
+);
+assert(
+  finalWordmarkLetterSpacingReport.iosSimulator?.screenshot &&
+    existsSync(finalWordmarkLetterSpacingReport.iosSimulator.screenshot),
+  "FINAL wordmark letter-spacing simulator screenshot must exist",
+);
+assert(
+  statSync(finalWordmarkLetterSpacingReport.iosSimulator.screenshot).size > 10_000,
+  "FINAL wordmark letter-spacing simulator screenshot must be non-empty",
+);
+assert.equal(
+  finalWordmarkLetterSpacingReport.releaseDecision,
+  "internal_simulator_evidence_only_not_ipa_ready",
+  "FINAL wordmark letter-spacing evidence must not be treated as IPA readiness",
+);
 assert.equal(familyNotificationSettingsHiddenReport.ok, true, "family notification settings hidden evidence must pass");
 assert.equal(
   familyNotificationSettingsHiddenReport.surface,
@@ -2230,7 +2555,7 @@ for (const expected of [
   "회원 알림함에서 알림 설정 카드 미노출",
   "학부모 알림함 첫 화면에서 알림 설정 바로가기 미노출",
   "학부모 알림함에서 알림 설정 카드 미노출",
-  "공지 읽음 처리와 결제하기 주요 액션 유지",
+  "공지 읽음 처리와 납부 정보 확인 주요 액션 유지",
 ]) {
   assert(
     (familyNotificationSettingsHiddenReport.verified ?? []).includes(expected),
@@ -2286,6 +2611,18 @@ assert.equal(
   "internal_simulator_evidence_only_not_ipa_ready",
   "family notification always-on guard evidence must not claim IPA readiness",
 );
+assertIncludes(
+  sources.invitationLinkCopy,
+  "복사를 완료하지 못했습니다. 링크 열기로 확인해 주세요.",
+  "invitation link copy fallback uses app-centered guidance",
+);
+assertIncludes(sources.invitationLinkCopy, "초대 링크를 복사했습니다.", "invitation link copy success message");
+assertExcludes(sources.invitationLinkCopy, "주소를 복사", "invitation link copy avoids address-bar/manual URL wording");
+for (const source of [sources.membersScreen, sources.adminUsersScreen, sources.adminRolesScreen]) {
+  assertIncludes(source, "invitationLinkCopyFallbackMessage", "invitation link copy fallback is shared");
+  assertIncludes(source, "invitationLinkCopySuccessMessage", "invitation link copy success is shared");
+  assertExcludes(source, "초대 링크를 열어 주소를 복사해 주세요.", "invitation link fallback avoids browser address wording");
+}
 for (const snippet of ["초대 링크가 준비됐습니다.", "초대 링크 열기", "링크 복사", "navigator.clipboard.writeText"]) {
   assertIncludes(sources.membersScreen, snippet, "member invitation link compact action UI");
 }
@@ -2373,9 +2710,17 @@ assertExcludes(
   "rbacRoleLabels[roleToRbacRole[user.role]]",
   "admin roles duplicate role label rendering",
 );
-assertIncludes(sources.adminRolesScreen, 'const [inviteFormOpen, setInviteFormOpen] = useState(false)', "admin roles invite form collapsed state");
+assertIncludes(sources.adminRolesScreen, 'function shouldOpenInviteForm(searchParams: Pick<URLSearchParams, "get">)', "admin roles invite form query helper");
+assertIncludes(sources.adminRolesScreen, 'return searchParams.get("invite") === "1";', "admin roles invite form opens only for explicit invite query");
+assertIncludes(sources.adminRolesScreen, "const inviteFormRequested = shouldOpenInviteForm(searchParams);", "admin roles invite form reads invite query");
+assertIncludes(
+  sources.adminRolesScreen,
+  "const [inviteFormOpen, setInviteFormOpen] = useState(() => inviteFormRequested)",
+  "admin roles invite form keeps default collapsed state unless invite query is present",
+);
+assertExcludes(sources.adminRolesScreen, "setInviteFormOpen(true);", "admin roles invite query must not trigger synchronous effect state updates");
 assertIncludes(sources.adminRolesScreen, 'data-testid="admin-role-summary-grid"', "admin roles compact summary grid hook");
-assertIncludes(sources.adminRolesScreen, "grid grid-cols-4 overflow-hidden rounded-md border", "admin roles one-line compact mobile summary grid");
+assertIncludes(sources.adminRolesScreen, "grid min-h-11 grid-cols-4 overflow-hidden rounded-md border", "admin roles readable compact mobile summary grid");
 assertIncludes(sources.adminRolesScreen, 'data-testid="admin-role-invite-panel"', "admin roles compact invite panel hook");
 assertIncludes(sources.adminRolesScreen, "w-2/3 max-w-[18rem]", "admin roles invite panel reduced mobile width");
 assertIncludes(sources.adminRolesScreen, '{inviteFormOpen ? "닫기" : "열기"}', "admin roles invite panel short action copy");
@@ -2386,6 +2731,12 @@ for (const snippet of [
   'data-testid="admin-role-invite-link-actions"',
   'data-testid="admin-role-invite-link-open"',
   'data-testid="admin-role-invite-link-copy"',
+  'data-testid="admin-role-invite-submit"',
+  'id="admin-role-invite-submit"',
+  "scroll-mb-32",
+  'window.location.hash !== "#admin-role-invite-submit"',
+  'document.getElementById("admin-role-invite-submit")?.scrollIntoView',
+  "window.requestAnimationFrame",
   "초대 링크가 준비됐습니다.",
   "초대 링크 열기",
   "링크 복사",
@@ -2393,6 +2744,14 @@ for (const snippet of [
 ]) {
   assertIncludes(sources.adminRolesScreen, snippet, "admin roles invitation link compact action UI");
 }
+assert(
+  /className="[^"]*min-h-11[^"]*"[\s\S]{0,260}data-testid="admin-role-invite-link-open"/.test(sources.adminRolesScreen),
+  "admin roles invitation link open action must keep a 44px touch height",
+);
+assert(
+  /className="[^"]*min-h-11[^"]*"[\s\S]{0,260}data-testid="admin-role-invite-link-copy"/.test(sources.adminRolesScreen),
+  "admin roles invitation link copy action must keep a 44px touch height",
+);
 assertExcludes(sources.adminRolesScreen, "생성된 초대 링크:", "admin roles invitation link avoids long raw path display");
 assertIncludes(
   sources.adminRolesScreen,
@@ -2448,7 +2807,7 @@ assert.equal(
 );
 for (const expected of [
   "priority cell href includes /app/payments/checkout?paymentId=pay-minjae",
-  "payment card shows 결제하기",
+  "payment card shows 납부 정보 확인",
   "payment-checkout-ready",
   "checkout screen remains API-free",
 ]) {
@@ -2480,7 +2839,7 @@ assertIncludes(sources.dashboardScreen, 'data-testid="coach-dashboard-all-classe
 assertIncludes(sources.dashboardScreen, "inline-flex min-h-11 items-center gap-1", "coach dashboard compact all link touch target");
 assertIncludes(sources.classesScreen, 'data-testid="attendance-unchecked-filter"', "coach attendance filter touch target hook");
 assertIncludes(sources.classesScreen, "className=\"inline-flex min-h-11 shrink-0 items-center gap-1.5", "coach attendance filter label compact touch target");
-assertIncludes(sources.classesScreen, "className=\"h-6 w-6 rounded border-zinc-300", "coach attendance filter checkbox visual touch target");
+assertIncludes(sources.classesScreen, "className=\"h-7 w-7 rounded border-zinc-300", "coach attendance filter checkbox visual target");
 assertIncludes(sources.classesScreen, "className=\"h-5 w-5 rounded border-zinc-300", "coach checkbox visual target size");
 
 for (const snippet of [
@@ -2521,6 +2880,10 @@ for (const snippet of ["{log.action}", "{log.result}", "context.db.auditLogs.sli
 
 for (const snippet of [
   "메시지, 처리 항목, 담당자, 대상 검색",
+  "useSearchParams",
+  "router.replace(nextUrl, { scroll: false })",
+  "function getAuditFiltersFromParams",
+  "function resetFilters",
   "처리 항목 필터",
   "전체 처리 항목",
   "담당자 확인 중",
@@ -2559,13 +2922,17 @@ for (const snippet of [
   'data-testid="admin-audit-filter-toggle"',
   'data-testid="admin-audit-active-filter-summary"',
   'data-testid="admin-audit-filter-fields"',
+  'data-testid="admin-audit-search-input"',
+  'data-testid="admin-audit-search-clear"',
+  'data-testid="admin-audit-filter-reset"',
   'data-testid="admin-audit-filter-submit"',
+  'data-testid="admin-audit-empty-filter-reset"',
   "필터 열기",
   "필터 닫기",
   "<span>처리 항목</span>",
   "<span>담당자/지점</span>",
-  "grid grid-cols-4 overflow-hidden rounded-md border",
-  '<EmptyState title="조건에 맞는 변경 기록이 없습니다" />',
+  "grid min-h-11 grid-cols-4 overflow-hidden rounded-md border",
+  'title="조건에 맞는 변경 기록이 없습니다"',
 ]) {
   assertIncludes(sources.adminAuditLogsScreen, snippet, "admin audit app-safe filter copy");
 }
@@ -2597,6 +2964,8 @@ for (const snippet of [
   "변경 기록 조회 사유가 필요합니다.",
   "변경 기록 처리 항목 필터가 올바르지 않습니다.",
   "변경 기록 결과 필터가 올바르지 않습니다.",
+  '"promotion.create"',
+  '"promotion.update"',
 ]) {
   assertIncludes(sources.auditLogsRoute, snippet, "admin change record app-safe route copy");
 }
@@ -2683,10 +3052,10 @@ assertIncludes(sources.adminBranchesScreen, 'const [branchCreateOpen, setBranchC
 assertIncludes(sources.adminBranchesScreen, 'data-testid="admin-branch-create-panel"', "admin branch create compact panel hook");
 assertIncludes(sources.adminBranchesScreen, 'data-testid="admin-branch-create-toggle"', "admin branch create toggle hook");
 assertIncludes(sources.adminBranchesScreen, 'branchCreateOpen ? "w-full max-w-none" : "w-2/3 max-w-[17rem]"', "admin branch create panel expands only while the form is open");
-assertIncludes(sources.adminBranchesScreen, "mt-2 grid gap-2", "admin branch create form uses compact mobile layout");
-assertIncludes(sources.adminBranchesScreen, "grid grid-cols-2 gap-2 md:contents", "admin branch create name and district fields share one compact mobile row");
-assertIncludes(sources.adminBranchesScreen, "grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-2", "admin branch create owner select and submit action share one compact mobile row");
-assertIncludes(sources.adminBranchesScreen, "grid grid-cols-3 gap-1.5", "admin branch settings form uses compact three-column mobile field grid");
+assertIncludes(sources.adminBranchesScreen, "mt-1.5 grid gap-1.5", "admin branch create form uses compact two-row mobile layout");
+assertIncludes(sources.adminBranchesScreen, "grid grid-cols-2 gap-1.5 md:contents", "admin branch create name and district fields share one compact mobile row");
+assertIncludes(sources.adminBranchesScreen, "grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-1.5", "admin branch create owner select and submit action share one compact mobile row");
+assertIncludes(sources.adminBranchesScreen, "grid grid-cols-3 gap-1", "admin branch settings form uses compact three-column mobile field grid");
 assertIncludes(sources.adminBranchesScreen, ">출석 수정 사유 필수</span>", "admin branch settings keeps attendance edit reason policy");
 assertExcludes(sources.adminBranchesScreen, ">보강 기간</span>", "admin branch settings must remove deleted request policy label");
 assertExcludes(sources.adminBranchesScreen, ">월 보강</span>", "admin branch settings must remove deleted request policy label");
@@ -2719,12 +3088,16 @@ assertIncludes(sources.adminBranchesScreen, 'const [settingsEditorBranchId, setS
 assertIncludes(sources.adminBranchesScreen, 'data-testid="admin-branch-settings-toggle"', "admin branch settings toggle hook");
 assertIncludes(sources.adminBranchesScreen, 'id={`admin-branch-settings-form-${branch.id}`}', "admin branch settings form controlled panel");
 assertIncludes(sources.adminBranchesScreen, 'data-testid={`admin-branch-settings-form-${branch.id}`}', "admin branch settings form visible hook");
-assertIncludes(sources.adminBranchesScreen, "grid grid-cols-3 gap-1.5", "admin branch settings fields use compact mobile three-column grid");
+assertIncludes(sources.adminBranchesScreen, "grid grid-cols-3 gap-1", "admin branch settings fields use compact mobile three-column grid");
 assertIncludes(sources.adminBranchesScreen, "pointer-events-none absolute left-2 top-1", "admin branch settings fields use inline labels to reduce editor height");
+assertIncludes(sources.adminBranchesScreen, "h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs", "admin branch settings inputs keep a 44px touch height");
+assertExcludes(sources.adminBranchesScreen, "h-10 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs", "admin branch settings inputs must not regress below 44px");
 assertIncludes(sources.adminBranchesScreen, "pb-1 pt-4 text-xs", "admin branch settings inputs reserve readable inline label space");
+assertIncludes(sources.adminBranchesScreen, 'hashTarget === "create"', "admin branch create form supports hash deep links");
+assertIncludes(sources.adminBranchesScreen, 'panelTarget === "create"', "admin branch create form supports query deep links");
 assertIncludes(sources.adminBranchesScreen, 'match(/^settings-(.+)$/)?.[1]', "admin branch settings editor supports hash deep links");
 assertIncludes(sources.adminBranchesScreen, "scrollBranchPanelIntoView", "admin branch settings hash target scrolls into view");
-assertIncludes(sources.adminBranchesScreen, "grid grid-cols-2 gap-2", "admin branch settings policy toggles use compact mobile two-column grid");
+assertIncludes(sources.adminBranchesScreen, '<fieldset className="grid gap-2">', "admin branch settings policy toggle uses compact mobile stack");
 assertIncludes(sources.adminBranchesScreen, 'data-testid={`admin-branch-settings-save-${branch.id}`}', "admin branch settings save button visible hook");
 assertIncludes(sources.adminBranchesScreen, 'size="lg"', "admin branch inline form actions keep 44px touch height");
 assertIncludes(sources.adminBranchesScreen, "settingsEditorOpen ? (", "admin branch settings forms stay collapsed by default");
@@ -2734,6 +3107,7 @@ assertIncludes(sources.ownerBranchesScreen, "function togglePolicy(branchId: str
 assertIncludes(sources.ownerBranchesScreen, 'data-testid="owner-branch-policy-summary"', "owner branch compact policy summary hook");
 assertIncludes(sources.ownerBranchesScreen, 'data-testid="owner-branch-policy-toggle"', "owner branch policy toggle hook");
 assertIncludes(sources.ownerBranchesScreen, 'data-testid="owner-branch-policy-detail"', "owner branch policy detail hook");
+assertIncludes(sources.ownerBranchesScreen, 'data-testid="owner-branch-bottom-safe-area"', "owner branch bottom safe-area spacer hook");
 assertIncludes(sources.ownerBranchesScreen, 'policyOpen ? (', "owner branch policy details stay collapsed by default");
 assertExcludes(sources.ownerBranchesScreen, "지점 배정 대기 중입니다.", "owner branch repetitive waiting empty-state copy");
 assertExcludes(sources.ownerBranchesScreen, "지점 연결 후 운영 현황을 확인할 수 있습니다.", "owner branch empty state verbose copy");
@@ -2789,9 +3163,13 @@ for (const snippet of [
   "shouldShowMobileSaveStatusPanel",
   "hasPendingAttendance || attendanceSyncPending || Boolean(lastAttendanceChange)",
   'relative ${canEditAttendance ? "pb-36 lg:pb-0" : ""}',
-  "bottom-[calc(6rem+env(safe-area-inset-bottom))]",
+  "bottom-[calc(6.5rem+env(safe-area-inset-bottom))]",
   "출석 {totalChecked}/{totalEnrolled} · 미처리 {totalUnchecked}",
   '저장 대기 ${attendanceSync.pendingCount}건',
+  'data-testid="attendance-retry-mobile"',
+  'data-testid="attendance-sync-status-mobile"',
+  'data-testid="attendance-undo-last-mobile"',
+  "min-h-11",
   'offline: "저장 대기"',
   'aria-label="대기 출석 저장 재시도"',
   "저장 재시도",
@@ -2820,10 +3198,18 @@ for (const snippet of [
   "const [classCreateFormOpen, setClassCreateFormOpen] = useState(false);",
   'data-testid="class-create-panel"',
   'data-testid="class-create-toggle"',
+  'data-testid="class-create-form"',
+  'data-testid="class-create-field"',
+  'data-testid="class-create-submit"',
   'id="class-create-form"',
   "classCreateFormOpen ? (",
   'aria-expanded={classCreateFormOpen}',
   '{classCreateFormOpen ? "닫기" : "열기"}',
+  'className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"',
+  'className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"',
+  'data-testid="class-edit-form"',
+  'data-testid="class-edit-input"',
+  'data-testid="class-edit-submit"',
 ]) {
   assertIncludes(sources.classesScreen, snippet, "owner and admin class create form default collapse");
 }
@@ -2857,6 +3243,10 @@ for (const snippet of [
   "function setAttendanceNoteEditorOpen",
   'data-testid={`attendance-note-toggle-${session.id}-${member.id}`}',
   'data-testid={`attendance-note-editor-${session.id}-${member.id}`}',
+  'className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"',
+  'className="mt-2 h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"',
+  'className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"',
+  'className="inline-flex min-h-11 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"',
   "coachReasonRequiredStatuses.includes(nextStatus)",
   "const defaultOpenCoachClassId =",
   "hasAttendanceRosterFilter",
@@ -3195,6 +3585,8 @@ assertExcludes(sources.loginScreen, "이메일과 비밀번호를 입력해 로�
 for (const snippet of ["export function FinalWordmark", 'data-testid="final-wordmark"', 'aria-label={ariaHidden ? undefined : "FINAL"}']) {
   assertIncludes(sources.finalWordmark, snippet, "vector final brand mark");
 }
+assertIncludes(sources.finalWordmark, 'letterSpacing="0"', "vector final brand mark keeps zero letter spacing");
+assertExcludes(sources.finalWordmark, 'letterSpacing="-', "vector final brand mark must not use negative letter spacing");
 for (const [label, source] of [
   ["app shell brand", sources.appShell],
   ["login brand", sources.loginScreen],
@@ -3301,6 +3693,30 @@ for (const [label, source] of [
     assertExcludes(source, snippet, `${label} compact role shortcut copy`);
   }
 }
+assertIncludes(sources.visibleAppCopyScript, "authRoleShortcutButtonMinHeight", "visible copy scan measures role shortcut touch height");
+assertIncludes(sources.visibleAppCopyScript, "authRoleShortcutButtonText", "visible copy scan records role shortcut labels");
+assertIncludes(sources.visibleAppCopyScript, "authSelectRoleLoginLinkHeight", "visible copy scan measures select-role login link touch height");
+assertIncludes(
+  sources.visibleAppCopyScript,
+  "signup submit text must not be counted as a role shortcut",
+  "visible copy scan blocks phone signup submit miscount",
+);
+assertIncludes(sources.visibleAppCopyScript, "finalWordmarkLinkCount", "visible copy scan separates FINAL dashboard links from public wordmarks");
+assertIncludes(sources.visibleAppCopyScript, "finalWordmarkVisualMinHeight", "visible copy scan measures public FINAL wordmark visual height");
+assertIncludes(
+  sources.visibleAppCopyScript,
+  "public auth wordmark link touch height must be explicit 0",
+  "visible copy scan blocks Infinity/null FINAL wordmark link evidence",
+);
+assertIncludes(sources.loginScreen, 'data-testid="login-account-switch-button"', "authenticated login account switch action is directly measurable");
+assertIncludes(sources.loginScreen, "mt-3 inline-flex min-h-11", "authenticated login account switch action keeps a 44px touch height");
+assertIncludes(sources.selectRoleScreen, 'data-testid="select-role-login-link"', "select-role login link is directly measurable");
+assertIncludes(sources.selectRoleScreen, "inline-flex min-h-11 items-center justify-center rounded-md border", "select-role login link keeps a 44px touch height");
+assertIncludes(sources.appStore, 'const publicAuthPathnames = new Set(["/signup", "/reset-password"]);', "login/select-role cookie-only session restore is not skipped");
+assertIncludes(sources.appStore, "apiClient.getOptionalBootstrap(null)", "login/select-role cookie-only session restore uses optional bootstrap");
+assertIncludes(sources.bootstrapRoute, 'request.nextUrl.searchParams.get("optional") === "1"', "bootstrap API supports optional auth entry restore");
+assertIncludes(sources.apiClient, "getOptionalBootstrap", "api client exposes optional bootstrap");
+assertIncludes(sources.loginKeepSignedInScript, "cookie-only restored login screen shows the account switch action", "login keep-signed-in proof covers cookie-only app restarts");
 
 for (const snippet of [
   'matcher: "/login"',
@@ -3422,7 +3838,7 @@ assertIncludes(sources.adminSettings, 'value.replace("실제 파일럿 계정", 
 assertIncludes(sources.adminSettings, 'value.replace("파일럿 종료 후", "운영 종료 후")', "admin settings pilot retro label app-safe rendering");
 assertIncludes(sources.adminSettings, 'value.replace("test:pilot 재검증", "운영 현황 재확인")', "admin settings pilot data label app-safe rendering");
 assertIncludes(sources.adminSettings, 'data-testid="admin-settings-summary-bar"', "admin settings summary stays a compact status bar");
-assertIncludes(sources.adminSettings, 'className="grid grid-cols-3 overflow-hidden rounded-md border border-zinc-200 bg-white"', "admin settings summary uses one-line mobile status bar");
+assertIncludes(sources.adminSettings, 'className="grid min-h-11 grid-cols-3 overflow-hidden rounded-md border border-zinc-200 bg-white"', "admin settings summary uses readable compact mobile status bar");
 assertExcludes(sources.adminSettings, ">보강</p>", "admin settings summary must remove deleted request policy label");
 for (const snippet of [
   "const [readinessEditorOpen, setReadinessEditorOpen] = useState(false);",
@@ -3989,8 +4405,10 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgeContained", "visible copy mobile notice badge containment guard"],
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgePointerEvents", "visible copy mobile notice badge tap guard"],
   [sources.visibleAppCopyScript, "must activate the notices bottom-nav item", "visible copy notices active nav guard"],
-  [sources.visibleAppCopyScript, "알림, 미확인 공지", "visible copy mobile unread notice aria guard"],
-  [sources.visibleAppCopyScript, "알림, 확인 필요 결제", "visible copy mobile payment alert aria guard"],
+  [sources.visibleAppCopyScript, "`${expectedFamilyNoticeLabel}, 미확인 공지`", "visible copy family mobile unread notice aria guard"],
+  [sources.visibleAppCopyScript, "`${expectedFamilyNoticeLabel}, 확인 필요 결제`", "visible copy family mobile payment alert aria guard"],
+  [sources.visibleAppCopyScript, "`${expectedCoachNoticeLabel}, 미확인 공지`", "visible copy coach mobile unread notice aria guard"],
+  [sources.visibleAppCopyScript, "`${expectedCoachNoticeLabel}, 확인 필요 결제`", "visible copy coach mobile payment alert aria guard"],
   [sources.visibleAppCopyScript, "familyNoticeCardMaxHeight <= 132", "visible copy compact family notice card guard"],
   [sources.visibleAppCopyScript, "familyNoticeBodyMaxHeight <= 44", "visible copy compact tappable family notice body guard"],
   [sources.visibleAppCopyScript, "familyNoticeFilterGridColumnCount", "visible copy family notice toolbar grid guard"],
@@ -4019,9 +4437,14 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, '"owner-branches"', "visible copy owner branches route coverage"],
   [sources.visibleAppCopyScript, '"member-notifications"', "visible copy member notifications alias coverage"],
   [sources.visibleAppCopyScript, '"guardian-notifications"', "visible copy guardian notifications alias coverage"],
+  [sources.visibleAppCopyScript, "mobileBottomNavNoticeHref", "visible copy bottom notice href evidence"],
+  [sources.visibleAppCopyScript, "mobileBottomNavNoticeLabel", "visible copy bottom notice label evidence"],
+  [sources.visibleAppCopyScript, 'testCase.next === "/app/notices" ? "공지" : "알림"', "visible copy path-aware notice label guard"],
+  [sources.visibleAppCopyScript, 'layout.mobileBottomNavNoticeHref, "/app/notices"', "visible copy notices bottom href guard"],
+  [sources.visibleAppCopyScript, 'layout.mobileBottomNavNoticeHref, "/app/notifications"', "visible copy notifications bottom href guard"],
   [sources.visibleAppCopyScript, "localhost|127\\.0\\.0\\.1|example\\.com", "visible copy local/example origin guard"],
-  [sources.dashboardScreen, 'className="order-2 overflow-hidden rounded-lg border border-zinc-200 bg-white xl:order-1"', "owner dashboard keeps branch comparison below risk summary on mobile"],
-  [sources.dashboardScreen, 'className="order-1 grid gap-3 xl:order-2"', "owner dashboard surfaces risk summary before branch comparison on mobile"],
+  [sources.dashboardScreen, 'className="order-1 overflow-hidden rounded-lg border border-zinc-200 bg-white"', "owner dashboard surfaces branch comparison before risk summary on mobile"],
+  [sources.dashboardScreen, 'className="order-2 grid gap-2 xl:gap-3"', "owner dashboard keeps compact risk summary below branch comparison on mobile"],
   [sources.visibleAppCopyScript, "ownerDashboardRiskSummaryTop", "visible copy owner dashboard risk summary position guard"],
   [sources.visibleAppCopyScript, "ownerDashboardRiskSummaryBottomNavOverlap", "visible copy owner dashboard risk summary bottom nav overlap guard"],
   [sources.visibleAppCopyScript, "ownerDashboardDetailToggleBottomNavOverlap", "visible copy owner dashboard detail toggle bottom nav overlap guard"],
@@ -4029,6 +4452,8 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "ownerBranchComparisonRowBottomNavOverlap", "visible copy owner dashboard branch row bottom nav overlap guard"],
   [sources.visibleAppCopyScript, "ownerBranchComparisonCardBottomNavClearance", "visible copy owner dashboard branch card bottom nav clearance guard"],
   [sources.visibleAppCopyScript, "ownerBranchHealthGraphCount", "visible copy owner branch graph guard"],
+  [sources.visibleAppCopyScript, "ownerBranchBottomSafeAreaCount", "visible copy owner branch bottom safe-area guard"],
+  [sources.visibleAppCopyScript, "ownerBranchActionBottomNavClearanceAtScrollEnd", "visible copy owner branch scroll-end action clearance guard"],
   [sources.visibleAppCopyScript, "ownerBranchPolicyDetailCount", "visible copy owner branch policy collapse guard"],
   [sources.visibleAppCopyScript, "ownerBranchPolicyToggleMinHeight >= 44", "visible copy owner branch policy touch guard"],
   [sources.visibleAppCopyScript, "ownerBranchActionLinkMinHeight >= 44", "visible copy owner branch action touch guard"],
@@ -4218,7 +4643,8 @@ for (const snippet of [
   "grid grid-cols-3 gap-0.5",
   "inline-flex min-h-11 min-w-0 items-center justify-center",
   "rounded-full px-1.5 text-[10px]",
-  'role="group" aria-label={`${paymentFilterLabel} · ${paymentListStatusLabel}`}',
+  'role="group"',
+  'aria-label={`${paymentFilterLabel} · ${paymentListStatusLabel}`}',
   "{visiblePaymentFilterOptions.map((option) => {",
   "const selected = effectivePaymentFilter === option.value;",
   "const familyLabel = familyPaymentFilterLabels[option.value] ?? option.label;",
@@ -4228,7 +4654,7 @@ for (const snippet of [
   'data-testid="member-payment-filter-chip-count"',
   "onClick={() => setPaymentFilter(option.value)}",
   'className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"',
-  'className="flex min-h-10 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"',
+  'className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"',
   "납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}",
   '{effectivePaymentFilter === "all" ? overdueCount : filteredOverdueCount}',
   'formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)',
@@ -4815,6 +5241,11 @@ const ownerDashboardKpiSource = sources.dashboardScreen.slice(
   sources.dashboardScreen.indexOf("const ownerOperationalGraphRows = ["),
   sources.dashboardScreen.indexOf("    ] as const;", sources.dashboardScreen.indexOf("const ownerOperationalGraphRows = [")),
 );
+assert.equal(
+  (ownerDashboardKpiSource.match(/\n\s+helper:/g) ?? []).length,
+  (ownerDashboardKpiSource.match(/\n\s+id:/g) ?? []).length,
+  "owner dashboard graph rows must keep one helper copy per row and avoid duplicate object keys",
+);
 assertAppearsBefore(ownerDashboardKpiSource, "label: ownerActionLabel", 'label: "지점 건강도"', "owner dashboard KPI priority order");
 assertAppearsBefore(ownerDashboardKpiSource, 'label: "결제 회수"', 'label: "회원 유지"', "owner dashboard KPI priority order");
 assertIncludes(ownerDashboardKpiSource, "ownerPriorityBranchLabel", "owner dashboard branch-first KPI helper");
@@ -4846,20 +5277,21 @@ assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-detail-tog
 assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-risk-summary"', "owner dashboard compact risk summary test hook");
 assertIncludes(
   sources.dashboardScreen,
-  'className="order-2 overflow-hidden rounded-lg border border-zinc-200 bg-white xl:order-1"',
-  "owner dashboard branch comparison appears after risk summary on mobile",
+  'className="order-1 overflow-hidden rounded-lg border border-zinc-200 bg-white"',
+  "owner dashboard branch comparison appears before risk summary on mobile",
 );
 assertIncludes(
   sources.dashboardScreen,
-  'className="order-1 grid gap-3 xl:order-2"',
-  "owner dashboard risk summary appears before branch comparison on mobile",
+  'className="order-2 grid gap-2 xl:gap-3"',
+  "owner dashboard risk summary appears below branch comparison on mobile",
 );
 assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-branch-detail"', "owner dashboard branch detail stays behind toggle");
 assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-payment-risk-detail"', "owner dashboard payment risk detail stays behind toggle");
 assertIncludes(sources.dashboardScreen, "aria-expanded={showOwnerDashboardDetails}", "owner dashboard detail toggle expanded state");
-assertIncludes(sources.dashboardScreen, 'className="min-w-0 px-3 py-2"', "owner dashboard branch comparison row compact spacing");
+assertIncludes(sources.dashboardScreen, 'className="min-w-0 px-3 py-1.5"', "owner dashboard branch comparison row compact spacing");
 assertIncludes(sources.dashboardScreen, 'className="mt-0.5 truncate text-[11px] leading-4 text-zinc-500"', "owner dashboard branch comparison meta stays one line");
-assertIncludes(sources.dashboardScreen, 'className="mt-2 grid grid-cols-3 gap-1.5"', "owner dashboard branch metric grid compact spacing");
+assertIncludes(sources.dashboardScreen, 'className="mt-1 grid grid-cols-3 gap-1"', "owner dashboard branch metric grid compact spacing");
+assertIncludes(sources.dashboardScreen, "min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1", "owner dashboard branch metric cells keep a readable compact height");
 for (const snippet of ["출석", "결제 위험", "style={{ width: `${row.attendancePercent}%` }}", "style={{ width: `${row.riskPercent}%` }}"]) {
   assertIncludes(sources.dashboardScreen, snippet, "owner dashboard branch comparison graph labels and bars");
 }
@@ -4908,8 +5340,8 @@ assertIncludes(sources.ownerReportsScreen, 'aria-label={showAllOwnerSecondaryGra
 assertExcludes(sources.ownerReportsScreen, '`${ownerReportHiddenSecondaryGraphCount}개 더`', "owner reports hidden KPI toggle avoids generic count copy");
 assertIncludes(
   sources.ownerReportsScreen,
-  "grid min-w-0 grid-cols-4 gap-1",
-  "owner reports secondary graph uses a single-row mobile rail",
+  "grid min-w-0 grid-cols-2 gap-1.5",
+  "owner reports secondary graph uses readable two-column mobile KPI tiles",
 );
 assertIncludes(sources.ownerReportsScreen, 'data-testid="owner-report-secondary-graph-grid"', "owner reports secondary graph grid hook");
 assertIncludes(sources.ownerReportsScreen, 'data-testid="owner-report-secondary-graph-tile"', "owner reports secondary graph tile hook");
@@ -5083,14 +5515,33 @@ for (const snippet of [
   "payment-checkout-guardian-required",
   "payment-checkout-forbidden",
   "payment-checkout-provider-status",
-  'checkoutAccess.state === "guardian_required"',
+  "payment-wooriwonpay-modal",
+  "payment-checkout-summary",
+	  "payment-checkout-summary-grid",
+	  "initialPaymentMethod",
+	  "getInitialPaymentMethod",
+	  "#payment-wooriwonpay-modal",
+	  "#payment-account-method-panel",
+	  'id="payment-account-method-panel"',
+	  'checkoutAccess.state === "guardian_required"',
   'checkoutAccess.state === "forbidden"',
   "checkoutStateLabel",
-  "납부 안내",
-  "결제 대상",
-  "납부 방법 안내 상태",
-  "납부 방법 안내",
-  "도장에서 안내한 납부 방법을 확인한 뒤 진행해 주세요.",
+	  "납부 안내",
+	  "이름·휴대전화 필수",
+	  "결제 대상",
+	  "납부 방법 안내 상태",
+	  "납부 정보 접수",
+		  "납부 정보 확인",
+		  "const [savePaymentInfo, setSavePaymentInfo] = useState(false);",
+		  "선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.",
+		  "선택한 납부 방식은 확인용으로 저장하고, 도장 안내 후 입금·인증 절차를 이어갑니다.",
+		  "다음 납부에도 사용할 정보로 표시했습니다.",
+	  "이번 납부 확인에만 사용합니다.",
+  'data-testid="payment-confirm-feedback"',
+  'id="payment-confirm-feedback"',
+  'role="status"',
+  'aria-live="polite"',
+  'data-testid="payment-card-guide-button"',
   "familyPaymentAgeGroupLabels[member.ageGroup]",
   "getPaymentCheckoutAmount",
 ]) {
@@ -5102,12 +5553,16 @@ for (const snippet of ["성인", "유소년", "청소년"]) {
 for (const snippet of [
   "결제 연결 전",
   "실 결제 연결 전",
-  "결제 연동",
-  "결제사 연결",
-  "온라인 결제 준비 중",
-  "납부 안내 대기",
-  "온라인 납부 방법이 열리면",
-]) {
+	  "결제 연동",
+	  "결제사 연결",
+	  "온라인 결제 준비",
+	  "온라인 결제 준비 중",
+	  "납부 안내 대기",
+		  "온라인 납부 방법이 열리면",
+		  "결제 진행하기",
+		  "운영 결제 설정이 완료",
+	  "전용 화면으로 이어집니다",
+	]) {
   assertExcludes(sources.paymentCheckoutScreen, snippet, "payment checkout screen must avoid unfinished integration copy");
 }
 assert(
@@ -5118,11 +5573,49 @@ assert(
 for (const snippet of ["fetch(", "online-checkout", "PaymentIntent", "CheckoutSession", "stripe"]) {
   assertExcludes(sources.paymentCheckoutScreen, snippet, "payment checkout preparation screen stays API-free");
 }
+for (const snippet of [
+  "payerOptionalOpen",
+  "addressSearchMessage",
+  "#payment-payer-address",
+  "manualAddressEntryMessage",
+  'data-testid="payment-payer-optional-toggle"',
+  'data-testid="payment-payer-optional-details"',
+  'data-testid="payment-payer-address-search"',
+  'data-testid="payment-payer-address-search-feedback"',
+  'data-testid="payment-payer-zip-input"',
+  'data-testid="payment-payer-base-address-input"',
+  'data-testid="payment-payer-landline-prefix"',
+  "주소·이메일 추가",
+  "우편번호와 주소를 직접 입력해 주세요.",
+]) {
+  assertIncludes(sources.paymentCheckoutScreen, snippet, "payment checkout optional payer details stay collapsed by default");
+}
+for (const snippet of ["연동 전", "연결 전", "주소 검색 연동", "API 연동"]) {
+  assertExcludes(sources.paymentCheckoutScreen, snippet, "payment checkout address guidance must avoid implementation-state copy");
+}
+for (const snippet of ["06164", "서울 강남구 테헤란로"]) {
+  assertExcludes(sources.paymentCheckoutScreen, snippet, "payment checkout address search must not inject sample address data");
+}
 assertIncludes(sources.paymentCheckoutPage, "PaymentCheckoutScreen", "payment checkout route");
 assert.equal(
   packageJson.scripts?.["test:family-payment-checkout"],
   "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-family-payment-checkout.mjs",
   "package.json must expose test:family-payment-checkout",
+);
+assert.equal(
+  packageJson.scripts?.["test:payment-create-touch-targets"],
+  "node scripts/check-payment-create-touch-targets.mjs",
+  "package.json must expose test:payment-create-touch-targets",
+);
+assert.equal(
+  packageJson.scripts?.["test:class-management-touch-targets"],
+  "node scripts/check-class-management-touch-targets.mjs",
+  "package.json must expose test:class-management-touch-targets",
+);
+assert.equal(
+  packageJson.scripts?.["test:member-management-touch-targets"],
+  "node scripts/check-member-management-touch-targets.mjs",
+  "package.json must expose test:member-management-touch-targets",
 );
 assert.equal(
   packageJson.scripts?.["test:coach-classes-bottom-safe-area"],
@@ -5133,6 +5626,11 @@ assert.equal(
   packageJson.scripts?.["test:admin-audit-bottom-safe-area"],
   "node scripts/check-admin-audit-bottom-safe-area.mjs",
   "package.json must expose test:admin-audit-bottom-safe-area",
+);
+assert.equal(
+  packageJson.scripts?.["test:admin-audit-search"],
+  "node scripts/check-admin-audit-search.mjs",
+  "package.json must expose test:admin-audit-search",
 );
 assert.equal(
   packageJson.scripts?.["test:admin-user-guardian-bottom-safe-area"],
@@ -5155,10 +5653,96 @@ for (const snippet of [
   assertIncludes(sources.familyPaymentCheckoutScript, snippet, "family payment checkout regression script");
 }
 for (const snippet of [
+  "collectBottomNavigationClearance",
+  "payment-checkout-provider-status",
+  "confirmButtonNavClearance >= 24",
+  "providerStatusNavClearance >= 24",
+  "summaryHeight <= 245",
+  "summaryGridHeight <= 150",
+  "payerInfoTop <= 480",
+  "payerInfoHeight <= 280",
+  "methodSectionTop <= 730",
+  "cardGuideButtonMinHeight >= 44",
+  "payment-card-guide-button",
+  "optionalDetailsCount, 0",
+  "optional payer address landline and email details stay collapsed until requested",
+  "member-optional-payer-details-mobile.png",
+  "payment-payer-optional-toggle",
+  "payment-payer-optional-details",
+  "payment-payer-address-search",
+  "payment-payer-address-search-feedback",
+  "address search avoids sample autofill before provider integration",
+  "address search must not inject a sample zip code",
+  "address search must not inject a sample base address",
+  "checkout summary stays compact before payer information",
+  "member-bottom-clearance-mobile.png",
+  "bottomNavigationClearance",
+  "cleanPaymentCheckoutOutputDir",
+  'entry.name.endsWith(".png")',
+  "outputCleanup",
+  "이메일 주소 입력",
+  "payer email placeholder avoids sample/test account copy",
+  "must require an explicit opt-in before saving payment method info",
+  "bank transfer confirmation must default to one-time payment info",
+  "confirmation must reflect saved payment info after explicit opt-in",
+  "reusable payment information starts unchecked and only changes after explicit opt-in",
+  "다음 납부에도 사용할 정보로 표시했습니다",
+  "이번 납부 확인에만 사용합니다",
+  "default confirmation must not claim saved payment info",
+  "saved confirmation must not keep one-time payment copy",
+  "collectConfirmationFeedbackA11y",
+  "confirmation feedback must announce as a status message",
+  "confirmation feedback must use polite live-region timing",
+  "checkout confirmation feedback announces through a polite status live region",
+  "confirmationFeedbackA11y",
+	  "collectWooriWonPayModalLayout",
+	  "우리WON페이 선택을 확인합니다",
+	  "앱 선택은 납부 안내에 참고됩니다",
+	  "WooriWON Pay modal copy confirms app selection without implying live payment",
+  "Woori modal must not imply live payment completion before provider connection",
+  'data-testid="payment-wooriwonpay-panel"',
+  'data-testid="payment-wooriwonpay-tab-primary"',
+  'data-testid="payment-wooriwonpay-tab-secondary"',
+  "WooriWON Pay modal keeps 44px close and tab touch targets",
+  "modal panel must keep bottom breathing room",
+]) {
+  assertIncludes(sources.paymentCheckoutMethodFlowScript, snippet, "payment checkout method flow regression script");
+}
+for (const snippet of [
+  "PAYMENT_CREATE_TOUCH_TARGETS_OUT_DIR",
+  'data-testid="payment-export-button"',
+  'data-testid="payment-status-filter"',
+  'data-testid="payment-operations-metric"',
+  'data-testid="payment-renewal-prefill"',
+  'data-testid="payment-online-request-button"',
+  'data-testid="payment-recurring-create-button"',
+  'data-testid="payment-refund-submit"',
+  'data-testid="payment-cancel-submit"',
+  'data-testid="payment-create-form"',
+  'data-testid="payment-create-toggle"',
+  'data-testid="payment-create-fields"',
+  'data-testid="payment-create-member-search-input"',
+  'data-testid="payment-create-member-result"',
+  'data-testid="payment-create-selected-member"',
+  'data-testid="payment-create-submit"',
+  "owner payment export, filter, summary status, operations metrics, and row actions stay 44px touch targets",
+  "payment create toggle, search input, results, fields, and submit action stay 44px touch targets",
+  "payment create member search finds and selects a real member without scroll-only picker behavior",
+  "Browser skill is available, but tool discovery did not expose",
+  "cleanPaymentCreateOutputDir",
+  "outputCleanup",
+]) {
+  assertIncludes(sources.paymentCreateTouchTargetsScript, snippet, "payment create touch-target regression script");
+}
+for (const snippet of [
   'ADMIN_USER_GUARDIAN_BOTTOM_SAFE_AREA_OUT_DIR',
+  'admin-user-list-scroll-region',
+  'admin-user-list-bottom-safe-area',
   'admin-user-guardian-child-selected-list',
   'admin-user-edit-bottom-safe-area',
   'data-testid="mobile-bottom-navigation"',
+  'visibleActionOverlapBottomNavCount',
+  'listScrollRegionBottomClearance >= 24',
   'selectedChipNavClearance >= 96',
   'selectedListNavClearance >= 96',
   'managed-next-dev-webpack',
@@ -5176,11 +5760,26 @@ for (const snippet of [
   assertIncludes(sources.adminAuditBottomSafeAreaScript, snippet, "admin audit bottom safe-area regression script");
 }
 for (const snippet of [
+  'ADMIN_AUDIT_SEARCH_OUT_DIR',
+  'data-testid="admin-audit-search-input"',
+  'data-testid="admin-audit-search-clear"',
+  'data-testid="admin-audit-filter-reset"',
+  'data-testid="admin-audit-empty-filter-reset"',
+  "promotion.create",
+  "admin audit search hydrates q from the URL",
+  "admin audit API accepts promotion filters shown in the UI",
+]) {
+  assertIncludes(sources.adminAuditSearchScript, snippet, "admin audit search regression script");
+}
+for (const snippet of [
   'COACH_CLASSES_BOTTOM_SAFE_AREA_OUT_DIR',
   'data-testid="coach-mobile-save-status-panel"',
   'data-testid="mobile-bottom-navigation"',
-  'panelBottomClearance >= 8',
+  'panelBottomClearance >= 24',
   'panelZIndex < 30',
+  "statusChipHeight >= 44",
+  "undoButtonHeight >= 44",
+  "layout.retryButtonCount === 0 || layout.retryButtonHeight >= 44",
   'listToggleBottomClearance >= 96',
   'rosterToggleBottomNavOverlapCount',
   'managed-next-dev-webpack',
@@ -5246,6 +5845,33 @@ assert.match(
 );
 assert.equal(adminUserGuardianBottomSafeAreaReport.ok, true, "admin user guardian bottom safe-area evidence must pass");
 assert.equal(
+  adminUserGuardianBottomSafeAreaReport.layout?.listScrollRegionCount,
+  1,
+  "admin users list safe-area evidence must show one bounded scroll region",
+);
+assert(
+  adminUserGuardianBottomSafeAreaReport.layout?.listScrollRegionBottomClearance >= 24,
+  "admin users list scroll region must clear the mobile bottom navigation",
+);
+assert.equal(
+  adminUserGuardianBottomSafeAreaReport.layout?.listSafeAreaCount,
+  1,
+  "admin users list safe-area evidence must show one internal list spacer",
+);
+assert(
+  adminUserGuardianBottomSafeAreaReport.layout?.listSafeAreaHeight >= 96,
+  "admin users list safe-area evidence must reserve mobile bottom space",
+);
+assert.equal(
+  adminUserGuardianBottomSafeAreaReport.layout?.visibleActionOverlapBottomNavCount,
+  0,
+  "admin users visible list actions must not overlap the mobile bottom navigation",
+);
+assert(
+  adminUserGuardianBottomSafeAreaReport.layout?.visibleActionMinHeight >= 44,
+  "admin users visible list actions must keep 44px touch targets",
+);
+assert.equal(
   adminUserGuardianBottomSafeAreaReport.layout?.selectedListCount,
   1,
   "admin guardian edit bottom safe-area evidence must show one selected-child list",
@@ -5290,6 +5916,15 @@ assert.equal(
   "admin guardian edit bottom safe-area evidence must show no horizontal overflow",
 );
 assert(
+  adminUserGuardianBottomSafeAreaReport.listActionScreenshotPath &&
+    existsSync(adminUserGuardianBottomSafeAreaReport.listActionScreenshotPath),
+  "admin users list safe-area screenshot must exist",
+);
+assert(
+  statSync(adminUserGuardianBottomSafeAreaReport.listActionScreenshotPath).size > 10_000,
+  "admin users list safe-area screenshot must be non-empty",
+);
+assert(
   adminUserGuardianBottomSafeAreaReport.screenshotPath &&
     existsSync(adminUserGuardianBottomSafeAreaReport.screenshotPath),
   "admin guardian edit bottom safe-area screenshot must exist",
@@ -5297,6 +5932,87 @@ assert(
 assert(
   statSync(adminUserGuardianBottomSafeAreaReport.screenshotPath).size > 10_000,
   "admin guardian edit bottom safe-area screenshot must be non-empty",
+);
+assert.equal(adminUserListSafeAreaIosReport.ok, true, "admin users list safe-area iOS evidence must pass");
+assert.equal(
+  adminUserListSafeAreaIosReport.visualCheck?.appScreenVisible,
+  true,
+  "admin users list safe-area iOS evidence must show the app screen",
+);
+assert.equal(
+  adminUserListSafeAreaIosReport.visualCheck?.userListVisible,
+  true,
+  "admin users list safe-area iOS evidence must show the user list",
+);
+assert.equal(
+  adminUserListSafeAreaIosReport.visualCheck?.firstRowActionButtonsVisible,
+  true,
+  "admin users list safe-area iOS evidence must show the first row actions",
+);
+assert.equal(
+  adminUserListSafeAreaIosReport.visualCheck?.obviousBottomNavOverlap,
+  false,
+  "admin users list safe-area iOS evidence must not show obvious bottom navigation overlap",
+);
+assert(
+  adminUserListSafeAreaIosReport.screenshotPath && existsSync(adminUserListSafeAreaIosReport.screenshotPath),
+  "admin users list safe-area iOS screenshot must exist",
+);
+assert(
+  statSync(adminUserListSafeAreaIosReport.screenshotPath).size > 10_000,
+  "admin users list safe-area iOS screenshot must be non-empty",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.ok,
+  true,
+  "admin user management touch-target evidence must pass",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.verified?.inviteFormCollapsedByDefault,
+  true,
+  "admin user management touch-target evidence must keep invite form collapsed by default",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.verified?.allTouchTargetsAtLeast44,
+  true,
+  "admin user management touch-target evidence must keep opened controls at least 44px",
+);
+assert(
+  adminUserManagementTouchTargetsReport.verified?.minOpenTouchHeight >= 44,
+  "admin user management touch-target evidence must record min open control height",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.verified?.rowActionsAtLeast44,
+  true,
+  "admin user management touch-target evidence must keep row actions at least 44px",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.verified?.horizontalOverflow,
+  0,
+  "admin user management touch-target evidence must not overflow horizontally",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.adminUsers?.messages?.length,
+  0,
+  "admin user management touch-target evidence must be console-clean",
+);
+assert.equal(
+  adminUserManagementTouchTargetsReport.verified?.iosSimulatorNoBrowserChrome,
+  true,
+  "admin user management touch-target evidence must include iOS Simulator app chrome proof",
+);
+for (const screenshot of adminUserManagementTouchTargetsReport.screenshots ?? []) {
+  assert(screenshot.path && existsSync(screenshot.path), `${screenshot.path} must exist`);
+  assert(statSync(screenshot.path).size > 10_000, `${screenshot.path} must be a non-empty admin user management screenshot`);
+}
+assert(
+  adminUserManagementTouchTargetsReport.iosSimulator?.screenshot?.path &&
+    existsSync(adminUserManagementTouchTargetsReport.iosSimulator.screenshot.path),
+  "admin user management iOS simulator screenshot must exist",
+);
+assert(
+  statSync(adminUserManagementTouchTargetsReport.iosSimulator.screenshot.path).size > 10_000,
+  "admin user management iOS simulator screenshot must be non-empty",
 );
 assert.match(
   coachClassesBottomSafeAreaReport.appServer ?? "",
@@ -5324,12 +6040,35 @@ assert.equal(
   "coach classes bottom safe-area evidence must show one mobile save status panel",
 );
 assert(
-  coachClassesBottomSafeAreaReport.result?.layout?.panelBottomClearance >= 8,
+  coachClassesBottomSafeAreaReport.result?.layout?.panelBottomClearance >= 24,
   "coach classes mobile save status panel must clear the bottom navigation",
 );
 assert(
   coachClassesBottomSafeAreaReport.result?.layout?.panelZIndex < 30,
   "coach classes mobile save status panel must stay below the bottom navigation layer",
+);
+assert.equal(
+  coachClassesBottomSafeAreaReport.result?.layout?.statusChipCount,
+  1,
+  "coach classes mobile save status evidence must show one status chip",
+);
+assert(
+  coachClassesBottomSafeAreaReport.result?.layout?.statusChipHeight >= 44,
+  "coach classes mobile save status chip must keep a 44px scan height",
+);
+assert.equal(
+  coachClassesBottomSafeAreaReport.result?.layout?.undoButtonCount,
+  1,
+  "coach classes mobile save status evidence must show one undo action after a change",
+);
+assert(
+  coachClassesBottomSafeAreaReport.result?.layout?.undoButtonHeight >= 44,
+  "coach classes mobile undo action must keep a 44px touch height",
+);
+assert(
+  coachClassesBottomSafeAreaReport.result?.layout?.retryButtonCount === 0 ||
+    coachClassesBottomSafeAreaReport.result?.layout?.retryButtonHeight >= 44,
+  "coach classes mobile retry action must keep a 44px touch height when visible",
 );
 assert(
   coachClassesBottomSafeAreaReport.result?.initialLayout?.listToggleBottomClearance >= 96,
@@ -5348,6 +6087,59 @@ assert(
 assert(
   statSync(coachClassesBottomSafeAreaReport.result.screenshotPath).size > 10_000,
   "coach classes bottom safe-area screenshot must be non-empty",
+);
+assert.equal(coachClassesBottomSafeAreaIosReport.ok, true, "coach classes bottom safe-area iOS evidence must pass");
+assert.match(
+  coachClassesBottomSafeAreaIosReport.flow ?? "",
+  /coach auto-login -> \/app\/classes/,
+  "coach classes bottom safe-area iOS evidence must target the coach classes flow",
+);
+assert.equal(
+  coachClassesBottomSafeAreaIosReport.visualCheck?.appScreenVisible,
+  true,
+  "coach classes bottom safe-area iOS evidence must show the app screen",
+);
+assert.equal(
+  coachClassesBottomSafeAreaIosReport.visualCheck?.coachClassesVisible,
+  true,
+  "coach classes bottom safe-area iOS evidence must show the coach classes screen",
+);
+assert.equal(
+  coachClassesBottomSafeAreaIosReport.visualCheck?.bottomNavigationVisible,
+  true,
+  "coach classes bottom safe-area iOS evidence must show the bottom navigation",
+);
+assert.equal(
+  coachClassesBottomSafeAreaIosReport.visualCheck?.obviousBottomNavOverlap,
+  false,
+  "coach classes bottom safe-area iOS evidence must not show obvious bottom navigation overlap",
+);
+assert.equal(
+  coachClassesBottomSafeAreaIosReport.browserPanelLayout?.panelBottomClearance,
+  coachClassesBottomSafeAreaReport.result?.layout?.panelBottomClearance,
+  "coach classes iOS summary must reference the same browser panel clearance regression result",
+);
+assert(
+  coachClassesBottomSafeAreaIosReport.browserPanelLayout?.statusChipHeight >= 44,
+  "coach classes iOS summary must reference the 44px mobile save status chip regression result",
+);
+assert(
+  coachClassesBottomSafeAreaIosReport.browserPanelLayout?.undoButtonHeight >= 44,
+  "coach classes iOS summary must reference the 44px mobile undo action regression result",
+);
+assert(
+  coachClassesBottomSafeAreaIosReport.browserPanelLayout?.retryButtonCount === 0 ||
+    coachClassesBottomSafeAreaIosReport.browserPanelLayout?.retryButtonHeight >= 44,
+  "coach classes iOS summary must reference the 44px mobile retry action regression result when visible",
+);
+assert(
+  coachClassesBottomSafeAreaIosReport.screenshotPath &&
+    existsSync(coachClassesBottomSafeAreaIosReport.screenshotPath),
+  "coach classes bottom safe-area iOS screenshot must exist",
+);
+assert(
+  statSync(coachClassesBottomSafeAreaIosReport.screenshotPath).size > 10_000,
+  "coach classes bottom safe-area iOS screenshot must be non-empty",
 );
 assert.match(
   adminAuditBottomSafeAreaReport.appServer ?? "",
@@ -5392,6 +6184,65 @@ assert(
   statSync(adminAuditBottomSafeAreaReport.screenshotPath).size > 10_000,
   "admin audit bottom safe-area screenshot must be non-empty",
 );
+assert.match(
+  adminAuditSearchReport.appServer ?? "",
+  /^(existing|managed)$/,
+  "admin audit search evidence must record app server source",
+);
+assert.equal(adminAuditSearchReport.ok, true, "admin audit search evidence must pass");
+assert.equal(adminAuditSearchReport.consoleMessages?.length ?? 0, 0, "admin audit search evidence must be console-clean");
+assert(
+  adminAuditSearchReport.checked?.includes("admin audit search hydrates q from the URL"),
+  "admin audit search evidence must verify URL hydration",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("admin audit API accepts promotion filters shown in the UI"),
+  "admin audit search evidence must verify API/UI promotion filter parity",
+);
+assert(
+  adminAuditSearchReport.controls?.filtered?.inputHeight >= 44,
+  "admin audit search evidence must keep filtered search input tappable",
+);
+assert(
+  adminAuditSearchReport.controls?.filtered?.clearButtonHeight >= 44,
+  "admin audit search evidence must keep search clear action tappable",
+);
+assert(
+  adminAuditSearchReport.controls?.filtered?.submitHeight >= 44,
+  "admin audit search evidence must keep filter submit tappable",
+);
+assert(
+  adminAuditSearchReport.controls?.filtered?.resetHeight >= 44,
+  "admin audit search evidence must keep filter reset tappable",
+);
+assert.equal(
+  adminAuditSearchReport.controls?.filtered?.scrollWidth,
+  adminAuditSearchReport.controls?.filtered?.clientWidth,
+  "admin audit search evidence must show no filtered horizontal overflow",
+);
+assert.equal(
+  adminAuditSearchReport.controls?.empty?.rowCount,
+  0,
+  "admin audit empty search evidence must hide stale rows",
+);
+assert(
+  adminAuditSearchReport.controls?.empty?.emptyResetHeight >= 44,
+  "admin audit empty search reset must stay tappable",
+);
+assert(
+  adminAuditSearchReport.controls?.empty?.emptyResetBottomNavClearance >= 24,
+  "admin audit empty search reset must clear mobile bottom navigation",
+);
+assert.equal(
+  adminAuditSearchReport.controls?.empty?.scrollWidth,
+  adminAuditSearchReport.controls?.empty?.clientWidth,
+  "admin audit empty search evidence must show no horizontal overflow",
+);
+assert.equal(adminAuditSearchReport.promotionFilterApi?.status, 200, "admin audit promotion filter API evidence must return 200");
+for (const screenshot of Object.values(adminAuditSearchReport.screenshots ?? {})) {
+  assert(screenshot?.path && existsSync(screenshot.path), "admin audit search screenshot must exist");
+  assert(statSync(screenshot.path).size > 10_000, "admin audit search screenshot must be non-empty");
+}
 assert.equal(adminBranchSelectedScopeReport.ok, true, "admin branch selected-scope browser proof must pass");
 assert.equal(
   adminBranchSelectedScopeReport.state?.title,
@@ -5450,6 +6301,94 @@ assert(
   ),
   "payment checkout evidence must keep release/payment-provider caveat",
 );
+assert.equal(paymentCreateTouchTargetsReport.ok, true, "payment create touch-target evidence must pass");
+assert.equal(paymentCreateTouchTargetsReport.consoleMessages?.length ?? 0, 0, "payment create touch-target evidence must be console-clean");
+assert(
+  paymentCreateTouchTargetsReport.checked?.includes("owner manual payment create form stays collapsed by default"),
+  "payment create touch-target evidence must verify collapsed default state",
+);
+assert(
+  paymentCreateTouchTargetsReport.checked?.includes(
+    "payment create toggle, search input, results, fields, and submit action stay 44px touch targets",
+  ),
+  "payment create touch-target evidence must verify 44px controls",
+);
+assert(
+  paymentCreateTouchTargetsReport.checked?.includes(
+    "payment create member search finds and selects a real member without scroll-only picker behavior",
+  ),
+  "payment create touch-target evidence must verify searchable member selection",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.collapsed?.fieldsCount,
+  0,
+  "payment create fields must be collapsed by default in evidence",
+);
+assert(
+  paymentCreateTouchTargetsReport.layouts?.collapsed?.toggleHeight >= 44,
+  "payment create collapsed toggle must be at least 44px",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.collapsed?.scrollWidth,
+  paymentCreateTouchTargetsReport.layouts?.collapsed?.clientWidth,
+  "payment create collapsed state must be overflow-free",
+);
+assert(
+  paymentCreateTouchTargetsReport.layouts?.search?.searchInputHeight >= 44,
+  "payment create search input must be at least 44px",
+);
+assert(
+  paymentCreateTouchTargetsReport.layouts?.search?.controlHeights?.every((height) => height >= 44),
+  "payment create form controls must be at least 44px",
+);
+assert(
+  paymentCreateTouchTargetsReport.layouts?.search?.resultHeights?.length > 0 &&
+    paymentCreateTouchTargetsReport.layouts.search.resultHeights.every((height) => height >= 44),
+  "payment create search results must be at least 44px",
+);
+assert.match(
+  paymentCreateTouchTargetsReport.layouts?.search?.resultText ?? "",
+  /최민재/,
+  "payment create search evidence must include the selected real member",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.search?.submitDisabled,
+  true,
+  "payment create submit must be disabled before selecting a member",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.search?.scrollWidth,
+  paymentCreateTouchTargetsReport.layouts?.search?.clientWidth,
+  "payment create search state must be overflow-free",
+);
+assert.match(
+  paymentCreateTouchTargetsReport.layouts?.selected?.selectedText ?? "",
+  /최민재/,
+  "payment create selected evidence must show the chosen member",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.selected?.resultCount,
+  0,
+  "payment create results must collapse after member selection",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.selected?.submitDisabled,
+  false,
+  "payment create submit must enable after member selection",
+);
+assert(
+  paymentCreateTouchTargetsReport.layouts?.selected?.submitHeight >= 44,
+  "payment create selected submit must be at least 44px",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.layouts?.selected?.scrollWidth,
+  paymentCreateTouchTargetsReport.layouts?.selected?.clientWidth,
+  "payment create selected state must be overflow-free",
+);
+for (const screenshot of Object.values(paymentCreateTouchTargetsReport.screenshots ?? {})) {
+  assert(screenshot?.path && existsSync(screenshot.path), "payment create touch-target screenshot must exist");
+  assert(statSync(screenshot.path).size > 10_000, "payment create touch-target screenshot must be non-empty");
+}
 assertIncludes(sources.paymentsExportRoute, "결제 내보내기 권한이 없습니다.", "payments export API service-facing authorization copy");
 assertIncludes(sources.paymentsExportRoute, "결제 내보내기를 완료했습니다.", "payments export API service-facing audit copy");
 assertExcludes(sources.paymentsExportRoute, "결제 CSV를 내보낼 권한이 없습니다.", "payments export API file-format-first authorization copy");
@@ -5541,6 +6480,47 @@ assert.equal(
   "package.json must expose test:p5-p10-internal-readiness",
 );
 assertIncludes(sources.releaseRunner, '["run", "test:p5-p10-internal-readiness"]', "release runner");
+assertIncludes(sources.releaseRunner, '["run", "test:payment-create-touch-targets"]', "release runner");
+assertIncludes(sources.releaseRunner, '["run", "test:class-management-touch-targets"]', "release runner");
+assertIncludes(sources.releaseRunner, '["run", "test:member-management-touch-targets"]', "release runner");
+assertIncludes(sources.releaseRunner, '["run", "test:admin-user-management-touch-targets"]', "release runner");
+assert.equal(
+  packageJson.scripts?.["test:admin-user-management-touch-targets"],
+  "node scripts/check-admin-user-management-touch-targets.mjs",
+  "package.json must expose test:admin-user-management-touch-targets",
+);
+for (const snippet of [
+  "MEMBER_MANAGEMENT_TOUCH_TARGETS_OUT_DIR",
+  "member-invite-field",
+  "member-create-field",
+  "member-status-select",
+  "member-profile-field",
+  "member-note-field",
+  "Browser runtime unavailable / Playwright with system Chrome",
+]) {
+  assertIncludes(sources.memberManagementTouchTargetsScript, snippet, "member management touch target regression script");
+}
+for (const snippet of [
+  "ADMIN_USER_MANAGEMENT_TOUCH_TARGETS_OUT_DIR",
+  "admin-user-invite-field",
+  "data-admin-user-edit-control",
+  "admin-user-delete-reason-input",
+  "admin-user-password-reset-reason-input",
+  "admin users screen must not keep 40px controls",
+  "Browser skill is available, but tool discovery did not expose",
+]) {
+  assertIncludes(sources.adminUserManagementTouchTargetsScript, snippet, "admin user management touch target regression script");
+}
+for (const snippet of [
+  "CLASS_MANAGEMENT_TOUCH_TARGETS_OUT_DIR",
+  "class-create-field",
+  "class-edit-input",
+  "attendance-note-toggle-",
+  "attendance-note-preset-",
+  "Browser runtime unavailable / Playwright with system Chrome",
+]) {
+  assertIncludes(sources.classManagementTouchTargetsScript, snippet, "class management touch target regression script");
+}
 assertIncludes(sources.adminSettingsGate, "npm run test:p5-p10-internal-readiness", "admin settings gate test");
 
 assert.equal(p1Readiness.ok, false, "P1 readiness must remain not ok during P5-P10 internal audit");
@@ -5568,12 +6548,83 @@ assert.equal(
   "https://final-judo.vercel.app",
   "Android TWA doctor origin must point at the deployed web app",
 );
+assertIncludes(
+  sources.p1OperatorStatusScript,
+  "findLatestAndroidPlayReleaseReport",
+  "P1 operator status must discover the latest Android Play release report",
+);
+assertIncludes(
+  sources.p1OperatorStatusScript,
+  "Android Play AAB/APK release report",
+  "P1 operator status must label Android Play release artifacts distinctly from role APKs",
+);
+assertIncludes(
+  sources.p1OperatorStatusTest,
+  "androidPlayRelease",
+  "P1 operator status test must cover Android Play release artifacts",
+);
+assert.equal(p1OperatorStatusCurrent.releaseDecision, "blocked", "P1 operator status must remain blocked while external evidence is pending");
+assert(
+  (p1OperatorStatusCurrent.checked ?? []).includes("Android Play AAB/APK release report integrity"),
+  "P1 operator status must check Android Play AAB/APK release report integrity",
+);
+const androidPlayReleaseArtifact = (p1OperatorStatusCurrent.supportArtifacts ?? []).find(
+  (artifact) => artifact.key === "androidPlayRelease",
+);
+assert(androidPlayReleaseArtifact, "P1 operator status must expose Android Play AAB/APK release support artifact");
+assert.equal(androidPlayReleaseArtifact.status, "ready", "Android Play AAB/APK release artifact must be ready after the current build");
+assert.equal(
+  androidPlayReleaseArtifact.releaseDecision,
+  "artifact_ready_release_blocked",
+  "Android Play AAB/APK release artifact must stay artifact-ready while release handoff remains blocked",
+);
+assert.equal(
+  androidPlayReleaseArtifact.packageName,
+  "kr.co.finaljudo.multigym",
+  "Android Play AAB/APK release artifact must use the Google Play package name",
+);
+assert(Number(androidPlayReleaseArtifact.versionCode) > 0, "Android Play AAB/APK release artifact must expose versionCode");
+assert(
+  typeof androidPlayReleaseArtifact.versionName === "string" && androidPlayReleaseArtifact.versionName.trim().length > 0,
+  "Android Play AAB/APK release artifact must expose versionName",
+);
+assert(
+  Number(androidPlayReleaseArtifact.aabBytes) > 0 && Number(androidPlayReleaseArtifact.apkBytes) > 0,
+  "Android Play AAB/APK release artifact must expose non-empty AAB/APK sizes",
+);
+assert(
+  /android-play-release-\d{14}\/google-play-release-report\.json$/.test(androidPlayReleaseArtifact.path ?? ""),
+  "Android Play AAB/APK release artifact must point at the timestamped Play release report",
+);
+assertIncludes(
+  sources.p1OperatorStatusCurrentMarkdown,
+  "Android Play AAB/APK release report",
+  "P1 operator status Markdown must expose Android Play release artifacts",
+);
+assertIncludes(
+  sources.p1OperatorStatusCurrentMarkdown,
+  "google-play-release-report.json",
+  "P1 operator status Markdown must include the Play release report path",
+);
 const androidBlockerChecks = new Set((androidTwaDoctor.blockers ?? []).map((blocker) => blocker.check));
 assert(!androidBlockerChecks.has("origin"), "Android TWA doctor must not keep stale origin blocker after deployed origin evidence");
 assert(androidBlockerChecks.has("sha256"), "Android TWA doctor must keep sha256 blocker");
 for (const blocker of ["java", "keytool", "sdkmanager", "adb", "androidHome"]) {
-  assert(androidBlockerChecks.has(blocker), `Android TWA doctor must keep local build tool blocker ${blocker}`);
+  assert(!androidBlockerChecks.has(blocker), `Android TWA doctor must not keep stale local build tool blocker ${blocker}`);
 }
+for (const check of ["java", "keytool", "sdkmanager", "adb", "androidHome"]) {
+  assert.equal(androidTwaDoctor.checks?.[check]?.ok, true, `Android TWA doctor must resolve local toolchain check ${check}`);
+}
+assertIncludes(
+  androidTwaDoctor.toolchain?.javaHome ?? "",
+  ".data/toolchains/jdk",
+  "Android TWA doctor resolved local JDK evidence",
+);
+assertIncludes(
+  androidTwaDoctor.toolchain?.androidHome ?? "",
+  ".data/toolchains/android-sdk",
+  "Android TWA doctor resolved local Android SDK evidence",
+);
 
 assert.equal(iosIpaDoctor.releaseDecision, "blocked", "iOS IPA doctor must remain blocked");
 assert.equal(iosIpaDoctor.checks?.origin?.ok, true, "iOS IPA doctor must use the deployed web app origin after production deploy");
@@ -5682,6 +6733,29 @@ assert(
 assert.equal(visibleAppCopyStabilityReport.ok, true, "visible app copy stability report must pass");
 assert.equal(visibleAppCopyStabilityReport.viewport, "390x844", "visible app copy stability must use mobile viewport");
 assert.equal(
+  visibleAppCopyStabilityReport.outputCleanup?.outDir,
+  ".data/mobile-builds/ios/visible-app-copy-stability",
+  "visible app copy stability report must record the cleaned evidence output directory",
+);
+assert(
+  Number.isInteger(visibleAppCopyStabilityReport.outputCleanup?.removedCount) &&
+    visibleAppCopyStabilityReport.outputCleanup.removedCount >= 0,
+  "visible app copy stability report must record how many stale screenshots were cleaned before the current scan",
+);
+assert(
+  Array.isArray(visibleAppCopyStabilityReport.outputCleanup?.removedFiles),
+  "visible app copy stability report must list cleaned output files for evidence traceability",
+);
+assert.equal(
+  visibleAppCopyStabilityReport.outputCleanup.removedFiles.length,
+  visibleAppCopyStabilityReport.outputCleanup.removedCount,
+  "visible app copy cleanup report must keep removed count and file list in sync",
+);
+assert(
+  !visibleAppCopyStabilityReport.outputCleanup.removedFiles.some((fileName) => fileName.includes("/") || fileName.includes("\\")),
+  "visible app copy cleanup report must only list files inside the current evidence directory",
+);
+assert.equal(
   visibleAppCopyStabilityReport.devDataReset?.before?.attempted,
   true,
   "visible app copy stability must reset local dev data before read-state interactions",
@@ -5707,12 +6781,53 @@ assert.deepEqual(
   "visible app copy stability report must show no leftover notice.read audit logs",
 );
 const visibleAppCopyStabilityScreens = new Map((visibleAppCopyStabilityReport.checked ?? []).map((page) => [page.id, page]));
+const authSignupVisibleCopy = visibleAppCopyStabilityScreens.get("auth-signup");
+const authSelectRoleVisibleCopy = visibleAppCopyStabilityScreens.get("auth-select-role");
+
+assert(authSignupVisibleCopy, "visible app copy stability must cover phone signup");
+assert.equal(
+  authSignupVisibleCopy.authRoleShortcutButtonCount,
+  0,
+  "phone signup submit copy must not be miscounted as a role shortcut",
+);
+assert(authSelectRoleVisibleCopy, "visible app copy stability must cover select-role");
+assert.equal(
+  authSelectRoleVisibleCopy.authRoleShortcutButtonCount,
+  5,
+  "select-role visible app copy scan must count the five role shortcut buttons",
+);
+assert(
+  authSelectRoleVisibleCopy.authRoleShortcutButtonMinHeight >= 44,
+  "select-role visible app copy scan must keep role shortcut buttons at a 44px touch height",
+);
+assert.equal(
+  authSelectRoleVisibleCopy.authRoleShortcutButtonText,
+  "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
+  "select-role visible app copy scan must measure only role selection buttons",
+);
+assert(
+  authSelectRoleVisibleCopy.authSelectRoleLoginLinkHeight >= 44,
+  "select-role visible app copy scan must keep the login link at a 44px touch height",
+);
+for (const id of ["auth-login", "auth-login-registered", "auth-signup", "auth-reset-password", "auth-invite-accept", "auth-select-role"]) {
+  const page = visibleAppCopyStabilityScreens.get(id);
+
+  assert(page, `visible app copy stability must cover ${id}`);
+  assert(page.finalWordmarkVisualMinHeight >= 28, `${id} visible app copy scan must keep FINAL wordmark visually readable`);
+  assert.equal(page.finalWordmarkLinkCount, 0, `${id} visible app copy scan must not count public auth wordmark as a dashboard link`);
+  assert.equal(page.finalWordmarkMinTouchHeight, 0, `${id} visible app copy scan must record explicit 0 dashboard-link touch height`);
+}
 for (const id of [
   "admin-branches",
   "admin-roles",
 	  "admin-audit",
+	  "admin-members",
+  "admin-notices",
+	  "owner-members",
 	  "owner-branches",
 	  "owner-reports",
+  "owner-notices",
+  "coach-notices",
 	  "member-dashboard",
   "member-classes",
   "member-members",
@@ -5725,6 +6840,7 @@ for (const id of [
   "guardian-members",
   "guardian-payments",
   "guardian-notices",
+  "guardian-notifications",
   "guardian-account",
 ]) {
   const page = visibleAppCopyStabilityScreens.get(id);
@@ -5734,8 +6850,14 @@ for (const id of [
   assert.equal(page.blockedHitCount, 0, `${id} visible app copy scan must not report dummy/internal copy`);
   assert.equal(page.hasLoadingCopy, false, `${id} visible app copy scan must reach service content`);
   assert(page.finalWordmarkCount > 0, `${id} visible app copy scan must render vector FINAL wordmark`);
+  assert(page.finalWordmarkLinkCount > 0, `${id} visible app copy scan must render the FINAL dashboard link`);
   assert(page.finalWordmarkMinTouchHeight >= 44, `${id} visible app copy scan must keep FINAL wordmark touch target`);
+  assert(page.finalWordmarkVisualMinHeight >= 28, `${id} visible app copy scan must keep FINAL wordmark visually readable`);
   assert.equal(page.rasterFinalLogoCount, 0, `${id} visible app copy scan must not render raster FINAL logo`);
+  if (id.endsWith("-members")) {
+    assert.equal(page.memberProfileEmptyAlertCopyCount, 0, `${id} visible app copy scan must hide repeated empty warning copy`);
+    assert.equal(page.memberProfileEmptyNoteCopyCount, 0, `${id} visible app copy scan must hide repeated empty counseling/feedback copy`);
+  }
   if (page.role === "member" || page.role === "guardian") {
     const isFamilyAccountPage = id === "member-account" || id === "guardian-account";
 
@@ -5755,7 +6877,8 @@ for (const id of [
 	  if (id === "admin-audit") {
 	    assert.equal(page.adminAuditVisibleReadLogCount, 0, "admin audit visible app copy scan must hide read-audit noise by default");
 	    assert.equal(page.adminAuditSummaryBarCount, 1, "admin audit visible app copy scan must render one compact summary bar");
-	    assert(page.adminAuditSummaryBarHeight <= 34, "admin audit visible app copy scan must keep summary bar compact");
+	    assert(page.adminAuditSummaryBarHeight >= 44, "admin audit visible app copy scan must keep summary bar readable");
+	    assert(page.adminAuditSummaryBarHeight <= 56, "admin audit visible app copy scan must keep summary bar compact");
 	    assert(page.adminAuditListRowCount > 0, "admin audit visible app copy scan must render compact log rows");
 		    assert(page.adminAuditListRowCount <= 5, "admin audit visible app copy scan must limit default mobile log rows before expansion");
 	    assert(page.adminAuditListToggleCount <= 1, "admin audit visible app copy scan must not render duplicate list expansion controls");
@@ -5782,7 +6905,8 @@ for (const id of [
 	  }
   if (id === "admin-settings") {
     assert.equal(page.adminSettingsSummaryBarCount, 1, "admin settings visible app copy scan must render one compact summary bar");
-    assert(page.adminSettingsSummaryBarHeight <= 24, "admin settings visible app copy scan must keep summary as a one-line status bar");
+    assert(page.adminSettingsSummaryBarHeight >= 44, "admin settings visible app copy scan must keep summary readable");
+    assert(page.adminSettingsSummaryBarHeight <= 56, "admin settings visible app copy scan must keep summary compact");
     assert.equal(page.adminSettingsReadinessEditorToggleCount, 1, "admin settings visible app copy scan must render one readiness edit toggle");
     assert.equal(page.adminSettingsReadinessListToggleCount, 1, "admin settings visible app copy scan must render one readiness detail toggle");
     assert(page.adminSettingsReadinessListToggleHeight >= 44, "admin settings visible app copy scan must keep readiness detail toggle tappable");
@@ -5828,6 +6952,7 @@ for (const id of [
     assert.equal(page.adminSettingsOperationLogToggleCount, 1, "admin settings visible app copy scan must render one operation log toggle");
     assert.equal(page.adminSettingsOperationLogFormCount, 0, "admin settings visible app copy scan must keep operation log form collapsed by default");
     assert.equal(page.adminSettingsOperationLogSummaryCount, 1, "admin settings visible app copy scan must show one operation log summary");
+    assert(page.adminSettingsOperationLogSummaryHeight >= 44, "admin settings visible app copy scan must keep operation log summary at a stable 44px rail");
     assert(page.adminSettingsOperationLogSummaryHeight <= 52, "admin settings visible app copy scan must keep operation log summary compact");
     assert(
       !String(page.adminSettingsOperationLogSummaryText ?? "").includes("입력이 필요할 때만"),
@@ -5836,6 +6961,7 @@ for (const id of [
     assert.equal(page.adminSettingsIncidentCreateToggleCount, 1, "admin settings visible app copy scan must render one incident create toggle");
     assert.equal(page.adminSettingsIncidentCreateFormCount, 0, "admin settings visible app copy scan must keep incident create form collapsed by default");
     assert.equal(page.adminSettingsIncidentCreateSummaryCount, 1, "admin settings visible app copy scan must show one incident summary");
+    assert(page.adminSettingsIncidentCreateSummaryHeight >= 44, "admin settings visible app copy scan must keep incident summary at a stable 44px rail");
     assert(page.adminSettingsIncidentCreateSummaryHeight <= 52, "admin settings visible app copy scan must keep incident create summary compact");
     assert(
       !String(page.adminSettingsIncidentCreateSummaryText ?? "").includes("새 현장 이슈가 생겼을 때만"),
@@ -5870,16 +6996,17 @@ for (const id of [
     );
     assert.equal(page.ownerBranchComparisonRowBottomNavOverlap, 0, "owner dashboard visible app copy scan must keep branch comparison rows above the bottom nav");
     assert(
-      page.ownerBranchComparisonRowBottomNavClearance >= 16,
+      page.ownerBranchComparisonRowBottomNavClearance >= 24,
       "owner dashboard visible app copy scan must keep branch comparison row clearance above the bottom nav",
     );
     assert.equal(page.ownerBranchComparisonCardBottomNavOverlap, 0, "owner dashboard visible app copy scan must keep branch comparison card above the bottom nav");
     assert(
-      page.ownerBranchComparisonCardBottomNavClearance >= 16,
+      page.ownerBranchComparisonCardBottomNavClearance >= 24,
       "owner dashboard visible app copy scan must keep branch comparison card clearance above the bottom nav",
     );
     assert.equal(page.ownerBranchMetricGridCount, page.ownerBranchComparisonRowCount, "owner dashboard visible app copy scan must render compact metric grids per branch");
     assert(page.ownerBranchComparisonRowMaxHeight <= 108, "owner dashboard visible app copy scan must keep branch comparison rows compact");
+    assert(page.ownerBranchMetricGridMaxHeight >= 32, "owner dashboard visible app copy scan must keep branch metric grids readable");
     assert(page.ownerBranchMetricGridMaxHeight <= 40, "owner dashboard visible app copy scan must keep branch metric grids compact");
   }
 		  if (id === "owner-reports") {
@@ -5888,10 +7015,12 @@ for (const id of [
         assert(page.ownerReportTrendSummaryGridHeight <= 106, "owner reports visible app copy scan must keep trend summary graph rail compact");
         assert(page.ownerReportTrendSummaryRowMaxHeight <= 24, "owner reports visible app copy scan must keep trend summary rows compact");
         assert(page.ownerReportTrendSummaryTileMaxHeight <= 24, "owner reports visible app copy scan must keep trend summary direct rows compact");
-        assert(page.ownerReportGraphBoardHeight <= 160, "owner reports visible app copy scan must keep top graph board compact enough for trend content");
+        assert(page.ownerReportGraphBoardHeight <= 230, "owner reports visible app copy scan must keep top graph board compact enough for trend content");
         assert.equal(page.ownerReportSecondaryGraphGridCount, 1, "owner reports visible app copy scan must render compact secondary graph grid");
         assert.equal(page.ownerReportSecondaryGraphTileCount, 3, "owner reports visible app copy scan must show three priority KPI graph tiles by default");
-        assert(page.ownerReportSecondaryGraphGridHeight <= 52, "owner reports visible app copy scan must keep secondary graph grid as one compact mobile rail");
+        assert(page.ownerReportSecondaryGraphGridHeight >= 92, "owner reports visible app copy scan must use readable two-column KPI tiles");
+        assert(page.ownerReportSecondaryGraphGridHeight <= 128, "owner reports visible app copy scan must keep the two-column KPI tiles compact");
+        assert(page.ownerReportSecondaryGraphTileMinWidth >= 140, "owner reports visible app copy scan must not regress to narrow four-column KPI cells");
         assert.equal(page.ownerReportSecondaryGraphLabelOverflow, 0, "owner reports visible app copy scan must keep graph labels unclipped");
         assert.equal(page.ownerReportSecondaryGraphOverflow, 0, "owner reports visible app copy scan must avoid horizontal secondary graph scrolling");
         assert.equal(page.ownerReportSecondaryGraphToggleCount, 1, "owner reports visible app copy scan must expose the secondary graph more button");
@@ -6027,8 +7156,8 @@ for (const id of [
       page.adminBranchCreateOpenPanelWidth > page.adminBranchCreatePanelWidth + 40,
       "admin branches visible app copy scan must expand the create panel when the form is open",
     );
-    assert(page.adminBranchCreateOpenPanelHeight <= 220, "admin branches visible app copy scan must keep opened create panel compact");
-    assert(page.adminBranchCreateOpenFormHeight <= 176, "admin branches visible app copy scan must keep opened create form compact");
+    assert(page.adminBranchCreateOpenPanelHeight <= 160, "admin branches visible app copy scan must keep opened create panel as a compact two-row mobile form");
+    assert(page.adminBranchCreateOpenFormHeight <= 112, "admin branches visible app copy scan must keep opened create form compact");
     assert(page.adminBranchCreateOpenMinFieldWidth >= 104, "admin branches visible app copy scan must keep opened create fields readable on narrow mobile");
     assert(page.adminBranchCreateOpenSubmitButtonHeight >= 44, "admin branches visible app copy scan must keep create submit tappable");
     assert(page.adminBranchSettingsOpenScreenshotSizeBytes > 10_000, "admin branches visible app copy scan must capture the opened settings form");
@@ -6036,7 +7165,9 @@ for (const id of [
     assert(page.adminBranchSettingsOpenCardHeight <= 280, "admin branches visible app copy scan must keep opened settings card compact");
     assert.equal(page.adminBranchSettingsOpenDetailGridCount, 0, "admin branches visible app copy scan must hide repeated summary tiles while settings editor is open");
     assert(page.adminBranchSettingsOpenFieldGridHeight <= 92, "admin branches visible app copy scan must keep settings fields in two compact rows with inline labels");
+    assert(page.adminBranchSettingsOpenFieldGridMinControlHeight >= 44, "admin branches visible app copy scan must keep settings input/select controls tappable");
     assert(page.adminBranchSettingsOpenFieldGridMinControlWidth >= 100, "admin branches visible app copy scan must keep settings controls readable on narrow mobile");
+    assert(page.adminBranchSettingsOpenPolicyControlHeight >= 44, "admin branches visible app copy scan must keep settings policy toggle tappable");
     assert(page.adminBranchSettingsOpenSaveHeight >= 44, "admin branches visible app copy scan must keep settings save action tappable");
     assert(page.adminBranchSettingsOpenSaveBottom <= 760, "admin branches visible app copy scan must keep settings save action above bottom nav");
     assert(page.adminBranchCardCount > 0, "admin branches visible app copy scan must render compact branch cards");
@@ -6054,6 +7185,8 @@ for (const id of [
   }
   if (id === "admin-roles") {
     assert.equal(page.adminRoleSummaryGridCount, 1, "admin roles visible app copy scan must render compact summary grid");
+    assert(page.adminRoleSummaryGridHeight >= 44, "admin roles visible app copy scan must keep summary readable");
+    assert(page.adminRoleSummaryGridHeight <= 56, "admin roles visible app copy scan must keep summary compact");
     assert.equal(page.adminRoleInvitePanelCount, 1, "admin roles visible app copy scan must render one compact invite panel");
     assert(page.adminRoleInvitePanelHeight <= 56, "admin roles visible app copy scan must keep invite panel compact");
     assert(page.adminRoleInvitePanelWidth <= 276, "admin roles visible app copy scan must keep invite panel near two-thirds width");
@@ -6103,7 +7236,16 @@ for (const id of [
     assert.equal(page.memberPaymentFilterSelectCount, 0, `${id} visible app copy scan must not render the large payment filter select`);
     assert(page.memberPaymentCompactCardCount > 0, `${id} visible app copy scan must render compact payment cards`);
     assert.equal(page.memberPaymentDateLineCount, page.memberPaymentCompactCardCount, `${id} visible app copy scan must render one due/expires line per payment`);
-    assert(page.memberPaymentDateLineMaxHeight <= 42, `${id} visible app copy scan must keep payment date lines compact`);
+    assert(page.memberPaymentDateLineMaxHeight >= 44, `${id} visible app copy scan must keep payment date lines at a stable scan height`);
+    assert(page.memberPaymentDateLineMaxHeight <= 48, `${id} visible app copy scan must keep payment date lines compact`);
+    assert(
+      (page.memberPaymentCheckoutActionTexts ?? []).some((text) => String(text).includes("납부 정보 확인")),
+      `${id} visible app copy scan must show payment-info confirmation copy on checkout actions`,
+    );
+    assert(
+      (page.memberPaymentCheckoutActionTexts ?? []).every((text) => !String(text).includes("결제하기")),
+      `${id} visible app copy scan must not show live-payment approval copy on checkout actions`,
+    );
     assert.equal(
       page.memberPaymentCheckoutLinkCardCount,
       page.memberPaymentCheckoutActionCount,
@@ -6128,6 +7270,8 @@ for (const id of [
     assert.equal(page.memberPaymentCompactAmountTextCount, 0, `${id} visible app copy scan must not expose compact payment amounts`);
   }
   if (id === "member-notices" || id === "guardian-notices") {
+    assert.equal(page.mobileBottomNavNoticeLabel, "공지", `${id} visible app copy scan must label the active notices tab as 공지`);
+    assert.equal(page.mobileBottomNavNoticeHref, "/app/notices", `${id} visible app copy scan must keep the active notices tab on /app/notices`);
     assert.equal(page.familyNoticeCompactFilterBarCount, 1, `${id} visible app copy scan must render compact family notice filter bar`);
     assert(page.familyNoticeCompactFilterBarHeight <= 72, `${id} visible app copy scan must keep family notice toolbar compact`);
     assert.equal(page.familyNoticeFilterGridColumnCount, 4, `${id} visible app copy scan must keep family notice toolbar in four fixed columns`);
@@ -6153,6 +7297,8 @@ for (const id of [
     }
   }
   if (id === "coach-notices") {
+    assert.equal(page.mobileBottomNavNoticeLabel, "공지", `${id} visible app copy scan must label the active notices tab as 공지`);
+    assert.equal(page.mobileBottomNavNoticeHref, "/app/notices", `${id} visible app copy scan must keep the active notices tab on /app/notices`);
     assert(page.noticeDeliveryCompactCardCount > 0, `${id} visible app copy scan must render scoped publisher notice rows`);
     assert.equal(
       page.noticeDeliveryMetaLineCount,
@@ -6171,6 +7317,8 @@ for (const id of [
     if (typeof page.notificationsScreenCount === "number") {
       assert.equal(page.notificationsScreenCount, 1, `${id} visible app copy scan must render the dedicated notification inbox`);
       assert.equal(page.noticesScreenCount, 0, `${id} visible app copy scan must not render the notices alias screen`);
+      assert.equal(page.mobileBottomNavNoticeLabel, "알림", `${id} visible app copy scan must label the notification inbox tab as 알림`);
+      assert.equal(page.mobileBottomNavNoticeHref, "/app/notifications", `${id} visible app copy scan must keep notification inbox tab on /app/notifications`);
       assert.equal(page.notificationSummaryCardCount, 0, `${id} visible app copy scan must not render duplicate notification summary cards`);
       assert(page.notificationInboxCardCount > 0, `${id} visible app copy scan must render notification cards`);
       assert(page.notificationInboxCardMaxHeight <= 132, `${id} visible app copy scan must keep notification rows compact enough for mobile scanning`);
@@ -6257,7 +7405,14 @@ for (const id of [
         assert(page.notificationPaymentCheckoutLinkCount > 0, `${id} visible app copy scan must deep-link payable payment alerts to checkout preparation`);
       }
       if (page.notificationPaymentCheckoutLinkCount > 0) {
-        assert(page.notificationPaymentCheckoutLinkText.includes("결제"), `${id} visible app copy scan must label payment alert checkout links clearly`);
+        assert(
+          /납부 정보 확인|납부 확인 중|납부 확인|학부모 확인/.test(page.notificationPaymentCheckoutLinkText),
+          `${id} visible app copy scan must label payment alert checkout links with payment-info confirmation copy`,
+        );
+        assert(
+          !/결제하기|결제 진행/.test(page.notificationPaymentCheckoutLinkText),
+          `${id} visible app copy scan must not imply live payment approval on payment alert links`,
+        );
       }
       assert.equal(page.notificationRequestDetailLinkCount, 0, `${id} visible app copy scan must not deep-link deleted request alerts`);
       assert.equal(page.notificationRequestDetailLinkText, "", `${id} visible app copy scan must not label deleted request alerts`);
@@ -6278,6 +7433,8 @@ for (const id of [
   if (id === "admin-notices" || id === "owner-notices") {
     assert.equal(page.mobileBottomNavActiveRouteIds, "notices", `${id} visible app copy scan must activate the notices bottom-nav item`);
     assert.equal(page.mobileBottomNavCurrentRouteIds, "notices", `${id} visible app copy scan must mark only notices as current in bottom navigation`);
+    assert.equal(page.mobileBottomNavNoticeLabel, "공지", `${id} visible app copy scan must label the active notices tab as 공지`);
+    assert.equal(page.mobileBottomNavNoticeHref, "/app/notices", `${id} visible app copy scan must keep the active notices tab on /app/notices`);
     assert(page.noticeDeliveryCompactCardCount > 0, `${id} visible app copy scan must render operator notice delivery cards`);
     if (typeof page.noticeDeliveryReadCardCount === "number" && page.noticeDeliveryReadCardCount > 0) {
       assert.equal(
@@ -6331,16 +7488,23 @@ for (const id of [
 	      "owner branches visible app copy scan must render one action expansion toggle per branch",
 	    );
 	    assert(page.ownerBranchActionToggleMinHeight >= 44, "owner branches visible app copy scan must keep action toggles tappable");
+	    assert.equal(page.ownerBranchBottomSafeAreaCount, 1, "owner branches visible app copy scan must render one mobile bottom safe-area spacer");
+	    assert(page.ownerBranchBottomSafeAreaHeight >= 112, "owner branches visible app copy scan must reserve bottom navigation space");
+	    assert(
+	      page.ownerBranchActionBottomNavClearanceAtScrollEnd >= 24,
+	      "owner branches visible app copy scan must keep the last action row clear of the mobile bottom navigation at scroll end",
+	    );
 	  }
   if (id === "member-members" || id === "guardian-members") {
     assert.equal(page.familyMemberSearchInputCount, 0, `${id} visible app copy scan must hide the staff search header`);
     assert(page.familyMemberProfileCardCount > 0, `${id} visible app copy scan must render compact family profile cards`);
     assert(page.familyMemberFeedbackHeadingCount > 0, `${id} visible app copy scan must label notes as coach feedback`);
-    assert.equal(page.familyMemberFeedbackVisibilityMetaCount, 0, `${id} visible app copy scan must hide staff note visibility metadata`);
-    assert.equal(page.familyMemberWarningHeadingCount, 0, `${id} visible app copy scan must hide the full warning section in family views`);
-    assert.equal(page.familyMemberEmptyAlertCopyCount, 0, `${id} visible app copy scan must hide empty warning copy in family views`);
-    assert(page.familyMemberAlertStripMaxHeight <= 72, `${id} visible app copy scan must keep family alert strips compact`);
-  }
+	    assert.equal(page.familyMemberFeedbackVisibilityMetaCount, 0, `${id} visible app copy scan must hide staff note visibility metadata`);
+	    assert.equal(page.familyMemberWarningHeadingCount, 0, `${id} visible app copy scan must hide the full warning section in family views`);
+	    assert.equal(page.familyMemberEmptyAlertCopyCount, 0, `${id} visible app copy scan must hide empty warning copy in family views`);
+	    assert(page.familyMemberAlertStripMaxHeight >= 44, `${id} visible app copy scan must keep family alert strips at a stable scan height`);
+	    assert(page.familyMemberAlertStripMaxHeight <= 72, `${id} visible app copy scan must keep family alert strips compact`);
+	  }
   if (id === "guardian-members") {
     assert(page.familyMemberFeedbackCardCount > 0, "guardian members visible app copy scan must keep guardian-visible coach feedback");
   }
@@ -6475,7 +7639,7 @@ for (const id of [
     assert(!page.attendanceStatusFilterButtonText.includes("보강0"), "coach classes visible app copy scan must hide zero-count deleted request chip");
     assert.equal(page.attendanceStatusFilterGroupOverflow, 0, "coach classes visible app copy scan must avoid horizontal status filter scrolling");
     assert(page.attendanceUncheckedFilterLabelHeight >= 44, "coach classes unchecked filter label must keep 44px touch target");
-    assert(page.attendanceUncheckedFilterBoxHeight >= 24, "coach classes unchecked filter checkbox must stay visually tappable");
+	    assert(page.attendanceUncheckedFilterBoxHeight >= 28, "coach classes unchecked filter checkbox must stay visually clear");
     assert(page.attendanceStatusFilterButtonMinHeight >= 44, "coach classes visible app copy scan must keep status filters tappable");
     assert(page.coachClassRosterToggleCount > 1, "coach classes visible app copy scan must render roster toggles");
     assert.equal(page.coachClassRosterLongLabelCount, 0, "coach classes visible app copy scan must keep roster toggles compact");
@@ -7141,6 +8305,7 @@ assertIncludes(
   "member, guardian, and coach compact profile card marker",
 );
 assertIncludes(sources.membersScreen, 'data-testid="family-member-alert-strip"', "member and guardian safety notes use a compact alert strip");
+assertIncludes(sources.membersScreen, "min-h-11 min-w-0 items-center gap-2", "member and guardian safety notes keep a stable 44px scan height");
 assertIncludes(sources.membersScreen, 'note.visibility === "guardian_visible"', "member and guardian feedback only uses family-visible notes");
 assertIncludes(sources.membersScreen, 'data-testid={isFamilyRole ? "family-member-feedback-heading" : undefined}', "member and guardian feedback heading marker");
 assertIncludes(sources.membersScreen, '"family-member-feedback-card"', "member and guardian feedback card marker");
@@ -7460,6 +8625,7 @@ console.log(
         "P5-P10 simulator screenshots for admin settings/coach/member/guardian",
         "P1 readiness remains blocked 7/7",
         "Android and iOS release blockers remain separated",
+        "P1 operator status exposes the current Android Play AAB/APK release report",
         "coach mobile save status panel has reserved scroll space above bottom navigation",
         "Next dev indicator does not cover mobile bottom navigation in simulator evidence",
         "autoLogin same-session deep links land on real service screens",
@@ -7472,19 +8638,21 @@ console.log(
         "native app runtime hides browser/PWA install card",
         "expanded 36 route/role visible copy screenshots are present",
         "20 owner/coach/member/guardian routes pass visible dummy/internal copy and overflow audit",
-        "member and guardian dashboard/classes/payments/notices/account screens pass visible app copy stability scan",
+        "operator, member, and guardian members screens plus dashboard/classes/payments/notices/account screens pass visible app copy stability scan",
         "8 admin/owner/coach/member/guardian routes pass fresh visible copy recheck",
         "22 owner/coach/member/guardian follow-up routes pass latest visible copy and console scan",
         "payments/owner branches compact empty copy render report passes",
         "member dashboard loading copy uses app-safe wording and reaches service content",
         "login network error copy hides raw Load failed/local-server wording",
         "login signup entry remains phone-number based with browser and iOS simulator evidence",
+        "auth role shortcut measurement excludes phone signup submit copy and keeps select-role touch targets",
         "registered login completion copy has visible scan and iOS simulator evidence",
         "admin invitation approval has iOS simulator evidence and API login verification",
 	        "admin users pending invitations surface first with iOS simulator evidence",
 	        "admin users pending invitation approval action has a visible label with iOS simulator evidence",
 	        "runtime DB has no leftover admin invitation evidence users",
 	        "adult member and guardian child payment checkout preparation stays API-free with iOS simulator evidence",
+	        "owner manual payment create form keeps 44px searchable registration controls with browser evidence",
 	        "member contact formatting evidence hides raw +82 seed/intake phone values",
         "affected empty-state routes hide old waiting copy in mobile browser evidence",
         "dashboard/members empty-state helper copy remains title-only in mobile browser evidence",
@@ -7508,6 +8676,8 @@ console.log(
         "11 active core role routes pass continuous polish scan for internal wording, long copy, time labels, overflow, and overlays",
         "member and guardian contact edit forms stay collapsed until requested while admin management remains visible",
         "owner and admin member invite/create forms stay collapsed until requested",
+        "owner member management invite/create/status/profile/guardian/note controls keep 44px touch targets with iOS simulator evidence",
+        "admin user management invite/edit/delete/password reset controls keep 44px touch targets with iOS simulator evidence",
         "member and guardian contact edit deep link opens compact touch-sized mobile form with iOS simulator evidence",
         "member and guardian members screens hide repeated title/search header and keep compact profile cards",
         "member and guardian dashboards do not expose deleted request compose links",
@@ -7518,9 +8688,12 @@ console.log(
         "notifications inbox has dedicated iOS simulator evidence",
         "member and guardian notification inbox density has iOS simulator evidence",
         "guardian notification rows stay compact with iOS simulator evidence",
-        "notification single read action has iOS simulator and API persistence evidence",
-        "read notice tone-down has iOS simulator evidence",
-        "member and guardian notification settings stay hidden with always-on policy evidence",
+		        "notification single read action has iOS simulator and API persistence evidence",
+		        "read notice tone-down has iOS simulator evidence",
+		        "operator notice empty search keeps 44px controls with refreshed iOS simulator evidence",
+		        "owner dashboard branch comparison keeps refreshed 24px clearance with iOS simulator evidence",
+		        "FINAL wordmark keeps zero letter spacing with iOS simulator evidence",
+		        "member and guardian notification settings stay hidden with always-on policy evidence",
         "admin branch selected scope hides non-selected branches and branch creation controls",
       ],
       screenshots: [
@@ -7534,10 +8707,13 @@ console.log(
 	        adminSettingsOpsWordingReport.screenshot,
 	        notificationsInboxEvidenceReport.screenshot.path,
 	        notificationInboxDensityEvidenceReport.memberScreenshot.path,
-	        notificationInboxDensityEvidenceReport.guardianScreenshot.path,
-	        notificationReadActionEvidenceReport.screenshot.path,
-	        readNoticeToneDownEvidenceReport.screenshot.path,
-	        authRegisteredCopyReport.screenshot.path,
+		        notificationInboxDensityEvidenceReport.guardianScreenshot.path,
+		        notificationReadActionEvidenceReport.screenshot.path,
+			        readNoticeToneDownEvidenceReport.screenshot.path,
+			        operatorListSearchTouchReport.iosSimulator.screenshot,
+			        ownerDashboardDetailToggleReport.screenshotPath,
+			        finalWordmarkLetterSpacingReport.iosSimulator.screenshot,
+			        authRegisteredCopyReport.screenshot.path,
 	        familyNotificationSettingsHiddenReport.screenshot.path,
 	        familyNotificationSettingsHiddenReport.guardianScreenshot.path,
 	        familyNotificationAlwaysOnGuardReport.memberScreenshot.path,
@@ -7558,9 +8734,14 @@ console.log(
         memberContactEditCollapseReport.guardianOpenCheck.screenshot,
         ".data/mobile-builds/ios/member-contact-edit-collapse-20260623/guardian-members-contact-edit-collapse-ios-sim.jpg",
         ...familyContactEditDeepLinkReport.screenshots.map((screenshot) => screenshot.path),
+        ...memberManagementFormCollapseReport.screenshots.map((screenshot) => screenshot.path),
+        ...memberManagementFormCollapseReport.iosSimulator.screenshots.map((screenshot) => screenshot.path),
+        ...adminUserManagementTouchTargetsReport.screenshots.map((screenshot) => screenshot.path),
+        adminUserManagementTouchTargetsReport.iosSimulator.screenshot.path,
         ...familyClassPersonalAttendanceReport.results.map((page) => page.screenshot),
         ".data/mobile-builds/ios/family-class-personal-attendance-20260623/guardian-classes-personal-attendance-ios-sim.jpg",
         ...memberDashboardPaymentCheckoutLinkReport.screenshots.map((screenshot) => screenshot.path),
+        ...Object.values(paymentCreateTouchTargetsReport.screenshots ?? {}).map((screenshot) => screenshot.path),
       ],
     },
     null,

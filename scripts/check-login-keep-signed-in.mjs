@@ -48,7 +48,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 1000) {
 
 async function canReachAppServer() {
   try {
-    const response = await fetchWithTimeout(baseUrl, { method: "GET", redirect: "manual" });
+    const response = await fetchWithTimeout(new URL("/login", baseUrl), { method: "GET", redirect: "manual" }, 4000);
 
     return response.status >= 200 && response.status < 500;
   } catch {
@@ -177,7 +177,7 @@ function assertApproximateLifetime(actualSeconds, expectedSeconds, label) {
   );
 }
 
-async function performLogin(browser, { keepSignedIn, screenshotPath }) {
+async function performLogin(browser, { keepSignedIn, screenshotPath, accountSwitchScreenshotPath }) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -191,6 +191,8 @@ async function performLogin(browser, { keepSignedIn, screenshotPath }) {
     const layout = await page.evaluate(() => {
       const checkbox = document.querySelector('[data-testid="login-keep-signed-in-checkbox"]');
       const label = checkbox?.closest("label");
+      const passwordInput = document.querySelector("#login-password-input");
+      const passwordToggle = document.querySelector('[data-testid="login-password-visibility-toggle"]');
       const submit = document.querySelector('button[type="submit"]');
 
       return {
@@ -201,6 +203,9 @@ async function performLogin(browser, { keepSignedIn, screenshotPath }) {
         hasThirtyDayCopy: document.body.innerText.includes("30일 동안 다시 로그인하지 않습니다."),
         labelHeight: label?.getBoundingClientRect().height ?? 0,
         loginTitle: document.querySelector("h2")?.textContent?.trim() ?? "",
+        passwordInputPaddingRight: passwordInput ? Math.round(Number.parseFloat(getComputedStyle(passwordInput).paddingRight)) : 0,
+        passwordToggleHeight: Math.round(passwordToggle?.getBoundingClientRect().height ?? 0),
+        passwordToggleWidth: Math.round(passwordToggle?.getBoundingClientRect().width ?? 0),
         scrollWidth: document.documentElement.scrollWidth,
         submitHeight: submit?.getBoundingClientRect().height ?? 0,
       };
@@ -210,12 +215,27 @@ async function performLogin(browser, { keepSignedIn, screenshotPath }) {
     assert.equal(layout.checkboxChecked, true, "keep-signed-in checkbox must be enabled by default");
     assert.equal(layout.hasThirtyDayCopy, true, "login must show the thirty-day remembered session copy");
     assert(layout.labelHeight >= 44, "keep-signed-in touch target must be at least 44px high");
+    assert(layout.passwordInputPaddingRight >= 48, "login password input must reserve at least 48px for the visibility toggle");
+    assert(layout.passwordToggleHeight >= 44, "login password visibility toggle must be at least 44px high");
+    assert(layout.passwordToggleWidth >= 44, "login password visibility toggle must be at least 44px wide");
     assert(layout.submitHeight >= 44, "login submit button must be at least 44px high");
     assert.equal(layout.scrollWidth, layout.clientWidth, "login screen must not horizontally overflow at 390px");
     assert.equal(layout.loginTitle, "파이널 로그인", "login screen must render the public login title");
     assert(layout.bodyTextLength > 40, "login screen must not be blank");
 
     await page.screenshot({ path: screenshotPath, fullPage: false });
+    await page.getByTestId("login-password-visibility-toggle").click();
+    assert.equal(
+      await page.locator("#login-password-input").getAttribute("type"),
+      "text",
+      "login password visibility toggle must reveal the password field",
+    );
+    await page.getByTestId("login-password-visibility-toggle").click();
+    assert.equal(
+      await page.locator("#login-password-input").getAttribute("type"),
+      "password",
+      "login password visibility toggle must hide the password field again",
+    );
 
     if (!keepSignedIn) {
       await page.getByTestId("login-keep-signed-in-checkbox").uncheck();
@@ -229,6 +249,26 @@ async function performLogin(browser, { keepSignedIn, screenshotPath }) {
     const cookies = await context.cookies(baseUrl);
     const sessionCookie = cookies.find((cookie) => cookie.name === sessionCookieName);
     const lifetimeSeconds = cookieLifetimeSeconds(sessionCookie);
+    await page.goto(new URL("/login", baseUrl).toString(), { waitUntil: "networkidle" });
+    await page.waitForSelector('[data-testid="login-account-switch-button"]', { timeout: 15000 });
+
+    const accountSwitchLayout = await page.evaluate(() => {
+      const button = document.querySelector('[data-testid="login-account-switch-button"]');
+
+      return {
+        buttonCount: document.querySelectorAll('[data-testid="login-account-switch-button"]').length,
+        buttonHeight: Math.round(button?.getBoundingClientRect().height ?? 0),
+        buttonText: button?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+
+    assert.equal(accountSwitchLayout.buttonCount, 1, "authenticated login screen must render one account switch button");
+    assert.equal(accountSwitchLayout.buttonText, "로그아웃하고 계정 전환", "authenticated login account switch copy must stay clear");
+    assert(accountSwitchLayout.buttonHeight >= 44, "authenticated login account switch button must keep a 44px touch height");
+    assert.equal(accountSwitchLayout.scrollWidth, accountSwitchLayout.clientWidth, "authenticated login screen must not overflow horizontally at 390px");
+    await page.screenshot({ path: accountSwitchScreenshotPath, fullPage: false });
 
     assertApproximateLifetime(
       lifetimeSeconds,
@@ -240,6 +280,64 @@ async function performLogin(browser, { keepSignedIn, screenshotPath }) {
     return {
       cookieExpires: sessionCookie.expires,
       cookieLifetimeSeconds: lifetimeSeconds,
+      layout,
+      accountSwitchLayout,
+      accountSwitchScreenshotPath,
+      accountSwitchScreenshotSizeBytes: statSync(accountSwitchScreenshotPath).size,
+      messages,
+      screenshotPath,
+      screenshotSizeBytes: statSync(screenshotPath).size,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function collectCookieOnlyAccountSwitch(browser, sessionCookie, screenshotPath) {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const messages = collectConsoleMessages(page);
+
+  try {
+    await context.addCookies([
+      {
+        expires: sessionCookie.expires,
+        httpOnly: true,
+        name: sessionCookie.name,
+        sameSite: "Lax",
+        secure: false,
+        url: baseUrl,
+        value: sessionCookie.value,
+      },
+    ]);
+    await page.goto(new URL("/login", baseUrl).toString(), { waitUntil: "networkidle" });
+    await page.waitForSelector('[data-testid="login-account-switch-button"]', { timeout: 15000 });
+
+    const layout = await page.evaluate(() => {
+      const button = document.querySelector('[data-testid="login-account-switch-button"]');
+
+      return {
+        bodyText: document.body.innerText.replace(/\s+/g, " ").trim(),
+        buttonCount: document.querySelectorAll('[data-testid="login-account-switch-button"]').length,
+        buttonHeight: Math.round(button?.getBoundingClientRect().height ?? 0),
+        buttonText: button?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        clientWidth: document.documentElement.clientWidth,
+        loginFormCount: document.querySelectorAll("main form").length,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+
+    assert.equal(layout.buttonCount, 1, "cookie-only login restore must render one account switch button");
+    assert.equal(layout.buttonText, "로그아웃하고 계정 전환", "cookie-only login restore account switch copy must stay clear");
+    assert(layout.buttonHeight >= 44, "cookie-only login restore account switch button must keep a 44px touch height");
+    assert.equal(layout.scrollWidth, layout.clientWidth, "cookie-only restored login screen must not overflow horizontally at 390px");
+    assert(layout.bodyText.includes("현재 회원 계정으로 로그인되어 있습니다."), "cookie-only restored login screen must show the current session");
+    assert.deepEqual(messages, [], "cookie-only login restore must not emit console warnings/errors");
+    await page.screenshot({ path: screenshotPath, fullPage: false });
+
+    return {
       layout,
       messages,
       screenshotPath,
@@ -264,10 +362,23 @@ const browser = await chromium.launch({
 
 try {
   const remembered = await performLogin(browser, {
+    accountSwitchScreenshotPath: join(outDir, "login-account-switch-remembered-mobile.png"),
     keepSignedIn: true,
     screenshotPath: join(outDir, "login-keep-signed-in-mobile.png"),
   });
+  const cookieOnlyAccountSwitch = await collectCookieOnlyAccountSwitch(
+    browser,
+    {
+      expires: remembered.cookieExpires,
+      httpOnly: true,
+      name: sessionCookieName,
+      path: "/",
+      value: "user-member",
+    },
+    join(outDir, "login-account-switch-cookie-only-mobile.png"),
+  );
   const standard = await performLogin(browser, {
+    accountSwitchScreenshotPath: join(outDir, "login-account-switch-standard-mobile.png"),
     keepSignedIn: false,
     screenshotPath: join(outDir, "login-standard-session-mobile.png"),
   });
@@ -278,12 +389,17 @@ try {
     baseUrl,
     checked: [
       "login form exposes a 44px keep-signed-in checkbox",
+      "login password visibility toggle keeps a 44px touch target",
+      "login password field reserves space for the visibility toggle",
       "keep-signed-in is enabled by default for app-like automatic login",
       "remembered login sets a 30-day httpOnly session cookie",
       "unchecked login keeps the standard 8-hour session cookie",
+      "authenticated login account switch action keeps a 44px touch target",
+      "cookie-only restored login screen shows the account switch action",
       "390px login screen stays nonblank, console-clean, and horizontally contained",
     ],
     remembered,
+    cookieOnlyAccountSwitch,
     standard,
     resetBefore,
     resetAfter,
@@ -292,7 +408,10 @@ try {
   };
 
   assert(remembered.screenshotSizeBytes > 10_000, "remembered login screenshot must be non-empty");
+  assert(cookieOnlyAccountSwitch.screenshotSizeBytes > 10_000, "cookie-only account switch screenshot must be non-empty");
   assert(standard.screenshotSizeBytes > 10_000, "standard login screenshot must be non-empty");
+  assert(remembered.accountSwitchScreenshotSizeBytes > 10_000, "remembered account switch screenshot must be non-empty");
+  assert(standard.accountSwitchScreenshotSizeBytes > 10_000, "standard account switch screenshot must be non-empty");
   writeFileSync(report.summaryPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
 } finally {

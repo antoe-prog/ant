@@ -102,6 +102,10 @@ assert(
   readmeSource.includes("요청 기능 삭제") && readmeSource.includes("직접 접근 시 `404`를 반환"),
   "README API section must describe deleted request APIs as 404",
 );
+assert(
+  readmeSource.includes("삭제된 요청 API 404"),
+  "README smoke section must describe deleted request APIs as 404",
+);
 for (const [label, source] of [
   ["README", readmeSource],
   ["QA plan", qaPlanSource],
@@ -148,6 +152,7 @@ for (const fragment of [
   "대기 요청, 휴면 회원",
   "요청 생성일",
   "보강 요청, 휴면 회원",
+  "비활성 요청 API 410",
 ]) {
   assert(
     !currentImplementationBacklogSource.includes(fragment),
@@ -179,6 +184,7 @@ for (const [label, source] of [
     "대시보드로 돌려",
     "대시보드로 redirect",
     "410 FEATURE_DISABLED",
+    "비활성 요청 API 410",
     "결석/보강 요청 생성과 승인/반려",
     "보강 출석",
   ]) {

@@ -1,11 +1,13 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
-import { AlertTriangle, ChevronDown, Copy, ExternalLink, History, Pencil, Search, ShieldCheck, UserCog, UserPlus } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, ChevronDown, Copy, ExternalLink, History, Pencil, Search, ShieldCheck, UserCog, UserPlus, X } from "lucide-react";
 import { PermissionMatrix, type PermissionMatrixRow } from "@/components/domain/permission-matrix";
 import { useApiContext } from "@/hooks/use-api-context";
 import { userRoles, type AppUser, type AuditAction, type AuditLog, type UserRole } from "@/lib/domain";
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { roleLabels, roleManagementScopeLabels } from "@/lib/roles";
 import { getVisibleUserEmail } from "@/lib/user-display";
 import { useAppStore } from "@/store/app-store";
@@ -132,10 +134,20 @@ function getPermissionSummary(rows: PermissionMatrixRow[]) {
   return summary;
 }
 
+function shouldOpenInviteForm(searchParams: Pick<URLSearchParams, "get">) {
+  return searchParams.get("invite") === "1";
+}
+
 export function AdminRolesScreen() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const context = useApiContext();
   const { updateUserRole, createInvitation } = useAppStore();
-  const [query, setQuery] = useState("");
+  const initialRoleSearch = searchParams.get("q")?.trim() ?? "";
+  const roleSearchParam = searchParams.get("q")?.trim() ?? "";
+  const inviteFormRequested = shouldOpenInviteForm(searchParams);
+  const previousRoleSearchParamRef = useRef(initialRoleSearch);
+  const [query, setQueryState] = useState(initialRoleSearch);
   const [roleDrafts, setRoleDrafts] = useState<Record<string, UserRole>>({});
   const [roleReasons, setRoleReasons] = useState<Record<string, string>>({});
   const [roleFeedback, setRoleFeedback] = useState<string | null>(null);
@@ -146,10 +158,73 @@ export function AdminRolesScreen() {
   const [inviteBranchIds, setInviteBranchIds] = useState<string[]>([]);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [invitePath, setInvitePath] = useState<string | null>(null);
-  const [inviteFormOpen, setInviteFormOpen] = useState(false);
+  const [inviteFormOpen, setInviteFormOpen] = useState(() => inviteFormRequested);
   const [roleEditorUserId, setRoleEditorUserId] = useState<string | null>(null);
   const [permissionMatrixOpen, setPermissionMatrixOpen] = useState(false);
   const [showAllRecentRoleChanges, setShowAllRecentRoleChanges] = useState(false);
+
+  useEffect(() => {
+    const nextRoleSearch = roleSearchParam;
+
+    if (nextRoleSearch === previousRoleSearchParamRef.current) {
+      return;
+    }
+
+    previousRoleSearchParamRef.current = nextRoleSearch;
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setQueryState(nextRoleSearch);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roleSearchParam]);
+
+  useEffect(() => {
+    if (!inviteFormOpen || typeof window === "undefined" || window.location.hash !== "#admin-role-invite-submit") {
+      return;
+    }
+
+    let cancelled = false;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
+
+        document.getElementById("admin-role-invite-submit")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [inviteFormOpen]);
+
+  function setRoleSearch(value: string) {
+    setQueryState(value);
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+
+      if (value.trim()) {
+        url.searchParams.set("q", value.trim());
+      } else {
+        url.searchParams.delete("q");
+      }
+
+      router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
+    }
+  }
 
   const branchById = useMemo(() => new Map(context.db.branches.map((branch) => [branch.id, branch])), [context.db.branches]);
   const permissionSummary = useMemo(() => getPermissionSummary(adminPermissionRows), []);
@@ -176,6 +251,8 @@ export function AdminRolesScreen() {
   const recentRoleAuditLogs = roleAuditLogs.slice(0, 5);
   const visibleRecentRoleAuditLogs = showAllRecentRoleChanges ? recentRoleAuditLogs : recentRoleAuditLogs.slice(0, 1);
   const hiddenRecentRoleAuditLogCount = Math.max(recentRoleAuditLogs.length - 1, 0);
+  const roleSearchActive = Boolean(query.trim());
+  const roleListStatusLabel = `${filteredUsers.length}/${context.db.users.length}명 표시`;
   const inviteCanSubmit =
     Boolean(inviteName.trim()) &&
     Boolean(invitePhone.trim()) &&
@@ -264,9 +341,9 @@ export function AdminRolesScreen() {
 
     try {
       await navigator.clipboard.writeText(link);
-      setInviteFeedback("초대 링크를 복사했습니다.");
+      setInviteFeedback(invitationLinkCopySuccessMessage);
     } catch {
-      setInviteFeedback("초대 링크를 열어 주소를 복사해 주세요.");
+      setInviteFeedback(invitationLinkCopyFallbackMessage);
     }
   }
 
@@ -276,35 +353,47 @@ export function AdminRolesScreen() {
         <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">총괄 권한 관리</h1>
         <label className="relative block w-full">
           <span className="sr-only">사용자 또는 역할 검색</span>
-          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-zinc-400" aria-hidden />
+          <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-400" aria-hidden />
           <input
-            className="h-10 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+            className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+            data-testid="admin-role-search-input"
             placeholder="사용자, 역할, 관리 항목 검색"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => setRoleSearch(event.target.value)}
           />
+          {query ? (
+            <button
+              aria-label="검색어 지우기"
+              className="absolute right-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+              data-testid="admin-role-search-clear"
+              type="button"
+              onClick={() => setRoleSearch("")}
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          ) : null}
         </label>
       </div>
 
       <section
         aria-label="권한 관리 요약"
-        className="grid grid-cols-4 overflow-hidden rounded-md border border-zinc-200 bg-white"
+        className="grid min-h-11 grid-cols-4 overflow-hidden rounded-md border border-zinc-200 bg-white"
         data-testid="admin-role-summary-grid"
       >
-        <div className="flex min-w-0 items-center justify-center gap-1 px-1 py-0.5 text-center">
-          <p className="truncate text-[9px] font-medium leading-3 text-zinc-600 sm:text-[10px]">기본 역할</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 px-1.5 py-1 text-center">
+          <p className="truncate text-[10px] font-medium leading-3 text-zinc-600 sm:text-xs">기본 역할</p>
           <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">5</p>
         </div>
-        <div className="flex min-w-0 items-center justify-center gap-1 border-l border-blue-100 bg-blue-50 px-1 py-0.5 text-center">
-          <p className="truncate text-[9px] font-medium leading-3 text-blue-700 sm:text-[10px]">관리 권한</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 border-l border-blue-100 bg-blue-50 px-1.5 py-1 text-center">
+          <p className="truncate text-[10px] font-medium leading-3 text-blue-700 sm:text-xs">관리 권한</p>
           <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{privilegedUsers.length}</p>
         </div>
-        <div className="flex min-w-0 items-center justify-center gap-1 border-l border-zinc-200 px-1 py-0.5 text-center">
-          <p className="truncate text-[9px] font-medium leading-3 text-zinc-600 sm:text-[10px]">대기 초대</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 border-l border-zinc-200 px-1.5 py-1 text-center">
+          <p className="truncate text-[10px] font-medium leading-3 text-zinc-600 sm:text-xs">대기 초대</p>
           <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{pendingInvitations.length}</p>
         </div>
-        <div className="flex min-w-0 items-center justify-center gap-1 border-l border-teal-100 bg-teal-50 px-1 py-0.5 text-center">
-          <p className="truncate text-[9px] font-medium leading-3 text-teal-700 sm:text-[10px]">계정 변경</p>
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 border-l border-teal-100 bg-teal-50 px-1.5 py-1 text-center">
+          <p className="truncate text-[10px] font-medium leading-3 text-teal-700 sm:text-xs">계정 변경</p>
           <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950">{roleAuditLogs.length}</p>
         </div>
       </section>
@@ -314,6 +403,9 @@ export function AdminRolesScreen() {
           <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-4">
             <div>
               <h2 className="text-base font-semibold text-zinc-950">사용자/역할 목록</h2>
+              <p className="mt-1 text-sm font-medium text-zinc-600" data-testid="admin-role-list-status-label" aria-live="polite">
+                {roleListStatusLabel}
+              </p>
             </div>
             <UserCog className="h-5 w-5 shrink-0 text-teal-700" aria-hidden />
           </div>
@@ -356,7 +448,7 @@ export function AdminRolesScreen() {
               <label>
                 <span className="sr-only">초대 이름</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   placeholder="이름"
                   value={inviteName}
                   onChange={(event) => setInviteName(event.target.value)}
@@ -365,7 +457,7 @@ export function AdminRolesScreen() {
               <label>
                 <span className="sr-only">초대 휴대폰 번호</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   inputMode="tel"
                   placeholder="휴대폰 번호"
                   type="tel"
@@ -376,7 +468,7 @@ export function AdminRolesScreen() {
               <label>
                 <span className="sr-only">초대 이메일 선택 입력</span>
                 <input
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   placeholder="이메일 선택"
                   type="email"
                   value={inviteEmail}
@@ -386,7 +478,7 @@ export function AdminRolesScreen() {
               <label>
                 <span className="sr-only">초대 역할</span>
                 <select
-                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none transition focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none transition focus:border-teal-500"
                   value={inviteRole}
                   onChange={(event) => {
                     const nextRole = event.target.value as UserRole;
@@ -431,7 +523,15 @@ export function AdminRolesScreen() {
               </fieldset>
             )}
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <Button className="w-full sm:w-auto" disabled={!inviteCanSubmit} size="sm" type="submit" variant="primary">
+              <Button
+                className="min-h-11 w-full scroll-mb-32 sm:w-auto"
+                data-testid="admin-role-invite-submit"
+                disabled={!inviteCanSubmit}
+                id="admin-role-invite-submit"
+                size="sm"
+                type="submit"
+                variant="primary"
+              >
                 초대 링크 생성
               </Button>
               {inviteFeedback ? <p className="text-sm font-medium text-zinc-700">{inviteFeedback}</p> : null}
@@ -444,7 +544,7 @@ export function AdminRolesScreen() {
                 <p className="text-sm font-semibold text-teal-900">초대 링크가 준비됐습니다.</p>
                 <div className="flex flex-wrap gap-2">
                   <a
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
                     data-testid="admin-role-invite-link-open"
                     href={invitePath}
                   >
@@ -452,7 +552,7 @@ export function AdminRolesScreen() {
                     초대 링크 열기
                   </a>
                   <button
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"
                     data-testid="admin-role-invite-link-copy"
                     type="button"
                     onClick={() => void handleCopyInvitationLink()}
@@ -585,10 +685,25 @@ export function AdminRolesScreen() {
                 </article>
               );
             })}
+            {filteredUsers.length === 0 ? (
+              <div className="grid gap-3 px-4 py-8 text-center" data-testid="admin-role-empty-filter-state">
+                <p className="text-sm font-semibold text-zinc-950">조건에 맞는 사용자가 없습니다.</p>
+                <p className="text-sm leading-6 text-zinc-600">검색어를 지우거나 다른 이름, 역할, 관리 항목으로 다시 찾아주세요.</p>
+                <Button
+                  className="mx-auto"
+                  data-testid="admin-role-empty-filter-reset"
+                  size="lg"
+                  variant="secondary"
+                  onClick={() => setRoleSearch("")}
+                >
+                  전체 보기
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-4">
+        <div className={`min-w-0 gap-4 ${roleSearchActive ? "hidden xl:grid" : "grid"}`} data-testid="admin-role-supporting-panels">
           <div className="min-w-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -642,7 +757,10 @@ export function AdminRolesScreen() {
         </div>
       </section>
 
-      <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-2" data-testid="admin-role-recent-change-section">
+      <section
+        className={`mt-3 rounded-lg border border-zinc-200 bg-white p-2 ${roleSearchActive ? "hidden xl:block" : ""}`}
+        data-testid="admin-role-recent-change-section"
+      >
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-zinc-950">최근 계정 변경</h2>
@@ -690,6 +808,7 @@ export function AdminRolesScreen() {
           </div>
         )}
       </section>
+      <div className="h-28 xl:hidden" aria-hidden="true" data-testid="admin-role-bottom-safe-area" />
     </div>
   );
 }

@@ -123,13 +123,43 @@ assert(
   "notice read feedback must stay announced as a polite status message",
 );
 assert(
+  noticesScreenSource.includes("async function handleMarkNoticeAsRead") &&
+    noticesScreenSource.includes("const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null)") &&
+    noticesScreenSource.includes('setReadFeedback(ok ? "공지 확인을 저장했습니다." : "공지 확인 상태를 저장하지 못했습니다.");') &&
+    noticesScreenSource.includes("onClick={() => void handleMarkNoticeAsRead(notice.id)}"),
+  "notices screen single read actions must use the feedback/pending handler instead of a silent direct store call",
+);
+assert(
+  !noticesScreenSource.includes("onClick={() => void markNoticeAsRead(notice.id)}"),
+  "notices screen must not silently mark one notice as read without user feedback",
+);
+assert(
   /data-testid="notice-push-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(noticesScreenSource),
   "notice push feedback must stay announced as a polite status message",
 );
 assert(
-  /async function handleDeleteNotice[\s\S]*setDeleteFeedback\(null\);[\s\S]*setPushFeedback\(null\);[\s\S]*setReadFeedback\(null\);[\s\S]*deleteNotice\(notice\.branchId, notice\.id\)/.test(noticesScreenSource) &&
-    /setDeleteConfirmNoticeId\(notice\.id\);[\s\S]*setDeleteFeedback\(null\);[\s\S]*setPushFeedback\(null\);[\s\S]*setReadFeedback\(null\);/.test(noticesScreenSource),
-  "notices screen must clear stale read/push feedback when a delete action starts",
+  /function clearNoticeFeedback\(\)[\s\S]*setNoticeFeedback\(null\);[\s\S]*setDeleteFeedback\(null\);[\s\S]*setPushFeedback\(null\);[\s\S]*setReadFeedback\(null\);/.test(
+    noticesScreenSource,
+  ),
+  "notices screen must centralize stale feedback cleanup across notice actions",
+);
+assert(
+  /async function handleCreateNotice[\s\S]*event\.preventDefault\(\);[\s\S]*clearNoticeFeedback\(\);[\s\S]*setNoticeFeedback\("제목, 내용, 대상 정보를 확인해 주세요\."\)/.test(
+    noticesScreenSource,
+  ),
+  "notices screen must clear stale feedback and explain incomplete notice publish forms",
+);
+assert(
+  /async function handleDispatchNoticePush[\s\S]*clearNoticeFeedback\(\);[\s\S]*dispatchNoticePush/.test(noticesScreenSource) &&
+    /async function handleDeleteNotice[\s\S]*clearNoticeFeedback\(\);[\s\S]*deleteNotice\(notice\.branchId, notice\.id\)/.test(
+      noticesScreenSource,
+    ) &&
+    /async function handleMarkFilteredNoticesAsRead[\s\S]*clearNoticeFeedback\(\);[\s\S]*markNoticesAsRead/.test(
+      noticesScreenSource,
+    ) &&
+    /async function handleMarkNoticeAsRead[\s\S]*clearNoticeFeedback\(\);[\s\S]*markNoticeAsRead/.test(noticesScreenSource) &&
+    /setDeleteConfirmNoticeId\(notice\.id\);[\s\S]*clearNoticeFeedback\(\);/.test(noticesScreenSource),
+  "notices screen must clear stale create/read/push/delete feedback before every notice action",
 );
 assert(
   noticesScreenSource.includes('data-testid="family-notice-filter-grid"'),
@@ -235,6 +265,11 @@ assert(
     noticeDeleteUiSource.includes('["run", "dev", "--", "--webpack"]') &&
     noticeDeleteUiSource.includes('appServer: usingExistingAppServer ? "existing" : "managed-next-dev-webpack"') &&
     noticeDeleteUiSource.includes('getByTestId("notice-delete-confirm-action")') &&
+    noticeDeleteUiSource.includes('getByTestId("notice-delivery-read-action")') &&
+    noticeDeleteUiSource.includes('getByTestId("notice-read-feedback")') &&
+    noticeDeleteUiSource.includes('getByTestId("notice-delivery-push-action")') &&
+    noticeDeleteUiSource.includes("feedbackResetState") &&
+    noticeDeleteUiSource.includes("mobile-notices-read-feedback.png") &&
     noticeDeleteUiSource.includes('getByTestId("notification-notice-delete-action")') &&
     noticeDeleteUiSource.includes('getByTestId("notification-notice-delete-confirm-action")') &&
     noticeDeleteUiSource.includes('bottomClearance >= 96') &&

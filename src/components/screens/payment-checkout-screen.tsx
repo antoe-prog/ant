@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -31,10 +31,12 @@ import { ErrorState } from "@/components/ui/state-blocks";
 import { PaymentStatusBadge } from "@/components/ui/primitives";
 
 type PaymentCheckoutScreenProps = {
+  initialPaymentMethod?: string;
   paymentId: string;
 };
 
-type PaymentMethod = "bankTransfer" | "card" | "virtualAccount" | "accountTransfer";
+const paymentMethodIds = ["bankTransfer", "card", "virtualAccount", "accountTransfer"] as const;
+type PaymentMethod = (typeof paymentMethodIds)[number];
 
 const paymentMethods: Array<{ id: PaymentMethod; label: string; helper: string }> = [
   { id: "bankTransfer", label: "무통장입금", helper: "안내 계좌로 직접 입금" },
@@ -67,6 +69,11 @@ const cardIssuers = [
   "저축은행카드",
   "KDB산업체크카드",
 ];
+const manualAddressEntryMessage = "우편번호와 주소를 직접 입력해 주세요.";
+
+function getInitialPaymentMethod(value?: string): PaymentMethod {
+  return paymentMethodIds.find((method) => method === value) ?? "card";
+}
 
 function splitPhoneNumber(value?: string) {
   const digits = value?.replace(/\D/g, "") ?? "";
@@ -98,7 +105,7 @@ function getSelectedPaymentMethodSummary(method: PaymentMethod, cardIssuer: stri
   return method === "virtualAccount" ? "가상계좌" : "계좌이체";
 }
 
-export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps) {
+export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: PaymentCheckoutScreenProps) {
   const context = useApiContext();
   const payment = context.db.payments.find((candidate) => candidate.id === paymentId);
   const member = payment ? context.db.members.find((candidate) => candidate.id === payment.memberId) : undefined;
@@ -115,14 +122,52 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
   const [mobilePrefix, setMobilePrefix] = useState(defaultMobilePhoneParts[0]);
   const [mobileMiddle, setMobileMiddle] = useState(defaultMobilePhoneParts[1]);
   const [mobileLast, setMobileLast] = useState(defaultMobilePhoneParts[2]);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("card");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(
+    getInitialPaymentMethod(initialPaymentMethod),
+  );
   const [selectedBank, setSelectedBank] = useState("우리은행");
   const [depositorName, setDepositorName] = useState(context.user.name);
   const [selectedCardIssuer, setSelectedCardIssuer] = useState("우리카드");
   const [installment, setInstallment] = useState("일시불");
-  const [savePaymentInfo, setSavePaymentInfo] = useState(true);
+  const [savePaymentInfo, setSavePaymentInfo] = useState(false);
+  const [payerOptionalOpen, setPayerOptionalOpen] = useState(false);
   const [wooriPayOpen, setWooriPayOpen] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState("");
+  const [addressSearchMessage, setAddressSearchMessage] = useState("");
+
+  useEffect(() => {
+    if (window.location.hash === "#payment-payer-address") {
+      const openFrame = requestAnimationFrame(() => {
+        setPayerOptionalOpen(true);
+        setAddressSearchMessage(manualAddressEntryMessage);
+
+        requestAnimationFrame(() => {
+          document.getElementById("payment-payer-address")?.scrollIntoView({ block: "center" });
+        });
+      });
+      return () => cancelAnimationFrame(openFrame);
+    }
+
+    if (window.location.hash === "#payment-checkout-provider-status") {
+      requestAnimationFrame(() => {
+        document.getElementById("payment-checkout-provider-status")?.scrollIntoView({ block: "center" });
+      });
+    }
+
+    if (window.location.hash === "#payment-account-method-panel") {
+      requestAnimationFrame(() => {
+        document.getElementById("payment-account-method-panel")?.scrollIntoView({ block: "center" });
+      });
+    }
+
+    if (window.location.hash === "#payment-wooriwonpay-modal") {
+      requestAnimationFrame(() => {
+        setSelectedPaymentMethod("card");
+        setSelectedCardIssuer("우리카드");
+        setWooriPayOpen(true);
+      });
+    }
+  }, []);
 
   function selectCardIssuer(issuer: string) {
     setSelectedCardIssuer(issuer);
@@ -210,55 +255,62 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
         }`}
         data-testid={canPrepareCheckout ? "payment-checkout-ready" : "payment-checkout-unavailable"}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-zinc-500">납부 안내</p>
-            <h1 className="mt-1 break-words text-2xl font-semibold tracking-normal text-zinc-950">
-              {familyPaymentPlanLine}
-            </h1>
-            <p className="mt-1 text-sm leading-6 text-zinc-600">
-              {member.name} · {branch.name}
-            </p>
-          </div>
-          <span
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold ${
-              canPrepareCheckout
-                ? "border-teal-200 bg-teal-50 text-teal-800"
-                : "border-amber-200 bg-amber-50 text-amber-800"
-            }`}
-          >
-            {canPrepareCheckout ? (
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-            )}
-            {checkoutStateLabel}
-          </span>
-        </div>
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
-            <p className="text-xs font-semibold text-zinc-500">결제 금액</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">{formatCurrency(checkoutAmount)}</p>
-          </div>
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
-            <p className="text-xs font-semibold text-zinc-500">상태</p>
-            <div className="mt-1">
-              <PaymentStatusBadge status={payment.status} />
+        <div data-testid="payment-checkout-summary">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-zinc-500">납부 안내</p>
+              <h1 className="mt-1 break-words text-2xl font-semibold tracking-normal text-zinc-950">
+                {familyPaymentPlanLine}
+              </h1>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">
+                {member.name} · {branch.name}
+              </p>
             </div>
+            <span
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold ${
+                canPrepareCheckout
+                  ? "border-teal-200 bg-teal-50 text-teal-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              {canPrepareCheckout ? (
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {checkoutStateLabel}
+            </span>
           </div>
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
-            <p className="text-xs font-semibold text-zinc-500">대상</p>
-            <p className="mt-1 text-sm font-semibold text-zinc-950">
-              {familyPaymentAgeGroupLabels[member.ageGroup]} · {roleLabels[context.user.role]}
-            </p>
-          </div>
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
-            <p className="text-xs font-semibold text-zinc-500">기간</p>
-            <p className="mt-1 text-sm font-semibold text-zinc-950">
-              납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}
-            </p>
-          </div>
+
+          <dl
+            className="mt-3 grid grid-cols-2 overflow-hidden rounded-md border border-zinc-200 bg-zinc-50"
+            data-testid="payment-checkout-summary-grid"
+          >
+            <div className="grid min-h-14 gap-1 border-r border-b border-zinc-200 px-3 py-2">
+              <dt className="text-xs font-semibold text-zinc-500">금액</dt>
+              <dd className="min-w-0 text-right text-lg font-semibold tabular-nums text-zinc-950">
+                {formatCurrency(checkoutAmount)}
+              </dd>
+            </div>
+            <div className="grid min-h-14 gap-1 border-b border-zinc-200 px-3 py-2">
+              <dt className="text-xs font-semibold text-zinc-500">상태</dt>
+              <dd className="min-w-0 text-right">
+                <PaymentStatusBadge status={payment.status} />
+              </dd>
+            </div>
+            <div className="grid min-h-14 gap-1 border-r border-zinc-200 px-3 py-2">
+              <dt className="text-xs font-semibold text-zinc-500">대상</dt>
+              <dd className="min-w-0 text-right text-sm font-semibold text-zinc-950">
+                {familyPaymentAgeGroupLabels[member.ageGroup]} · {roleLabels[context.user.role]}
+              </dd>
+            </div>
+            <div className="grid min-h-14 gap-1 px-3 py-2">
+              <dt className="text-xs font-semibold text-zinc-500">기간</dt>
+              <dd className="min-w-0 break-keep text-right text-xs font-semibold leading-5 text-zinc-950">
+                납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}
+              </dd>
+            </div>
+          </dl>
         </div>
 
         {(payment.discountAmount ?? 0) > 0 || (payment.refundedAmount ?? 0) > 0 ? (
@@ -272,26 +324,24 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
           </div>
         ) : null}
 
-        <div
-          className={`mt-4 rounded-md border px-3 py-2 text-sm font-medium leading-6 ${
-            canPrepareCheckout
-              ? "border-teal-200 bg-teal-50 text-teal-900"
-              : "border-amber-200 bg-amber-50 text-amber-900"
+        <p
+          className={`mt-2 text-sm font-medium leading-6 ${
+            canPrepareCheckout ? "text-teal-900" : "text-amber-900"
           }`}
         >
           {checkoutAccess.reason}
-        </div>
+        </p>
 
-        <section className="mt-4 min-w-0 rounded-md border border-zinc-200 bg-white" data-testid="payment-checkout-payer-info">
+        <section className="mt-3 min-w-0 rounded-md border border-zinc-200 bg-white" data-testid="payment-checkout-payer-info">
           <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <UserRound className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
               <h2 className="text-sm font-semibold text-zinc-950">결제자 정보</h2>
             </div>
-            <span className="text-xs font-semibold text-red-600">필수 입력</span>
+            <span className="text-xs font-semibold text-red-600">이름·휴대전화 필수</span>
           </div>
 
-          <div className="grid min-w-0 gap-3 p-3">
+          <div className="grid min-w-0 gap-2 p-3">
             <label className="grid min-w-0 gap-1.5 text-sm font-semibold text-zinc-700">
               이름
               <input
@@ -302,134 +352,164 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
               />
             </label>
 
-            <div className="grid min-w-0 gap-2">
+            <div className="grid min-w-0 gap-1.5">
               <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-700">
-                <MapPin className="h-4 w-4 text-zinc-500" aria-hidden />
-                주소
+                <Smartphone className="h-4 w-4 text-zinc-500" aria-hidden />
+                휴대전화
               </div>
-              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
-                <input
-                  aria-label="우편번호"
-                  className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  placeholder="우편번호"
-                  value={zipCode}
-                  onChange={(event) => setZipCode(event.target.value)}
-                />
-                <button
-                  className="min-h-11 w-full min-w-0 rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
-                  type="button"
-                  onClick={() => {
-                    setZipCode("06164");
-                    setBaseAddress("서울 강남구 테헤란로");
-                  }}
+              <div className="grid min-w-0 grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5">
+                <select
+                  aria-label="휴대전화 앞자리"
+                  className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  value={mobilePrefix}
+                  onChange={(event) => setMobilePrefix(event.target.value)}
                 >
-                  주소검색
-                </button>
-              </div>
-              <input
-                aria-label="기본주소"
-                className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                placeholder="기본주소"
-                value={baseAddress}
-                onChange={(event) => setBaseAddress(event.target.value)}
-              />
-              <input
-                aria-label="상세주소"
-                className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                placeholder="나머지 주소"
-                value={detailAddress}
-                onChange={(event) => setDetailAddress(event.target.value)}
-              />
-            </div>
-
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <div className="grid min-w-0 gap-1.5">
-                <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-700">
-                  <Phone className="h-4 w-4 text-zinc-500" aria-hidden />
-                  일반전화
-                </div>
-                <div className="grid min-w-0 grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5">
-                  <select
-                    aria-label="일반전화 앞자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={landlinePrefix}
-                    onChange={(event) => setLandlinePrefix(event.target.value)}
-                  >
-                    {["02", "031", "032", "051", "053", "062", "선택"].map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                  <input
-                    aria-label="일반전화 가운데자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    inputMode="numeric"
-                    value={landlineMiddle}
-                    onChange={(event) => setLandlineMiddle(event.target.value)}
-                  />
-                  <input
-                    aria-label="일반전화 끝자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    inputMode="numeric"
-                    value={landlineLast}
-                    onChange={(event) => setLandlineLast(event.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid min-w-0 gap-1.5">
-                <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-700">
-                  <Smartphone className="h-4 w-4 text-zinc-500" aria-hidden />
-                  휴대전화
-                </div>
-                <div className="grid min-w-0 grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5">
-                  <select
-                    aria-label="휴대전화 앞자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={mobilePrefix}
-                    onChange={(event) => setMobilePrefix(event.target.value)}
-                  >
-                    {["010", "011", "016", "017", "018", "019"].map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                  <input
-                    aria-label="휴대전화 가운데자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    data-testid="payment-payer-phone-middle-input"
-                    inputMode="numeric"
-                    value={mobileMiddle}
-                    onChange={(event) => setMobileMiddle(event.target.value)}
-                  />
-                  <input
-                    aria-label="휴대전화 끝자리"
-                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    data-testid="payment-payer-phone-last-input"
-                    inputMode="numeric"
-                    value={mobileLast}
-                    onChange={(event) => setMobileLast(event.target.value)}
-                  />
-                </div>
+                  {["010", "011", "016", "017", "018", "019"].map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+                <input
+                  aria-label="휴대전화 가운데자리"
+                  className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  data-testid="payment-payer-phone-middle-input"
+                  inputMode="numeric"
+                  value={mobileMiddle}
+                  onChange={(event) => setMobileMiddle(event.target.value)}
+                />
+                <input
+                  aria-label="휴대전화 끝자리"
+                  className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  data-testid="payment-payer-phone-last-input"
+                  inputMode="numeric"
+                  value={mobileLast}
+                  onChange={(event) => setMobileLast(event.target.value)}
+                />
               </div>
             </div>
 
-            <label className="grid min-w-0 gap-1.5 text-sm font-semibold text-zinc-700">
-              <span className="flex min-w-0 items-center gap-2">
-                <Mail className="h-4 w-4 text-zinc-500" aria-hidden />
-                이메일
-              </span>
-              <input
-                className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                data-testid="payment-payer-email-input"
-                inputMode="email"
-                placeholder="example@finaljudo.kr"
-                value={payerEmail}
-                onChange={(event) => setPayerEmail(event.target.value)}
+            <button
+              aria-expanded={payerOptionalOpen}
+              className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
+              data-testid="payment-payer-optional-toggle"
+              type="button"
+              onClick={() => setPayerOptionalOpen((open) => !open)}
+            >
+              <span className="min-w-0 truncate">주소·이메일 추가</span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-zinc-500 transition ${payerOptionalOpen ? "rotate-180" : ""}`}
+                aria-hidden
               />
-            </label>
+            </button>
+
+            {payerOptionalOpen ? (
+              <div
+                className="grid min-w-0 gap-3 border-t border-zinc-100 pt-3"
+                data-testid="payment-payer-optional-details"
+              >
+                <div className="grid min-w-0 gap-2" id="payment-payer-address">
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-700">
+                    <MapPin className="h-4 w-4 text-zinc-500" aria-hidden />
+                    주소
+                  </div>
+                  <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      aria-label="우편번호"
+                      className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      data-testid="payment-payer-zip-input"
+                      placeholder="우편번호"
+                      value={zipCode}
+                      onChange={(event) => setZipCode(event.target.value)}
+                    />
+                    <button
+                      className="min-h-11 w-full min-w-0 rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
+                      data-testid="payment-payer-address-search"
+                      type="button"
+                      onClick={() => setAddressSearchMessage(manualAddressEntryMessage)}
+                    >
+                      주소검색
+                    </button>
+                  </div>
+                  {addressSearchMessage ? (
+                    <p
+                      aria-live="polite"
+                      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900"
+                      data-testid="payment-payer-address-search-feedback"
+                    >
+                      {addressSearchMessage}
+                    </p>
+                  ) : null}
+                  <input
+                    aria-label="기본주소"
+                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    data-testid="payment-payer-base-address-input"
+                    placeholder="기본주소"
+                    value={baseAddress}
+                    onChange={(event) => setBaseAddress(event.target.value)}
+                  />
+                  <input
+                    aria-label="상세주소"
+                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    data-testid="payment-payer-detail-address-input"
+                    placeholder="나머지 주소"
+                    value={detailAddress}
+                    onChange={(event) => setDetailAddress(event.target.value)}
+                  />
+                </div>
+
+                <div className="grid min-w-0 gap-1.5">
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-700">
+                    <Phone className="h-4 w-4 text-zinc-500" aria-hidden />
+                    일반전화
+                  </div>
+                  <div className="grid min-w-0 grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5">
+                    <select
+                      aria-label="일반전화 앞자리"
+                      className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      data-testid="payment-payer-landline-prefix"
+                      value={landlinePrefix}
+                      onChange={(event) => setLandlinePrefix(event.target.value)}
+                    >
+                      {["02", "031", "032", "051", "053", "062", "선택"].map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label="일반전화 가운데자리"
+                      className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      inputMode="numeric"
+                      value={landlineMiddle}
+                      onChange={(event) => setLandlineMiddle(event.target.value)}
+                    />
+                    <input
+                      aria-label="일반전화 끝자리"
+                      className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      inputMode="numeric"
+                      value={landlineLast}
+                      onChange={(event) => setLandlineLast(event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <label className="grid min-w-0 gap-1.5 text-sm font-semibold text-zinc-700">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Mail className="h-4 w-4 text-zinc-500" aria-hidden />
+                    이메일
+                  </span>
+                  <input
+                    className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    data-testid="payment-payer-email-input"
+                    inputMode="email"
+                    placeholder="이메일 주소 입력"
+                    value={payerEmail}
+                    onChange={(event) => setPayerEmail(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
         </section>
 
-        <section className="mt-4 min-w-0 rounded-md border border-zinc-200 bg-white" data-testid="payment-checkout-method-section">
+        <section className="mt-2 min-w-0 rounded-md border border-zinc-200 bg-white" data-testid="payment-checkout-method-section">
           <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <WalletCards className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
@@ -538,7 +618,8 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
                 <div className="grid gap-2 sm:grid-cols-3" aria-label="결제 안내">
                   {["공인인증서 발급안내", "안심클릭안내", "안전결제 안내"].map((label) => (
                     <button
-                      className="min-h-10 rounded-md border border-zinc-300 bg-zinc-50 px-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-100"
+                      className="min-h-11 rounded-md border border-zinc-300 bg-zinc-50 px-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-100"
+                      data-testid="payment-card-guide-button"
                       key={label}
                       type="button"
                     >
@@ -550,10 +631,11 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
             ) : null}
 
             {selectedPaymentMethod === "virtualAccount" || selectedPaymentMethod === "accountTransfer" ? (
-              <div
-                className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-6 text-zinc-700"
-                data-testid="payment-account-method-panel"
-              >
+	              <div
+	                className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-6 text-zinc-700"
+	                data-testid="payment-account-method-panel"
+	                id="payment-account-method-panel"
+	              >
                 <div className="flex items-center gap-2 font-semibold text-zinc-900">
                   {selectedPaymentMethod === "virtualAccount" ? (
                     <Landmark className="h-4 w-4 text-zinc-600" aria-hidden />
@@ -563,7 +645,7 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
                   {selectedPaymentMethod === "virtualAccount" ? "가상계좌 안내" : "계좌이체 안내"}
                 </div>
                 <p className="text-xs leading-5 text-zinc-500">
-                  선택한 납부 정보는 저장만 되며, 운영 결제 설정이 완료된 뒤 전용 화면으로 이어집니다.
+                  선택한 납부 방식은 확인용으로 저장하고, 도장 안내 후 입금·인증 절차를 이어갑니다.
                 </p>
               </div>
             ) : null}
@@ -589,21 +671,26 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
             type="button"
             onClick={() =>
               setConfirmationMessage(
-                `${payerName.trim()}님 ${formatPhoneNumber(compactPhone([mobilePrefix, mobileMiddle, mobileLast]))} 정보로 ${getSelectedPaymentMethodSummary(
+                `${payerName.trim()}님 ${formatPhoneNumber(compactPhone([mobilePrefix, mobileMiddle, mobileLast]))} 정보와 ${getSelectedPaymentMethodSummary(
                   selectedPaymentMethod,
                   selectedCardIssuer,
                   selectedBank,
-                )} 납부 요청을 준비했습니다.`,
+                )} 납부 방법을 확인했습니다. ${
+                  savePaymentInfo ? "다음 납부에도 사용할 정보로 표시했습니다." : "이번 납부 확인에만 사용합니다."
+                } 담당자가 확인 후 안내합니다.`,
               )
             }
           >
             <CreditCard className="h-4 w-4" aria-hidden />
-            결제 진행하기
+            납부 정보 확인
           </button>
           {confirmationMessage ? (
             <p
+              aria-live="polite"
               className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium leading-6 text-teal-900"
               data-testid="payment-confirm-feedback"
+              id="payment-confirm-feedback"
+              role="status"
             >
               {confirmationMessage}
             </p>
@@ -614,12 +701,13 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
           aria-label="납부 방법 안내 상태"
           className="mt-3 flex min-h-11 w-full items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
           data-testid="payment-checkout-provider-status"
+          id="payment-checkout-provider-status"
         >
           <CreditCard className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
           <div className="min-w-0">
-            <p className="font-semibold text-zinc-800">납부 방법 안내</p>
+            <p className="font-semibold text-zinc-800">납부 정보 접수</p>
             <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-              도장에서 안내한 납부 방법을 확인한 뒤 진행해 주세요.
+              선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.
             </p>
           </div>
         </div>
@@ -632,7 +720,10 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
           data-testid="payment-wooriwonpay-modal"
           role="dialog"
         >
-          <div className="w-full max-w-md rounded-md bg-white shadow-xl">
+          <div
+            className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-md bg-white shadow-xl"
+            data-testid="payment-wooriwonpay-panel"
+          >
             <div className="flex min-h-12 items-center justify-between border-b border-zinc-100 px-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-blue-700">
                 <CreditCard className="h-4 w-4" aria-hidden />
@@ -640,7 +731,7 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
               </div>
               <button
                 aria-label="우리WON페이 닫기"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100"
                 data-testid="payment-wooriwonpay-close"
                 type="button"
                 onClick={() => setWooriPayOpen(false)}
@@ -649,26 +740,36 @@ export function PaymentCheckoutScreen({ paymentId }: PaymentCheckoutScreenProps)
               </button>
             </div>
             <div className="grid grid-cols-2 border-b border-zinc-100 text-sm font-semibold">
-              <button className="min-h-12 border-b-2 border-blue-600 text-blue-700" type="button">
+              <button
+                className="min-h-12 border-b-2 border-blue-600 text-blue-700"
+                data-testid="payment-wooriwonpay-tab-primary"
+                type="button"
+              >
                 우리WON페이
               </button>
-              <button className="min-h-12 text-zinc-500" type="button">
-                다른결제
+              <button
+                className="min-h-12 text-zinc-500"
+                data-testid="payment-wooriwonpay-tab-secondary"
+                type="button"
+              >
+                다른 수단
               </button>
             </div>
             <div className="p-5">
-              <h3 className="text-lg font-semibold leading-7 text-zinc-950">우리WON페이로 빠르고 간편하게 결제</h3>
+              <h3 className="text-lg font-semibold leading-7 text-zinc-950">우리WON페이 선택을 확인합니다</h3>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">앱 선택은 납부 안내에 참고됩니다.</p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {["우리카드 앱", "우리은행 앱"].map((label) => (
                   <button
                     className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-center text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50"
+                    data-testid={label === "우리카드 앱" ? "payment-wooriwonpay-card-app" : "payment-wooriwonpay-bank-app"}
                     key={label}
                     type="button"
                     onClick={() => setWooriPayOpen(false)}
                   >
                     <Smartphone className="h-6 w-6" aria-hidden />
                     <span>{label}</span>
-                    <span className="text-xs font-medium text-zinc-500">우리WON페이 결제</span>
+                    <span className="text-xs font-medium text-zinc-500">선택 확인</span>
                   </button>
                 ))}
               </div>

@@ -114,7 +114,7 @@ export function SignupScreen() {
               <span className="relative mt-2 block">
                 <input
                   autoComplete="new-password"
-                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-11 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="signup-password-input"
                   id="signup-password-input"
                   minLength={8}
@@ -127,7 +127,7 @@ export function SignupScreen() {
                 <button
                   aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}
                   aria-pressed={showPassword}
-                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
                   data-testid="signup-password-visibility-toggle"
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}

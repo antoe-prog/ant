@@ -352,6 +352,22 @@ function selectedBranchQuery(selectedBranchId: string | null | undefined) {
   return `?selectedBranchId=${encodeURIComponent(selectedBranchId)}`;
 }
 
+function bootstrapQuery(selectedBranchId: string | null | undefined, { optional = false } = {}) {
+  const searchParams = new URLSearchParams();
+
+  if (selectedBranchId) {
+    searchParams.set("selectedBranchId", selectedBranchId);
+  }
+
+  if (optional) {
+    searchParams.set("optional", "1");
+  }
+
+  const query = searchParams.toString();
+
+  return query ? `?${query}` : "";
+}
+
 function createAuditLogQuery(query: AuditLogsQuery) {
   const searchParams = new URLSearchParams();
 
@@ -498,7 +514,11 @@ export const apiClient = {
   },
 
   getBootstrap(selectedBranchId: string | null) {
-    return apiRequest<BootstrapPayload>(`/api/v1/me/bootstrap${selectedBranchQuery(selectedBranchId)}`);
+    return apiRequest<BootstrapPayload>(`/api/v1/me/bootstrap${bootstrapQuery(selectedBranchId)}`);
+  },
+
+  getOptionalBootstrap(selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload | null>(`/api/v1/me/bootstrap${bootstrapQuery(selectedBranchId, { optional: true })}`);
   },
 
   updateAttendanceBatch(

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 function parseArgs(argv) {
@@ -88,25 +90,95 @@ function assertSha256Fingerprint(value) {
   return normalized;
 }
 
-function commandAvailable(command, args = ["--version"]) {
+function uniqueTruthy(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function executablePath(rootDir, segments) {
+  return path.join(rootDir, ...segments);
+}
+
+function resolveJavaHome(rootDir) {
+  return uniqueTruthy([
+    process.env.JAVA_HOME,
+    executablePath(rootDir, [".data", "toolchains", "jdk", "Contents", "Home"]),
+    path.join(os.homedir(), "java", "jdk-21.0.5+11", "Contents", "Home"),
+  ]).find((candidate) => existsSync(path.join(candidate, "bin", "java")) && existsSync(path.join(candidate, "bin", "keytool"))) ?? null;
+}
+
+function resolveAndroidHome(rootDir) {
+  return uniqueTruthy([
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    executablePath(rootDir, [".data", "toolchains", "android-sdk"]),
+    path.join(os.homedir(), "Library", "Android", "sdk"),
+  ]).find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function createToolchainContext(rootDir) {
+  const javaHome = resolveJavaHome(rootDir);
+  const androidHome = resolveAndroidHome(rootDir);
+  const pathEntries = uniqueTruthy([
+    javaHome ? path.join(javaHome, "bin") : null,
+    androidHome ? path.join(androidHome, "cmdline-tools", "latest", "bin") : null,
+    androidHome ? path.join(androidHome, "platform-tools") : null,
+    androidHome ? path.join(androidHome, "build-tools", "35.0.0") : null,
+    process.env.PATH ?? "",
+  ]);
+
+  return {
+    javaHome,
+    androidHome,
+    env: {
+      ...process.env,
+      ...(javaHome ? { JAVA_HOME: javaHome } : {}),
+      ...(androidHome ? { ANDROID_HOME: androidHome, ANDROID_SDK_ROOT: androidHome } : {}),
+      PATH: pathEntries.join(path.delimiter),
+    },
+  };
+}
+
+function firstExistingCommand(candidates) {
+  return candidates.find((candidate) => candidate && (candidate.includes(path.sep) ? existsSync(candidate) : true));
+}
+
+function commandAvailable(command, args = ["--version"], { candidates = [command], env = process.env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: "ignore" });
+    const resolvedCommand = firstExistingCommand(candidates) ?? command;
+    const child = spawn(resolvedCommand, args, { env, stdio: "ignore" });
     child.on("error", () => resolve(false));
     child.on("close", (code) => resolve(code === 0));
   });
 }
 
 async function checkLocalBuildEnvironment() {
-  const androidHome = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? "";
+  const rootDir = process.cwd();
+  const toolchain = createToolchainContext(rootDir);
 
   return {
-    java: await commandAvailable("java", ["-version"]),
-    keytool: await commandAvailable("keytool", ["-help"]),
-    sdkmanager: await commandAvailable("sdkmanager", ["--version"]),
-    adb: await commandAvailable("adb", ["version"]),
-    npx: await commandAvailable("npx", ["--version"]),
-    androidHome: Boolean(androidHome),
-    androidHomeValue: androidHome || null,
+    java: await commandAvailable("java", ["-version"], {
+      candidates: [toolchain.javaHome ? path.join(toolchain.javaHome, "bin", "java") : null, "java"],
+      env: toolchain.env,
+    }),
+    keytool: await commandAvailable("keytool", ["-help"], {
+      candidates: [toolchain.javaHome ? path.join(toolchain.javaHome, "bin", "keytool") : null, "keytool"],
+      env: toolchain.env,
+    }),
+    sdkmanager: await commandAvailable("sdkmanager", ["--version"], {
+      candidates: [
+        toolchain.androidHome ? path.join(toolchain.androidHome, "cmdline-tools", "latest", "bin", "sdkmanager") : null,
+        "sdkmanager",
+      ],
+      env: toolchain.env,
+    }),
+    adb: await commandAvailable("adb", ["version"], {
+      candidates: [toolchain.androidHome ? path.join(toolchain.androidHome, "platform-tools", "adb") : null, "adb"],
+      env: toolchain.env,
+    }),
+    npx: await commandAvailable("npx", ["--version"], { env: toolchain.env }),
+    androidHome: Boolean(toolchain.androidHome),
+    androidHomeValue: toolchain.androidHome,
+    javaHomeValue: toolchain.javaHome,
   };
 }
 
@@ -125,9 +197,9 @@ function localBuildBlockers(environment) {
     .map(([check, reason]) => ({ check, reason }));
 }
 
-async function run(command, args) {
+async function run(command, args, { env = process.env } = {}) {
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
+    const child = spawn(command, args, { env, stdio: "inherit" });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
@@ -141,6 +213,7 @@ async function run(command, args) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const toolchain = createToolchainContext(process.cwd());
 const origin = assertHttpsOrigin(args.origin, { allowApiOriginWebapp: args.allowApiOriginWebapp });
 const sha256 = assertSha256Fingerprint(args.sha256);
 
@@ -202,8 +275,10 @@ if (args.build) {
     0,
     buildBlockers.map((blocker) => `${blocker.check}: ${blocker.reason}`).join("\n"),
   );
-  await run("npx", ["@bubblewrap/cli", "init", `--manifest=${manifestUrl}`, `--directory=${template.build.androidProjectDir}`]);
-  await run("npx", ["@bubblewrap/cli", "build", `--directory=${template.build.androidProjectDir}`]);
+  await run("npx", ["@bubblewrap/cli", "init", `--manifest=${manifestUrl}`, `--directory=${template.build.androidProjectDir}`], {
+    env: toolchain.env,
+  });
+  await run("npx", ["@bubblewrap/cli", "build", `--directory=${template.build.androidProjectDir}`], { env: toolchain.env });
 }
 
 console.log(

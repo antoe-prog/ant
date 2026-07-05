@@ -75,7 +75,7 @@ function buildNoticeNotification(notice: Notice, context: ReturnType<typeof useA
   return {
     body: notice.body,
     createdAt: notice.createdAt,
-    href: "/app/notices",
+    href: `/app/notices?highlight=${encodeURIComponent(notice.id)}`,
     id: `notice-${notice.id}`,
     important: Boolean(notice.important),
     kind: "notice",
@@ -99,7 +99,7 @@ function paymentNotificationTarget(payment: EnrichedPayment, user: AppUser) {
   }
 
   return {
-    actionLabel: checkoutAccess.state === "guardian_required" ? "학부모 확인" : "결제 확인",
+    actionLabel: checkoutAccess.state === "guardian_required" ? "학부모 확인" : "납부 확인",
     href: "/app/payments",
   };
 }
@@ -116,7 +116,7 @@ function buildPaymentNotification(payment: EnrichedPayment, user: AppUser): Noti
   const title = critical
     ? `${payment.member.name} 미납 결제 확인`
     : checkoutPending
-      ? `${payment.member.name} 결제 진행 필요`
+      ? `${payment.member.name} 납부 정보 확인 필요`
       : `${payment.member.name} 회원권 만료 예정`;
 
   return {
@@ -213,6 +213,7 @@ export function NotificationsScreen() {
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
   const [bulkReadPending, setBulkReadPending] = useState(false);
+  const notificationFeedback = deleteFeedback ?? readFeedback;
   const canManageNoticeNotifications = context.user.role === "owner" || context.user.role === "admin" || context.user.role === "coach";
   const { data, loading, error, reload } = useResource(
     async () => {
@@ -305,7 +306,7 @@ export function NotificationsScreen() {
     user: context.user,
   });
   const notificationActionableSummary =
-    formatNotificationActionableLabel(notificationCounts).replace(", ", " · ") || "미확인 공지 0건";
+    formatNotificationActionableLabel(notificationCounts, " · ") || "미확인 공지 0건";
 
   async function handleMarkFilteredNotificationsAsRead() {
     if (filteredUnreadNoticeIds.length === 0 || bulkReadPending) {
@@ -367,33 +368,31 @@ export function NotificationsScreen() {
       <section className="rounded-lg border border-zinc-200 bg-white" aria-label="알림 목록">
         <div className="grid gap-2 border-b border-zinc-100 px-3 py-2.5 sm:px-4">
           <div className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]">
-            <div className="min-w-0 rounded-md border border-zinc-200 bg-white p-0.5" role="group" aria-label="알림 보기">
-              <div className="grid grid-cols-3 gap-0.5">
-                {filterOptions.map((option) => (
-                  <button
-                    aria-label={`${option.ariaLabel} ${option.count}건`}
-                    aria-pressed={notificationFilter === option.value}
-                    className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-2 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-1 ${
-                      notificationFilter === option.value
-                        ? "bg-teal-700 text-white"
-                        : "text-zinc-600 hover:bg-zinc-50"
+            <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="notification-filter-toolbar" role="group" aria-label="알림 보기">
+              {filterOptions.map((option) => (
+                <button
+                  aria-label={`${option.ariaLabel} ${option.count}건`}
+                  aria-pressed={notificationFilter === option.value}
+                  className={`inline-flex min-h-11 min-w-[4.625rem] shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-1 ${
+                    notificationFilter === option.value
+                      ? "bg-teal-700 text-white"
+                      : "bg-zinc-50 text-zinc-600 hover:bg-zinc-100"
+                  }`}
+                  data-testid={option.testId}
+                  key={option.value}
+                  type="button"
+                  onClick={() => setNotificationFilter(option.value)}
+                >
+                  <span className="whitespace-nowrap">{option.label}</span>
+                  <span
+                    className={`whitespace-nowrap rounded-full px-1.5 text-[10px] leading-4 tabular-nums ${
+                      notificationFilter === option.value ? "bg-white/20 text-white" : "bg-white text-zinc-500"
                     }`}
-                    data-testid={option.testId}
-                    key={option.value}
-                    type="button"
-                    onClick={() => setNotificationFilter(option.value)}
                   >
-                    <span className="whitespace-nowrap">{option.label}</span>
-                    <span
-                      className={`whitespace-nowrap rounded-full px-1.5 text-[10px] leading-4 tabular-nums ${
-                        notificationFilter === option.value ? "bg-white/20 text-white" : "bg-zinc-100 text-zinc-500"
-                      }`}
-                    >
-                      {option.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
+                    {option.count}
+                  </span>
+                </button>
+              ))}
             </div>
             <Button
               aria-label={notificationBulkReadAriaLabel}
@@ -411,24 +410,26 @@ export function NotificationsScreen() {
               <span className="sr-only sm:not-sr-only">{notificationBulkReadButtonLabel}</span>
             </Button>
           </div>
-          {readFeedback ? (
-            <p className="text-sm font-medium text-zinc-700" data-testid="notification-read-feedback" aria-live="polite" role="status">
-              {readFeedback}
+          {notificationFeedback ? (
+            <div className="min-h-5 min-w-0">
+              {deleteFeedback ? (
+                <p className="truncate text-xs font-medium leading-5 text-zinc-700" data-testid="notification-delete-feedback" aria-live="polite" role="status">
+                  {deleteFeedback}
+                </p>
+              ) : (
+                <p className="truncate text-xs font-medium leading-5 text-zinc-700" data-testid="notification-read-feedback" aria-live="polite" role="status">
+                  {readFeedback}
+                </p>
+              )}
+              <p className="sr-only" data-testid="notification-actionable-count-summary">
+                {notificationActionableSummary}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs font-medium leading-5 text-zinc-500" data-testid="notification-actionable-count-summary">
+              {notificationActionableSummary}
             </p>
-          ) : null}
-          {deleteFeedback ? (
-            <p
-              className="text-sm font-medium text-zinc-700"
-              data-testid="notification-delete-feedback"
-              aria-live="polite"
-              role="status"
-            >
-              {deleteFeedback}
-            </p>
-          ) : null}
-          <p className="text-xs font-medium leading-5 text-zinc-500" data-testid="notification-actionable-count-summary">
-            {notificationActionableSummary}
-          </p>
+          )}
         </div>
 
         {notificationItems.length === 0 ? (

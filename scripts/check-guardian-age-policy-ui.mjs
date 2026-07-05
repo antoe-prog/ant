@@ -87,11 +87,17 @@ page.on("console", (message) => {
 });
 
 try {
-  await gotoApp(page, "owner", "/app/members");
-  await page.getByTestId("member-search-input").fill("오지호");
-  await page.waitForSelector('[data-member-id="member-jiho"]', { timeout: 10000 });
+	  await gotoApp(page, "owner", "/app/members");
+	  await page.getByTestId("member-search-input").fill("오지호");
+	  await page.waitForSelector('[data-member-id="member-jiho"]', { timeout: 10000 });
+	  const memberSearchClearBox = await page.getByTestId("member-search-clear").boundingBox();
+	  assert(memberSearchClearBox, "member search clear control must be visible after typing");
+	  assert(
+	    memberSearchClearBox.height >= 44 && memberSearchClearBox.width >= 44,
+	    `member search clear control must keep a 44px touch target, got ${memberSearchClearBox.width}x${memberSearchClearBox.height}`,
+	  );
 
-  const adultMemberCard = page.locator('[data-member-id="member-jiho"]');
+	  const adultMemberCard = page.locator('[data-member-id="member-jiho"]');
   const ineligibleCopy = page.getByTestId("member-guardian-ineligible-member-jiho");
   const adultGuardianSearchCount = await adultMemberCard.getByTestId("member-guardian-search-input-member-jiho").count();
   const memberScreenshotPath = join(outDir, "owner-member-adult-guardian-ineligible.png");
@@ -137,9 +143,10 @@ try {
     browserAvailability: "Browser MCP unavailable; Playwright fallback used",
     viewport: "390x844",
     checked: [
-      "owner member screen hides guardian search for adult members",
-      "owner member screen explains adult members are not guardian-link targets",
-      "admin guardian-child search excludes adult members",
+	      "owner member screen hides guardian search for adult members",
+	      "owner member screen explains adult members are not guardian-link targets",
+	      "owner member search clear control keeps a 44px touch target",
+	      "admin guardian-child search excludes adult members",
       "admin guardian-child search still returns youth members",
       "screens stay nonblank and console-clean for the checked flow",
     ],

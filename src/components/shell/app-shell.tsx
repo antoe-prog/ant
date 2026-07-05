@@ -91,6 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const hasNotificationAlerts = notificationAlertCount > 0;
   const notificationAlertLabel = notificationAlertCount > 99 ? "99+" : `${notificationAlertCount}`;
   const notificationActionableLabel = formatNotificationActionableLabel(notificationCounts);
+  const isNoticeScreenPath = pathname === "/app/notices" || pathname.startsWith("/app/notices/");
   const renderNotificationBadge = (testId = "notice-unread-badge", placement: "header" | "mobile" = "header") =>
     hasNotificationAlerts ? (
       <span
@@ -122,7 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             return (
               <Link
                 className={`relative flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition ${
-                  active ? "bg-zinc-950 text-white" : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
+                  active ? "bg-teal-700 text-white shadow-sm" : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
                 }`}
                 href={route.href}
                 aria-current={active ? "page" : undefined}
@@ -291,10 +292,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               const Icon = navIcons[route.id];
               const active = activeMobileRouteId ? route.id === activeMobileRouteId : isRouteActive(route, pathname);
               const routeLabel = getRouteLabel(route, user.role);
-              const mobileRouteHref = route.id === "notices" ? "/app/notifications" : route.href;
-              const mobileRouteLabel = route.id === "notices" ? "알림" : routeLabel;
+              const useNotificationInboxMobileRoute = route.id === "notices" && !isNoticeScreenPath;
+              const mobileRouteHref = useNotificationInboxMobileRoute ? "/app/notifications" : route.href;
+              const mobileRouteLabel = useNotificationInboxMobileRoute ? "알림" : routeLabel;
               const mobileRouteAriaLabel =
-                route.id === "notices" && hasNotificationAlerts ? `알림, ${notificationActionableLabel}` : undefined;
+                route.id === "notices" && hasNotificationAlerts ? `${mobileRouteLabel}, ${notificationActionableLabel}` : undefined;
 
               return (
                 <Link
@@ -306,7 +308,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         ? "min-w-12 shrink-0 snap-center px-0.5 text-[10px]"
                         : "min-w-[3.5rem] shrink-0 snap-center px-1 text-[11px]"
                   } ${
-                    active ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    active ? "bg-teal-700 text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
                   }`}
                   href={mobileRouteHref}
                   data-mobile-route-id={route.id}

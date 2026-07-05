@@ -201,12 +201,18 @@ type AppStore = AppState & {
 
 const sessionKey = "final-judo-mvp-session";
 const attendanceQueueKey = "final-judo-pending-attendance";
-const publicAuthPathnames = new Set(["/login", "/signup", "/reset-password", "/select-role"]);
+const publicAuthPathnames = new Set(["/signup", "/reset-password"]);
 
 const AppStoreContext = createContext<AppStore | null>(null);
 
 function canSkipBootstrapWithoutLocalSession(pathname: string) {
+  // Login and role-switch entry points still try a silent cookie bootstrap so
+  // an app restart with only the HttpOnly session cookie can show account switch UI.
   return publicAuthPathnames.has(pathname) || pathname.startsWith("/invite/");
+}
+
+function canRestoreCookieOnlySession(pathname: string) {
+  return pathname === "/login" || pathname === "/select-role";
 }
 
 function getInitialState(): AppState {
@@ -569,7 +575,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       try {
         const session = raw ? (JSON.parse(raw) as PersistedSession) : null;
-        const payload = await apiClient.getBootstrap(session?.selectedBranchId ?? null);
+        const payload =
+          !raw && canRestoreCookieOnlySession(window.location.pathname)
+            ? await apiClient.getOptionalBootstrap(null)
+            : await apiClient.getBootstrap(session?.selectedBranchId ?? null);
+
+        if (!payload) {
+          return;
+        }
 
         if (active) {
           dispatch({ type: "bootstrap", payload });

@@ -196,9 +196,15 @@ async function collectCoachClassesLayout(page) {
     const panel = document.querySelector('[data-testid="coach-mobile-save-status-panel"]');
     const nav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
     const listToggle = document.querySelector('[data-testid="coach-class-list-toggle"]');
+    const retryButton = document.querySelector('[data-testid="attendance-retry-mobile"]');
+    const statusChip = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
+    const undoButton = document.querySelector('[data-testid="attendance-undo-last-mobile"]');
     const panelRect = panel?.getBoundingClientRect();
     const navRect = nav?.getBoundingClientRect();
     const listToggleRect = listToggle?.getBoundingClientRect();
+    const retryRect = retryButton?.getBoundingClientRect();
+    const statusChipRect = statusChip?.getBoundingClientRect();
+    const undoRect = undoButton?.getBoundingClientRect();
     const visibleRosterToggles = Array.from(document.querySelectorAll('[data-testid^="coach-class-roster-toggle-"]')).filter((button) => {
       const rect = button.getBoundingClientRect();
       const style = getComputedStyle(button);
@@ -234,12 +240,18 @@ async function collectCoachClassesLayout(page) {
       panelText: panel?.textContent?.replace(/\s+/g, " ").trim() ?? "",
       panelTop: Math.round(panelRect?.top ?? 0),
       panelZIndex: Number.parseInt(panel ? getComputedStyle(panel).zIndex : "0", 10) || 0,
+      retryButtonCount: document.querySelectorAll('[data-testid="attendance-retry-mobile"]').length,
+      retryButtonHeight: Math.round(retryRect?.height ?? 0),
       rosterToggleBottomNavOverlapCount: visibleRosterToggles.filter((button) => {
         const rect = button.getBoundingClientRect();
 
         return rect.top < window.innerHeight && rect.bottom > navTop;
       }).length,
       scrollWidth: document.documentElement.scrollWidth,
+      statusChipCount: document.querySelectorAll('[data-testid="attendance-sync-status-mobile"]').length,
+      statusChipHeight: Math.round(statusChipRect?.height ?? 0),
+      undoButtonCount: document.querySelectorAll('[data-testid="attendance-undo-last-mobile"]').length,
+      undoButtonHeight: Math.round(undoRect?.height ?? 0),
       visibleClassCardCount: visibleClassCards.length,
       visibleRosterToggleCount: visibleRosterToggles.length,
       viewportHeight: window.innerHeight,
@@ -277,6 +289,7 @@ async function captureCoachClassesBottomSafeArea(browser) {
     const changedAttendanceTestId = await clickExistingAttendanceChange(page);
     await page.waitForSelector('[data-testid="coach-mobile-save-status-panel"]', { timeout: 15000 });
     await page.waitForSelector('[data-testid="mobile-bottom-navigation"]', { timeout: 15000 });
+    await page.waitForFunction(() => (document.body?.innerText.length ?? 0) > 100, null, { timeout: 15000 });
 
     const layout = await collectCoachClassesLayout(page);
 
@@ -286,8 +299,16 @@ async function captureCoachClassesBottomSafeArea(browser) {
     assert.equal(layout.panelCount, 1, "coach classes must render one mobile save status panel");
     assert(layout.panelText.includes("출석"), "coach classes mobile save status panel must expose attendance status copy");
     assert(layout.panelHeight >= 44, `coach classes mobile save status panel must keep a tappable height; got ${layout.panelHeight}px`);
-    assert(layout.panelBottomClearance >= 8, `coach classes mobile save status panel must clear bottom nav by at least 8px; got ${layout.panelBottomClearance}px`);
+    assert(layout.panelBottomClearance >= 24, `coach classes mobile save status panel must clear bottom nav by at least 24px; got ${layout.panelBottomClearance}px`);
     assert(layout.panelZIndex < 30, `coach classes mobile save status panel must stay below the z-30 bottom nav; got z-index ${layout.panelZIndex}`);
+    assert.equal(layout.statusChipCount, 1, "coach classes mobile save status panel must expose one sync status chip");
+    assert(layout.statusChipHeight >= 44, `coach classes mobile save status chip must keep a 44px scan height; got ${layout.statusChipHeight}px`);
+    assert.equal(layout.undoButtonCount, 1, "coach classes mobile save status panel must expose one undo action after a change");
+    assert(layout.undoButtonHeight >= 44, `coach classes mobile undo action must keep a 44px touch height; got ${layout.undoButtonHeight}px`);
+    assert(
+      layout.retryButtonCount === 0 || layout.retryButtonHeight >= 44,
+      `coach classes mobile retry action must keep a 44px touch height when visible; got ${layout.retryButtonHeight}px`,
+    );
     assert.equal(layout.rosterToggleBottomNavOverlapCount, 0, "coach class roster toggles must not overlap the bottom navigation");
     assert.equal(messages.length, 0, `coach classes screen must not log console/page warnings: ${messages.join(" | ")}`);
 

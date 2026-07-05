@@ -115,7 +115,8 @@ export function SelectRoleScreen() {
               </Button>
             ) : null}
             <Link
-              className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+              data-testid="select-role-login-link"
               href="/login"
             >
               로그인 화면

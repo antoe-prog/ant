@@ -122,13 +122,13 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
   }
 
   return (
-    <main className="min-h-screen bg-zinc-100 px-4 py-8 text-zinc-950 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-gradient-to-b from-teal-50/70 via-zinc-100 to-zinc-100 px-4 py-8 text-zinc-950 sm:px-6 lg:px-8">
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col justify-start gap-5 pt-6 sm:pt-10">
         <div>
           <FinalWordmark />
         </div>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-md shadow-zinc-200/60 sm:p-6">
           <div className="flex items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
               <ShieldCheck className="h-5 w-5" aria-hidden />
@@ -157,7 +157,8 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
                 다른 역할을 보려면 아래 계정으로 다시 로그인하거나 로그아웃 후 새 계정을 선택하세요.
               </p>
               <button
-                className="mt-3 inline-flex h-9 items-center justify-center rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+                className="mt-3 inline-flex min-h-11 items-center justify-center rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+                data-testid="login-account-switch-button"
                 type="button"
                 onClick={signOut}
               >
@@ -184,7 +185,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
               <label htmlFor="login-password-input">비밀번호</label>
               <span className="relative block">
                 <input
-                  className="h-11 w-full rounded-md border border-zinc-300 bg-white px-3 pr-11 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  className="h-11 w-full rounded-md border border-zinc-300 bg-white px-3 pr-12 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                   autoComplete="current-password"
                   id="login-password-input"
                   placeholder="비밀번호"
@@ -196,7 +197,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
                 <button
                   aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}
                   aria-pressed={showPassword}
-                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
                   data-testid="login-password-visibility-toggle"
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}

@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Bell, BellRing, CheckCheck, Send, Trash2 } from "lucide-react";
 import type { Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient } from "@/lib/api-client";
@@ -74,8 +74,13 @@ function targetLabel(notice: Notice, context: ReturnType<typeof useApiContext>) 
 }
 
 export function NoticesScreen() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const context = useApiContext();
   const { createNotice, deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
+  const initialNoticeListSearch = searchParams.get("q")?.trim() ?? "";
+  const noticeSearchParam = searchParams.get("q")?.trim() ?? "";
+  const previousNoticeListSearchParamRef = useRef(initialNoticeListSearch);
   const [noticeComposerDefaults] = useState(getInitialNoticeComposerState);
   const [noticeBranchId, setNoticeBranchId] = useState("");
   const [noticeTitle, setNoticeTitle] = useState("");
@@ -91,12 +96,97 @@ export function NoticesScreen() {
   const [noticeMemberSearch, setNoticeMemberSearch] = useState(noticeComposerDefaults.memberSearch);
   const [noticeTargetType, setNoticeTargetType] = useState<NoticeTargetType>(noticeComposerDefaults.targetType);
   const [noticeFilter, setNoticeFilter] = useState<NoticeFilter>("all");
+  const [noticeSearch, setNoticeSearchState] = useState(initialNoticeListSearch);
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
+  const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null);
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [noticeCreateOpen, setNoticeCreateOpen] = useState(noticeComposerDefaults.open);
-  const searchParams = useSearchParams();
+  const noticeDraftKey = `final-judo-notice-draft:${context.user.id}`;
+
+  // 작성 중이던 공지 제목·내용을 기기에 임시저장해 화면 이탈/새로고침에도 유실되지 않게 한다.
+  useEffect(() => {
+    if (typeof window === "undefined" || noticeTitle || noticeBody) {
+      return;
+    }
+
+    const raw = window.localStorage.getItem(noticeDraftKey);
+
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const draft = JSON.parse(raw) as { title?: string; body?: string };
+
+      if (draft.title || draft.body) {
+        setNoticeTitle(draft.title ?? "");
+        setNoticeBody(draft.body ?? "");
+        setNoticeCreateOpen(true);
+      }
+    } catch {
+      window.localStorage.removeItem(noticeDraftKey);
+    }
+    // 마운트 시 1회 복원 — 이후 입력은 아래 저장 효과가 처리한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noticeDraftKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (noticeTitle.trim() || noticeBody.trim()) {
+      window.localStorage.setItem(noticeDraftKey, JSON.stringify({ title: noticeTitle, body: noticeBody }));
+    } else {
+      window.localStorage.removeItem(noticeDraftKey);
+    }
+  }, [noticeDraftKey, noticeTitle, noticeBody]);
+
+  function clearNoticeFeedback() {
+    setNoticeFeedback(null);
+    setDeleteFeedback(null);
+    setPushFeedback(null);
+    setReadFeedback(null);
+  }
+
+  useEffect(() => {
+    const nextNoticeListSearch = noticeSearchParam;
+
+    if (nextNoticeListSearch === previousNoticeListSearchParamRef.current) {
+      return;
+    }
+
+    previousNoticeListSearchParamRef.current = nextNoticeListSearch;
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setNoticeSearchState(nextNoticeListSearch);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [noticeSearchParam]);
+
+  function setNoticeListSearch(value: string) {
+    setNoticeSearchState(value);
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+
+      if (value.trim()) {
+        url.searchParams.set("q", value.trim());
+      } else {
+        url.searchParams.delete("q");
+      }
+
+      router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
+    }
+  }
 
   // 회원 카드 "개인 공지 보내기" 같은 클라이언트 내비게이션에서도 작성 프리셋이 적용되도록
   // URL 파라미터 변화를 반영한다 (최초 하드 로드는 noticeComposerDefaults가 처리).
@@ -108,20 +198,31 @@ export function NoticesScreen() {
     const targetType = searchParams.get("noticeTarget");
     const targetMemberId = searchParams.get("noticeTargetMemberId")?.trim() ?? "";
     const memberSearch = searchParams.get("noticeMemberSearch")?.trim() ?? "";
+    let cancelled = false;
 
-    setNoticeCreateOpen(true);
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
 
-    if (targetType === "class" || targetType === "member") {
-      setNoticeTargetType(targetType);
-    }
+      setNoticeCreateOpen(true);
 
-    if (targetMemberId) {
-      setNoticeTargetMemberId(targetMemberId);
-    }
+      if (targetType === "class" || targetType === "member") {
+        setNoticeTargetType(targetType);
+      }
 
-    if (memberSearch) {
-      setNoticeMemberSearch(memberSearch);
-    }
+      if (targetMemberId) {
+        setNoticeTargetMemberId(targetMemberId);
+      }
+
+      if (memberSearch) {
+        setNoticeMemberSearch(memberSearch);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams]);
   const canPublishNotice = noticePublisherRoles.has(context.user.role);
   const isCoachNoticeReader = context.user.role === "coach" && !canPublishNotice;
@@ -155,6 +256,34 @@ export function NoticesScreen() {
     () => apiClient.getNotices(context),
     [context.user.id, context.selectedBranchId, context.version],
   );
+  const highlightNoticeId = searchParams.get("highlight")?.trim() ?? "";
+  const [activeHighlightNoticeId, setActiveHighlightNoticeId] = useState<string | null>(null);
+
+  // 알림함에서 공지를 탭해 들어오면 해당 공지로 스크롤하고 잠시 강조 표시한다.
+  useEffect(() => {
+    if (!highlightNoticeId || !notices?.some((notice) => notice.id === highlightNoticeId)) {
+      return;
+    }
+
+    setActiveHighlightNoticeId(highlightNoticeId);
+    setExpandedNoticeIds((current) => {
+      const next = new Set(current);
+      next.add(highlightNoticeId);
+      return next;
+    });
+
+    const scrollTimer = window.setTimeout(() => {
+      document
+        .querySelector(`[data-notice-id="${CSS.escape(highlightNoticeId)}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    const clearTimer = window.setTimeout(() => setActiveHighlightNoticeId(null), 3500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightNoticeId, notices]);
 
   function toggleNoticeAudience(nextAudience: NoticeAudience) {
     setNoticeAudience((current) => {
@@ -180,6 +309,7 @@ export function NoticesScreen() {
 
   async function handleCreateNotice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    clearNoticeFeedback();
 
     const selectedClassId = noticeTargetClasses.some((session) => session.id === noticeTargetClassId)
       ? noticeTargetClassId
@@ -194,6 +324,7 @@ export function NoticesScreen() {
       (noticeTargetType === "class" && !selectedClassId) ||
       (noticeTargetType === "member" && !selectedMemberId)
     ) {
+      setNoticeFeedback("제목, 내용, 대상 정보를 확인해 주세요.");
       return;
     }
 
@@ -224,7 +355,7 @@ export function NoticesScreen() {
   }
 
   async function handleDispatchNoticePush(notice: Notice) {
-    setPushFeedback(null);
+    clearNoticeFeedback();
 
     try {
       const result = await apiClient.dispatchNoticePush(notice.branchId, notice.id, context.selectedBranchId);
@@ -236,9 +367,7 @@ export function NoticesScreen() {
 
   async function handleDeleteNotice(notice: Notice) {
     setDeletingNoticeId(notice.id);
-    setDeleteFeedback(null);
-    setPushFeedback(null);
-    setReadFeedback(null);
+    clearNoticeFeedback();
 
     const result = await deleteNotice(notice.branchId, notice.id);
 
@@ -263,7 +392,12 @@ export function NoticesScreen() {
     { label: "미읽음", value: "unread", count: unreadNoticeCount, testId: "notice-filter-unread" },
     { label: "중요", value: "important", count: importantNoticeCount, testId: "notice-filter-important" },
   ];
+  const noticeSearchKeyword = showNoticeDeliveryMeta ? noticeSearch.trim() : "";
   const filteredNotices = sortedNotices.filter((notice) => {
+    if (noticeSearchKeyword && !matchesNoticeMemberSearch(noticeSearchKeyword, [notice.title, notice.body])) {
+      return false;
+    }
+
     if (noticeFilter === "unread") {
       return !isNoticeReadByUser(notice, context.user.id);
     }
@@ -277,6 +411,8 @@ export function NoticesScreen() {
   const filteredUnreadNoticeIds = filteredNotices
     .filter((notice) => !isNoticeReadByUser(notice, context.user.id))
     .map((notice) => notice.id);
+  const showNoticeSearchEmptyState =
+    showNoticeDeliveryMeta && noticeSearchKeyword.length > 0 && notices.length > 0 && filteredNotices.length === 0;
   const noticeListStatusLabel = showNoticeDeliveryMeta
     ? `${filteredNotices.length}/${notices.length}건 표시 · 미읽음 ${filteredUnreadNoticeIds.length}건`
     : `공지 ${filteredNotices.length} · 미읽음 ${filteredUnreadNoticeIds.length}`;
@@ -295,12 +431,26 @@ export function NoticesScreen() {
     }
 
     setBulkReadPending(true);
-    setReadFeedback(null);
+    clearNoticeFeedback();
 
     const ok = await markNoticesAsRead(filteredUnreadNoticeIds);
 
     setReadFeedback(ok ? bulkReadSuccessLabel : bulkReadFailureLabel);
     setBulkReadPending(false);
+  }
+
+  async function handleMarkNoticeAsRead(noticeId: string) {
+    if (readNoticePendingId) {
+      return;
+    }
+
+    setReadNoticePendingId(noticeId);
+    clearNoticeFeedback();
+
+    const ok = await markNoticeAsRead(noticeId);
+
+    setReadFeedback(ok ? "공지 확인을 저장했습니다." : "공지 확인 상태를 저장하지 못했습니다.");
+    setReadNoticePendingId(null);
   }
 
   function toggleNoticeBody(noticeId: string) {
@@ -341,6 +491,27 @@ export function NoticesScreen() {
                 <Bell className="h-4 w-4 text-teal-700" aria-hidden />
                 <h2 className="text-base font-semibold text-zinc-950">공지함</h2>
               </div>
+              <label className="relative block sm:max-w-xs">
+                <span className="sr-only">공지 검색</span>
+                <input
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="notice-list-search-input"
+                  placeholder="제목·내용 검색"
+                  value={noticeSearch}
+                  onChange={(event) => setNoticeListSearch(event.target.value)}
+                />
+                {noticeSearch ? (
+                  <button
+                    aria-label="검색어 지우기"
+                    className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                    data-testid="notice-list-search-clear"
+                    type="button"
+                    onClick={() => setNoticeListSearch("")}
+                  >
+                    <span aria-hidden className="text-sm font-semibold">×</span>
+                  </button>
+                ) : null}
+              </label>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap gap-2" role="group" aria-label="공지 필터">
                   {noticeFilterOptions.map((option) => (
@@ -361,20 +532,22 @@ export function NoticesScreen() {
                   ))}
                 </div>
                 <div className="flex flex-col gap-2 sm:items-end">
-                  <p className="text-sm font-medium text-zinc-600" aria-live="polite">
+                  <p className="text-sm font-medium text-zinc-600" data-testid="notice-list-status-label" aria-live="polite">
                     {noticeListStatusLabel}
                   </p>
-                  <Button
-                    className="min-h-11 w-full sm:w-auto"
-                    data-testid="notice-bulk-read-filtered"
-                    disabled={filteredUnreadNoticeIds.length === 0 || bulkReadPending}
-                    size="md"
-                    variant="secondary"
-                    onClick={() => void handleMarkFilteredNoticesAsRead()}
-                  >
-                    <CheckCheck className="h-4 w-4" aria-hidden />
-                    {bulkReadPending ? "처리 중" : bulkReadButtonLabel}
-                  </Button>
+                  {!showNoticeSearchEmptyState ? (
+                    <Button
+                      className="min-h-11 w-full sm:w-auto"
+                      data-testid="notice-bulk-read-filtered"
+                      disabled={filteredUnreadNoticeIds.length === 0 || bulkReadPending}
+                      size="md"
+                      variant="secondary"
+                      onClick={() => void handleMarkFilteredNoticesAsRead()}
+                    >
+                      <CheckCheck className="h-4 w-4" aria-hidden />
+                      {bulkReadPending ? "처리 중" : bulkReadButtonLabel}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
               {readFeedback ? (
@@ -433,6 +606,18 @@ export function NoticesScreen() {
             <div className="p-4">
               <EmptyState title="확인할 공지가 없습니다" />
             </div>
+          ) : filteredNotices.length === 0 && noticeSearchKeyword ? (
+            <div className="p-4">
+              <EmptyState
+                title="검색 결과가 없습니다"
+                description={`"${noticeSearchKeyword}"와 일치하는 공지가 없습니다.`}
+                action={
+                  <Button data-testid="notice-list-search-empty-clear" size="lg" variant="secondary" onClick={() => setNoticeListSearch("")}>
+                    검색어 지우기
+                  </Button>
+                }
+              />
+            </div>
           ) : filteredNotices.length === 0 ? (
             <div className="p-4">
               <EmptyState title="선택한 보기의 공지가 없습니다" />
@@ -446,6 +631,7 @@ export function NoticesScreen() {
                 const showCompactReadAction = !showNoticeDeliveryMeta && !read;
                 const deliveryMetaLabel = `${audienceLabel(notice.audience)} · ${targetLabel(notice, context)} · ${formatDateTime(notice.createdAt)} · 읽음 ${getNoticeReadCount(notice)}명`;
                 const visibleBody = bodyCanCollapse && !bodyExpanded ? compactNoticeBody(notice.body) : notice.body;
+                const readPending = readNoticePendingId === notice.id;
                 const noticeReadTone = read ? "bg-zinc-50/70" : "bg-white";
                 const noticeImportantBadgeClass = read
                   ? "border-zinc-200 bg-zinc-50 text-zinc-500"
@@ -457,7 +643,10 @@ export function NoticesScreen() {
 
                 return (
                   <article
-                    className={`${showNoticeDeliveryMeta ? "px-3 py-2.5" : "px-3 py-1.5"} ${noticeReadTone} transition-colors`}
+                    className={`${showNoticeDeliveryMeta ? "px-3 py-2.5" : "px-3 py-1.5"} ${noticeReadTone} transition-colors ${
+                      activeHighlightNoticeId === notice.id ? "rounded-md ring-2 ring-inset ring-teal-400" : ""
+                    }`}
+                    data-notice-id={notice.id}
                     data-notice-read-state={read ? "read" : "active"}
                     data-testid={showNoticeDeliveryMeta ? "notice-delivery-compact-card" : "family-notice-card"}
                     key={notice.id}
@@ -504,12 +693,13 @@ export function NoticesScreen() {
                                   aria-label={`${notice.title} 읽음 처리`}
                                   className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
                                   data-testid="notice-delivery-read-action"
+                                  disabled={readPending}
                                   title={singleReadButtonLabel}
                                   type="button"
-                                  onClick={() => void markNoticeAsRead(notice.id)}
+                                  onClick={() => void handleMarkNoticeAsRead(notice.id)}
                                 >
                                   <CheckCheck className="h-4 w-4" aria-hidden />
-                                  <span className="sr-only">{singleReadButtonLabel}</span>
+                                  <span className="sr-only">{readPending ? "저장 중" : singleReadButtonLabel}</span>
                                 </button>
                               ) : null}
                               {canPublishNotice ? (
@@ -535,9 +725,7 @@ export function NoticesScreen() {
                                   type="button"
                                   onClick={() => {
                                     setDeleteConfirmNoticeId(notice.id);
-                                    setDeleteFeedback(null);
-                                    setPushFeedback(null);
-                                    setReadFeedback(null);
+                                    clearNoticeFeedback();
                                   }}
                                 >
                                   <Trash2 className="h-4 w-4" aria-hidden />
@@ -551,11 +739,12 @@ export function NoticesScreen() {
                               aria-label={`${notice.title} 확인 완료`}
                               className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                               data-testid="family-notice-read-action"
+                              disabled={readPending}
                               type="button"
-                              onClick={() => void markNoticeAsRead(notice.id)}
+                              onClick={() => void handleMarkNoticeAsRead(notice.id)}
                             >
                               <CheckCheck className="h-4 w-4" aria-hidden />
-                              {singleReadButtonLabel}
+                              {readPending ? "저장 중" : singleReadButtonLabel}
                             </button>
                           ) : null}
                         </div>

@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
-import { FileDown, Filter, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FileDown, Filter, RefreshCw, Search, ShieldCheck, X, XCircle } from "lucide-react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useResource } from "@/hooks/use-resource";
@@ -84,6 +85,8 @@ const resultBadgeClasses: Record<AuditLog["result"], string> = {
   blocked: "border-amber-200 bg-amber-50 text-amber-700",
   failed: "border-red-200 bg-red-50 text-red-700",
 };
+const auditResultOptions = Object.keys(resultLabels) as AuditLog["result"][];
+const defaultAuditLogReason = "총괄 변경 기록 화면 조회";
 
 type AuditLogDraftFilters = {
   action: AuditAction | "all";
@@ -135,16 +138,68 @@ function createInitialFilters(): AuditLogDraftFilters {
   };
 }
 
+function parseAuditLimitParam(value: string | null) {
+  const limit = Number(value ?? defaultVisibleAuditLogCount * 10);
+
+  if (!Number.isFinite(limit)) {
+    return defaultVisibleAuditLogCount * 10;
+  }
+
+  return Math.min(Math.max(Math.trunc(limit), 1), 200);
+}
+
+function getAuditFiltersFromParams(params: Pick<URLSearchParams, "get">): AuditLogDraftFilters {
+  const fallback = createInitialFilters();
+  const action = params.get("action");
+  const result = params.get("result");
+
+  return {
+    action: auditActionOptions.includes(action as AuditAction) ? (action as AuditAction) : "all",
+    branchId: params.get("branchId")?.trim() || fallback.branchId,
+    from: params.get("from")?.trim() || fallback.from,
+    limit: parseAuditLimitParam(params.get("limit")),
+    q: params.get("q")?.trim() ?? "",
+    result: auditResultOptions.includes(result as AuditLog["result"]) ? (result as AuditLog["result"]) : "all",
+    to: params.get("to")?.trim() || fallback.to,
+  };
+}
+
+function createAuditQueryFilters(filters: AuditLogDraftFilters): AuditLogsQuery {
+  return {
+    ...filters,
+    reason: defaultAuditLogReason,
+  };
+}
+
+function areAuditFiltersEqual(left: AuditLogDraftFilters, right: AuditLogDraftFilters) {
+  return (
+    left.action === right.action &&
+    left.branchId === right.branchId &&
+    left.from === right.from &&
+    left.limit === right.limit &&
+    left.q === right.q &&
+    left.result === right.result &&
+    left.to === right.to
+  );
+}
+
+function hasActiveAuditFilters(filters: AuditLogDraftFilters) {
+  const fallback = createInitialFilters();
+
+  return !areAuditFiltersEqual(filters, fallback);
+}
+
 export function AdminAuditLogsScreen() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const context = useApiContext();
+  const filterParams = getAuditFiltersFromParams(searchParams);
+  const previousFilterParamsRef = useRef(filterParams);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [openPayloadLogIds, setOpenPayloadLogIds] = useState<string[]>([]);
   const [showAllAuditLogs, setShowAllAuditLogs] = useState(false);
-  const [draftFilters, setDraftFilters] = useState(() => createInitialFilters());
-  const [filters, setFilters] = useState<AuditLogsQuery>(() => ({
-    ...createInitialFilters(),
-    reason: "총괄 변경 기록 화면 조회",
-  }));
+  const [draftFilters, setDraftFilters] = useState(() => filterParams);
+  const [filters, setFilters] = useState<AuditLogsQuery>(() => createAuditQueryFilters(filterParams));
   const { data, loading, error, reload } = useResource(
     () => apiClient.getAuditLogs(filters),
     [filters.action, filters.branchId, filters.from, filters.limit, filters.q, filters.result, filters.to],
@@ -154,6 +209,15 @@ export function AdminAuditLogsScreen() {
   const filteredLogs = data?.logs ?? [];
   const visibleAuditLogs = showAllAuditLogs ? filteredLogs : filteredLogs.slice(0, defaultVisibleAuditLogCount);
   const hiddenAuditLogCount = Math.max(filteredLogs.length - visibleAuditLogs.length, 0);
+  const hasActiveFilters = hasActiveAuditFilters({
+    action: filters.action ?? "all",
+    branchId: filters.branchId ?? "all",
+    from: filters.from ?? "",
+    limit: filters.limit ?? 50,
+    q: filters.q ?? "",
+    result: filters.result ?? "all",
+    to: filters.to ?? "",
+  });
   const appliedFilterLabels = useMemo(() => {
     const branchLabel =
       filters.branchId === "all"
@@ -170,12 +234,100 @@ export function AdminAuditLogsScreen() {
     );
   }, [branchById, filters.action, filters.branchId, filters.from, filters.q, filters.result, filters.to]);
 
+  useEffect(() => {
+    if (areAuditFiltersEqual(previousFilterParamsRef.current, filterParams)) {
+      return;
+    }
+
+    previousFilterParamsRef.current = filterParams;
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setDraftFilters(filterParams);
+        setFilters(createAuditQueryFilters(filterParams));
+        setShowAllAuditLogs(false);
+        setOpenPayloadLogIds([]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filterParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const fallback = createInitialFilters();
+    const url = new URL(window.location.href);
+    const query = filters.q?.trim() ?? "";
+
+    if (query) {
+      url.searchParams.set("q", query);
+    } else {
+      url.searchParams.delete("q");
+    }
+
+    if (filters.action && filters.action !== "all") {
+      url.searchParams.set("action", filters.action);
+    } else {
+      url.searchParams.delete("action");
+    }
+
+    if (filters.branchId && filters.branchId !== "all") {
+      url.searchParams.set("branchId", filters.branchId);
+    } else {
+      url.searchParams.delete("branchId");
+    }
+
+    if (filters.result && filters.result !== "all") {
+      url.searchParams.set("result", filters.result);
+    } else {
+      url.searchParams.delete("result");
+    }
+
+    if (filters.from && filters.from !== fallback.from) {
+      url.searchParams.set("from", filters.from);
+    } else {
+      url.searchParams.delete("from");
+    }
+
+    if (filters.to) {
+      url.searchParams.set("to", filters.to);
+    } else {
+      url.searchParams.delete("to");
+    }
+
+    if (filters.limit && filters.limit !== fallback.limit) {
+      url.searchParams.set("limit", String(filters.limit));
+    } else {
+      url.searchParams.delete("limit");
+    }
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      router.replace(nextUrl, { scroll: false });
+    }
+  }, [filters, router]);
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFilters({
-      ...draftFilters,
-      reason: "총괄 변경 기록 화면 조회",
-    });
+    setFilters(createAuditQueryFilters(draftFilters));
+    setFilterPanelOpen(false);
+    setShowAllAuditLogs(false);
+    setOpenPayloadLogIds([]);
+  }
+
+  function resetFilters() {
+    const nextFilters = createInitialFilters();
+
+    setDraftFilters(nextFilters);
+    setFilters(createAuditQueryFilters(nextFilters));
     setFilterPanelOpen(false);
     setShowAllAuditLogs(false);
     setOpenPayloadLogIds([]);
@@ -193,7 +345,8 @@ export function AdminAuditLogsScreen() {
         title="변경 기록"
         action={
           <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+            data-testid="admin-audit-refresh"
             type="button"
             onClick={reload}
           >
@@ -232,6 +385,16 @@ export function AdminAuditLogsScreen() {
               {label}
             </span>
           ))}
+          {hasActiveFilters ? (
+            <button
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50"
+              data-testid="admin-audit-filter-reset"
+              type="button"
+              onClick={resetFilters}
+            >
+              전체 보기
+            </button>
+          ) : null}
         </div>
         <div
           className={`mt-4 grid gap-3 md:grid-cols-[1.4fr_1fr_1fr_0.9fr] xl:grid-cols-[1.4fr_1fr_1fr_0.9fr_0.8fr_0.8fr] ${
@@ -245,17 +408,29 @@ export function AdminAuditLogsScreen() {
             <span className="relative block">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-zinc-400" aria-hidden />
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="admin-audit-search-input"
                 placeholder="메시지, 처리 항목, 담당자, 대상 검색"
                 value={draftFilters.q}
                 onChange={(event) => setDraftFilters((current) => ({ ...current, q: event.target.value }))}
               />
+              {draftFilters.q ? (
+                <button
+                  aria-label="검색어 지우기"
+                  className="absolute right-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-r-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+                  data-testid="admin-audit-search-clear"
+                  type="button"
+                  onClick={() => setDraftFilters((current) => ({ ...current, q: "" }))}
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ) : null}
             </span>
           </label>
           <label>
             <span className="sr-only">지점 필터</span>
             <select
-              className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
               value={draftFilters.branchId}
               onChange={(event) => setDraftFilters((current) => ({ ...current, branchId: event.target.value }))}
             >
@@ -271,7 +446,7 @@ export function AdminAuditLogsScreen() {
           <label>
             <span className="sr-only">처리 항목 필터</span>
             <select
-              className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
               value={draftFilters.action}
               onChange={(event) =>
                 setDraftFilters((current) => ({ ...current, action: event.target.value as AuditLogDraftFilters["action"] }))
@@ -288,7 +463,7 @@ export function AdminAuditLogsScreen() {
           <label>
             <span className="sr-only">결과 필터</span>
             <select
-              className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
               value={draftFilters.result}
               onChange={(event) =>
                 setDraftFilters((current) => ({ ...current, result: event.target.value as AuditLogDraftFilters["result"] }))
@@ -305,7 +480,7 @@ export function AdminAuditLogsScreen() {
           <label>
             <span className="sr-only">시작일</span>
             <input
-              className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
               type="date"
               value={draftFilters.from ?? ""}
               onChange={(event) => setDraftFilters((current) => ({ ...current, from: event.target.value }))}
@@ -315,14 +490,14 @@ export function AdminAuditLogsScreen() {
             <label className="min-w-0 flex-1">
               <span className="sr-only">종료일</span>
               <input
-                className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                 type="date"
                 value={draftFilters.to ?? ""}
                 onChange={(event) => setDraftFilters((current) => ({ ...current, to: event.target.value }))}
               />
             </label>
             <button
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
               data-testid="admin-audit-filter-submit"
               type="submit"
             >
@@ -338,7 +513,7 @@ export function AdminAuditLogsScreen() {
       {data && !loading && !error ? (
         <>
           <section
-            className="mt-4 grid grid-cols-4 overflow-hidden rounded-md border border-zinc-200 bg-white"
+            className="mt-4 grid min-h-11 grid-cols-4 overflow-hidden rounded-md border border-zinc-200 bg-white"
             aria-label="변경 기록 요약"
             data-testid="admin-audit-summary-bar"
           >
@@ -353,8 +528,8 @@ export function AdminAuditLogsScreen() {
               },
               { label: "내보내기", value: data.summary.exportCount, className: "text-blue-700", tileClassName: "border-l border-blue-100 bg-blue-50" },
             ].map((item) => (
-              <div className={`flex min-w-0 items-center justify-center gap-1 px-1 py-1 text-center ${item.tileClassName}`} key={item.label}>
-                <p className={`truncate text-[10px] font-semibold leading-4 sm:text-xs ${item.className}`}>{item.label}</p>
+              <div className={`flex min-w-0 flex-col items-center justify-center gap-0.5 px-1.5 py-1 text-center ${item.tileClassName}`} key={item.label}>
+                <p className={`truncate text-[10px] font-semibold leading-3 sm:text-xs ${item.className}`}>{item.label}</p>
                 <p className="text-sm font-semibold leading-4 tabular-nums text-zinc-950 sm:text-base">{item.value}</p>
               </div>
             ))}
@@ -362,7 +537,21 @@ export function AdminAuditLogsScreen() {
 
           {filteredLogs.length === 0 ? (
             <div className="mt-4">
-              <EmptyState title="조건에 맞는 변경 기록이 없습니다" />
+              <EmptyState
+                title="조건에 맞는 변경 기록이 없습니다"
+                action={
+                  hasActiveFilters ? (
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
+                      data-testid="admin-audit-empty-filter-reset"
+                      type="button"
+                      onClick={resetFilters}
+                    >
+                      전체 보기
+                    </button>
+                  ) : null
+                }
+              />
             </div>
           ) : (
             <section className="mt-4 rounded-lg border border-zinc-200 bg-white" aria-label="변경 기록 목록">

@@ -72,6 +72,13 @@ assert(
   "member guardian edit UI must keep searchable select, current-link, submit, and unlink hooks",
 );
 assert(
+  /data-testid=\{`member-emergency-contact-call-\$\{member\.id\}`\}[\s\S]{0,240}href=\{`tel:\$\{member\.emergencyContact/.test(membersScreenSource) &&
+    /data-testid=\{`member-guardian-phone-call-\$\{member\.id\}-\$\{guardianId\}`\}[\s\S]{0,240}href=\{`tel:\$\{guardian\.phone/.test(membersScreenSource) &&
+    /className="[^"]*min-h-11[^"]*"[\s\S]{0,260}data-testid=\{`member-emergency-contact-call-\$\{member\.id\}`\}/.test(membersScreenSource) &&
+    /className="[^"]*min-h-11[^"]*"[\s\S]{0,260}data-testid=\{`member-guardian-phone-call-\$\{member\.id\}-\$\{guardianId\}`\}/.test(membersScreenSource),
+  "member and guardian phone links must stay as 44px touch-sized tel actions",
+);
+assert(
   membersScreenSource.includes('member.guardianIds.length > 0 ? "변경할 학부모 검색" : "학부모 검색"') &&
     membersScreenSource.includes('member.guardianIds.length > 0 ? "변경" : "연결"') &&
     membersScreenSource.includes("replaceGuardian(member.id, { guardianUserId: draft.guardianUserId })") &&
@@ -81,6 +88,13 @@ assert(
 assert(
   /data-testid=\{`member-guardian-feedback-\$\{member\.id\}`\}[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
   "member guardian link feedback must stay announced as a polite status message",
+);
+assert(
+  membersScreenSource.includes("const showAlertSection = !isFamilyRole && member.alerts.length > 0;") &&
+    !membersScreenSource.includes("등록된 주의사항 없음") &&
+    !membersScreenSource.includes("아직 상담/주의 메모가 없습니다.") &&
+    !membersScreenSource.includes("아직 코치 피드백이 없습니다."),
+  "member profile cards must keep quiet zero-count note/warning states without repeated empty copy",
 );
 assert(
   /data-testid="member-invite-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
@@ -202,6 +216,7 @@ console.log(
         "member/guardian contact-only profile edits remain restricted",
         "stale adult guardian-child links cannot authorize guardian member profile edits",
         "guardian link UI supports search, replace, and unlink after first registration",
+        "member profile cards keep quiet zero-count note/warning states",
         "guardian link UI/API rejects adult members as guardian-child links",
         "rendered guardian age policy UI check is wired into release",
         "admin guardian edit bottom safe-area UI check is wired into release",

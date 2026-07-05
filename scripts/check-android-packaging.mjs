@@ -29,6 +29,7 @@ const [
   capacitorConfigSource,
   androidCapManifestSource,
   androidCapBuildSource,
+  androidPlayReleaseBuildSource,
   androidCapUnitTestSource,
   androidCapInstrumentedTestSource,
   androidLauncherAssetsSource,
@@ -51,6 +52,7 @@ const [
   readFile("capacitor.config.ts", "utf8"),
   readFile("mobile/android-cap/app/src/main/AndroidManifest.xml", "utf8"),
   readFile("scripts/build-android-capacitor-apk.mjs", "utf8"),
+  readFile("scripts/build-android-play-release.mjs", "utf8"),
   readFile("mobile/android-cap/app/src/test/java/kr/co/finaljudo/multigym/FinalJudoPackageTest.java", "utf8"),
   readFile("mobile/android-cap/app/src/androidTest/java/kr/co/finaljudo/multigym/FinalJudoInstrumentedTest.java", "utf8"),
   readFile("scripts/generate-android-launcher-assets.mjs", "utf8"),
@@ -275,12 +277,14 @@ assert(androidLauncherAssetsSource.includes("splash.png"), "Android launcher ass
 
 for (const script of [
   "test:android-packaging",
+  "test:android-play-release-artifacts",
   "android:icons",
   "android:twa:doctor",
   "android:twa:prepare",
   "android:twa:build",
   "android:cap:sync",
   "android:cap:build",
+  "android:play:build",
 ]) {
   assert(packageJson.scripts?.[script], `package.json must expose ${script}`);
 }
@@ -293,6 +297,8 @@ assert(strategyDoc.includes("Chrome 주소창"), "Android strategy doc must docu
 assert(strategyDoc.includes("android:icons"), "Android strategy doc must document the launcher icon generation command");
 assert(strategyDoc.includes("public/icons/final-judo-icon-512.png"), "Android strategy doc must document the FINAL PNG launcher icon source");
 assert(strategyDoc.includes("android:cap:build"), "Android strategy doc must document the address-bar-free Capacitor APK command");
+assert(strategyDoc.includes("android:play:build"), "Android strategy doc must document the Play release AAB/APK command");
+assert(strategyDoc.includes("test:android-play-release-artifacts"), "Android strategy doc must document Play release artifact verification");
 assert(strategyDoc.includes("INSTALL_ANDROID_WEBVIEW_APK.txt"), "Android strategy doc must document the generated WebView install guide");
 assert(strategyDoc.includes("mobile/android/twa/app/build/outputs/apk/debug/app-debug.apk"), "Android strategy doc must explicitly forbid the ambiguous TWA debug APK for field installs");
 assert(strategyDoc.includes("Digital Asset Links"), "Android strategy doc must document assetlinks requirements");
@@ -301,6 +307,9 @@ assert(strategyDoc.includes("android:twa:doctor"), "Android strategy doc must do
 assert(strategyDoc.includes("--strict"), "Android strategy doc must document strict doctor mode");
 assert(twaDoctorSource.includes("sdkmanager"), "TWA doctor must check Android SDK command line tools");
 assert(twaDoctorSource.includes("ANDROID_HOME"), "TWA doctor must check Android SDK environment variables");
+assert(twaDoctorSource.includes(".data\", \"toolchains\", \"jdk"), "TWA doctor must detect the repo-local JDK fallback");
+assert(twaDoctorSource.includes(".data\", \"toolchains\", \"android-sdk"), "TWA doctor must detect the repo-local Android SDK fallback");
+assert(twaDoctorSource.includes("createToolchainContext"), "TWA doctor must share resolved toolchain paths with command checks");
 assert(twaDoctorSource.includes("--strict"), "TWA doctor must expose strict mode for real APK/AAB builds");
 assert(twaDoctorSource.includes("--out"), "TWA doctor must write a shareable JSON report");
 assert(twaDoctorSource.includes("--markdown"), "TWA doctor must write a shareable Markdown report");
@@ -330,6 +339,9 @@ assert(twaBuildSource.includes("keytool"), "TWA build script must guard Android 
 assert(twaBuildSource.includes("adb"), "TWA build script must guard Android device tooling before APK/AAB builds");
 assert(twaBuildSource.includes("ANDROID_HOME"), "TWA build script must require Android SDK home before APK/AAB builds");
 assert(twaBuildSource.includes("ANDROID_SDK_ROOT"), "TWA build script must support ANDROID_SDK_ROOT");
+assert(twaBuildSource.includes(".data\", \"toolchains\", \"jdk"), "TWA build script must detect the repo-local JDK fallback");
+assert(twaBuildSource.includes(".data\", \"toolchains\", \"android-sdk"), "TWA build script must detect the repo-local Android SDK fallback");
+assert(twaBuildSource.includes("createToolchainContext"), "TWA build script must pass resolved toolchain paths to Bubblewrap");
 assert(twaBuildSource.includes("buildReady"), "TWA build script must expose buildReady in prepare output");
 assert(twaBuildSource.includes("buildBlockers"), "TWA build script must expose build blockers in prepare output");
 assert(twaBuildSource.includes("fallbackType: template.build.fallbackType"), "TWA build script must carry fallbackType into generated inputs");
@@ -351,6 +363,13 @@ assert(twaWorkflowSource.includes("npm run android:twa:build --"), "Android TWA 
 assert(twaWorkflowSource.includes("mobile/android/generated/**"), "Android TWA workflow must upload generated TWA inputs");
 assert(twaWorkflowSource.includes("mobile/android/twa/**/*.apk"), "Android TWA workflow must upload APK outputs when present");
 assert(twaWorkflowSource.includes("mobile/android/twa/**/*.aab"), "Android TWA workflow must upload AAB outputs when present");
+assert(androidPlayReleaseBuildSource.includes("versionCode is greater than latest recorded Play build"), "Play release build must guard duplicate versionCode uploads");
+assert(androidPlayReleaseBuildSource.includes("FINAL_JUDO_UPLOAD_STOREPASS"), "Play release build must pass upload passwords through environment variables");
+assert(androidPlayReleaseBuildSource.includes("jarsigner"), "Play release build must sign AAB artifacts");
+assert(androidPlayReleaseBuildSource.includes("apksigner"), "Play release build must sign APK artifacts");
+assert(androidPlayReleaseBuildSource.includes("zipalign"), "Play release build must align APK artifacts before signing");
+assert(androidPlayReleaseBuildSource.includes("Android Play release URL must use HTTPS"), "Play release build must reject non-HTTPS web origins");
+assert(androidPlayReleaseBuildSource.includes("Android Play versionCode must be greater"), "Play release build must fail when the source versionCode is not incremented");
 
 console.log(
   JSON.stringify(

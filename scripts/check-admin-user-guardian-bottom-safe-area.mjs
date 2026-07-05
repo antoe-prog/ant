@@ -162,6 +162,55 @@ async function loginTo(page, role, nextPath) {
   await page.waitForURL((url) => url.pathname === nextPath.split("?")[0], { timeout: 15000 });
 }
 
+async function collectListActionLayout(page) {
+  await loginTo(page, "admin", "/app/admin/users");
+  await page.waitForSelector('[data-testid="admin-user-list-scroll-region"]', { timeout: 10000 });
+  await page.waitForTimeout(150);
+
+  return page.evaluate(() => {
+    const nav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
+    const scrollRegion = document.querySelector('[data-testid="admin-user-list-scroll-region"]');
+    const listSafeArea = document.querySelector('[data-testid="admin-user-list-bottom-safe-area"]');
+    const navRect = nav?.getBoundingClientRect();
+    const scrollRegionRect = scrollRegion?.getBoundingClientRect();
+    const listSafeAreaRect = listSafeArea?.getBoundingClientRect();
+    const actionButtons = Array.from(document.querySelectorAll('[data-testid^="admin-user-action-stack-"] button'));
+    const navTop = navRect?.top ?? window.innerHeight;
+    const visibleActionOverlaps = actionButtons.filter((button) => {
+      const rect = button.getBoundingClientRect();
+      const visibleTop = Math.max(rect.top, scrollRegionRect?.top ?? 0, 0);
+      const visibleBottom = Math.min(rect.bottom, scrollRegionRect?.bottom ?? window.innerHeight, window.innerHeight);
+      const visibleLeft = Math.max(rect.left, scrollRegionRect?.left ?? 0, 0);
+      const visibleRight = Math.min(rect.right, scrollRegionRect?.right ?? window.innerWidth, window.innerWidth);
+      const hasVisibleArea = visibleBottom > visibleTop && visibleRight > visibleLeft;
+
+      return hasVisibleArea && visibleBottom > navTop && rect.right > (navRect?.left ?? 0) && rect.left < (navRect?.right ?? window.innerWidth);
+    });
+    const visibleActionHeights = actionButtons
+      .map((button) => {
+        const rect = button.getBoundingClientRect();
+        const visibleTop = Math.max(rect.top, scrollRegionRect?.top ?? 0, 0);
+        const visibleBottom = Math.min(rect.bottom, scrollRegionRect?.bottom ?? window.innerHeight, window.innerHeight);
+
+        return Math.max(0, visibleBottom - visibleTop);
+      })
+      .filter((height) => height > 0);
+
+    return {
+      actionButtonCount: actionButtons.length,
+      listSafeAreaCount: document.querySelectorAll('[data-testid="admin-user-list-bottom-safe-area"]').length,
+      listSafeAreaHeight: Math.round(listSafeAreaRect?.height ?? 0),
+      listScrollRegionBottom: Math.round(scrollRegionRect?.bottom ?? 0),
+      listScrollRegionBottomClearance: Math.round(navTop - (scrollRegionRect?.bottom ?? 0)),
+      listScrollRegionCount: document.querySelectorAll('[data-testid="admin-user-list-scroll-region"]').length,
+      listScrollRegionHeight: Math.round(scrollRegionRect?.height ?? 0),
+      visibleActionButtonCount: visibleActionHeights.length,
+      visibleActionMinHeight: visibleActionHeights.length > 0 ? Math.round(Math.min(...visibleActionHeights)) : 0,
+      visibleActionOverlapBottomNavCount: visibleActionOverlaps.length,
+    };
+  });
+}
+
 async function openGuardianEditForm(page) {
   await loginTo(page, "admin", "/app/admin/users");
   await page.locator("#admin-user-search").fill("이하린");
@@ -179,14 +228,16 @@ async function collectSelectedChildLayout(page) {
   return page.evaluate((userId) => {
     const nav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
     const form = document.querySelector(`[data-testid="admin-user-edit-form-${userId}"]`);
-    const selectedList = document.querySelector(`[data-testid="admin-user-guardian-child-selected-list-${userId}"]`);
-    const selectedChips = Array.from(document.querySelectorAll(`[data-testid^="admin-user-guardian-child-selected-${userId}-"]`));
-    const spacer = document.querySelector(`[data-testid="admin-user-edit-bottom-safe-area-${userId}"]`);
-    const navRect = nav?.getBoundingClientRect();
-    const formRect = form?.getBoundingClientRect();
-    const selectedListRect = selectedList?.getBoundingClientRect();
-    const selectedChipRects = selectedChips.map((chip) => chip.getBoundingClientRect());
-    const spacerRect = spacer?.getBoundingClientRect();
+	    const selectedList = document.querySelector(`[data-testid="admin-user-guardian-child-selected-list-${userId}"]`);
+	    const selectedChips = Array.from(document.querySelectorAll(`[data-testid^="admin-user-guardian-child-selected-${userId}-"]`));
+	    const selectedClearButtons = Array.from(document.querySelectorAll(`[data-testid^="admin-user-guardian-child-clear-${userId}-"]`));
+	    const spacer = document.querySelector(`[data-testid="admin-user-edit-bottom-safe-area-${userId}"]`);
+	    const navRect = nav?.getBoundingClientRect();
+	    const formRect = form?.getBoundingClientRect();
+	    const selectedListRect = selectedList?.getBoundingClientRect();
+	    const selectedChipRects = selectedChips.map((chip) => chip.getBoundingClientRect());
+	    const selectedClearButtonRects = selectedClearButtons.map((button) => button.getBoundingClientRect());
+	    const spacerRect = spacer?.getBoundingClientRect();
     const navTop = navRect?.top ?? window.innerHeight;
     const selectedChipMaxBottom = Math.max(0, ...selectedChipRects.map((rect) => rect.bottom));
     const frameworkOverlayCount =
@@ -200,8 +251,11 @@ async function collectSelectedChildLayout(page) {
       frameworkOverlayCount,
       mobileBottomNavTop: Math.round(navTop),
       screenVisible: Boolean(document.querySelector('[data-testid="admin-user-list-row"]')),
-      scrollWidth: document.documentElement.scrollWidth,
-      selectedChipCount: selectedChips.length,
+	      scrollWidth: document.documentElement.scrollWidth,
+	      selectedClearButtonCount: selectedClearButtons.length,
+	      selectedClearButtonMinHeight: Math.round(Math.min(...selectedClearButtonRects.map((rect) => rect.height))),
+	      selectedClearButtonMinWidth: Math.round(Math.min(...selectedClearButtonRects.map((rect) => rect.width))),
+	      selectedChipCount: selectedChips.length,
       selectedChipMaxBottom: Math.round(selectedChipMaxBottom),
       selectedChipMinHeight: Math.round(Math.min(...selectedChipRects.map((rect) => rect.height))),
       selectedChipNavClearance: Math.round(navTop - selectedChipMaxBottom),
@@ -252,6 +306,11 @@ async function main() {
   const messages = collectConsoleMessages(page);
 
   try {
+    const listActionLayout = await collectListActionLayout(page);
+    const listActionScreenshotPath = join(outDir, "admin-user-list-safe-area-browser.png");
+    await page.screenshot({ path: listActionScreenshotPath, fullPage: false, caret: "initial" });
+    const listActionScreenshotSizeBytes = statSync(listActionScreenshotPath).size;
+
     await openGuardianEditForm(page);
 
     const selectedLayout = await collectSelectedChildLayout(page);
@@ -262,13 +321,24 @@ async function main() {
     const actionBarScreenshotPath = join(outDir, "admin-user-guardian-action-bar-browser.png");
     await page.screenshot({ path: actionBarScreenshotPath, fullPage: false, caret: "initial" });
     const actionBarScreenshotSizeBytes = statSync(actionBarScreenshotPath).size;
-    const layout = { ...selectedLayout, ...actionBarLayout };
+    const layout = { ...listActionLayout, ...selectedLayout, ...actionBarLayout };
 
     assert.equal(layout.screenVisible, true, "admin users screen must stay visible");
-    assert.equal(layout.selectedListCount, 1, "admin guardian edit form must render one selected-child list");
-    assert(layout.selectedChipCount >= 2, "admin guardian edit form must render linked child chips");
-    assert(layout.selectedChipMinHeight >= 32, "admin guardian child chips must remain readable and tappable");
-    assert(layout.selectedListNavClearance >= 96, "admin guardian selected-child list must stay above the mobile bottom navigation");
+    assert.equal(layout.listScrollRegionCount, 1, "admin users mobile list must render one bounded scroll region");
+    assert(layout.listScrollRegionHeight >= 144, "admin users mobile list scroll region must keep the first user row readable");
+    assert(layout.listScrollRegionBottomClearance >= 24, "admin users mobile list scroll region must stop above the bottom navigation");
+    assert.equal(layout.listSafeAreaCount, 1, "admin users mobile list must render one internal bottom safe-area spacer");
+    assert(layout.listSafeAreaHeight >= 96, "admin users mobile list bottom safe-area spacer must reserve at least 96px");
+    assert(layout.visibleActionButtonCount >= 2, "admin users mobile list must keep visible row actions available");
+    assert.equal(layout.visibleActionOverlapBottomNavCount, 0, "admin users visible list actions must not overlap the mobile bottom navigation");
+    assert(layout.visibleActionMinHeight >= 44, "admin users visible list actions must keep 44px touch targets");
+	    assert.equal(layout.selectedListCount, 1, "admin guardian edit form must render one selected-child list");
+	    assert(layout.selectedChipCount >= 2, "admin guardian edit form must render linked child chips");
+	    assert(layout.selectedChipMinHeight >= 32, "admin guardian child chips must remain readable and tappable");
+	    assert.equal(layout.selectedClearButtonCount, layout.selectedChipCount, "admin guardian child chips must expose one unlink action per child");
+	    assert(layout.selectedClearButtonMinHeight >= 44, "admin guardian child unlink actions must keep 44px touch height");
+	    assert(layout.selectedClearButtonMinWidth >= 44, "admin guardian child unlink actions must keep 44px touch width");
+	    assert(layout.selectedListNavClearance >= 96, "admin guardian selected-child list must stay above the mobile bottom navigation");
     assert(layout.selectedChipNavClearance >= 96, "admin guardian child chips must stay above the mobile bottom navigation");
     assert.equal(layout.spacerCount, 1, "admin user edit form must render one mobile bottom safe-area spacer");
     assert(layout.spacerHeight >= 112, "admin user edit form bottom safe-area spacer must reserve at least 112px");
@@ -278,6 +348,7 @@ async function main() {
     assert.equal(layout.scrollWidth <= layout.clientWidth, true, "admin user edit form must not overflow horizontally on mobile");
     assert.equal(layout.frameworkOverlayCount, 0, "admin user edit form must not show framework overlays");
     assert.equal(messages.length, 0, `admin user guardian edit flow must stay console-clean: ${messages.join(" | ")}`);
+    assert(listActionScreenshotSizeBytes > 10_000, `admin user list safe-area screenshot must be non-empty, got ${listActionScreenshotSizeBytes} bytes`);
     assert(screenshotSizeBytes > 10_000, `admin user guardian bottom safe-area screenshot must be non-empty, got ${screenshotSizeBytes} bytes`);
 
     const summary = {
@@ -285,14 +356,19 @@ async function main() {
       appServer: usingExistingAppServer ? "existing" : "managed-next-dev-webpack",
       baseUrl,
       checked: [
-        "admin guardian edit selected-child list keeps scroll margin above the fixed bottom navigation",
-        "admin guardian edit form renders a mobile bottom safe-area spacer",
+        "admin users mobile list uses a bounded scroll region above the fixed bottom navigation",
+	        "admin users visible list actions do not overlap the fixed bottom navigation",
+	        "admin guardian edit selected-child list keeps scroll margin above the fixed bottom navigation",
+	        "admin guardian child unlink actions keep 44px touch targets",
+	        "admin guardian edit form renders a mobile bottom safe-area spacer",
         "admin guardian edit save action bar remains above the fixed bottom navigation",
         "admin guardian edit mobile screen stays console-clean and horizontally contained",
       ],
       layout,
       messages,
       resetBefore,
+      listActionScreenshotPath,
+      listActionScreenshotSizeBytes,
       screenshotPath,
       screenshotSizeBytes,
       actionBarScreenshotPath,

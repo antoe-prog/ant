@@ -289,13 +289,18 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
   const page = await context.newPage();
   const messages = collectConsoleMessages(page);
   const screenshotPath = join(outDir, "mobile-notices-action-row-compact.png");
+  const readFeedbackScreenshotPath = join(outDir, "mobile-notices-read-feedback.png");
   const bottomScreenshotPath = join(outDir, "mobile-notices-bottom-safe-area.png");
+  const readTitle = `모바일 공지 읽음 ${Date.now()}`;
 
   try {
     await loginTo(page, "admin", "/app/notices");
     await page.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
+    await createNoticeFromCurrentSession(page, readTitle, "모바일 공지 단일 읽음 피드백 회귀 검증용 임시 공지입니다.");
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
 
-    const firstCard = page.getByTestId("notice-delivery-compact-card").first();
+    const firstCard = page.getByTestId("notice-delivery-compact-card").filter({ hasText: readTitle }).first();
 
     await firstCard.waitFor({ state: "visible", timeout: 15000 });
 
@@ -350,6 +355,66 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
     await page.screenshot({ fullPage: false, path: screenshotPath });
     assert(statSync(screenshotPath).size > 10_000, "mobile notices action row screenshot must be non-empty");
 
+    await firstCard.getByTestId("notice-delivery-read-action").click();
+    await page.getByTestId("notice-read-feedback").waitFor({ state: "visible", timeout: 10000 });
+    await page.waitForFunction(
+      (title) => {
+        const cards = Array.from(document.querySelectorAll('[data-testid="notice-delivery-compact-card"]'));
+        const card = cards.find((item) => (item.textContent ?? "").includes(title));
+
+        return (
+          card?.getAttribute("data-notice-read-state") === "read" &&
+          !card.querySelector('[data-testid="notice-delivery-read-action"]')
+        );
+      },
+      readTitle,
+      { timeout: 10000 },
+    );
+    await page.screenshot({ fullPage: false, path: readFeedbackScreenshotPath });
+
+    const readState = await firstCard.evaluate((card) => ({
+      readActionCount: card.querySelectorAll('[data-testid="notice-delivery-read-action"]').length,
+      readState: card.getAttribute("data-notice-read-state") ?? "",
+      text: card.textContent ?? "",
+    }));
+    const readFeedbackText = await page.getByTestId("notice-read-feedback").innerText();
+
+    assert.equal(readFeedbackText, "공지 확인을 저장했습니다.", "admin mobile notices single read action must show persistence feedback");
+    assert.equal(readState.readState, "read", "admin mobile notices single read action must tone down the card");
+    assert.equal(readState.readActionCount, 0, "admin mobile notices single read action must disappear after read");
+    assert(readState.text.includes("읽음"), "admin mobile notices read card must show the read state label");
+    assert(statSync(readFeedbackScreenshotPath).size > 10_000, "mobile notices read feedback screenshot must be non-empty");
+
+    await firstCard.getByTestId("notice-delivery-push-action").click();
+    await page.getByTestId("notice-push-feedback").waitFor({ state: "visible", timeout: 10000 });
+
+    const feedbackResetState = await page.evaluate(() => ({
+      createFeedbackCount: document.querySelectorAll('[data-testid="notice-create-feedback"]').length,
+      deleteFeedbackCount: document.querySelectorAll('[data-testid="notice-delete-feedback"]').length,
+      pushFeedbackText: document.querySelector('[data-testid="notice-push-feedback"]')?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      readFeedbackCount: document.querySelectorAll('[data-testid="notice-read-feedback"]').length,
+    }));
+
+    assert(
+      feedbackResetState.pushFeedbackText.length > 0,
+      "admin mobile notices push action must show the current push feedback",
+    );
+    assert.equal(
+      feedbackResetState.readFeedbackCount,
+      0,
+      "admin mobile notices push action must clear stale single-read feedback",
+    );
+    assert.equal(
+      feedbackResetState.deleteFeedbackCount,
+      0,
+      "admin mobile notices push action must not leave stale delete feedback beside push feedback",
+    );
+    assert.equal(
+      feedbackResetState.createFeedbackCount,
+      0,
+      "admin mobile notices push action must not leave stale create feedback beside push feedback",
+    );
+
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(250);
 
@@ -387,8 +452,13 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
       bottomScreenshotPath,
       bottomScreenshotSizeBytes: statSync(bottomScreenshotPath).size,
       bottomState,
+      feedbackResetState,
       layoutState,
       messages,
+      readFeedbackScreenshotPath,
+      readFeedbackScreenshotSizeBytes: statSync(readFeedbackScreenshotPath).size,
+      readFeedbackText,
+      readState,
       screenshotPath,
       screenshotSizeBytes: statSync(screenshotPath).size,
       url: page.url(),
@@ -507,6 +577,8 @@ async function main() {
         "admin notices screen delete button opens a confirm step",
         "admin notices screen confirmed delete removes the notice and shows feedback",
         "admin mobile notices screen action row stacks below the title row",
+        "admin mobile notices screen single read action shows feedback and tones down the card",
+        "admin mobile notices screen clears stale read/create/delete feedback when push feedback appears",
         "admin mobile notices screen bottom safe-area keeps the last notice above the bottom navigation",
         "admin mobile notification inbox delete button opens a confirm step",
         "admin mobile notification inbox delete action stays compact on 390px screens",

@@ -81,12 +81,12 @@ export function formatNotificationActionableLabel({
   paymentAlertCount: number;
   promotionAlertCount?: number;
   unreadNoticeCount: number;
-}) {
+}, separator = ", ") {
   return [
     unreadNoticeCount > 0 ? `미확인 공지 ${unreadNoticeCount}건` : null,
     paymentAlertCount > 0 ? `확인 필요 결제 ${paymentAlertCount}건` : null,
     promotionAlertCount > 0 ? `임박 승급 심사 ${promotionAlertCount}건` : null,
   ]
     .filter(Boolean)
-    .join(", ");
+    .join(separator);
 }
