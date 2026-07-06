@@ -216,11 +216,11 @@ assert.deepEqual(
   ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"],
   "owner mobile nav must keep daily operation routes without deleted request links",
 );
-assert.deepEqual(mobileRouteIdsFor("member"), ["dashboard", "classes", "members", "payments", "notices"], "member mobile nav must keep notices and remove deleted request links");
+assert.deepEqual(mobileRouteIdsFor("member"), ["dashboard", "classes", "members", "payments", "promotions"], "member mobile nav must surface promotions instead of the duplicated notice inbox");
 assert.deepEqual(
   mobileRouteIdsFor("guardian"),
-  ["dashboard", "classes", "members", "payments", "notices"],
-  "guardian mobile nav must keep notices and remove deleted request links",
+  ["dashboard", "classes", "members", "payments", "promotions"],
+  "guardian mobile nav must surface promotions instead of the duplicated notice inbox",
 );
 
 assert.equal(roles.canAccessPath("coach", "/app/payments"), false, "coach must not access payments");

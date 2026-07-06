@@ -2515,11 +2515,17 @@ async function main() {
         }
 
         if (testCase.role === "member" || testCase.role === "guardian") {
+          // 기본 하단 내비는 승급으로 끝나고, 공지/알림 화면에서는 현재 경로 유지 로직이 마지막 칸을 알림으로 바꾼다.
+          const familyNoticesInNav = testCase.next === "/app/notices" || testCase.next === "/app/notifications";
           const expectedFamilyNoticeLabel = testCase.next === "/app/notices" ? "공지" : "알림";
+          const expectedFamilyLastLabel = familyNoticesInNav ? expectedFamilyNoticeLabel : "승급";
+          const expectedFamilyBottomNavRouteIds = familyNoticesInNav
+            ? "dashboard|classes|members|payments|notices"
+            : "dashboard|classes|members|payments|promotions";
           const expectedFamilyBottomNavLabels =
             testCase.role === "guardian"
-              ? `홈|수업|자녀|결제|${expectedFamilyNoticeLabel}`
-              : `홈|수업|내 정보|결제|${expectedFamilyNoticeLabel}`;
+              ? `홈|수업|자녀|결제|${expectedFamilyLastLabel}`
+              : `홈|수업|내 정보|결제|${expectedFamilyLastLabel}`;
           const isFamilyAccountPage = testCase.id === "member-account" || testCase.id === "guardian-account";
 
           assert.equal(layout.mobileSessionRailCount, 0, `${testCase.id} must not repeat account/session actions below the FINAL header`);
@@ -2529,24 +2535,32 @@ async function main() {
             assert.equal(layout.mobileHeaderLogoutButtonCount, 1, `${testCase.id} must expose one compact header logout action`);
             assert(layout.mobileHeaderLogoutButtonHeight >= 44, `${testCase.id} header logout action must stay tappable`);
           }
-          assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} must show the five family bottom-nav actions including notices`);
+          assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} must show the five family bottom-nav actions`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} family bottom navigation must render as a fixed grid`);
           assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} family bottom navigation must allocate one grid column per action`);
           assert.equal(
             layout.mobileBottomNavRouteIds,
-            "dashboard|classes|members|payments|notices",
-            `${testCase.id} family bottom navigation must remove deleted request actions`,
+            expectedFamilyBottomNavRouteIds,
+            `${testCase.id} family bottom navigation must remove deleted request actions and the duplicated notice inbox`,
           );
           assert.equal(
             layout.mobileBottomNavLabels,
             expectedFamilyBottomNavLabels,
             `${testCase.id} family bottom navigation labels must keep unread badges out of visible menu text`,
           );
-          assert.equal(
-            layout.mobileBottomNavNoticeBadgeCount,
-            layout.appHeaderNoticeBadgeCount,
-            `${testCase.id} bottom notice badge must mirror the header unread notice badge`,
-          );
+          if (familyNoticesInNav) {
+            assert.equal(
+              layout.mobileBottomNavNoticeBadgeCount,
+              layout.appHeaderNoticeBadgeCount,
+              `${testCase.id} bottom notice badge must mirror the header unread notice badge`,
+            );
+          } else {
+            assert.equal(
+              layout.mobileBottomNavNoticeBadgeCount,
+              0,
+              `${testCase.id} bottom navigation must not render a notice badge when the inbox action lives in the header`,
+            );
+          }
           if (layout.mobileBottomNavNoticeBadgeCount > 0) {
             assert(
               layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedFamilyNoticeLabel}, 미확인 공지`) ||

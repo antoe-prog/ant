@@ -363,11 +363,11 @@ assert(
   "coach mobile nav must remove deleted makeup request actions",
 );
 assert(
-  roles.includes('guardian: ["dashboard", "classes", "members", "payments", "notices"]'),
+  roles.includes('guardian: ["dashboard", "classes", "members", "payments", "promotions"]'),
   "guardian mobile nav must remove deleted makeup request actions",
 );
 assert(
-  roles.includes('member: ["dashboard", "classes", "members", "payments", "notices"]'),
+  roles.includes('member: ["dashboard", "classes", "members", "payments", "promotions"]'),
   "member mobile nav must remove deleted makeup request actions",
 );
 assertExcludes(roles, 'id: "requests"', "roles deleted makeup request route");
