@@ -47,6 +47,9 @@ export async function POST(
         level?: string;
         belt?: string;
         emergencyContact?: string;
+        gender?: Member["gender"] | "";
+        birthDate?: string;
+        address?: string;
       }
     | null;
 
@@ -62,6 +65,30 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "회원 상태가 올바르지 않습니다.");
   }
 
+  const gender = body.gender === "male" || body.gender === "female" ? body.gender : undefined;
+
+  if (body.gender && !gender) {
+    return jsonError(400, "VALIDATION_ERROR", "성별 값이 올바르지 않습니다.");
+  }
+
+  const birthDate = body.birthDate?.trim() || undefined;
+
+  if (birthDate !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(birthDate))) {
+      return jsonError(400, "VALIDATION_ERROR", "생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.");
+    }
+
+    if (Date.parse(birthDate) > Date.now()) {
+      return jsonError(400, "VALIDATION_ERROR", "생년월일은 오늘 이전 날짜여야 합니다.");
+    }
+  }
+
+  const address = body.address?.trim() || undefined;
+
+  if (address !== undefined && address.length > 100) {
+    return jsonError(400, "VALIDATION_ERROR", "주소는 100자 이내로 입력해 주세요.");
+  }
+
   const branchCoach = db.users.find((candidate) => candidate.role === "coach" && candidate.branchIds.includes(branchId));
   const memberId = `member-${Date.now()}`;
   const now = new Date().toISOString();
@@ -73,6 +100,9 @@ export async function POST(
     ageGroup: body.ageGroup,
     level: body.level.trim(),
     belt: body.belt.trim(),
+    gender,
+    birthDate,
+    address,
     guardianIds: [],
     primaryCoachId: branchCoach?.id ?? user.id,
     emergencyContact: body.emergencyContact.trim(),

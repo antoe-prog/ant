@@ -303,6 +303,9 @@ export function MembersScreen() {
   const [newMemberLevel, setNewMemberLevel] = useState("입문");
   const [newMemberBelt, setNewMemberBelt] = useState("흰띠");
   const [newMemberEmergencyContact, setNewMemberEmergencyContact] = useState("");
+  const [newMemberGender, setNewMemberGender] = useState<Member["gender"] | "">("");
+  const [newMemberBirthDate, setNewMemberBirthDate] = useState("");
+  const [newMemberAddress, setNewMemberAddress] = useState("");
   const [memberCreateFormOpen, setMemberCreateFormOpen] = useState(false);
   const [guardianLinkDrafts, setGuardianLinkDrafts] = useState<Record<string, GuardianLinkDraft>>({});
   const [noteDrafts, setNoteDrafts] = useState<Record<string, NoteDraft>>({});
@@ -434,9 +437,15 @@ export function MembersScreen() {
       level: newMemberLevel.trim() || "입문",
       belt: newMemberBelt.trim() || "흰띠",
       emergencyContact: newMemberEmergencyContact.trim(),
+      gender: newMemberGender,
+      birthDate: newMemberBirthDate.trim(),
+      address: newMemberAddress.trim(),
     });
     setNewMemberName("");
     setNewMemberEmergencyContact("");
+    setNewMemberGender("");
+    setNewMemberBirthDate("");
+    setNewMemberAddress("");
   }
 
   async function handleCreateInvitation(event: FormEvent<HTMLFormElement>) {
@@ -1097,6 +1106,44 @@ export function MembersScreen() {
                   onChange={(event) => setNewMemberEmergencyContact(event.target.value)}
                 />
               </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold text-zinc-500">성별 (선택)</span>
+                <select
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
+                  value={newMemberGender}
+                  onChange={(event) => setNewMemberGender(event.target.value as Member["gender"] | "")}
+                >
+                  <option value="">선택 안함</option>
+                  {memberGenderOptions.map((gender) => (
+                    <option key={gender} value={gender}>
+                      {memberGenderLabels[gender]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold text-zinc-500">생년월일 (선택)</span>
+                <input
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-create-field"
+                  max={new Date().toISOString().slice(0, 10)}
+                  type="date"
+                  value={newMemberBirthDate}
+                  onChange={(event) => setNewMemberBirthDate(event.target.value)}
+                />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold text-zinc-500">주소 (선택)</span>
+                <input
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="member-create-field"
+                  maxLength={100}
+                  placeholder="도로명 주소"
+                  value={newMemberAddress}
+                  onChange={(event) => setNewMemberAddress(event.target.value)}
+                />
+              </label>
               <button
                 className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                 data-testid="member-create-submit"
@@ -1255,6 +1302,30 @@ export function MembersScreen() {
                     </a>
                   </dd>
                 </div>
+                {member.gender ? (
+                  <div>
+                    <dt className="text-xs font-medium text-zinc-500">성별</dt>
+                    <dd className="mt-1 font-semibold text-zinc-950" data-testid={`member-profile-gender-summary-${member.id}`}>
+                      {memberGenderLabels[member.gender]}
+                    </dd>
+                  </div>
+                ) : null}
+                {member.birthDate ? (
+                  <div>
+                    <dt className="text-xs font-medium text-zinc-500">생년월일</dt>
+                    <dd className="mt-1 font-semibold text-zinc-950" data-testid={`member-profile-birth-summary-${member.id}`}>
+                      {member.birthDate}
+                    </dd>
+                  </div>
+                ) : null}
+                {member.address ? (
+                  <div className="col-span-2">
+                    <dt className="text-xs font-medium text-zinc-500">주소</dt>
+                    <dd className="mt-1 break-words font-semibold text-zinc-950" data-testid={`member-profile-address-summary-${member.id}`}>
+                      {member.address}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
 
               {memberDetailExpanded ? (

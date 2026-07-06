@@ -162,6 +162,9 @@ type AppStore = AppState & {
     level: string;
     belt: string;
     emergencyContact: string;
+    gender?: Member["gender"] | "";
+    birthDate?: string;
+    address?: string;
   }) => void;
   updateMemberStatus: (memberId: string, status: MemberStatus) => void;
   updateMemberProfile: (memberId: string, payload: MemberUpdatePayload) => Promise<boolean>;
@@ -966,6 +969,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         level: string;
         belt: string;
         emergencyContact: string;
+        gender?: Member["gender"] | "";
+        birthDate?: string;
+        address?: string;
       },
     ) => {
       if (!state.user) {

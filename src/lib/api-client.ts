@@ -610,6 +610,9 @@ export const apiClient = {
       level: string;
       belt: string;
       emergencyContact: string;
+      gender?: Member["gender"] | "";
+      birthDate?: string;
+      address?: string;
     },
     selectedBranchId: string | null,
   ) {
