@@ -189,9 +189,11 @@ for (const role of ["member", "guardian", "coach", "owner", "admin"]) {
 
 assert.deepEqual(
   routeIdsFor("coach"),
-  ["dashboard", "classes", "members", "promotions", "notices"],
-  "coach nav must include promotion management and must not expose deleted request routes",
+  ["dashboard", "classes", "members", "promotions", "tournaments", "notices"],
+  "coach nav must include promotion and tournament menus and must not expose deleted request routes",
 );
+assert(routeIdsFor("member").includes("tournaments"), "member nav must include the tournament notice menu");
+assert(routeIdsFor("guardian").includes("tournaments"), "guardian nav must include the tournament notice menu");
 assert(routeIdsFor("owner").includes("ownerReports"), "owner nav must include operation reports");
 assert(!routeIdsFor("owner").includes("adminUsers"), "owner nav must omit admin user management");
 assert(routeIdsFor("admin").includes("adminSettings"), "admin nav must include system settings");
@@ -216,11 +218,11 @@ assert.deepEqual(
   ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"],
   "owner mobile nav must keep daily operation routes without deleted request links",
 );
-assert.deepEqual(mobileRouteIdsFor("member"), ["dashboard", "classes", "members", "payments", "promotions"], "member mobile nav must surface promotions instead of the duplicated notice inbox");
+assert.deepEqual(mobileRouteIdsFor("member"), ["dashboard", "classes", "members", "payments", "tournaments"], "member mobile nav must surface tournaments instead of the duplicated notice inbox");
 assert.deepEqual(
   mobileRouteIdsFor("guardian"),
-  ["dashboard", "classes", "members", "payments", "promotions"],
-  "guardian mobile nav must surface promotions instead of the duplicated notice inbox",
+  ["dashboard", "classes", "members", "payments", "tournaments"],
+  "guardian mobile nav must surface tournaments instead of the duplicated notice inbox",
 );
 
 assert.equal(roles.canAccessPath("coach", "/app/payments"), false, "coach must not access payments");

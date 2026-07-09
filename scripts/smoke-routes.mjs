@@ -99,6 +99,7 @@ async function run() {
     "/app/classes",
     "/app/members",
     "/app/payments",
+    "/app/tournaments",
     "/app/notices",
     "/app/notifications",
     "/app/account",

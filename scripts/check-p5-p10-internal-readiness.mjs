@@ -1680,8 +1680,8 @@ assertIncludes(
 );
 for (const snippet of [
   'coach: ["dashboard", "classes", "members", "promotions", "notices"]',
-  'guardian: ["dashboard", "classes", "members", "payments", "promotions"]',
-  'member: ["dashboard", "classes", "members", "payments", "promotions"]',
+  'guardian: ["dashboard", "classes", "members", "payments", "tournaments"]',
+  'member: ["dashboard", "classes", "members", "payments", "tournaments"]',
 ]) {
   assertIncludes(sources.roles, snippet, "family and coach mobile navigation removes deleted requests");
 }

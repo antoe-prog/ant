@@ -6,6 +6,7 @@ export type AppRouteId =
   | "members"
   | "payments"
   | "promotions"
+  | "tournaments"
   | "notices"
   | "account"
   | "ownerBranches"
@@ -130,6 +131,13 @@ export const appRoutes: AppRouteConfig[] = [
     roles: ["member", "guardian", "coach", "owner", "admin"],
   },
   {
+    id: "tournaments",
+    href: "/app/tournaments",
+    label: "대회",
+    description: "대한유도회 등 외부 단체 대회 공지",
+    roles: ["member", "guardian", "coach", "owner", "admin"],
+  },
+  {
     id: "notices",
     href: "/app/notices",
     aliases: ["/app/notifications"],
@@ -203,10 +211,10 @@ export function getVisibleRoutes(role: UserRole) {
 const mobileNavRouteIdsByRole: Record<UserRole, AppRouteId[]> = {
   admin: ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "adminSettings"],
   coach: ["dashboard", "classes", "members", "promotions", "notices"],
-  // 회원/학부모 하단 내비의 알림은 헤더 종 아이콘과 중복이라 승급 심사로 대체한다.
+  // 회원/학부모 하단 내비의 알림은 헤더 종 아이콘과 중복이라 대회 메뉴로 대체한다.
   // 공지/알림 화면에 진입하면 현재 경로 유지 로직이 마지막 칸을 알림으로 바꿔 준다.
-  guardian: ["dashboard", "classes", "members", "payments", "promotions"],
-  member: ["dashboard", "classes", "members", "payments", "promotions"],
+  guardian: ["dashboard", "classes", "members", "payments", "tournaments"],
+  member: ["dashboard", "classes", "members", "payments", "tournaments"],
   owner: ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"],
 };
 

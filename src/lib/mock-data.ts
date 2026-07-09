@@ -373,6 +373,7 @@ export function createMockData(): MockDatabase {
       },
     ],
     promotions: [],
+    tournaments: [],
     counselingNotes: [
       {
         id: "note-jun-caution",

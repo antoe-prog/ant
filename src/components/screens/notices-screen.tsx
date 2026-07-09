@@ -121,6 +121,8 @@ export function NoticesScreen() {
       const draft = JSON.parse(raw) as { title?: string; body?: string };
 
       if (draft.title || draft.body) {
+        // 마운트 시 1회 임시저장 복원 — 의도적인 초기 상태 주입.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setNoticeTitle(draft.title ?? "");
         setNoticeBody(draft.body ?? "");
         setNoticeCreateOpen(true);
@@ -265,6 +267,8 @@ export function NoticesScreen() {
       return;
     }
 
+    // 딥링크 진입 시 1회 강조/펼침 — 외부 URL 상태와 동기화하는 의도적 주입.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveHighlightNoticeId(highlightNoticeId);
     setExpandedNoticeIds((current) => {
       const next = new Set(current);

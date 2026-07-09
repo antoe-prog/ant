@@ -2515,13 +2515,13 @@ async function main() {
         }
 
         if (testCase.role === "member" || testCase.role === "guardian") {
-          // 기본 하단 내비는 승급으로 끝나고, 공지/알림 화면에서는 현재 경로 유지 로직이 마지막 칸을 알림으로 바꾼다.
+          // 기본 하단 내비는 대회로 끝나고, 공지/알림 화면에서는 현재 경로 유지 로직이 마지막 칸을 알림으로 바꾼다.
           const familyNoticesInNav = testCase.next === "/app/notices" || testCase.next === "/app/notifications";
           const expectedFamilyNoticeLabel = testCase.next === "/app/notices" ? "공지" : "알림";
-          const expectedFamilyLastLabel = familyNoticesInNav ? expectedFamilyNoticeLabel : "승급";
+          const expectedFamilyLastLabel = familyNoticesInNav ? expectedFamilyNoticeLabel : "대회";
           const expectedFamilyBottomNavRouteIds = familyNoticesInNav
             ? "dashboard|classes|members|payments|notices"
-            : "dashboard|classes|members|payments|promotions";
+            : "dashboard|classes|members|payments|tournaments";
           const expectedFamilyBottomNavLabels =
             testCase.role === "guardian"
               ? `홈|수업|자녀|결제|${expectedFamilyLastLabel}`

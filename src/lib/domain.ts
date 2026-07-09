@@ -342,6 +342,9 @@ export type AuditAction =
   | "counseling_note.create"
   | "promotion.create"
   | "promotion.update"
+  | "tournament.create"
+  | "tournament.update"
+  | "tournament.delete"
   | "class.create"
   | "class.update"
   | "payment.create"
@@ -383,6 +386,7 @@ export type AuditLog = {
     | "member"
     | "counseling_note"
     | "promotion"
+    | "tournament"
     | "class"
     | "payment"
     | "branch"
@@ -401,6 +405,21 @@ export type AuditLog = {
   createdAt: string;
 };
 
+// 대한유도회 등 외부 단체의 대회 공지를 도장에서 등록·공유하기 위한 항목
+export type Tournament = {
+  id: string;
+  title: string;
+  organizer: string;
+  eventDate: string;
+  location?: string;
+  registrationDeadline?: string;
+  sourceUrl?: string;
+  description?: string;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type MockDatabase = {
   branches: Branch[];
   users: AppUser[];
@@ -409,6 +428,7 @@ export type MockDatabase = {
   attendance: AttendanceRecord[];
   counselingNotes: CounselingNote[];
   promotions: BeltPromotion[];
+  tournaments: Tournament[];
   payments: Payment[];
   notices: Notice[];
   pushSubscriptions: PushSubscriptionRecord[];

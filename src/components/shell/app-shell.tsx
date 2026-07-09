@@ -20,6 +20,7 @@ import {
   X,
   UserCircle,
   Medal,
+  Trophy,
 } from "lucide-react";
 import type { AppRouteId } from "@/lib/roles";
 import { getMobileVisibleRoutes, getRouteLabel, getVisibleRoutes, isRouteActive, roleLabels } from "@/lib/roles";
@@ -34,6 +35,7 @@ const navIcons: Record<AppRouteId, React.ComponentType<{ className?: string }>> 
   members: Users,
   payments: CreditCard,
   promotions: Medal,
+  tournaments: Trophy,
   notices: Bell,
   account: UserCircle,
   ownerBranches: Building2,

@@ -45,6 +45,7 @@ import {
   type PilotIncidentUpdatePayload,
   type PilotOperationLogPayload,
   type PilotReadinessUpdatePayload,
+  type TournamentPayload,
   type RecurringAgreementPayload,
 } from "@/lib/api-client";
 
@@ -196,6 +197,9 @@ type AppStore = AppState & {
     payload: { result: "passed" | "failed" | "cancelled"; score?: number; note?: string },
   ) => Promise<boolean>;
   deleteNotice: (branchId: string, noticeId: string) => Promise<NoticeDeleteResult>;
+  createTournament: (payload: TournamentPayload) => Promise<boolean>;
+  updateTournament: (tournamentId: string, payload: TournamentPayload) => Promise<boolean>;
+  deleteTournament: (tournamentId: string) => Promise<boolean>;
   updatePilotReadiness: (payload: PilotReadinessUpdatePayload) => Promise<boolean>;
   createPilotIncident: (payload: PilotIncidentCreatePayload) => Promise<boolean>;
   updatePilotIncident: (incidentId: string, payload: PilotIncidentUpdatePayload) => Promise<boolean>;
@@ -1418,6 +1422,63 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const createTournament = useCallback(
+    async (payload: TournamentPayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.createTournament(payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "대회 공지를 등록하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const updateTournament = useCallback(
+    async (tournamentId: string, payload: TournamentPayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.updateTournament(tournamentId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "대회 공지를 수정하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const deleteTournament = useCallback(
+    async (tournamentId: string) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.deleteTournament(tournamentId, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "대회 공지를 삭제하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const updatePromotion = useCallback(
     async (
       promotionId: string,
@@ -1605,6 +1666,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       deleteNotice,
       createPromotion,
       updatePromotion,
+      createTournament,
+      updateTournament,
+      deleteTournament,
       updatePilotReadiness,
       createPilotIncident,
       updatePilotIncident,
@@ -1630,6 +1694,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createPilotIncident,
       createPromotion,
       createRecurringAgreement,
+      createTournament,
+      deleteTournament,
+      updateTournament,
       deleteNotice,
       deleteUser,
       hydrated,

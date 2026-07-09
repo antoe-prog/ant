@@ -218,6 +218,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     attendance,
     counselingNotes,
     promotions,
+    tournaments: db.tournaments ?? [],
     payments,
     notices,
     pushSubscriptions,

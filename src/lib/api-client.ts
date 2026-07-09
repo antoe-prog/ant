@@ -193,6 +193,16 @@ export type GuardianLinkPayload = {
   guardianUserId: string;
 };
 
+export type TournamentPayload = {
+  title: string;
+  organizer: string;
+  eventDate: string;
+  location?: string;
+  registrationDeadline?: string;
+  sourceUrl?: string;
+  description?: string;
+};
+
 export type MemberUpdatePayload = Partial<
   Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">
 > & {
@@ -914,6 +924,32 @@ export const apiClient = {
       {
         method: "PATCH",
         body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  createTournament(payload: TournamentPayload, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(`/api/v1/tournaments${selectedBranchQuery(selectedBranchId)}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateTournament(tournamentId: string, payload: TournamentPayload, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  deleteTournament(tournamentId: string, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
       },
     );
   },
