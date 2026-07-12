@@ -2,94 +2,31 @@
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileDown, Filter, RefreshCw, Search, ShieldCheck, X, XCircle } from "lucide-react";
+import { ArrowRight, FileDown, Filter, RefreshCw, Search, ShieldCheck, X, XCircle } from "lucide-react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient, type AuditLogsQuery } from "@/lib/api-client";
+import {
+  auditActionLabels,
+  auditActions,
+  getAuditPayloadChanges,
+  auditResultLabels,
+  auditResults,
+  auditTargetTypeLabels,
+} from "@/lib/audit-log-presentation";
 import type { AuditAction, AuditLog } from "@/lib/domain";
 import { formatDateKey, formatDateTime } from "@/lib/format";
 import { SectionHeader } from "@/components/ui/primitives";
 
-const auditActionLabels: Record<AuditAction, string> = {
-  "attendance.update": "출석 변경",
-  "notice.create": "공지 작성",
-  "notice.delete": "공지 삭제",
-  "notice.read": "공지 읽음",
-  "notification.subscribe": "알림 수신 등록",
-  "notification.unsubscribe": "알림 수신 해제",
-  "notification.dispatch": "공지 알림 발송",
-  "member.create": "회원 생성",
-  "member.update": "회원 수정",
-  "counseling_note.create": "상담 메모",
-  "promotion.create": "승급 심사 등록",
-  "promotion.update": "승급 심사 결과",
-  "tournament.create": "대회 공지 등록",
-  "tournament.update": "대회 공지 수정",
-  "tournament.delete": "대회 공지 삭제",
-  "class.create": "수업 생성",
-  "class.update": "수업 수정",
-  "payment.create": "결제 등록",
-  "payment.online_checkout.create": "온라인 결제 요청",
-  "payment.webhook": "결제 상태 반영",
-  "payment.recurring_agreement.create": "정기결제 약정",
-  "payment.recurring_agreement.cancel": "정기결제 해지",
-  "payment.refund": "환불/취소",
-  "branch.create": "지점 생성",
-  "branch.update": "지점 수정",
-  "branch.owner.assign": "대표 배정",
-  "user.invite.create": "사용자 초대",
-  "user.invite.approve": "초대 승인",
-  "user.update": "사용자 수정",
-  "user.role.update": "권한 변경",
-  "user.delete": "사용자 삭제",
-  "audit_logs.read": "변경 기록 조회",
-  "export.create": "내보내기",
-  "pilot_readiness.update": "운영 준비",
-  "pilot_incident.create": "운영 이슈 기록",
-  "pilot_incident.update": "운영 이슈 변경",
-  "pilot_operation.update": "운영 로그",
-  "auth.invite.accept": "초대 수락",
-  "auth.password_reset.request": "비밀번호 재설정",
-  "auth.password_reset.complete": "비밀번호 재발급",
-  "auth.login": "로그인",
-  "auth.logout": "로그아웃",
-};
-
-const auditActionOptions = Object.keys(auditActionLabels) as AuditAction[];
+const auditActionOptions = auditActions;
 const defaultVisibleAuditLogCount = 5;
-const auditTargetTypeLabels: Record<AuditLog["targetType"], string> = {
-  attendance: "출석",
-  auth: "로그인",
-  audit: "변경 기록",
-  branch: "지점",
-  class: "수업",
-  counseling_note: "상담",
-  promotion: "승급 심사",
-  tournament: "대회 공지",
-  export: "내보내기",
-  member: "회원",
-  notice: "공지",
-  notification: "알림",
-  payment: "결제",
-  pilot_incident: "운영 이슈",
-  pilot_operation: "운영 로그",
-  pilot_readiness: "운영 준비",
-  push_subscription: "알림 등록",
-  user: "사용자",
-};
-const resultLabels: Record<AuditLog["result"], string> = {
-  success: "성공",
-  blocked: "확인 필요",
-  failed: "실패",
-};
-
 const resultBadgeClasses: Record<AuditLog["result"], string> = {
   success: "border-emerald-200 bg-emerald-50 text-emerald-700",
   blocked: "border-amber-200 bg-amber-50 text-amber-700",
   failed: "border-red-200 bg-red-50 text-red-700",
 };
-const auditResultOptions = Object.keys(resultLabels) as AuditLog["result"][];
+const auditResultOptions = auditResults;
 const defaultAuditLogReason = "총괄 변경 기록 화면 조회";
 
 type AuditLogDraftFilters = {
@@ -101,14 +38,6 @@ type AuditLogDraftFilters = {
   result: AuditLog["result"] | "all";
   to: string;
 };
-
-function formatPayload(payload: AuditLog["before"] | AuditLog["after"]) {
-  if (!payload) {
-    return "변경 내용 없음";
-  }
-
-  return JSON.stringify(payload, null, 2);
-}
 
 function hasAuditPayload(payload: AuditLog["before"] | AuditLog["after"]) {
   return Boolean(payload && Object.keys(payload).length > 0);
@@ -198,9 +127,11 @@ export function AdminAuditLogsScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
   const filterParams = getAuditFiltersFromParams(searchParams);
+  const detailLogId = searchParams.get("detail")?.trim() ?? "";
   const previousFilterParamsRef = useRef(filterParams);
+  const previousDetailLogIdRef = useRef(detailLogId);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-  const [openPayloadLogIds, setOpenPayloadLogIds] = useState<string[]>([]);
+  const [openPayloadLogIds, setOpenPayloadLogIds] = useState<string[]>(() => (detailLogId ? [detailLogId] : []));
   const [showAllAuditLogs, setShowAllAuditLogs] = useState(false);
   const [draftFilters, setDraftFilters] = useState(() => filterParams);
   const [filters, setFilters] = useState<AuditLogsQuery>(() => createAuditQueryFilters(filterParams));
@@ -230,7 +161,7 @@ export function AdminAuditLogsScreen() {
           ? "공통 기록"
           : branchById.get(filters.branchId ?? "")?.name ?? "지점 확인";
     const actionLabel = filters.action && filters.action !== "all" ? auditActionLabels[filters.action as AuditAction] : "전체 처리";
-    const resultLabel = filters.result && filters.result !== "all" ? resultLabels[filters.result as AuditLog["result"]] : "전체 결과";
+    const resultLabel = filters.result && filters.result !== "all" ? auditResultLabels[filters.result as AuditLog["result"]] : "전체 결과";
     const periodLabel = filters.from ? (filters.to ? `${filters.from} ~ ${filters.to}` : `${filters.from} 이후`) : "전체 기간";
 
     return [filters.q ? `검색 ${filters.q}` : null, branchLabel, actionLabel, resultLabel, periodLabel].filter(
@@ -259,6 +190,25 @@ export function AdminAuditLogsScreen() {
       cancelled = true;
     };
   }, [filterParams]);
+
+  useEffect(() => {
+    if (previousDetailLogIdRef.current === detailLogId) {
+      return;
+    }
+
+    previousDetailLogIdRef.current = detailLogId;
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setOpenPayloadLogIds(detailLogId ? [detailLogId] : []);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailLogId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -319,6 +269,28 @@ export function AdminAuditLogsScreen() {
     }
   }, [filters, router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const openDetailLogId = openPayloadLogIds.at(-1);
+
+    if (openDetailLogId) {
+      url.searchParams.set("detail", openDetailLogId);
+    } else {
+      url.searchParams.delete("detail");
+    }
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      router.replace(nextUrl, { scroll: false });
+    }
+  }, [openPayloadLogIds, router]);
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFilters(createAuditQueryFilters(draftFilters));
@@ -337,10 +309,16 @@ export function AdminAuditLogsScreen() {
     setOpenPayloadLogIds([]);
   }
 
+  function updateDraftFromDate(from: string) {
+    setDraftFilters((current) => ({
+      ...current,
+      from,
+      ...(current.to && from && current.to < from ? { to: "" } : {}),
+    }));
+  }
+
   function togglePayload(logId: string) {
-    setOpenPayloadLogIds((current) =>
-      current.includes(logId) ? current.filter((currentId) => currentId !== logId) : [...current, logId],
-    );
+    setOpenPayloadLogIds((current) => (current.includes(logId) ? [] : [logId]));
   }
 
   return (
@@ -474,7 +452,7 @@ export function AdminAuditLogsScreen() {
               }
             >
               <option value="all">전체 결과</option>
-              {Object.entries(resultLabels).map(([value, label]) => (
+              {Object.entries(auditResultLabels).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -485,9 +463,11 @@ export function AdminAuditLogsScreen() {
             <span className="sr-only">시작일</span>
             <input
               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+              data-testid="admin-audit-from-input"
+              max={draftFilters.to || undefined}
               type="date"
               value={draftFilters.from ?? ""}
-              onChange={(event) => setDraftFilters((current) => ({ ...current, from: event.target.value }))}
+              onChange={(event) => updateDraftFromDate(event.target.value)}
             />
           </label>
           <div className="flex gap-2">
@@ -495,6 +475,8 @@ export function AdminAuditLogsScreen() {
               <span className="sr-only">종료일</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="admin-audit-to-input"
+                min={draftFilters.from || undefined}
                 type="date"
                 value={draftFilters.to ?? ""}
                 onChange={(event) => setDraftFilters((current) => ({ ...current, to: event.target.value }))}
@@ -523,7 +505,7 @@ export function AdminAuditLogsScreen() {
           >
             {[
               { label: "조회", value: data.summary.filteredCount, className: "text-zinc-700", tileClassName: "" },
-              { label: "성공", value: data.summary.successCount, className: "text-emerald-700", tileClassName: "border-l border-emerald-100 bg-emerald-50" },
+              { label: "완료", value: data.summary.successCount, className: "text-emerald-700", tileClassName: "border-l border-emerald-100 bg-emerald-50" },
               {
                 label: "확인",
                 value: data.summary.blockedCount + data.summary.failedCount,
@@ -571,7 +553,8 @@ export function AdminAuditLogsScreen() {
                   const actor = userById.get(log.actorUserId);
                   const branch = log.branchId ? branchById.get(log.branchId) : null;
                   const ActionIcon = log.action === "export.create" ? FileDown : log.result === "success" ? ShieldCheck : XCircle;
-                  const hasChangePayload = shouldShowAuditPayload(log);
+                  const payloadChanges = getAuditPayloadChanges(log.before, log.after);
+                  const hasChangePayload = shouldShowAuditPayload(log) && payloadChanges.length > 0;
                   const payloadOpen = openPayloadLogIds.includes(log.id);
                   const payloadDetailId = `admin-audit-change-detail-${log.id}`;
 
@@ -598,7 +581,7 @@ export function AdminAuditLogsScreen() {
                           className={`inline-flex h-6 w-fit shrink-0 items-center rounded-md border px-1.5 text-[11px] font-semibold leading-4 lg:hidden ${resultBadgeClasses[log.result]}`}
                           data-testid="admin-audit-result-badge"
                         >
-                          {resultLabels[log.result]}
+                          {auditResultLabels[log.result]}
                         </span>
                         {hasChangePayload ? (
                           <button
@@ -641,24 +624,31 @@ export function AdminAuditLogsScreen() {
                         </p>
                         {hasChangePayload && payloadOpen ? (
                           <div
-                            className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                            className="mt-2 border-t border-zinc-200 bg-zinc-50 px-2 py-2.5"
                             data-testid="admin-audit-change-detail"
                             id={payloadDetailId}
                           >
-                            <div className="grid gap-2 xl:grid-cols-2">
-                              <div>
-                                <p className="text-xs font-semibold text-zinc-500">변경 전</p>
-                                <pre className="mt-1 max-h-44 overflow-auto rounded-md bg-white p-2 text-xs leading-5 text-zinc-700">
-                                  {formatPayload(log.before)}
-                                </pre>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-zinc-500">변경 후</p>
-                                <pre className="mt-1 max-h-44 overflow-auto rounded-md bg-white p-2 text-xs leading-5 text-zinc-700">
-                                  {formatPayload(log.after)}
-                                </pre>
-                              </div>
+                            <div className="hidden grid-cols-[minmax(7rem,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 border-b border-zinc-200 pb-1.5 text-[11px] font-semibold text-zinc-500 sm:grid">
+                              <span>변경 항목</span>
+                              <span>변경 전</span>
+                              <span>변경 후</span>
                             </div>
+                            <dl className="divide-y divide-zinc-200" data-testid="admin-audit-change-list">
+                              {payloadChanges.map((change) => (
+                                <div
+                                  className="grid gap-1 py-2 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:gap-2"
+                                  data-testid="admin-audit-change-row"
+                                  key={change.key}
+                                >
+                                  <dt className="text-xs font-semibold leading-5 text-zinc-700">{change.label}</dt>
+                                  <dd className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-1 text-xs leading-5 text-zinc-700 sm:contents">
+                                    <span className="min-w-0 break-words rounded-sm bg-white px-1.5 py-1 text-zinc-500">{change.before}</span>
+                                    <ArrowRight className="h-3.5 w-3.5 justify-self-center text-zinc-400 sm:hidden" aria-hidden />
+                                    <span className="min-w-0 break-words rounded-sm bg-white px-1.5 py-1 font-medium text-zinc-900">{change.after}</span>
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
                           </div>
                         ) : null}
                       </div>
@@ -666,7 +656,7 @@ export function AdminAuditLogsScreen() {
                         className={`hidden h-7 w-fit items-center rounded-md border px-2 text-xs font-semibold lg:inline-flex ${resultBadgeClasses[log.result]}`}
                         data-testid="admin-audit-result-badge"
                       >
-                        {resultLabels[log.result]}
+                        {auditResultLabels[log.result]}
                       </span>
                     </article>
                   );

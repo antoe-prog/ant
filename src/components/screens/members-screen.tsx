@@ -9,6 +9,7 @@ import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
+import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
@@ -29,14 +30,6 @@ const statusClasses: Record<MemberStatus, string> = {
 const memberStatusOptions: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
 const memberGenderOptions: MemberGender[] = ["male", "female"];
 
-function getInitialMemberQuery() {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return new URLSearchParams(window.location.search).get("q")?.trim() ?? "";
-}
-
 function getInitialMemberStatusFilter(): MemberStatus | "all" {
   if (typeof window === "undefined") {
     return "all";
@@ -47,7 +40,7 @@ function getInitialMemberStatusFilter(): MemberStatus | "all" {
   return (memberStatusOptions as string[]).includes(value ?? "") ? (value as MemberStatus) : "all";
 }
 
-function syncMemberListParamToUrl(key: "q" | "status", value: string | null) {
+function syncMemberStatusFilterToUrl(value: string | null) {
   if (typeof window === "undefined") {
     return;
   }
@@ -55,9 +48,9 @@ function syncMemberListParamToUrl(key: "q" | "status", value: string | null) {
   const url = new URL(window.location.href);
 
   if (value) {
-    url.searchParams.set(key, value);
+    url.searchParams.set("status", value);
   } else {
-    url.searchParams.delete(key);
+    url.searchParams.delete("status");
   }
 
   window.history.replaceState(window.history.state, "", url);
@@ -257,7 +250,7 @@ export function MembersScreen() {
     updateMemberProfile,
     updateMemberStatus,
   } = useAppStore();
-  const [query, setQueryState] = useState(getInitialMemberQuery);
+  const [query, setQuery] = useUrlSyncedTextParam("q");
   const [statusFilter, setStatusFilterState] = useState<MemberStatus | "all">(getInitialMemberStatusFilter);
   const [memberSort, setMemberSort] = useState<"default" | "name" | "recent">("default");
   // 관리자 회원 카드는 기본 요약 상태로 접고, 탭하면 상세(상태 변경·정보 수정·보호자·메모)가 열린다.
@@ -277,15 +270,9 @@ export function MembersScreen() {
     });
   }
 
-  // 새로고침·뒤로가기·딥링크에서 목록 필터 상태가 유지되도록 URL에 동기화한다.
-  function setQuery(value: string) {
-    setQueryState(value);
-    syncMemberListParamToUrl("q", value.trim() || null);
-  }
-
   function setStatusFilter(value: MemberStatus | "all") {
     setStatusFilterState(value);
-    syncMemberListParamToUrl("status", value === "all" ? null : value);
+    syncMemberStatusFilterToUrl(value === "all" ? null : value);
   }
   const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
   const [inviteBranchId, setInviteBranchId] = useState("");

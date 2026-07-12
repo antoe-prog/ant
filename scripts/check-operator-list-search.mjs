@@ -223,6 +223,7 @@ function assertStaticContracts() {
   const paymentsScreen = readFileSync("src/components/screens/payments-screen.tsx", "utf8");
   const noticesScreen = readFileSync("src/components/screens/notices-screen.tsx", "utf8");
   const notificationReadiness = readFileSync("scripts/check-notification-readiness.mjs", "utf8");
+  const syncedTextParamHook = readFileSync("src/hooks/use-url-synced-text-param.ts", "utf8");
   const packageJson = readFileSync("package.json", "utf8");
   const releaseRunner = readFileSync("scripts/run-release-checks.mjs", "utf8");
 
@@ -234,10 +235,7 @@ function assertStaticContracts() {
   assert(paymentsScreen.includes('data-testid="payment-list-status-label"'), "payments screen must expose filtered payment count");
   assert(paymentsScreen.includes("검색 결과가 없습니다"), "payments screen must explain no-result search states");
   assert(paymentsScreen.includes("showPaymentSearchEmptyState"), "payments screen must prioritize empty search results over operations cards");
-  assert(paymentsScreen.includes('const initialPaymentListSearch = searchParams.get("q")?.trim() ?? "";'), "payment search q param must initialize from Next search params");
-  assert(paymentsScreen.includes("previousPaymentListSearchParamRef"), "payment search must guard stale q params after clearing");
-  assert(paymentsScreen.includes("nextPaymentListSearch"), "payment search must react to client-side q param changes");
-  assert(paymentsScreen.includes("router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false })"), "payment search must update q through the Next router");
+  assert(paymentsScreen.includes('useUrlSyncedTextParam("q")'), "payment search must use the shared URL-synced text state");
   assert(!paymentsScreen.includes('new URLSearchParams(window.location.search).get("q")'), "payment search must not read q from window during initial render");
   assert(noticesScreen.includes('data-testid="notice-list-search-input"'), "notices screen must expose operator notice search input");
   assert(noticesScreen.includes('data-testid="notice-list-search-clear"'), "notices screen must expose notice search clear action");
@@ -245,10 +243,10 @@ function assertStaticContracts() {
   assert(noticesScreen.includes('data-testid="notice-list-status-label"'), "notices screen must expose filtered notice count");
   assert(noticesScreen.includes("검색 결과가 없습니다"), "notices screen must explain no-result search states");
   assert(noticesScreen.includes("noticeSearchKeyword"), "notices screen must filter notices by search text");
-  assert(noticesScreen.includes('const initialNoticeListSearch = searchParams.get("q")?.trim() ?? "";'), "notice search q param must initialize from Next search params");
-  assert(noticesScreen.includes("previousNoticeListSearchParamRef"), "notice search must guard stale q params after clearing");
-  assert(noticesScreen.includes("nextNoticeListSearch"), "notice search must react to client-side q param changes");
-  assert(noticesScreen.includes("router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false })"), "notice search must update q through the Next router");
+  assert(noticesScreen.includes('useUrlSyncedTextParam("q")'), "notice search must use the shared URL-synced text state");
+  assert(syncedTextParamHook.includes("useSearchParams()"), "shared text state must read client-side Next search params");
+  assert(syncedTextParamHook.includes("previousParamValueRef"), "shared text state must guard stale query values");
+  assert(syncedTextParamHook.includes("router.replace(nextUrl, { scroll: false })"), "shared text state must update through the Next router");
   assert(notificationReadiness.includes("notice-list-search-input"), "notification readiness must guard notice list search");
 }
 

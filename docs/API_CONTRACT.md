@@ -155,10 +155,11 @@
 | `action` | `attendance.update`, `export.create`, `audit_logs.read` 등 액션 필터 |
 | `branchId` | `all`, `system`, 또는 지점 ID |
 | `result` | `success`, `blocked`, `failed` |
-| `from`, `to` | ISO 날짜 또는 `YYYY-MM-DD` 범위 |
+| `from`, `to` | ISO 시각 또는 `YYYY-MM-DD` 범위. 날짜만 전달하면 한국 시간 기준 `from` 00:00:00.000, `to` 23:59:59.999를 포함 |
 | `limit` | 1-200 사이 반환 개수 |
 
-감사 로그 조회 자체도 `audit_logs.read` 액션으로 기록한다.
+감사 로그 조회 자체도 `audit_logs.read` 액션으로 기록한다. 단, 같은 사용자가 동일 필터·동일 사유로 5초 안에 재시도한 요청은 화면 초기화나 네트워크 중복 호출로 보고 한 건으로 합치며, 필터·사유가 다르거나 5초를 지난 조회는 별도 기록한다.
+`from`이 `to`보다 늦은 범위는 빈 목록으로 처리하지 않고 `400 VALIDATION_ERROR`로 거부한다.
 
 파일럿 준비 상태 저장 payload:
 
@@ -289,6 +290,8 @@
 | `GET` | `/branches/:branchId/payments` | `payments.read` | 예 | 결제 목록 |
 | `POST` | `/branches/:branchId/members/:memberId/memberships` | `memberships.write` | 예 | 회원권 등록 |
 | `POST` | `/branches/:branchId/payments` | `payments.write` | 예 | 수기 결제 기록 |
+| `PATCH` | `/payments/:paymentId` | `payments.write` | 예 | 수기 결제 정정 |
+| `DELETE` | `/payments/:paymentId` | `payments.write` | 예 | 수기 결제 오등록 삭제 |
 | `POST` | `/payments/:paymentId/online-checkout` | `payments.write` | 예 | 온라인 결제 요청 생성 |
 | `POST` | `/payments/:paymentId/recurring-agreement` | `payments.write` | 예 | 정기결제 약정 생성 |
 | `DELETE` | `/payments/:paymentId/recurring-agreement` | `payments.write` | 예 | 정기결제 약정 해지 |
@@ -298,7 +301,7 @@
 | `GET` | `/exports/payments` | `exports.create` | 예 | 결제 CSV 내보내기 |
 | `GET` | `/exports/operations` | `exports.create` | 예 | 지점 운영 리포트 CSV 내보내기 |
 
-수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지 검증한다. 결제 생성은 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. 환불/취소 payload는 `reason`을 필수로 받으며, 부분 환불은 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 감사 로그에도 남긴다.
+수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지와 만료일이 납부일보다 앞서지 않는지를 생성·수정에 동일하게 검증한다. 결제 생성은 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. `PATCH /payments/:paymentId`는 회원권명, 상태, 금액, 할인, 납부일, 만료일과 필수 `reason`을 정정하고 `payment.update` 변경 기록을 남긴다. 금액·할인·회원권명·날짜만 정정하면 감사 기록만 남기며, 실제 상태가 바뀐 경우에만 `statusHistory`에 `status_changed`를 추가한다. `DELETE /payments/:paymentId`는 필수 `reason`과 삭제 전 스냅샷을 `payment.delete` 변경 기록에 남긴 뒤 오등록 건을 제거한다. 두 API는 대표/총괄과 선택 지점 범위를 확인하며, 온라인 결제·정기결제·환불 금액 이력이 있는 기록은 직접 수정/삭제하지 않고 기존 결제 수명주기 API를 사용한다. 환불 금액이 없는 수기 취소 기록은 사유를 남겨 계속 정정하거나 삭제할 수 있다. 환불/취소 payload는 `reason`을 필수로 받으며, 부분 환불은 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 변경 기록에도 남긴다.
 
 온라인 결제 요청은 예정/미납/만료 예정/부분 환불 결제에 대해 대표/총괄이 생성한다. `POST /api/v1/payments/{paymentId}/online-checkout`은 provider-neutral `onlinePayment` 메타를 결제에 저장하고 `payment.online_checkout.create` 감사 로그를 남긴다. 운영 PG/VAN 계약 전에는 `FINAL_JUDO_PAYMENT_PROVIDER`가 비어 있으면 mock provider로 동작하며, `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL`이 없으면 앱 내부 리허설 URL을 만든다.
 

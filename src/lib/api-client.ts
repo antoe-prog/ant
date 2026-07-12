@@ -24,6 +24,9 @@ import type {
   UserRole,
 } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds, getSelectedBranchIds, mockApi } from "@/lib/mock-api";
+import type { ManualPaymentUpdatePayload } from "@/lib/manual-payment-management";
+
+export type { ManualPaymentUpdatePayload };
 
 export { getAccessibleBranchIds, getAccessibleMemberIds, getSelectedBranchIds };
 
@@ -97,6 +100,10 @@ export type PaymentCreatePayload = Pick<Payment, "memberId" | "planName" | "amou
 export type PaymentRefundPayload = {
   amount?: number;
   cancel?: boolean;
+  reason: string;
+};
+
+export type PaymentDeletePayload = {
   reason: string;
 };
 
@@ -719,6 +726,26 @@ export const apiClient = {
       `/api/v1/branches/${encodeURIComponent(branchId)}/payments${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  updateManualPayment(paymentId: string, payload: ManualPaymentUpdatePayload, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/payments/${encodeURIComponent(paymentId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  deleteManualPayment(paymentId: string, payload: PaymentDeletePayload, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/payments/${encodeURIComponent(paymentId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
         body: JSON.stringify(payload),
       },
     );

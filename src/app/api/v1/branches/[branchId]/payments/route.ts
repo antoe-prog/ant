@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Payment, PaymentStatus } from "@/lib/domain";
+import { getManualPaymentDateRangeError } from "@/lib/manual-payment-management";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import { readServerDb, writeServerDb } from "@/server/db";
@@ -26,10 +27,6 @@ type PaymentBody = {
   dueDate?: string;
   expiresAt?: string;
 };
-
-function isDateOnly(value: string | undefined) {
-  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00`)));
-}
 
 export async function POST(
   request: NextRequest,
@@ -86,8 +83,10 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "할인 금액은 결제 금액 이하의 0원 이상 숫자여야 합니다.");
   }
 
-  if (!isDateOnly(dueDate) || !isDateOnly(expiresAt)) {
-    return jsonError(400, "VALIDATION_ERROR", "납부일과 만료일은 YYYY-MM-DD 형식이어야 합니다.");
+  const dateRangeError = getManualPaymentDateRangeError(dueDate, expiresAt);
+
+  if (dateRangeError) {
+    return jsonError(400, "VALIDATION_ERROR", dateRangeError);
   }
 
   const member = db.members.find((candidate) => candidate.id === memberId);

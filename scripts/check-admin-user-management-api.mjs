@@ -544,6 +544,14 @@ async function runAssertions(baseUrl) {
   assert(!responseText.includes("passwordHash"), "admin user update response must not include passwordHash keys");
   assert.equal(updateAudit?.after?.reason, updateReason, "admin user update audit must include reason");
   assert.equal(updateAudit?.after?.passwordUpdated, true, "admin user update audit must mark password update");
+  assert.equal(updateAudit?.after?.email, "a***@example.com", "admin user update audit must mask email");
+  assert.equal(
+    updateAudit?.after?.phone,
+    `010-****-${updatedPhone.slice(-4)}`,
+    "admin user update audit must mask phone",
+  );
+  assert.notEqual(updateAudit?.before?.email, inviteEmail, "admin user update audit must not retain the previous raw email");
+  assert.notEqual(updateAudit?.before?.phone, invitePhone, "admin user update audit must not retain the previous raw phone");
   assert(!("password" in updateAudit.after), "admin user update audit must not expose raw password");
   assert(!("passwordHash" in updateAudit.after), "admin user update audit must not expose password hash");
 
@@ -692,6 +700,7 @@ async function runAssertions(baseUrl) {
     "optional password update login",
     "dedicated password issue login and audit redaction",
     "password hash and raw password redaction",
+    "audit phone and email masking",
     "short/default password rejection",
     "self-demotion and self-delete protection",
     "linked coach delete protection",

@@ -191,7 +191,7 @@ MVP 기본 역할은 다음과 같다.
 - 파일럿 운영 이슈 생성/상태 변경과 우회책 기록
 - 파일럿 일일 운영 로그 생성/갱신과 14일 운영 증빙 기록
 
-`audit_logs`는 append-only로 운영한다. 일반 애플리케이션 계정에는 update/delete 권한을 주지 않는다. 민감 데이터 원문 전체를 무제한 저장하지 않고, 필요 시 `before_data`와 `after_data`에는 마스킹된 스냅샷 또는 변경 필드만 저장한다.
+`audit_logs`는 append-only로 운영한다. 일반 애플리케이션 계정에는 update/delete 권한을 주지 않는다. 민감 데이터 원문 전체를 무제한 저장하지 않고, `before_data`와 `after_data`의 휴대폰·이메일·계정 식별값은 마스킹하며 비밀번호·토큰·알림 endpoint는 제거한다. 건강 주의사항·공지 본문·운영 증빙은 원문 대신 변경 여부 또는 건수만 저장한다. 출석 사유처럼 감사 근거가 되는 메모는 유지하되 포함된 연락처와 자격 증명 패턴을 마스킹한다.
 
 ## 8. PostgreSQL 스키마 초안
 
@@ -234,21 +234,37 @@ CREATE TYPE audit_action AS ENUM (
   'reject',
   'attendance.update',
   'notice.create',
+  'notice.delete',
   'notice.read',
   'notification.subscribe',
   'notification.unsubscribe',
   'notification.dispatch',
   'member.create',
   'member.update',
+  'counseling_note.create',
+  'promotion.create',
+  'promotion.update',
+  'tournament.create',
+  'tournament.update',
+  'tournament.delete',
   'class.create',
   'class.update',
   'payment.create',
+  'payment.update',
+  'payment.delete',
+  'payment.online_checkout.create',
+  'payment.webhook',
+  'payment.recurring_agreement.create',
+  'payment.recurring_agreement.cancel',
   'payment.refund',
   'branch.create',
   'branch.update',
   'branch.owner.assign',
   'user.invite.create',
+  'user.invite.approve',
+  'user.update',
   'user.role.update',
+  'user.delete',
   'audit_logs.read',
   'export.create',
   'pilot_readiness.update',

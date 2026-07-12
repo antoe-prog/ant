@@ -1,11 +1,13 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronDown, Copy, ExternalLink, History, Pencil, Search, ShieldCheck, UserCog, UserPlus, X } from "lucide-react";
 import { PermissionMatrix, type PermissionMatrixRow } from "@/components/domain/permission-matrix";
 import { useApiContext } from "@/hooks/use-api-context";
-import { userRoles, type AppUser, type AuditAction, type AuditLog, type UserRole } from "@/lib/domain";
+import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
+import { auditActionLabels, auditResultLabels } from "@/lib/audit-log-presentation";
+import { userRoles, type AppUser, type AuditAction, type UserRole } from "@/lib/domain";
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { roleLabels, roleManagementScopeLabels } from "@/lib/roles";
@@ -56,57 +58,6 @@ const adminPermissionRows: PermissionMatrixRow[] = [
   },
 ];
 
-const auditActionLabels: Record<AuditAction, string> = {
-  "attendance.update": "출석 변경",
-  "notice.create": "공지 작성",
-  "notice.delete": "공지 삭제",
-  "notice.read": "공지 읽음",
-  "notification.subscribe": "알림 수신 등록",
-  "notification.unsubscribe": "알림 수신 해제",
-  "notification.dispatch": "공지 알림 발송",
-  "member.create": "회원 등록",
-  "member.update": "회원 정보 변경",
-  "counseling_note.create": "상담 메모 작성",
-  "promotion.create": "승급 심사 등록",
-  "promotion.update": "승급 심사 결과",
-  "tournament.create": "대회 공지 등록",
-  "tournament.update": "대회 공지 수정",
-  "tournament.delete": "대회 공지 삭제",
-  "class.create": "수업 생성",
-  "class.update": "수업 변경",
-  "payment.create": "결제 등록",
-  "payment.online_checkout.create": "온라인 결제 요청",
-  "payment.webhook": "결제 상태 반영",
-  "payment.recurring_agreement.create": "정기결제 약정",
-  "payment.recurring_agreement.cancel": "정기결제 해지",
-  "payment.refund": "결제 환불",
-  "branch.create": "지점 생성",
-  "branch.update": "지점 변경",
-  "branch.owner.assign": "대표 배정",
-  "user.invite.create": "사용자 초대",
-  "user.invite.approve": "초대 승인",
-  "user.update": "사용자 수정",
-  "user.role.update": "역할 변경",
-  "user.delete": "사용자 삭제",
-  "audit_logs.read": "변경 기록 조회",
-  "export.create": "내보내기",
-  "pilot_readiness.update": "운영 준비 변경",
-  "pilot_incident.create": "운영 이슈 등록",
-  "pilot_incident.update": "운영 이슈 변경",
-  "pilot_operation.update": "운영 기록 변경",
-  "auth.invite.accept": "초대 수락",
-  "auth.password_reset.request": "비밀번호 재설정 요청",
-  "auth.password_reset.complete": "비밀번호 재발급",
-  "auth.login": "로그인",
-  "auth.logout": "로그아웃",
-};
-
-const auditResultLabels: Record<AuditLog["result"], string> = {
-  blocked: "확인 필요",
-  failed: "실패",
-  success: "완료",
-};
-
 const roleRelevantAuditActions = new Set<AuditAction>([
   "auth.invite.accept",
   "auth.password_reset.complete",
@@ -142,15 +93,11 @@ function shouldOpenInviteForm(searchParams: Pick<URLSearchParams, "get">) {
 }
 
 export function AdminRolesScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const context = useApiContext();
   const { updateUserRole, createInvitation } = useAppStore();
-  const initialRoleSearch = searchParams.get("q")?.trim() ?? "";
-  const roleSearchParam = searchParams.get("q")?.trim() ?? "";
   const inviteFormRequested = shouldOpenInviteForm(searchParams);
-  const previousRoleSearchParamRef = useRef(initialRoleSearch);
-  const [query, setQueryState] = useState(initialRoleSearch);
+  const [query, setRoleSearch] = useUrlSyncedTextParam("q");
   const [roleDrafts, setRoleDrafts] = useState<Record<string, UserRole>>({});
   const [roleReasons, setRoleReasons] = useState<Record<string, string>>({});
   const [roleFeedback, setRoleFeedback] = useState<string | null>(null);
@@ -165,27 +112,6 @@ export function AdminRolesScreen() {
   const [roleEditorUserId, setRoleEditorUserId] = useState<string | null>(null);
   const [permissionMatrixOpen, setPermissionMatrixOpen] = useState(false);
   const [showAllRecentRoleChanges, setShowAllRecentRoleChanges] = useState(false);
-
-  useEffect(() => {
-    const nextRoleSearch = roleSearchParam;
-
-    if (nextRoleSearch === previousRoleSearchParamRef.current) {
-      return;
-    }
-
-    previousRoleSearchParamRef.current = nextRoleSearch;
-    let cancelled = false;
-
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setQueryState(nextRoleSearch);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [roleSearchParam]);
 
   useEffect(() => {
     if (!inviteFormOpen || typeof window === "undefined" || window.location.hash !== "#admin-role-invite-submit") {
@@ -212,22 +138,6 @@ export function AdminRolesScreen() {
       }
     };
   }, [inviteFormOpen]);
-
-  function setRoleSearch(value: string) {
-    setQueryState(value);
-
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-
-      if (value.trim()) {
-        url.searchParams.set("q", value.trim());
-      } else {
-        url.searchParams.delete("q");
-      }
-
-      router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
-    }
-  }
 
   const branchById = useMemo(() => new Map(context.db.branches.map((branch) => [branch.id, branch])), [context.db.branches]);
   const permissionSummary = useMemo(() => getPermissionSummary(adminPermissionRows), []);

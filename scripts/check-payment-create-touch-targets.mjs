@@ -184,6 +184,7 @@ function cleanPaymentCreateOutputDir() {
 function assertStaticContracts() {
   const packageJson = readFileSync("package.json", "utf8");
   const releaseRunner = readFileSync("scripts/run-release-checks.mjs", "utf8");
+  const manualPaymentManagement = readFileSync("src/components/domain/manual-payment-management.tsx", "utf8");
   const paymentsScreen = readFileSync("src/components/screens/payments-screen.tsx", "utf8");
 
   assert(packageJson.includes('"test:payment-create-touch-targets"'), "package.json must expose test:payment-create-touch-targets");
@@ -209,10 +210,25 @@ function assertStaticContracts() {
     'data-testid="payment-create-member-search-input"',
     'data-testid="payment-create-member-result"',
     'data-testid="payment-create-selected-member"',
+    'data-testid="payment-create-plan-input"',
+    'data-testid="payment-create-amount-input"',
+    'data-testid="payment-create-due-date-input"',
+    'data-testid="payment-create-expiry-date-input"',
     'data-testid="payment-create-submit"',
+    'data-testid="payment-create-feedback"',
     "회원 이름, 연락처, 보호자 검색",
   ]) {
     assert(paymentsScreen.includes(snippet), `payments screen must include ${snippet}`);
+  }
+  for (const snippet of [
+    'data-testid="manual-payment-edit-open"',
+    'data-testid="manual-payment-delete-open"',
+    'data-testid="manual-payment-edit-form"',
+    'data-testid="manual-payment-delete-form"',
+    'data-testid="manual-payment-edit-submit"',
+    'data-testid="manual-payment-delete-submit"',
+  ]) {
+    assert(manualPaymentManagement.includes(snippet), `manual payment management must include ${snippet}`);
   }
   assert(!paymentsScreen.includes("선택 가능한 샘플 회원"), "payment create form must not expose sample member copy");
 }
@@ -245,6 +261,8 @@ async function collectCollapsedLayout(page, { requireRefundRowAlignment = false 
       '[data-testid="payment-recurring-cancel-submit"]',
       '[data-testid="payment-online-checkout-link"]',
       '[data-testid="payment-receipt-link"]',
+      '[data-testid="manual-payment-edit-open"]',
+      '[data-testid="manual-payment-delete-open"]',
     ];
     const actionControlHeights = Object.fromEntries(
       actionControlSelectors.map((selector) => [selector, readHeights(selector)]),
@@ -309,6 +327,8 @@ async function collectCollapsedLayout(page, { requireRefundRowAlignment = false 
     '[data-testid^="payment-refund-full-amount-"]',
     '[data-testid="payment-refund-submit"]',
     '[data-testid="payment-cancel-submit"]',
+    '[data-testid="manual-payment-edit-open"]',
+    '[data-testid="manual-payment-delete-open"]',
   ]) {
     assert(
       layout.actionControlHeights[requiredSelector]?.length > 0,
@@ -421,6 +441,74 @@ async function collectSelectedLayout(page) {
   return layout;
 }
 
+async function createManualPaymentFixture(page) {
+  const planName = `모바일 정정 검증 ${Date.now()}`;
+  const response = await page.evaluate(async ({ fixturePlanName }) => {
+    const result = await fetch("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: 180000,
+        discountAmount: 0,
+        dueDate: "2026-07-12",
+        expiresAt: "2026-08-12",
+        memberId: "member-jun",
+        planName: fixturePlanName,
+        status: "paid",
+      }),
+    });
+    const payload = await result.json();
+
+    return {
+      ok: result.ok,
+      paymentId: payload.data?.db?.payments?.find((payment) => payment.planName === fixturePlanName)?.id ?? null,
+      status: result.status,
+    };
+  }, { fixturePlanName: planName });
+
+  assert(response.ok, `manual payment fixture create failed with ${response.status}`);
+  assert(response.paymentId, "manual payment fixture must return a payment id");
+
+  return { id: response.paymentId, planName };
+}
+
+async function collectManualPaymentManagementLayout(page, paymentId, formTestId) {
+  const layout = await page.evaluate(({ id, testId }) => {
+    const article = document.querySelector(`[data-payment-id="${CSS.escape(id)}"]`);
+    const form = article?.querySelector(`[data-testid="${testId}"]`);
+    const controls = Array.from(form?.querySelectorAll("input, select, button") ?? []).map((control) => ({
+      height: Math.round(control.getBoundingClientRect().height),
+      testId: control.getAttribute("data-testid"),
+      text: control.textContent?.replace(/\s+/g, " ").trim() ?? "",
+    }));
+    const actionControls = Array.from(
+      article?.querySelectorAll('[data-testid="manual-payment-edit-open"], [data-testid="manual-payment-delete-open"]') ?? [],
+    ).map((control) => Math.round(control.getBoundingClientRect().height));
+
+    return {
+      actionControlHeights: actionControls,
+      articleText: article?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      clientWidth: document.documentElement.clientWidth,
+      controlHeights: controls.map((control) => control.height),
+      controls,
+      formPresent: Boolean(form),
+      scrollWidth: document.documentElement.scrollWidth,
+    };
+  }, { id: paymentId, testId: formTestId });
+
+  assert(layout.formPresent, `${formTestId} must be visible for the selected manual payment`);
+  assert.equal(layout.actionControlHeights.length, 2, "manual payment row must expose edit and delete actions");
+  for (const [index, height] of layout.actionControlHeights.entries()) {
+    assert(height >= 44, `manual payment action ${index + 1} must stay 44px tall; got ${height}px`);
+  }
+  for (const [index, height] of layout.controlHeights.entries()) {
+    assert(height >= 44, `manual payment form control ${index + 1} must stay 44px tall; got ${height}px`);
+  }
+  assert.equal(layout.scrollWidth, layout.clientWidth, `${formTestId} must not overflow horizontally`);
+
+  return layout;
+}
+
 mkdirSync(outDir, { recursive: true });
 const cleanedOutputFiles = cleanPaymentCreateOutputDir();
 assertStaticContracts();
@@ -468,8 +556,113 @@ try {
   const selectedLayout = await collectSelectedLayout(page);
   const selectedScreenshotPath = join(outDir, "owner-payments-create-selected-mobile.png");
   await page.screenshot({ path: selectedScreenshotPath, fullPage: false });
-  await page.getByTestId("payment-create-submit").click();
+  const createdPlanName = `모바일 등록 검증 ${Date.now()}`;
+  await page.getByTestId("payment-create-plan-input").fill(createdPlanName);
+  await page.route(
+    "**/api/v1/branches/*/payments*",
+    async (route) => {
+      await sleep(300);
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const paymentCreateSubmit = page.getByTestId("payment-create-submit");
+  await paymentCreateSubmit.click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="payment-create-submit"]')?.disabled === true,
+  );
+  const paymentCreateFeedback = page.getByTestId("payment-create-feedback");
+  await paymentCreateFeedback.waitFor({ state: "visible", timeout: 15000 });
+  assert.match(
+    (await paymentCreateFeedback.textContent()) ?? "",
+    /수기 결제를 등록했습니다/,
+    "manual payment create must expose persisted success feedback",
+  );
+  await page.waitForFunction(
+    (planName) =>
+      Array.from(document.querySelectorAll("[data-payment-id]")).filter((element) =>
+        element.textContent?.includes(planName),
+      ).length === 1,
+    createdPlanName,
+  );
+  const createdPaymentCount = await page.locator("[data-payment-id]").filter({ hasText: createdPlanName }).count();
+  assert.equal(createdPaymentCount, 1, "one manual payment submission must create exactly one list record");
+  const createdScreenshotPath = join(outDir, "owner-payments-create-success-mobile.png");
+  await page.screenshot({ path: createdScreenshotPath, fullPage: false });
+  await page.getByTestId("payment-create-toggle").click();
+  await page.getByTestId("payment-create-fields").waitFor({ state: "visible" });
+  assert.equal(
+    await page.getByTestId("payment-create-feedback").count(),
+    0,
+    "starting the next manual payment must clear stale success feedback",
+  );
+
+  const manualPaymentFixture = await createManualPaymentFixture(page);
+  await page.goto(new URL("/app/payments", baseUrl).toString(), { waitUntil: "networkidle" });
+  const manualPaymentArticle = page.locator(`[data-payment-id="${manualPaymentFixture.id}"]`);
+  await manualPaymentArticle.waitFor({ state: "visible", timeout: 15000 });
+  await manualPaymentArticle.scrollIntoViewIfNeeded();
+  await manualPaymentArticle.getByTestId("manual-payment-edit-open").click();
+  await manualPaymentArticle.getByTestId("manual-payment-edit-form").waitFor({ state: "visible" });
+  const manualEditLayout = await collectManualPaymentManagementLayout(page, manualPaymentFixture.id, "manual-payment-edit-form");
+  const manualEditScreenshotPath = join(outDir, "owner-manual-payment-edit-mobile.png");
+  await page.screenshot({ path: manualEditScreenshotPath, fullPage: false, caret: "initial" });
+
+  const revisedPlanName = `${manualPaymentFixture.planName} 수정`;
+  await manualPaymentArticle.getByTestId("manual-payment-plan-input").fill(revisedPlanName);
+  await manualPaymentArticle.getByTestId("manual-payment-amount-input").fill("200000");
+  await manualPaymentArticle.getByTestId("manual-payment-discount-input").fill("10000");
+  await manualPaymentArticle.getByTestId("manual-payment-status-select").selectOption("cancelled");
+  await manualPaymentArticle.getByTestId("manual-payment-due-date-input").fill("2026-08-14");
+  await manualPaymentArticle.getByTestId("manual-payment-expiry-date-input").fill("2026-08-13");
+  await manualPaymentArticle.getByTestId("manual-payment-edit-reason-input").fill("날짜 역전 확인");
+  await manualPaymentArticle.getByTestId("manual-payment-edit-submit").click();
+  const manualInvalidDateFeedback = manualPaymentArticle.getByTestId("manual-payment-management-feedback");
+  await manualInvalidDateFeedback.waitFor({ state: "visible" });
+  assert.match(
+    (await manualInvalidDateFeedback.textContent()) ?? "",
+    /만료일은 납부일과 같거나 이후/,
+    "manual payment edit must explain the invalid date order",
+  );
+  await manualPaymentArticle.getByTestId("manual-payment-edit-form").waitFor({ state: "visible" });
+  const manualInvalidDateScreenshotPath = join(outDir, "owner-manual-payment-invalid-date-mobile.png");
+  await page.screenshot({ path: manualInvalidDateScreenshotPath, fullPage: false, caret: "initial" });
+
+  await manualPaymentArticle.getByTestId("manual-payment-due-date-input").fill("2026-07-13");
+  await manualPaymentArticle.getByTestId("manual-payment-expiry-date-input").fill("2026-08-13");
+  await manualPaymentArticle.getByTestId("manual-payment-edit-reason-input").fill("모바일 금액 정정");
+  await manualPaymentArticle.getByTestId("manual-payment-edit-submit").click();
+  await page.waitForFunction(
+    ({ id, planName }) => document.querySelector(`[data-payment-id="${CSS.escape(id)}"]`)?.textContent?.includes(planName),
+    { id: manualPaymentFixture.id, planName: revisedPlanName },
+  );
+  const updatedArticleText = await manualPaymentArticle.textContent();
+  assert.match(updatedArticleText ?? "", /(?:₩|￦)200,000|200,000원/, "manual payment edit must update the amount shown in the list");
+  assert.match(updatedArticleText ?? "", /취소/, "manual payment edit must persist the cancelled status");
+  assert.match(updatedArticleText ?? "", /수기 결제 상태 변경: 모바일 금액 정정/, "manual payment status edit must append visible status history");
+  const manualEditedScreenshotPath = join(outDir, "owner-manual-payment-edited-mobile.png");
+  await manualPaymentArticle.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: manualEditedScreenshotPath, fullPage: false, caret: "initial" });
+
+  await manualPaymentArticle.getByTestId("manual-payment-delete-open").click();
+  const manualDeleteForm = manualPaymentArticle.getByTestId("manual-payment-delete-form");
+  await manualDeleteForm.waitFor({ state: "visible" });
+  const manualDeleteLayout = await collectManualPaymentManagementLayout(page, manualPaymentFixture.id, "manual-payment-delete-form");
+  await manualPaymentArticle.getByTestId("manual-payment-delete-reason-input").fill("중복 등록 삭제");
+  await manualDeleteForm.scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
   await page.waitForTimeout(250);
+  const manualDeleteConfirmScreenshotPath = join(outDir, "owner-manual-payment-delete-confirm-mobile.png");
+  await page.screenshot({ path: manualDeleteConfirmScreenshotPath, fullPage: false, caret: "initial" });
+  await manualPaymentArticle.getByTestId("manual-payment-delete-submit").click();
+  await manualPaymentArticle.waitFor({ state: "detached", timeout: 15000 });
+  await page.waitForTimeout(250);
+  const manualDeletedScreenshotPath = join(outDir, "owner-manual-payment-deleted-mobile.png");
+  await page.screenshot({ path: manualDeletedScreenshotPath, fullPage: false, caret: "initial" });
 
   assert.deepEqual(messages, [], `payment create touch-target flow must not emit console warnings/errors: ${messages.join(" | ")}`);
   assert.deepEqual(desktopMessages, [], `payment refund desktop alignment flow must not emit console warnings/errors: ${desktopMessages.join(" | ")}`);
@@ -490,7 +683,13 @@ try {
       "payment create toggle, search input, results, fields, and submit action stay 44px touch targets",
       "payment create member search finds and selects a real member without scroll-only picker behavior",
       "payment create submit enables only after member selection",
+      "manual payment create disables while saving, persists exactly once, and shows success feedback",
+      "starting the next manual payment clears stale success feedback",
       "390px owner payment create flow stays overflow-free and console-clean",
+      "manual payment edit rejects an expiry before the due date with visible feedback",
+      "manual payment edit loads current values, saves amount/cancellation/date corrections, and appends visible history",
+      "cancelled manual payment deletion requires a reason and removes the selected record",
+      "manual payment edit/delete actions and form controls stay 44px tall and overflow-free at 390px",
     ],
     consoleMessages: messages,
     layouts: {
@@ -498,6 +697,8 @@ try {
       desktopRefund: desktopRefundLayout,
       search: searchLayout,
       selected: selectedLayout,
+      manualEdit: manualEditLayout,
+      manualDelete: manualDeleteLayout,
     },
     outputCleanup: {
       outDir,
@@ -518,6 +719,30 @@ try {
       selected: {
         path: selectedScreenshotPath,
         sizeBytes: statSync(selectedScreenshotPath).size,
+      },
+      created: {
+        path: createdScreenshotPath,
+        sizeBytes: statSync(createdScreenshotPath).size,
+      },
+      manualEdit: {
+        path: manualEditScreenshotPath,
+        sizeBytes: statSync(manualEditScreenshotPath).size,
+      },
+      manualInvalidDate: {
+        path: manualInvalidDateScreenshotPath,
+        sizeBytes: statSync(manualInvalidDateScreenshotPath).size,
+      },
+      manualEdited: {
+        path: manualEditedScreenshotPath,
+        sizeBytes: statSync(manualEditedScreenshotPath).size,
+      },
+      manualDeleteConfirm: {
+        path: manualDeleteConfirmScreenshotPath,
+        sizeBytes: statSync(manualDeleteConfirmScreenshotPath).size,
+      },
+      manualDeleted: {
+        path: manualDeletedScreenshotPath,
+        sizeBytes: statSync(manualDeletedScreenshotPath).size,
       },
       desktopRefund: {
         path: desktopRefundScreenshotPath,

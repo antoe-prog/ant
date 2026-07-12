@@ -22,6 +22,7 @@ const attendanceReasonRoutePath = path.join(
   "route.ts",
 );
 const branchPaymentRoutePath = path.join(apiRoot, "branches", "[branchId]", "payments", "route.ts");
+const paymentManageRoutePath = path.join(apiRoot, "payments", "[paymentId]", "route.ts");
 const paymentRefundRoutePath = path.join(apiRoot, "payments", "[paymentId]", "refund", "route.ts");
 const onlineCheckoutRoutePath = path.join(apiRoot, "payments", "[paymentId]", "online-checkout", "route.ts");
 const recurringAgreementRoutePath = path.join(apiRoot, "payments", "[paymentId]", "recurring-agreement", "route.ts");
@@ -106,6 +107,7 @@ const operationalMutationRouteSources = [
   attendanceRoutePath,
   attendanceReasonRoutePath,
   branchPaymentRoutePath,
+  paymentManageRoutePath,
   paymentRefundRoutePath,
   onlineCheckoutRoutePath,
   recurringAgreementRoutePath,
@@ -152,24 +154,27 @@ for (const routeFile of routeFiles) {
       continue;
     }
 
-    const firstSessionCheck = handler.source.indexOf("requireSession(");
+    const authGuardIndexes = [
+      handler.source.indexOf("requireSession("),
+      handler.source.indexOf("requireManualPaymentRequestContext("),
+    ].filter((index) => index >= 0);
 
-    if (firstSessionCheck === -1) {
+    if (authGuardIndexes.length === 0) {
       violations.push({
         file: routeFile,
         line: lineNumber(content, handler.start + firstBodyRead),
         method: handler.method,
-        reason: "request body is read in a non-public API handler without requireSession",
+        reason: "request body is read in a non-public API handler without an approved session guard",
       });
       continue;
     }
 
-    if (firstBodyRead < firstSessionCheck) {
+    if (firstBodyRead < Math.min(...authGuardIndexes)) {
       violations.push({
         file: routeFile,
         line: lineNumber(content, handler.start + firstBodyRead),
         method: handler.method,
-        reason: "request body is read before requireSession",
+        reason: "request body is read before the approved session guard",
       });
       continue;
     }
@@ -188,6 +193,12 @@ assert(allowedPublicHandlers.length === publicBodyRoutes.size, "public body rout
 assert(
   bootstrapRouteSource.includes("requireSelectedBranchScope(request, user, db)"),
   "bootstrap route must reject invalid selectedBranchId before returning a scoped snapshot",
+);
+const paymentManageRouteSource = readFileSync(paymentManageRoutePath, "utf8");
+assert(
+  paymentManageRouteSource.includes("async function requireManualPaymentRequestContext") &&
+    paymentManageRouteSource.includes("requireSession(request, db)"),
+  "manual payment management helper must authenticate before returning payment context",
 );
 assert(
   readFileSync("scripts/smoke-api.mjs", "utf8").includes("/api/v1/me/bootstrap?selectedBranchId=branch-missing"),
@@ -228,6 +239,7 @@ for (const routePath of [
   branchClassRoutePath,
   classRoutePath,
   branchPaymentRoutePath,
+  paymentManageRoutePath,
   paymentRefundRoutePath,
   onlineCheckoutRoutePath,
   recurringAgreementRoutePath,
@@ -263,6 +275,8 @@ for (const expected of [
   "selected branch mismatch must not create the class",
   "payment create must reject a selected branch mismatch before validation",
   "selected branch mismatch must not create the payment",
+  "manual payment update must reject an invalid selected branch before validation",
+  "manual payment update must reject a selected branch mismatch before validation",
   "counseling note create must reject a selected branch mismatch before validation",
   "selected branch mismatch must not create the counseling note",
   "member update must reject a selected branch mismatch before validation",

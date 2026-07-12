@@ -209,6 +209,7 @@ async function readLayout(page) {
 
 function assertStaticContracts() {
   const adminRolesScreen = readFileSync("src/components/screens/admin-roles-screen.tsx", "utf8");
+  const syncedTextParamHook = readFileSync("src/hooks/use-url-synced-text-param.ts", "utf8");
   const packageJson = readFileSync("package.json", "utf8");
   const releaseRunner = readFileSync("scripts/run-release-checks.mjs", "utf8");
 
@@ -221,9 +222,10 @@ function assertStaticContracts() {
   assert(adminRolesScreen.includes('data-testid="admin-role-empty-filter-reset"'), "admin roles screen must expose empty search reset action");
   assert(adminRolesScreen.includes('data-testid="admin-role-supporting-panels"'), "admin roles screen must expose supporting panel visibility hook");
   assert(adminRolesScreen.includes('data-testid="admin-role-bottom-safe-area"'), "admin roles screen must reserve mobile bottom safe area");
-  assert(adminRolesScreen.includes('const initialRoleSearch = searchParams.get("q")?.trim() ?? "";'), "admin role search q param must initialize from Next search params");
-  assert(adminRolesScreen.includes("previousRoleSearchParamRef"), "admin role search must guard stale q params after clearing");
-  assert(adminRolesScreen.includes("router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false })"), "admin role search must update q through the Next router");
+  assert(adminRolesScreen.includes('useUrlSyncedTextParam("q")'), "admin role search must use the shared URL-synced text state");
+  assert(syncedTextParamHook.includes("useSearchParams()"), "shared text state must initialize from Next search params");
+  assert(syncedTextParamHook.includes("previousParamValueRef"), "shared text state must guard stale q params after clearing");
+  assert(syncedTextParamHook.includes("router.replace(nextUrl, { scroll: false })"), "shared text state must update q through the Next router");
   assert(adminRolesScreen.includes('roleSearchActive ? "hidden xl:grid" : "grid"'), "admin role search must hide supporting panels on mobile while filtering");
 }
 

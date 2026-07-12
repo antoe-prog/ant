@@ -27,6 +27,7 @@ import { getMobileVisibleRoutes, getRouteLabel, getVisibleRoutes, isRouteActive,
 import { formatNotificationActionableLabel, getNotificationAlertCounts } from "@/lib/notification-alerts";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
+import { GlobalSearch } from "@/components/shell/global-search";
 import { RoleBadge } from "@/components/ui/primitives";
 
 const navIcons: Record<AppRouteId, React.ComponentType<{ className?: string }>> = {
@@ -166,6 +167,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              <GlobalSearch db={db} selectedBranchId={selectedBranchId} user={user} />
               {branches.length > 1 ? (
                 <label className="relative hidden sm:block">
                   <span className="sr-only">지점 선택</span>

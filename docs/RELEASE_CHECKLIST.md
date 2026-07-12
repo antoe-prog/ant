@@ -73,18 +73,21 @@
 - [x] `npm run test:owner-decision-register` `owner:decision-register -- --workspace=.data --out=.data/p1-owner-decision-register.json --markdown=.data/p1-owner-decision-register.md --csv=.data/p1-owner-decision-register.csv --guide=.data/p1-owner-decision-register.guide.md`가 대표 결정 문항, 담당 lane, 필수 증빙, 검증 명령, 담당자/기한/증빙 입력 열과 CSV 작성 안내 guide를 생성하고 missing/secret-like fixture를 차단
 - [x] `npm run test:owner-decision-register-apply-csv` `owner:decision-register:apply-csv -- --workspace=.data --csv=.data/p1-owner-decision-register.csv --json=.data/p1-owner-decision-register.json --out=.data/p1-owner-decision-register.completed.json --markdown=.data/p1-owner-decision-register.completed.md`가 대표가 채운 담당자/기한/증빙 책임자 입력을 별도 completed JSON/Markdown으로 적용하고 고정 열 변조, placeholder, 잘못된 날짜, HTTP 증빙 URL, secret-like fixture를 차단
 - [x] `npm run test:owner-briefing-package` `owner:briefing-package -- --workspace=.data --out=.data/p1-owner-briefing-package.json --markdown=.data/p1-owner-briefing-package.md --package-dir=.data/p1-owner-briefing-package`가 대표 보고서, [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md) P1 6인 팀 목표 프롬프트, 현재 초안, 대표 의사결정 등록표와 `.data/p1-owner-decision-register.guide.md`, optional `.data/p1-owner-decision-register.completed.*`, 운영자 상태판, 완료 기준 매트릭스, 외부 blocker CSV, 패키지 README와 한국어 대표 요약 Markdown을 SHA-256/byte size manifest로 묶고 누락/secret-like fixture를 차단
-- [x] `npm run test:payment-lifecycle` 결제 생성/환불/취소 상태 이력, 결제 등록/환불 API 인증·지점 권한 선확인, `/app/payments` 상태 변경 이력과 확인할 결제, 결제 CSV lifecycle 컬럼 검증 통과
+- [x] `npm run test:payment-lifecycle` 결제 생성/수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
 - [x] `npm run test:online-payments` provider-neutral 온라인 결제 요청, webhook secret, provider event ID 중복 처리, 영수증 메타, 결제 CSV provider 컬럼, 코치 금액/링크 마스킹, production provider/checkout/webhook secret 누락 차단 검증 통과
 - [x] `npm run test:family-payment-checkout` 회원/학부모 결제 카드에서 내부 결제 준비 화면 이동, 성인 회원 직접 결제 허용, 유소년/청소년 회원 직접 결제 차단과 학부모 자녀 결제 허용, 실 PG/API 미연결 상태 및 iOS Simulator 증빙 검증 통과
 - [x] `npm run test:payment-checkout-method-flow` 성인 회원/학부모 결제 상세의 compact 납부 요약, 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 그리드, 우리WON페이 모달, 학부모 자녀 결제 화면이 390px 모바일에서 overflow/콘솔 오류 없이 동작하고 `납부 정보 확인` 버튼/`온라인 결제 준비` 안내가 하단 고정 내비게이션에 가리지 않으며 실제 PG/API 호출이 없는지 검증 통과
-- [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 등록 버튼 활성화, 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
+- [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 등록 중 중복 제출 차단, 성공 안내와 정확히 1건 목록 반영, 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:class-management-touch-targets` 대표/총괄 수업 생성/수정 입력과 코치 출석 메모 토글/입력/빠른 메모/사유 저장 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:member-management-touch-targets` 대표 회원 관리의 계정 초대/회원 등록 기본 접힘, 초대/등록/상태/기본정보/보호자 검색/상담 메모 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:admin-user-management-touch-targets` 총괄 사용자 관리의 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙 검증 통과
 - [x] `npm run test:operator-list-search` 운영자 결제 목록과 공지함 `q` 검색 딥링크/검색어 지우기, 0건 검색 빈 상태, 공지 0건 상태의 읽음 처리 액션 숨김, 검색 입력/인라인 지우기/빈 상태 지우기 44px 터치 목표와 하단 내비 clearance가 390px 모바일에서 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태를 유지하는지 검증 통과
+- [x] `npm run test:global-search` 대표/총괄 상단 통합 검색의 메뉴·회원·결제·공지·사용자 권한 범위, 코치 민감 결제/사용자 결과 차단, 실제 목록 검색 딥링크 연결 검증 통과
 - [x] `npm run test:admin-role-search` 총괄 권한 관리 `q` 검색 딥링크, 검색 입력/인라인 지우기/0건 검색 빈 상태 `전체 보기` 44px 액션, 검색 중 부가 패널 숨김, 하단 safe-area spacer와 내비 clearance, 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태 유지 검증 통과
 - [x] `npm run test:admin-user-search` 총괄 사용자 관리 `role`+`q` 검색 딥링크, 검색어 지우기 시 역할 필터 보존, 0건 검색 빈 상태 `전체 보기` q/role 복구, 검색 입력/인라인 지우기/필터 초기화/빈 상태 초기화 44px 터치 목표와 하단 내비 clearance, 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태 유지 검증 통과
-- [x] `npm run test:admin-audit-search` 총괄 변경 기록 `q` 검색 딥링크, 검색어 지우기와 `전체 보기` URL 복구, 0건 검색 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표와 하단 내비 clearance, 목록 축소, overflow 0, 콘솔 오류 없음, 승급 심사 변경 기록 API 필터 허용 검증 통과
+- [x] `npm run test:admin-audit-search` 총괄 변경 기록 `q` 검색·`detail` 상세 딥링크 복원, 상세 열기/닫기·검색어 지우기·`전체 보기` URL 동기화, 0건 검색 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표와 하단 내비 clearance, 목록 축소, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨, 승급 심사·대회 공지 API 필터 허용, 동일 조회 5초 중복 저장 방지, 한국 시간 종료일 전체 포함과 역전 날짜 범위 차단 검증 통과
+- [x] `npm run test:audit-action-contract` 앱 `AuditAction`, 공통 표시 라벨, API 사용값, PostgreSQL `audit_action` 마이그레이션, DB 스키마 문서 완전성 검증 통과
+- [x] `npm run test:audit-log-privacy` 변경 기록 개인정보·자격 증명·민감 메모 최소화, 중앙 저장 정책, 원문 JSON 없는 한국어 변경 전후 비교 검증 통과
 - [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과
 - [x] `npm run test:payment-provider-handoff` 실 PG/VAN provider handoff manifest, webhook 서명/idempotency, checkout/영수증/정기결제 보관 정책, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, ISO 생성/승인 시각과 생성 이후 승인 순서, 원문 secret 미보관 fixture 검증 통과
@@ -270,7 +273,7 @@
 
 ## 5. DB/API 전환
 
-- [x] `db/migrations/0001_initial.sql` 실제 PostgreSQL 적용 테스트
+- [x] `db/migrations/*.sql` 정렬 순서 전체 실제 PostgreSQL 적용 테스트
 - [x] `db/seeds/seed_mvp.sql` 적용 테스트
 - [x] `docs/API_CONTRACT.md` 기준 핵심 엔드포인트 route handler 구현
 - [x] mock `apiClient`를 HTTP API client로 교체

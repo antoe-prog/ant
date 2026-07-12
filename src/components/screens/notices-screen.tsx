@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bell, BellRing, CheckCheck, Send, Trash2 } from "lucide-react";
 import type { Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient } from "@/lib/api-client";
@@ -13,6 +13,7 @@ import { getNoticeReadCount, isNoticeReadByUser, sortNoticesForDisplay } from "@
 import { roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useResource } from "@/hooks/use-resource";
+import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -57,11 +58,11 @@ function audienceLabel(audience: NoticeAudience[]) {
   return audience.map((item) => (item === "all" ? "전체" : roleLabels[item])).join(", ");
 }
 
-function targetLabel(notice: Notice, context: ReturnType<typeof useApiContext>) {
+function targetLabel(notice: Notice, classNameById: Map<string, string>, memberNameById: Map<string, string>) {
   const classNames = (notice.targetClassIds ?? [])
-    .map((classId) => context.db.classes.find((session) => session.id === classId)?.name ?? classId);
+    .map((classId) => classNameById.get(classId) ?? classId);
   const memberNames = (notice.targetMemberIds ?? [])
-    .map((memberId) => context.db.members.find((member) => member.id === memberId)?.name ?? memberId);
+    .map((memberId) => memberNameById.get(memberId) ?? memberId);
 
   if (classNames.length === 0 && memberNames.length === 0) {
     return "지점 전체";
@@ -74,13 +75,10 @@ function targetLabel(notice: Notice, context: ReturnType<typeof useApiContext>) 
 }
 
 export function NoticesScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const context = useApiContext();
   const { createNotice, deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
-  const initialNoticeListSearch = searchParams.get("q")?.trim() ?? "";
-  const noticeSearchParam = searchParams.get("q")?.trim() ?? "";
-  const previousNoticeListSearchParamRef = useRef(initialNoticeListSearch);
+  const [noticeSearch, setNoticeListSearch] = useUrlSyncedTextParam("q");
   const [noticeComposerDefaults] = useState(getInitialNoticeComposerState);
   const [noticeBranchId, setNoticeBranchId] = useState("");
   const [noticeTitle, setNoticeTitle] = useState("");
@@ -96,7 +94,6 @@ export function NoticesScreen() {
   const [noticeMemberSearch, setNoticeMemberSearch] = useState(noticeComposerDefaults.memberSearch);
   const [noticeTargetType, setNoticeTargetType] = useState<NoticeTargetType>(noticeComposerDefaults.targetType);
   const [noticeFilter, setNoticeFilter] = useState<NoticeFilter>("all");
-  const [noticeSearch, setNoticeSearchState] = useState(initialNoticeListSearch);
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
   const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null);
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
@@ -153,43 +150,6 @@ export function NoticesScreen() {
     setReadFeedback(null);
   }
 
-  useEffect(() => {
-    const nextNoticeListSearch = noticeSearchParam;
-
-    if (nextNoticeListSearch === previousNoticeListSearchParamRef.current) {
-      return;
-    }
-
-    previousNoticeListSearchParamRef.current = nextNoticeListSearch;
-    let cancelled = false;
-
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setNoticeSearchState(nextNoticeListSearch);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [noticeSearchParam]);
-
-  function setNoticeListSearch(value: string) {
-    setNoticeSearchState(value);
-
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-
-      if (value.trim()) {
-        url.searchParams.set("q", value.trim());
-      } else {
-        url.searchParams.delete("q");
-      }
-
-      router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
-    }
-  }
-
   // 회원 카드 "개인 공지 보내기" 같은 클라이언트 내비게이션에서도 작성 프리셋이 적용되도록
   // URL 파라미터 변화를 반영한다 (최초 하드 로드는 noticeComposerDefaults가 처리).
   useEffect(() => {
@@ -232,6 +192,18 @@ export function NoticesScreen() {
   const showNoticeScreenHeader = showNoticeDeliveryMeta || isCoachNoticeReader;
   const showNoticeAside = canPublishNotice;
   const selectedNoticeBranchId = noticeBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
+  const classNameById = useMemo(
+    () => new Map(context.db.classes.map((session) => [session.id, session.name])),
+    [context.db.classes],
+  );
+  const memberNameById = useMemo(
+    () => new Map(context.db.members.map((member) => [member.id, member.name])),
+    [context.db.members],
+  );
+  const userById = useMemo(
+    () => new Map(context.db.users.map((user) => [user.id, user])),
+    [context.db.users],
+  );
   const noticeTargetClasses = context.db.classes.filter((session) => session.branchId === selectedNoticeBranchId);
   const noticeTargetMembers = context.db.members.filter((member) => member.branchId === selectedNoticeBranchId && member.status !== "withdrawn");
   const selectedNoticeMember = noticeTargetMembers.find((member) => member.id === noticeTargetMemberId) ?? null;
@@ -240,7 +212,7 @@ export function NoticesScreen() {
     ? noticeTargetMembers
         .filter((member) => {
           const guardians = member.guardianIds
-            .map((guardianId) => context.db.users.find((user) => user.id === guardianId))
+            .map((guardianId) => userById.get(guardianId))
             .filter(Boolean);
           return matchesNoticeMemberSearch(noticeMemberSearch, [
             member.name,
@@ -259,11 +231,14 @@ export function NoticesScreen() {
     [context.user.id, context.selectedBranchId, context.version],
   );
   const highlightNoticeId = searchParams.get("highlight")?.trim() ?? "";
+  const highlightedNoticeAvailable = Boolean(
+    highlightNoticeId && notices?.some((notice) => notice.id === highlightNoticeId),
+  );
   const [activeHighlightNoticeId, setActiveHighlightNoticeId] = useState<string | null>(null);
 
   // 알림함에서 공지를 탭해 들어오면 해당 공지로 스크롤하고 잠시 강조 표시한다.
   useEffect(() => {
-    if (!highlightNoticeId || !notices?.some((notice) => notice.id === highlightNoticeId)) {
+    if (!highlightedNoticeAvailable) {
       return;
     }
 
@@ -287,7 +262,7 @@ export function NoticesScreen() {
       window.clearTimeout(scrollTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [highlightNoticeId, notices]);
+  }, [highlightNoticeId, highlightedNoticeAvailable]);
 
   function toggleNoticeAudience(nextAudience: NoticeAudience) {
     setNoticeAudience((current) => {
@@ -633,7 +608,7 @@ export function NoticesScreen() {
                 const bodyExpanded = expandedNoticeIds.has(notice.id);
                 const bodyCanCollapse = !showNoticeDeliveryMeta && notice.body.replace(/\s+/g, " ").trim().length > familyNoticeBodyPreviewLength;
                 const showCompactReadAction = !showNoticeDeliveryMeta && !read;
-                const deliveryMetaLabel = `${audienceLabel(notice.audience)} · ${targetLabel(notice, context)} · ${formatDateTime(notice.createdAt)} · 읽음 ${getNoticeReadCount(notice)}명`;
+                const deliveryMetaLabel = `${audienceLabel(notice.audience)} · ${targetLabel(notice, classNameById, memberNameById)} · ${formatDateTime(notice.createdAt)} · 읽음 ${getNoticeReadCount(notice)}명`;
                 const visibleBody = bodyCanCollapse && !bodyExpanded ? compactNoticeBody(notice.body) : notice.body;
                 const readPending = readNoticePendingId === notice.id;
                 const noticeReadTone = read ? "bg-zinc-50/70" : "bg-white";
@@ -648,7 +623,9 @@ export function NoticesScreen() {
                 return (
                   <article
                     className={`${showNoticeDeliveryMeta ? "px-3 py-2.5" : "px-3 py-1.5"} ${noticeReadTone} transition-colors ${
-                      activeHighlightNoticeId === notice.id ? "rounded-md ring-2 ring-inset ring-teal-400" : ""
+                      highlightedNoticeAvailable && activeHighlightNoticeId === notice.id
+                        ? "rounded-md ring-2 ring-inset ring-teal-400"
+                        : ""
                     }`}
                     data-notice-id={notice.id}
                     data-notice-read-state={read ? "read" : "active"}

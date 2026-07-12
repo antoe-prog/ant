@@ -1,63 +1,12 @@
 import { NextRequest } from "next/server";
+import { isDuplicateAuditRead } from "@/lib/audit-read-deduplication";
+import { isAuditDateRangeValid, parseAuditDateParam } from "@/lib/audit-log-query";
+import { auditActions, auditResults } from "@/lib/audit-log-presentation";
 import type { AuditAction, AuditLog } from "@/lib/domain";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { jsonError, jsonOk, requireSession } from "@/server/api";
 
 export const runtime = "nodejs";
-
-const auditActions: readonly AuditAction[] = [
-  "attendance.update",
-  "notice.create",
-  "notice.delete",
-  "notice.read",
-  "notification.subscribe",
-  "notification.unsubscribe",
-  "notification.dispatch",
-  "member.create",
-  "member.update",
-  "counseling_note.create",
-  "promotion.create",
-  "promotion.update",
-  "class.create",
-  "class.update",
-  "payment.create",
-  "payment.online_checkout.create",
-  "payment.webhook",
-  "payment.recurring_agreement.create",
-  "payment.recurring_agreement.cancel",
-  "payment.refund",
-  "branch.create",
-  "branch.update",
-  "branch.owner.assign",
-  "user.invite.create",
-  "user.invite.approve",
-  "user.update",
-  "user.role.update",
-  "user.delete",
-  "audit_logs.read",
-  "export.create",
-  "pilot_readiness.update",
-  "pilot_incident.create",
-  "pilot_incident.update",
-  "pilot_operation.update",
-  "auth.invite.accept",
-  "auth.password_reset.request",
-  "auth.password_reset.complete",
-  "auth.login",
-  "auth.logout",
-];
-
-const auditResults: AuditLog["result"][] = ["success", "blocked", "failed"];
-
-function parseDateParam(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime()) ? "invalid" : date;
-}
 
 function parseLimit(value: string | null) {
   const limit = Number(value ?? 50);
@@ -91,8 +40,8 @@ export async function GET(request: NextRequest) {
   const branchId = searchParams.get("branchId") || "all";
   const query = searchParams.get("q")?.trim().toLowerCase() ?? "";
   const reason = searchParams.get("reason")?.trim() ?? "";
-  const from = parseDateParam(searchParams.get("from"));
-  const to = parseDateParam(searchParams.get("to"));
+  const from = parseAuditDateParam(searchParams.get("from"), "from");
+  const to = parseAuditDateParam(searchParams.get("to"), "to");
   const limit = parseLimit(searchParams.get("limit"));
   const includeAuditReadLogs = action === "audit_logs.read";
 
@@ -114,6 +63,10 @@ export async function GET(request: NextRequest) {
 
   if (from === "invalid" || to === "invalid") {
     return jsonError(400, "VALIDATION_ERROR", "날짜 필터가 올바르지 않습니다.");
+  }
+
+  if (!isAuditDateRangeValid(from, to)) {
+    return jsonError(400, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.");
   }
 
   function matches(log: AuditLog) {
@@ -198,10 +151,12 @@ export async function GET(request: NextRequest) {
     message: "변경 기록을 조회했습니다.",
     createdAt: new Date().toISOString(),
   };
-  const persisted = await writeServerDb({
-    ...db,
-    auditLogs: [readAuditLog, ...db.auditLogs],
-  });
+  const persisted = isDuplicateAuditRead(db.auditLogs, readAuditLog)
+    ? db
+    : await writeServerDb({
+        ...db,
+        auditLogs: [readAuditLog, ...db.auditLogs],
+      });
   const filteredLogs = persisted.auditLogs.filter(matches);
   const logs = filteredLogs.slice(0, limit);
   const totalCount = persisted.auditLogs.filter((log) => includeAuditReadLogs || !isAuditReadLog(log)).length;

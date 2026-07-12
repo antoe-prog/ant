@@ -39,7 +39,9 @@ import {
   type LoginCredentials,
   type MemberUpdatePayload,
   type NoticeCreatePayload,
+  type ManualPaymentUpdatePayload,
   type PaymentCreatePayload,
+  type PaymentDeletePayload,
   type PaymentRefundPayload,
   type PilotIncidentCreatePayload,
   type PilotIncidentUpdatePayload,
@@ -138,6 +140,7 @@ type AppAction =
 type InvitationAcceptResult = { ok: true } | { ok: false; message: string };
 type NoticeCreateResult = { ok: true; message: string } | { ok: false; message: string };
 type NoticeDeleteResult = { ok: true; message: string } | { ok: false; message: string };
+type PaymentCreateResult = { ok: true; message: string } | { ok: false; message: string };
 
 type AppStore = AppState & {
   hydrated: boolean;
@@ -175,7 +178,9 @@ type AppStore = AppState & {
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => void;
   updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => void;
-  createPayment: (branchId: string, payload: PaymentCreatePayload) => void;
+  createPayment: (branchId: string, payload: PaymentCreatePayload) => Promise<PaymentCreateResult>;
+  updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
+  deleteManualPayment: (paymentId: string, payload: PaymentDeletePayload) => Promise<boolean>;
   createOnlinePaymentCheckout: (paymentId: string) => Promise<boolean>;
   createRecurringAgreement: (paymentId: string, payload: RecurringAgreementPayload) => Promise<boolean>;
   cancelRecurringAgreement: (paymentId: string, payload: RecurringAgreementPayload) => Promise<boolean>;
@@ -730,6 +735,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      dispatch({
+        type: "setAttendanceSync",
+        syncStatus: "saving",
+        message: "출석 변경을 저장하고 있습니다.",
+        pendingCount: 0,
+      });
       void apiClient
         .updateAttendance(sessionId, memberId, status, state.selectedBranchId, note)
         .then((payload) => {
@@ -806,6 +817,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      dispatch({
+        type: "setAttendanceSync",
+        syncStatus: "saving",
+        message: `${memberIds.length}명의 출석을 저장하고 있습니다.`,
+        pendingCount: 0,
+      });
       void apiClient
         .updateAttendanceBatch(
           sessionId,
@@ -1128,15 +1145,61 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createPayment = useCallback(
-    (branchId: string, payload: PaymentCreatePayload) => {
+    async (branchId: string, payload: PaymentCreatePayload): Promise<PaymentCreateResult> => {
       if (!state.user) {
-        return;
+        return { ok: false, message: "로그인이 필요합니다." };
       }
 
-      void apiClient
-        .createPayment(branchId, payload, state.selectedBranchId)
-        .then((nextPayload) => dispatch({ type: "serverSnapshot", payload: nextPayload }))
-        .catch((error) => reportOperationError(error, "결제 기록을 저장하지 못했습니다."));
+      try {
+        const nextPayload = await apiClient.createPayment(branchId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return { ok: true, message: "수기 결제를 등록했습니다." };
+      } catch (error) {
+        reportOperationError(error, "결제 기록을 저장하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "수기 결제를 등록하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const updateManualPayment = useCallback(
+    async (paymentId: string, payload: ManualPaymentUpdatePayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.updateManualPayment(paymentId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "수기 결제 기록을 수정하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const deleteManualPayment = useCallback(
+    async (paymentId: string, payload: PaymentDeletePayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.deleteManualPayment(paymentId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "수기 결제 기록을 삭제하지 못했습니다.");
+        return false;
+      }
     },
     [reportOperationError, state.selectedBranchId, state.user],
   );
@@ -1648,6 +1711,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createClassSession,
       updateClassSession,
       createPayment,
+      updateManualPayment,
+      deleteManualPayment,
       createOnlinePaymentCheckout,
       createRecurringAgreement,
       cancelRecurringAgreement,
@@ -1691,6 +1756,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createNotice,
       createOnlinePaymentCheckout,
       createPayment,
+      deleteManualPayment,
       createPilotIncident,
       createPromotion,
       createRecurringAgreement,
@@ -1716,6 +1782,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       state,
       syncPendingAttendance,
       updateClassSession,
+      updateManualPayment,
       updateMemberProfile,
       updateMemberStatus,
       updateBranch,

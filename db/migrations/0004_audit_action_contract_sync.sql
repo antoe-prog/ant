@@ -1,0 +1,15 @@
+-- 앱에서 기록하는 감사 액션을 정규화 PostgreSQL enum과 동기화한다.
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'notice.delete';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'counseling_note.create';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'promotion.create';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'promotion.update';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'tournament.create';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'tournament.update';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'tournament.delete';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'payment.online_checkout.create';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'payment.webhook';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'payment.recurring_agreement.create';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'payment.recurring_agreement.cancel';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'user.invite.approve';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'user.update';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'user.delete';

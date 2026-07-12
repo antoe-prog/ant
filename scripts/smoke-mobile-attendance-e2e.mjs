@@ -746,7 +746,21 @@ async function run() {
     assert(wholeClassButtonBox.height >= 44, `whole-class attendance button height must be at least 44px, got ${wholeClassButtonBox.height}`);
 
     await firstWholeClassButton.click();
-    await page.waitForFunction(() => document.body.innerText.includes("저장됨"), null, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const junPresent = document.querySelector('[data-testid="attendance-class-kids-am-member-jun-present"]');
+        const seoPresent = document.querySelector('[data-testid="attendance-class-kids-am-member-seo-present"]');
+        const sync = document.querySelector('[data-testid="attendance-sync-status"]');
+
+        return (
+          junPresent?.getAttribute("aria-pressed") === "true" &&
+          seoPresent?.getAttribute("aria-pressed") === "true" &&
+          sync?.getAttribute("data-attendance-sync-state") === "saved"
+        );
+      },
+      null,
+      { timeout: 10000 },
+    );
     await page.waitForFunction(() => document.querySelectorAll("button[aria-pressed]").length > 0, null, { timeout: 10000 });
 
     const bulkVerification = await page.evaluate(async () => {

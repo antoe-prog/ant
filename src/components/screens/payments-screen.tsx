@@ -1,15 +1,19 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Ban, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards, X } from "lucide-react";
 import type { OnlinePaymentStatus, Payment, PaymentStatus, RecurringBillingStatus } from "@/lib/domain";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
+import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { ApiClientError, apiClient } from "@/lib/api-client";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
+import { ManualPaymentManagement } from "@/components/domain/manual-payment-management";
 import { formatCurrency, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import { canManageManualPayment, getManualPaymentDateRangeError } from "@/lib/manual-payment-management";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentCheckoutAmount } from "@/lib/payment-checkout-access";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
@@ -112,11 +116,28 @@ type PaymentAdjustmentDraft = {
   reason: string;
 };
 
+type PaymentCreateFeedback = {
+  message: string;
+  tone: "error" | "success";
+};
+
 type PaymentOperationsMetric = {
   detail: string;
   label: string;
   tone: "amber" | "red" | "teal" | "zinc";
   value: string;
+};
+
+type PaymentActionQueueItem = {
+  amount: number;
+  branchName: string;
+  detail: string;
+  id: string;
+  label: string;
+  memberName: string;
+  paymentId: string;
+  score: number;
+  tone: "amber" | "red" | "teal";
 };
 
 function isStaffOnlyPaymentFilter(value: PaymentStatus | "all" | "risk") {
@@ -138,13 +159,19 @@ export function PaymentsScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const context = useApiContext();
-  const { cancelRecurringAgreement, createOnlinePaymentCheckout, createPayment, createRecurringAgreement, refundPayment } = useAppStore();
+  const {
+    cancelRecurringAgreement,
+    createOnlinePaymentCheckout,
+    createPayment,
+    createRecurringAgreement,
+    deleteManualPayment,
+    refundPayment,
+    updateManualPayment,
+  } = useAppStore();
   const canManagePayments = context.user.role === "owner" || context.user.role === "admin";
   const showPaymentOperationsMeta = canManagePayments;
   const showPaymentsScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
-  const initialPaymentListSearch = searchParams.get("q")?.trim() ?? "";
-  const paymentSearchParam = searchParams.get("q")?.trim() ?? "";
-  const previousPaymentListSearchParamRef = useRef(initialPaymentListSearch);
+  const [paymentListSearch, setPaymentListSearch] = useUrlSyncedTextParam("q");
   const [newPaymentBranchId, setNewPaymentBranchId] = useState("");
   const [newPaymentMemberId, setNewPaymentMemberId] = useState(
     () => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("payMemberId")?.trim() ?? ""),
@@ -153,6 +180,8 @@ export function PaymentsScreen() {
     () => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("payMemberSearch")?.trim() ?? ""),
   );
   const [paymentCreateOpen, setPaymentCreateOpen] = useState(() => Boolean(searchParams.get("payMemberId")?.trim()));
+  const [paymentCreateFeedback, setPaymentCreateFeedback] = useState<PaymentCreateFeedback | null>(null);
+  const [paymentCreatePending, setPaymentCreatePending] = useState(false);
 
   // 회원 카드 "결제 등록" 바로가기처럼 클라이언트 내비게이션으로 진입해도 회원 프리셋이 적용되게 한다.
   useEffect(() => {
@@ -169,6 +198,7 @@ export function PaymentsScreen() {
 
         setNewPaymentMemberId(presetMemberId);
         setPaymentMemberSearch(presetMemberSearch);
+        setPaymentCreateFeedback(null);
         setPaymentCreateOpen(true);
       });
 
@@ -185,56 +215,42 @@ export function PaymentsScreen() {
   const [newPaymentExpiresAt, setNewPaymentExpiresAt] = useState(() => dateInputValue(30));
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [paymentFilter, setPaymentFilterState] = useState<PaymentStatus | "all" | "risk">(getInitialPaymentFilter);
-  const [paymentListSearch, setPaymentListSearchState] = useState(initialPaymentListSearch);
-
-  useEffect(() => {
-    const nextPaymentListSearch = paymentSearchParam;
-
-    if (nextPaymentListSearch === previousPaymentListSearchParamRef.current) {
-      return;
-    }
-
-    previousPaymentListSearchParamRef.current = nextPaymentListSearch;
-    let cancelled = false;
-
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setPaymentListSearchState(nextPaymentListSearch);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [paymentSearchParam]);
-
   function setPaymentFilter(value: PaymentStatus | "all" | "risk") {
     setPaymentFilterState(value);
     syncPaymentFilterToUrl(value);
   }
 
-  function setPaymentListSearch(value: string) {
-    setPaymentListSearchState(value);
-
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-
-      if (value.trim()) {
-        url.searchParams.set("q", value.trim());
-      } else {
-        url.searchParams.delete("q");
-      }
-
-      router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
-    }
-  }
   const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
   const [paymentActionQueueOpen, setPaymentActionQueueOpen] = useState(false);
+  const [activeFocusedPaymentId, setActiveFocusedPaymentId] = useState<string | null>(null);
   const { data, loading, error, reload } = useResource(
     () => apiClient.getPayments(context),
     [context.user.id, context.selectedBranchId, context.version],
   );
+  const focusedPaymentId = searchParams.get("focusPayment")?.trim() ?? "";
+  const focusedPaymentAvailable = Boolean(focusedPaymentId && data?.some((payment) => payment.id === focusedPaymentId));
+
+  useEffect(() => {
+    if (!focusedPaymentAvailable) {
+      return;
+    }
+
+    // 작업목록 딥링크가 준비되면 해당 카드로 이동하고 한 번만 강조한다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveFocusedPaymentId(focusedPaymentId);
+    const scrollTimer = window.setTimeout(() => {
+      document
+        .querySelector(`[data-payment-id="${CSS.escape(focusedPaymentId)}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    const clearTimer = window.setTimeout(() => setActiveFocusedPaymentId(null), 3500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusedPaymentAvailable, focusedPaymentId]);
   const selectedPaymentBranchId = newPaymentBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const paymentMembers = useMemo(
     () =>
@@ -310,25 +326,54 @@ export function PaymentsScreen() {
     }
   }
 
-  function handleCreatePayment(event: FormEvent<HTMLFormElement>) {
+  function handlePaymentCreateToggle() {
+    if (!paymentCreateOpen) {
+      setPaymentCreateFeedback(null);
+    }
+
+    setPaymentCreateOpen((open) => !open);
+  }
+
+  async function handleCreatePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (paymentCreatePending) {
+      return;
+    }
 
     const amount = Number(newPaymentAmount);
     const discountAmount = Number(newPaymentDiscountAmount || 0);
 
-    if (
-      !selectedPaymentBranchId ||
-      !selectedPaymentMemberId ||
-      !newPaymentPlanName.trim() ||
-      !Number.isFinite(amount) ||
-      !Number.isFinite(discountAmount) ||
-      discountAmount < 0 ||
-      discountAmount > amount
-    ) {
+    if (!selectedPaymentBranchId || !selectedPaymentMemberId) {
+      setPaymentCreateFeedback({ message: "결제를 등록할 회원을 선택해 주세요.", tone: "error" });
       return;
     }
 
-    createPayment(selectedPaymentBranchId, {
+    if (!newPaymentPlanName.trim()) {
+      setPaymentCreateFeedback({ message: "회원권명을 입력해 주세요.", tone: "error" });
+      return;
+    }
+
+    if (!newPaymentAmount.trim() || !Number.isFinite(amount) || amount < 0) {
+      setPaymentCreateFeedback({ message: "결제 금액은 0원 이상의 숫자로 입력해 주세요.", tone: "error" });
+      return;
+    }
+
+    if (!Number.isFinite(discountAmount) || discountAmount < 0 || discountAmount > amount) {
+      setPaymentCreateFeedback({ message: "할인 금액은 결제 금액 이하로 입력해 주세요.", tone: "error" });
+      return;
+    }
+
+    const dateRangeError = getManualPaymentDateRangeError(newPaymentDueDate, newPaymentExpiresAt);
+
+    if (dateRangeError) {
+      setPaymentCreateFeedback({ message: dateRangeError, tone: "error" });
+      return;
+    }
+
+    setPaymentCreatePending(true);
+    setPaymentCreateFeedback(null);
+    const result = await createPayment(selectedPaymentBranchId, {
       memberId: selectedPaymentMemberId,
       planName: newPaymentPlanName.trim(),
       status: newPaymentStatus,
@@ -337,9 +382,20 @@ export function PaymentsScreen() {
       dueDate: newPaymentDueDate,
       expiresAt: newPaymentExpiresAt,
     });
-    setNewPaymentPlanName("월 회원권");
-    setNewPaymentAmount("180000");
-    setNewPaymentDiscountAmount("0");
+    setPaymentCreatePending(false);
+    setPaymentCreateFeedback({ message: result.message, tone: result.ok ? "success" : "error" });
+
+    if (result.ok) {
+      setNewPaymentMemberId("");
+      setPaymentMemberSearch("");
+      setNewPaymentPlanName("월 회원권");
+      setNewPaymentStatus("paid");
+      setNewPaymentAmount("180000");
+      setNewPaymentDiscountAmount("0");
+      setNewPaymentDueDate(dateInputValue(0));
+      setNewPaymentExpiresAt(dateInputValue(30));
+      setPaymentCreateOpen(false);
+    }
   }
 
   function getRemainingRefundable(payment: Payment) {
@@ -478,6 +534,7 @@ export function PaymentsScreen() {
     setNewPaymentDiscountAmount(String(payment.discountAmount ?? 0));
     setNewPaymentDueDate(dateInputValue(0));
     setNewPaymentExpiresAt(dateInputValue(30));
+    setPaymentCreateFeedback(null);
     setPaymentCreateOpen(true);
     setExportStatus("재등록 입력값을 불러왔습니다.");
   }
@@ -565,19 +622,19 @@ export function PaymentsScreen() {
 
   const paymentActionQueue = filteredPayments
     .flatMap((payment) => {
-      const actions = [];
+      const actions: PaymentActionQueueItem[] = [];
       const memberName = payment.member.name;
       const branchName = payment.branch.name;
       const netAmount = Math.max(payment.amount - (payment.discountAmount ?? 0) - (payment.refundedAmount ?? 0), 0);
+      const actionContext = { branchName, memberName, paymentId: payment.id };
 
       if (payment.status === "overdue") {
         actions.push({
+          ...actionContext,
           amount: netAmount,
-          branchName,
           detail: `${formatDate(payment.dueDate)} 납부 예정 · ${formatCurrency(netAmount)}`,
           id: `${payment.id}-overdue`,
           label: "미납 연락",
-          memberName,
           score: 100 + Math.round(netAmount / 10000),
           tone: "red",
         });
@@ -585,12 +642,11 @@ export function PaymentsScreen() {
 
       if (payment.status === "expiringSoon") {
         actions.push({
+          ...actionContext,
           amount: netAmount,
-          branchName,
           detail: `${formatDate(payment.expiresAt)} 만료 · ${payment.planName}`,
           id: `${payment.id}-expiring`,
           label: "재등록 안내",
-          memberName,
           score: 70 + Math.round(netAmount / 20000),
           tone: "amber",
         });
@@ -598,12 +654,11 @@ export function PaymentsScreen() {
 
       if (payment.onlinePayment?.status === "failed") {
         actions.push({
+          ...actionContext,
           amount: payment.onlinePayment.amount,
-          branchName,
           detail: payment.onlinePayment.failureReason ?? "온라인 결제 실패",
           id: `${payment.id}-online-failed`,
           label: "온라인 결제 재요청",
-          memberName,
           score: 90 + Math.round(payment.onlinePayment.amount / 10000),
           tone: "red",
         });
@@ -611,12 +666,11 @@ export function PaymentsScreen() {
 
       if (payment.onlinePayment?.status === "pending") {
         actions.push({
+          ...actionContext,
           amount: payment.onlinePayment.amount,
-          branchName,
           detail: `${formatDateTime(payment.onlinePayment.requestedAt)} 요청 · ${formatCurrency(payment.onlinePayment.amount)}`,
           id: `${payment.id}-online-pending`,
           label: "온라인 결제 확인",
-          memberName,
           score: 50 + Math.round(payment.onlinePayment.amount / 20000),
           tone: "teal",
         });
@@ -624,12 +678,11 @@ export function PaymentsScreen() {
 
       if (payment.recurringAgreement?.status === "failed") {
         actions.push({
+          ...actionContext,
           amount: netAmount,
-          branchName,
           detail: payment.recurringAgreement.lastFailureReason ?? "정기결제 실패",
           id: `${payment.id}-recurring-failed`,
           label: "정기결제 실패 확인",
-          memberName,
           score: 95 + Math.round(netAmount / 10000),
           tone: "red",
         });
@@ -813,7 +866,8 @@ export function PaymentsScreen() {
         <form
           className="mb-3 rounded-lg border border-zinc-200 bg-white p-2.5"
           data-testid="payment-create-form"
-          onSubmit={handleCreatePayment}
+          aria-busy={paymentCreatePending}
+          onSubmit={(event) => void handleCreatePayment(event)}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
@@ -829,8 +883,9 @@ export function PaymentsScreen() {
               aria-expanded={paymentCreateOpen}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
               data-testid="payment-create-toggle"
+              disabled={paymentCreatePending}
               type="button"
-              onClick={() => setPaymentCreateOpen((open) => !open)}
+              onClick={handlePaymentCreateToggle}
             >
               {paymentCreateOpen ? "접기" : "등록 열기"}
             </button>
@@ -938,6 +993,8 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">회원권명</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-plan-input"
+                required
                 value={newPaymentPlanName}
                 onChange={(event) => setNewPaymentPlanName(event.target.value)}
               />
@@ -946,6 +1003,7 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">상태</span>
               <select
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-status-select"
                 value={newPaymentStatus}
                 onChange={(event) => setNewPaymentStatus(event.target.value as PaymentStatus)}
               >
@@ -960,7 +1018,9 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">금액</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-amount-input"
                 min={0}
+                required
                 step={100}
                 type="number"
                 value={newPaymentAmount}
@@ -971,6 +1031,7 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">할인</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-discount-input"
                 min={0}
                 step={100}
                 type="number"
@@ -982,6 +1043,9 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">납부일</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-due-date-input"
+                max={newPaymentExpiresAt || undefined}
+                required
                 type="date"
                 value={newPaymentDueDate}
                 onChange={(event) => setNewPaymentDueDate(event.target.value)}
@@ -991,6 +1055,9 @@ export function PaymentsScreen() {
               <span className="mb-1 block text-xs font-semibold text-zinc-500">만료일</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-expiry-date-input"
+                min={newPaymentDueDate || undefined}
+                required
                 type="date"
                 value={newPaymentExpiresAt}
                 onChange={(event) => setNewPaymentExpiresAt(event.target.value)}
@@ -999,12 +1066,30 @@ export function PaymentsScreen() {
             <button
               className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               data-testid="payment-create-submit"
-              disabled={!selectedPaymentBranchId || !selectedPaymentMemberId || !newPaymentPlanName.trim()}
+              disabled={
+                paymentCreatePending ||
+                !selectedPaymentBranchId ||
+                !selectedPaymentMemberId ||
+                !newPaymentPlanName.trim()
+              }
               type="submit"
             >
-              등록
+              {paymentCreatePending ? "등록 중" : "등록"}
             </button>
           </div>
+          ) : null}
+          {paymentCreateFeedback ? (
+            <p
+              className={`mt-2 rounded-md px-3 py-2 text-sm font-medium ${
+                paymentCreateFeedback.tone === "success"
+                  ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border border-red-200 bg-red-50 text-red-800"
+              }`}
+              data-testid="payment-create-feedback"
+              role="status"
+            >
+              {paymentCreateFeedback.message}
+            </p>
           ) : null}
         </form>
       ) : null}
@@ -1109,8 +1194,16 @@ export function PaymentsScreen() {
                         ? "border-amber-200 bg-amber-50 text-amber-700"
                         : "border-teal-200 bg-teal-50 text-teal-700";
 
+                  const paymentCardHref = `/app/payments?q=${encodeURIComponent(action.memberName)}&focusPayment=${encodeURIComponent(action.paymentId)}`;
+
                   return (
-                    <li className="rounded-md border border-zinc-200 p-2.5" key={action.id}>
+                    <li key={action.id}>
+                      <Link
+                        className="block rounded-md border border-zinc-200 p-2.5 transition hover:border-teal-300 hover:bg-teal-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                        data-testid="payment-action-queue-link"
+                        href={paymentCardHref}
+                        onNavigate={() => setPaymentActionQueueOpen(false)}
+                      >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-zinc-950">
@@ -1125,6 +1218,7 @@ export function PaymentsScreen() {
                         </span>
                       </div>
                       <p className="mt-2 text-sm font-medium text-zinc-700">{action.detail}</p>
+                      </Link>
                     </li>
                   );
                 })}
@@ -1307,7 +1401,11 @@ export function PaymentsScreen() {
                   }
                   className={
                     canManagePayments
-                      ? "grid gap-3 px-4 py-4 md:grid-cols-[1.1fr_1fr_0.8fr_0.8fr_0.8fr] md:items-center"
+                      ? `grid scroll-mt-24 gap-3 px-4 py-4 transition md:grid-cols-[1.1fr_1fr_0.8fr_0.8fr_0.8fr] md:items-center ${
+                          focusedPaymentAvailable && activeFocusedPaymentId === payment.id
+                            ? "bg-teal-50/40 ring-2 ring-inset ring-teal-400"
+                            : ""
+                        }`
                       : `rounded-lg border border-zinc-200 bg-white p-2 ${
                           familyCheckoutCanOpen
                             ? "cursor-pointer transition hover:border-teal-300 hover:bg-teal-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2"
@@ -1315,7 +1413,9 @@ export function PaymentsScreen() {
                         }`
                   }
                   data-payment-checkout-state={familyCheckoutAccess?.state}
+                  data-payment-id={payment.id}
                   data-testid={canManagePayments ? undefined : "member-payment-compact-card"}
+                  id={`payment-${payment.id}`}
                   key={payment.id}
                   role={familyCheckoutCanOpen ? "link" : undefined}
                   tabIndex={familyCheckoutCanOpen ? 0 : undefined}
@@ -1329,7 +1429,13 @@ export function PaymentsScreen() {
                   {canManagePayments ? (
                     <>
                       <div>
-                        <p className="font-semibold text-zinc-950">{payment.member.name}</p>
+                        <Link
+                          className="font-semibold text-zinc-950 underline-offset-4 transition hover:text-teal-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                          data-testid="payment-member-profile-link"
+                          href={`/app/members?q=${encodeURIComponent(payment.member.name)}`}
+                        >
+                          {payment.member.name}
+                        </Link>
                         <p className="mt-1 text-sm text-zinc-500">{payment.branch.name}</p>
                         {showPaymentOperationsMeta ? (
                           <p className="mt-1 text-xs text-zinc-500">
@@ -1450,6 +1556,13 @@ export function PaymentsScreen() {
                     </>
                   )}
 
+                  {canManagePayments && canManageManualPayment(payment) ? (
+                    <ManualPaymentManagement
+                      payment={payment}
+                      onDelete={(paymentId, reason) => deleteManualPayment(paymentId, { reason })}
+                      onUpdate={updateManualPayment}
+                    />
+                  ) : null}
                   {canManagePayments ? (
                     <div className="rounded-md border border-zinc-100 bg-white px-3 py-2 md:col-span-5">
                       <p className="text-xs font-semibold text-zinc-500">상태 변경 이력</p>

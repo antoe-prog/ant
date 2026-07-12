@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { MockDatabase, PilotOperationLog, PilotReadinessStatus } from "@/lib/domain";
+import { sanitizeAuditLog } from "@/lib/audit-log-security";
 import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-data";
 import { defaultPilotPasswordHash } from "@/server/auth-password";
 import { rollSeededDemoDates } from "@/server/demo-date-roll";
@@ -36,6 +37,13 @@ const requiredCollections = [
   "counselingNotes",
   "auditLogs",
 ] as const satisfies readonly (keyof MockDatabase)[];
+
+function sanitizeDatabaseAuditLogs(db: MockDatabase): MockDatabase {
+  return {
+    ...db,
+    auditLogs: db.auditLogs.map(sanitizeAuditLog),
+  };
+}
 
 function readString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
@@ -151,7 +159,7 @@ function validateMockDatabase(value: unknown) {
     }
   }
 
-  return rollSeededDemoDates(upgraded as MockDatabase);
+  return sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase));
 }
 
 function resolveRuntimePath(runtimePath: string) {
@@ -174,7 +182,7 @@ function createServerDbStore() {
       connectionString,
       key: process.env.FINAL_JUDO_POSTGRES_STATE_KEY ?? "mvp",
       tableName: process.env.FINAL_JUDO_POSTGRES_TABLE ?? "app_runtime_state",
-      createDefault: createMockData,
+      createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
       validate: validateMockDatabase,
     });
   }
@@ -193,7 +201,7 @@ function createServerDbStore() {
   return createJsonStore<MockDatabase>({
     directory: jsonStoreTarget.directory,
     fileName: jsonStoreTarget.fileName,
-    createDefault: createMockData,
+    createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
     validate: validateMockDatabase,
     backupLimit: 20,
   });
@@ -208,7 +216,7 @@ export async function readServerDb() {
 }
 
 export async function writeServerDb(db: MockDatabase) {
-  return serverDbStore.write(db);
+  return serverDbStore.write(sanitizeDatabaseAuditLogs(db));
 }
 
 export async function resetServerDb() {

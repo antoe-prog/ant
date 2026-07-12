@@ -691,7 +691,11 @@ export function ClassesScreen() {
                       출석 처리 {totalChecked}/{totalEnrolled} · 미처리 {totalUnchecked} · {totalCheckedPercent}%
                     </h2>
                   </div>
-	                  <span className={`inline-flex shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${syncStatusClasses[attendanceSync.status]}`}>
+	                  <span
+                      className={`inline-flex shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${syncStatusClasses[attendanceSync.status]}`}
+                      data-attendance-sync-state={attendanceSync.status}
+                      data-testid="attendance-sync-status"
+                    >
 	                    {syncStatusLabels[attendanceSync.status]}
 	                  </span>
 	                </div>
@@ -1480,6 +1484,7 @@ export function ClassesScreen() {
                   ) : null}
                   <span
                     className={`inline-flex min-h-11 items-center rounded-md border px-2 text-sm font-semibold ${syncStatusClasses[attendanceSync.status]}`}
+                    data-attendance-sync-state={attendanceSync.status}
                     data-testid="attendance-sync-status-mobile"
                   >
                     {syncStatusLabels[attendanceSync.status]}

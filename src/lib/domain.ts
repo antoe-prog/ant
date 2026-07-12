@@ -348,6 +348,8 @@ export type AuditAction =
   | "class.create"
   | "class.update"
   | "payment.create"
+  | "payment.update"
+  | "payment.delete"
   | "payment.online_checkout.create"
   | "payment.webhook"
   | "payment.recurring_agreement.create"

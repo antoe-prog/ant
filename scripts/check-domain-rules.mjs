@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 
 const roles = await import("../src/lib/roles.ts");
 const scope = await import("../src/lib/mock-api.ts");
+const auditReadDeduplication = await import("../src/lib/audit-read-deduplication.ts");
+const auditLogQuery = await import("../src/lib/audit-log-query.ts");
 const notificationAlerts = await import("../src/lib/notification-alerts.ts");
 const noticeMemberSearch = await import("../src/lib/notice-member-search.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
@@ -545,6 +547,107 @@ assert.equal(
   "notification inbox visual summary must use a consistent separator across all alert types",
 );
 
+const auditReadLog = {
+  id: "audit-read-1",
+  branchId: null,
+  actorUserId: "user-admin",
+  action: "audit_logs.read",
+  targetType: "audit",
+  targetId: "audit-logs",
+  before: null,
+  after: {
+    action: "payment.create",
+    branchId: "all",
+    from: null,
+    limit: 50,
+    query: "회원권",
+    reason: "변경 기록 확인",
+    result: "all",
+    rowCount: 1,
+    to: null,
+  },
+  result: "success",
+  message: "변경 기록을 조회했습니다.",
+  createdAt: "2026-07-13T00:00:00.000Z",
+};
+const repeatedAuditReadLog = {
+  ...auditReadLog,
+  id: "audit-read-2",
+  after: { ...auditReadLog.after, rowCount: 2 },
+  createdAt: "2026-07-13T00:00:04.000Z",
+};
+
+assert.equal(
+  auditReadDeduplication.isDuplicateAuditRead([auditReadLog], repeatedAuditReadLog),
+  true,
+  "identical audit reads inside the short retry window must be deduplicated even if row counts change",
+);
+assert.equal(
+  auditReadDeduplication.isDuplicateAuditRead(
+    [auditReadLog],
+    { ...repeatedAuditReadLog, after: { ...repeatedAuditReadLog.after, query: "공지" } },
+  ),
+  false,
+  "different audit read filters must stay independently traceable",
+);
+assert.equal(
+  auditReadDeduplication.isDuplicateAuditRead(
+    [auditReadLog],
+    { ...repeatedAuditReadLog, after: { ...repeatedAuditReadLog.after, reason: "별도 점검" } },
+  ),
+  false,
+  "different audit read reasons must stay independently traceable",
+);
+assert.equal(
+  auditReadDeduplication.isDuplicateAuditRead(
+    [auditReadLog],
+    { ...repeatedAuditReadLog, createdAt: "2026-07-13T00:00:06.000Z" },
+  ),
+  false,
+  "audit reads outside the retry window must create a new record",
+);
+assert.equal(
+  auditLogQuery.parseAuditDateParam("2026-07-13", "from")?.toISOString(),
+  "2026-07-12T15:00:00.000Z",
+  "audit date-only from filters must start at midnight in Korea",
+);
+assert.equal(
+  auditLogQuery.parseAuditDateParam("2026-07-13", "to")?.toISOString(),
+  "2026-07-13T14:59:59.999Z",
+  "audit date-only to filters must include the full selected day in Korea",
+);
+assert.equal(
+  auditLogQuery.parseAuditDateParam("2026-02-29", "to"),
+  "invalid",
+  "audit date filters must reject impossible calendar dates",
+);
+assert.equal(
+  auditLogQuery.parseAuditDateParam("2028-02-29", "to")?.toISOString(),
+  "2028-02-29T14:59:59.999Z",
+  "audit date filters must accept valid leap days",
+);
+assert.equal(
+  auditLogQuery.parseAuditDateParam("2026-07-13T03:15:00.000Z", "to")?.toISOString(),
+  "2026-07-13T03:15:00.000Z",
+  "audit timestamp filters must preserve explicit time values",
+);
+assert.equal(
+  auditLogQuery.isAuditDateRangeValid(
+    auditLogQuery.parseAuditDateParam("2026-07-13", "from"),
+    auditLogQuery.parseAuditDateParam("2026-07-13", "to"),
+  ),
+  true,
+  "same-day audit ranges must remain valid after full-day expansion",
+);
+assert.equal(
+  auditLogQuery.isAuditDateRangeValid(
+    auditLogQuery.parseAuditDateParam("2026-07-14", "from"),
+    auditLogQuery.parseAuditDateParam("2026-07-13", "to"),
+  ),
+  false,
+  "audit ranges with a start after the end must be rejected",
+);
+
 console.log(
   JSON.stringify(
     {
@@ -564,6 +667,9 @@ console.log(
         "role-scoped notification alert counts",
         "per-user notice read notification counts",
         "legacy notice read list compatibility",
+        "audit read retry deduplication",
+        "audit date filter boundaries",
+        "audit reversed date range rejection",
       ],
     },
     null,

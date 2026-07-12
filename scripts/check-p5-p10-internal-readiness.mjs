@@ -18,6 +18,10 @@ const files = {
   appLoading: "src/app/(app)/loading.tsx",
   appManifest: "src/app/manifest.ts",
   apiClient: "src/lib/api-client.ts",
+  auditReadDeduplication: "src/lib/audit-read-deduplication.ts",
+  auditLogQuery: "src/lib/audit-log-query.ts",
+  auditLogPresentation: "src/lib/audit-log-presentation.ts",
+  auditLogSecurity: "src/lib/audit-log-security.ts",
   bootstrapRoute: "src/app/api/v1/me/bootstrap/route.ts",
   auditLogsRoute: "src/app/api/v1/admin/audit-logs/route.ts",
   authLoginRoute: "src/app/api/v1/auth/login/route.ts",
@@ -213,7 +217,9 @@ const files = {
   adminAuditBottomSafeAreaReport:
     ".data/mobile-builds/ios/admin-audit-bottom-safe-area-20260701/summary.json",
   adminAuditSearchScript: "scripts/check-admin-audit-search.mjs",
-  adminAuditSearchReport: ".data/mobile-builds/ios/admin-audit-search-20260704/summary.json",
+  auditLogPrivacyScript: "scripts/check-audit-log-privacy.mjs",
+  adminAuditSearchReport: ".data/mobile-builds/ios/audit-privacy-20260713/summary.json",
+  adminAuditPrivacyIosReport: ".data/mobile-builds/ios/audit-privacy-20260713/ios-simulator-summary.json",
   coachClassesBottomSafeAreaScript: "scripts/check-coach-classes-bottom-safe-area.mjs",
   coachClassesBottomSafeAreaReport:
     ".data/mobile-builds/ios/coach-classes-bottom-safe-area-20260701/summary.json",
@@ -259,6 +265,8 @@ const files = {
   paymentCreateTouchTargetsScript: "scripts/check-payment-create-touch-targets.mjs",
   paymentCreateTouchTargetsReport:
     ".data/mobile-builds/ios/payment-create-touch-targets-20260704/summary.json",
+  manualPaymentCreateFeedbackReport:
+    ".data/mobile-builds/ios/manual-payment-create-feedback-20260713/summary.json",
   operatorListSearchReport:
     ".data/mobile-builds/ios/operator-list-search-20260704/summary.json",
   operatorListSearchTouchReport:
@@ -610,6 +618,7 @@ const screenshotFiles = [
   ".data/mobile-builds/ios/owner-reports-secondary-priority-20260625/owner-reports-secondary-priority-browser.png",
   ".data/mobile-builds/ios/owner-reports-secondary-priority-20260625/owner-reports-secondary-priority-open-browser.png",
   ".data/mobile-builds/ios/owner-reports-secondary-priority-20260625/owner-reports-secondary-priority-ios-sim.jpg",
+  ".data/mobile-builds/ios/audit-privacy-20260713/ios-simulator-admin-audit-detail.png",
   ...[
     "admin-dashboard",
     "admin-classes",
@@ -729,6 +738,7 @@ const adminUserListSafeAreaIosReport = JSON.parse(sources.adminUserListSafeAreaI
 const adminUserManagementTouchTargetsReport = JSON.parse(sources.adminUserManagementTouchTargetsReport);
 const adminAuditBottomSafeAreaReport = JSON.parse(sources.adminAuditBottomSafeAreaReport);
 const adminAuditSearchReport = JSON.parse(sources.adminAuditSearchReport);
+const adminAuditPrivacyIosReport = JSON.parse(sources.adminAuditPrivacyIosReport);
 const coachClassesBottomSafeAreaReport = JSON.parse(sources.coachClassesBottomSafeAreaReport);
 const coachClassesBottomSafeAreaIosReport = JSON.parse(sources.coachClassesBottomSafeAreaIosReport);
 const adminBranchSelectedScopeReport = JSON.parse(sources.adminBranchSelectedScopeReport);
@@ -755,6 +765,7 @@ const familyNotificationSettingsHiddenReport = JSON.parse(sources.familyNotifica
 const familyNotificationAlwaysOnGuardReport = JSON.parse(sources.familyNotificationAlwaysOnGuardReport);
 const paymentCheckoutEvidenceReport = JSON.parse(sources.paymentCheckoutEvidenceReport);
 const paymentCreateTouchTargetsReport = JSON.parse(sources.paymentCreateTouchTargetsReport);
+const manualPaymentCreateFeedbackReport = JSON.parse(sources.manualPaymentCreateFeedbackReport);
 
 function assertIncludes(source, snippet, label) {
   assert(source.includes(snippet), `${label} must include ${snippet}`);
@@ -2851,9 +2862,7 @@ for (const snippet of [
 }
 
 for (const snippet of [
-  "const auditActionLabels",
-  '"audit_logs.read": "변경 기록 조회"',
-  "const auditResultLabels",
+  'import { auditActionLabels, auditResultLabels } from "@/lib/audit-log-presentation";',
   "const roleRelevantAuditActions",
   "const roleAuditLogs = useMemo(",
   "recentRoleAuditLogs",
@@ -2874,6 +2883,20 @@ for (const snippet of [
 ]) {
   assertIncludes(sources.adminRolesScreen, snippet, "admin roles audit log display labels");
 }
+for (const snippet of [
+  "export const auditActionLabels: Record<AuditAction, string>",
+  '"audit_logs.read": "변경 기록 조회"',
+  '"tournament.create": "대회 공지 등록"',
+  '"tournament.update": "대회 공지 수정"',
+  '"tournament.delete": "대회 공지 삭제"',
+  "export const auditActions = Object.keys(auditActionLabels)",
+  "export const auditResultLabels: Record<AuditLog[\"result\"], string>",
+  'success: "완료"',
+]) {
+  assertIncludes(sources.auditLogPresentation, snippet, "shared audit presentation policy");
+}
+assertExcludes(sources.adminRolesScreen, "const auditActionLabels", "admin roles must not duplicate shared audit action labels");
+assertExcludes(sources.adminAuditLogsScreen, "const auditActionLabels", "admin audit screen must not duplicate shared audit action labels");
 for (const snippet of ["{log.action}", "{log.result}", "context.db.auditLogs.slice(0, 5)"]) {
   assertExcludes(sources.adminRolesScreen, snippet, "admin roles visible audit log raw code");
 }
@@ -2893,7 +2916,7 @@ for (const snippet of [
   "{branch?.name ?? \"공통\"}",
   "function hasAuditPayload",
   "function shouldShowAuditPayload",
-  "const [openPayloadLogIds, setOpenPayloadLogIds] = useState<string[]>([]);",
+  "const [openPayloadLogIds, setOpenPayloadLogIds] = useState<string[]>(() => (detailLogId ? [detailLogId] : []));",
   "const [showAllAuditLogs, setShowAllAuditLogs] = useState(false);",
   "const defaultVisibleAuditLogCount = 5;",
   "const visibleAuditLogs = showAllAuditLogs ? filteredLogs : filteredLogs.slice(0, defaultVisibleAuditLogCount);",
@@ -2901,16 +2924,19 @@ for (const snippet of [
   "function togglePayload(logId: string)",
   'log.action === "auth.login" || log.action === "auth.logout" || log.action === "audit_logs.read"',
   "Object.keys(payload).length > 0",
-  "const hasChangePayload = shouldShowAuditPayload(log);",
+  "const payloadChanges = getAuditPayloadChanges(log.before, log.after);",
+  "const hasChangePayload = shouldShowAuditPayload(log) && payloadChanges.length > 0;",
   "const payloadOpen = openPayloadLogIds.includes(log.id);",
+  'url.searchParams.set("detail", openDetailLogId)',
   'data-testid="admin-audit-log-row"',
   'data-testid="admin-audit-branch-meta"',
   'data-testid="admin-audit-target-meta"',
   'data-testid="admin-audit-change-detail-toggle"',
   'data-testid="admin-audit-change-detail"',
+  'data-testid="admin-audit-change-row"',
   'data-testid="admin-audit-log-list-toggle"',
   'data-testid="admin-audit-summary-bar"',
-  "성공",
+  "완료",
   "변경값 보기",
   "변경값 닫기",
   "변경 기록 접기",
@@ -2926,7 +2952,10 @@ for (const snippet of [
   'data-testid="admin-audit-search-clear"',
   'data-testid="admin-audit-filter-reset"',
   'data-testid="admin-audit-filter-submit"',
+  'data-testid="admin-audit-from-input"',
+  'data-testid="admin-audit-to-input"',
   'data-testid="admin-audit-empty-filter-reset"',
+  "function updateDraftFromDate",
   "필터 열기",
   "필터 닫기",
   "<span>처리 항목</span>",
@@ -2936,6 +2965,37 @@ for (const snippet of [
 ]) {
   assertIncludes(sources.adminAuditLogsScreen, snippet, "admin audit app-safe filter copy");
 }
+for (const snippet of ["<pre", "JSON.stringify(payload"]) {
+  assertExcludes(sources.adminAuditLogsScreen, snippet, "admin audit raw JSON detail");
+}
+for (const snippet of [
+  "export function sanitizeAuditPayload",
+  "export function sanitizeAuditLog",
+  'const protectedValue = "[보호됨]"',
+  'const sensitiveContentValue = "[민감 내용]"',
+]) {
+  assertIncludes(sources.auditLogSecurity, snippet, "central audit privacy policy");
+}
+for (const snippet of [
+  "export const auditReadDeduplicationWindowMs = 5_000",
+  "export function isDuplicateAuditRead",
+  "createAuditReadFingerprint(log) === candidateFingerprint",
+]) {
+  assertIncludes(sources.auditReadDeduplication, snippet, "audit read retry deduplication policy");
+}
+assertIncludes(sources.auditLogsRoute, "isDuplicateAuditRead(db.auditLogs, readAuditLog)", "admin audit read deduplication gate");
+for (const snippet of [
+  'export type AuditDateBoundary = "from" | "to"',
+  "boundary === \"from\"",
+  "Date.UTC(year, month - 1, day, 23, 59, 59, 999)",
+  "localTime - koreaUtcOffsetMs",
+  "export function isAuditDateRangeValid",
+]) {
+  assertIncludes(sources.auditLogQuery, snippet, "audit date range boundary policy");
+}
+assertIncludes(sources.auditLogsRoute, 'parseAuditDateParam(searchParams.get("to"), "to")', "admin audit full-day end filter");
+assertIncludes(sources.auditLogsRoute, "if (!isAuditDateRangeValid(from, to))", "admin audit reversed date range rejection");
+assertIncludes(sources.auditLogsRoute, "시작일은 종료일보다 늦을 수 없습니다.", "admin audit reversed date range copy");
 assertIncludes(sources.adminAuditLogsScreen, "hasChangePayload ? (", "admin audit change detail rendered only when payload exists");
 assertIncludes(sources.adminAuditLogsScreen, "mt-1 hidden text-xs text-zinc-500 sm:block", "admin audit branch meta hidden on mobile");
 assertIncludes(sources.adminAuditLogsScreen, "mt-1 hidden break-all text-xs text-zinc-500 sm:block", "admin audit target meta hidden on mobile");
@@ -2964,8 +3024,7 @@ for (const snippet of [
   "변경 기록 조회 사유가 필요합니다.",
   "변경 기록 처리 항목 필터가 올바르지 않습니다.",
   "변경 기록 결과 필터가 올바르지 않습니다.",
-  '"promotion.create"',
-  '"promotion.update"',
+  'import { auditActions, auditResults } from "@/lib/audit-log-presentation";',
 ]) {
   assertIncludes(sources.auditLogsRoute, snippet, "admin change record app-safe route copy");
 }
@@ -2983,8 +3042,8 @@ for (const snippet of ["감사 로그를 조회했습니다.", "감사 로그 �
 }
 assertIncludes(sources.classesScreen, "처리자 확인 중", "classes action log actor fallback app copy");
 assertIncludes(sources.membersScreen, "작성자 확인 중", "members note author fallback app copy");
-assertIncludes(sources.adminAuditLogsScreen, "변경 내용 없음", "admin audit payload fallback app copy");
-assertExcludes(sources.adminAuditLogsScreen, 'return "없음";', "admin audit payload terse empty fallback");
+assertIncludes(sources.auditLogPresentation, 'return "없음";', "shared admin audit payload empty value copy");
+assertExcludes(sources.adminAuditLogsScreen, "변경 내용 없음", "admin audit detail must avoid duplicate empty payload blocks");
 for (const [label, source] of [
   ["admin users branch fallback", sources.adminUsersScreen],
   ["admin roles branch fallback", sources.adminRolesScreen],
@@ -3674,10 +3733,10 @@ for (const snippet of [
   '"notification.dispatch": "공지 알림 발송"',
   '"payment.webhook": "결제 상태 반영"',
 ]) {
-  assertIncludes(sources.adminAuditLogsScreen, snippet, "admin audit action app-safe labels");
+  assertIncludes(sources.auditLogPresentation, snippet, "shared admin audit action app-safe labels");
 }
 for (const snippet of ['"notification.subscribe": "푸시 구독"', '"notification.unsubscribe": "푸시 해지"', '"notification.dispatch": "푸시 발송"', '"payment.webhook": "결제 webhook"']) {
-  assertExcludes(sources.adminAuditLogsScreen, snippet, "admin audit action technical labels");
+  assertExcludes(sources.auditLogPresentation, snippet, "shared admin audit action technical labels");
 }
 for (const [label, source] of [
   ["login local shortcut visible copy", sources.loginScreen],
@@ -5633,6 +5692,24 @@ assert.equal(
   "package.json must expose test:admin-audit-search",
 );
 assert.equal(
+  packageJson.scripts?.["test:audit-action-contract"],
+  "node scripts/check-audit-action-contract.mjs",
+  "package.json must expose test:audit-action-contract",
+);
+assert.equal(
+  packageJson.scripts?.["test:audit-log-privacy"],
+  "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-audit-log-privacy.mjs",
+  "package.json must expose test:audit-log-privacy",
+);
+for (const snippet of [
+  "audit phone, email, identifier, credential, endpoint, and sensitive content masking",
+  "central server read/write audit sanitization",
+  "readable before/after audit detail rows without raw JSON",
+  "audit detail URL restoration",
+]) {
+  assertIncludes(sources.auditLogPrivacyScript, snippet, "audit log privacy regression script");
+}
+assert.equal(
   packageJson.scripts?.["test:admin-user-guardian-bottom-safe-area"],
   "node scripts/check-admin-user-guardian-bottom-safe-area.mjs",
   "package.json must expose test:admin-user-guardian-bottom-safe-area",
@@ -5766,8 +5843,12 @@ for (const snippet of [
   'data-testid="admin-audit-filter-reset"',
   'data-testid="admin-audit-empty-filter-reset"',
   "promotion.create",
+  "tournament.create",
+  "tournament.update",
+  "tournament.delete",
   "admin audit search hydrates q from the URL",
-  "admin audit API accepts promotion filters shown in the UI",
+  "admin audit API accepts shared promotion and tournament filters shown in the UI",
+  "admin audit and role screens use one completion label policy",
 ]) {
   assertIncludes(sources.adminAuditSearchScript, snippet, "admin audit search regression script");
 }
@@ -6196,8 +6277,28 @@ assert(
   "admin audit search evidence must verify URL hydration",
 );
 assert(
-  adminAuditSearchReport.checked?.includes("admin audit API accepts promotion filters shown in the UI"),
-  "admin audit search evidence must verify API/UI promotion filter parity",
+  adminAuditSearchReport.checked?.includes("admin audit API accepts shared promotion and tournament filters shown in the UI"),
+  "admin audit search evidence must verify API/UI promotion and tournament filter parity",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("admin audit detail uses readable Korean before/after rows without raw JSON"),
+  "admin audit search evidence must verify readable detail rows",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("admin audit detail deep link restores and toggles the selected record"),
+  "admin audit search evidence must verify detail deep links",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("identical short-window audit read retries persist one traceable record"),
+  "admin audit search evidence must verify read retry deduplication",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("audit date-only ranges include the full selected Korea day"),
+  "admin audit search evidence must verify date-only range boundaries",
+);
+assert(
+  adminAuditSearchReport.checked?.includes("audit filter form prevents reversed date drafts"),
+  "admin audit search evidence must verify reversed date draft prevention",
 );
 assert(
   adminAuditSearchReport.controls?.filtered?.inputHeight >= 44,
@@ -6238,11 +6339,49 @@ assert.equal(
   adminAuditSearchReport.controls?.empty?.clientWidth,
   "admin audit empty search evidence must show no horizontal overflow",
 );
-assert.equal(adminAuditSearchReport.promotionFilterApi?.status, 200, "admin audit promotion filter API evidence must return 200");
+assert(adminAuditSearchReport.controls?.detail?.changeRowCount >= 2, "admin audit detail evidence must include change rows");
+assert.equal(adminAuditSearchReport.controls?.detail?.preCount, 0, "admin audit detail evidence must exclude raw preformatted JSON");
+assert.equal(
+  adminAuditSearchReport.controls?.detail?.scrollWidth,
+  adminAuditSearchReport.controls?.detail?.clientWidth,
+  "admin audit detail evidence must show no horizontal overflow",
+);
+for (const action of ["promotion.create", "promotion.update", "tournament.create", "tournament.update", "tournament.delete"]) {
+  const filterApi = adminAuditSearchReport.actionFilterApis?.find((item) => item.action === action);
+  assert.equal(filterApi?.status, 200, `admin audit ${action} filter API evidence must return 200`);
+}
+assert.equal(adminAuditSearchReport.duplicateReadAudit?.count, 1, "admin audit duplicate reads must persist once");
+assert.equal(adminAuditSearchReport.duplicateReadAudit?.repeatedStatus, 200, "admin audit duplicate read requests must succeed");
+assert.equal(adminAuditSearchReport.duplicateReadAudit?.inspectStatus, 200, "admin audit duplicate read inspection must succeed");
+assert.equal(adminAuditSearchReport.dateBoundaryApi?.validStatus, 200, "admin audit same-day range API must succeed");
+assert(adminAuditSearchReport.dateBoundaryApi?.returnedCount >= 1, "admin audit same-day range must return current-day records");
+assert.equal(
+  adminAuditSearchReport.dateBoundaryApi?.allReturnedLogsInsideSelectedDay,
+  true,
+  "admin audit same-day range must stay inside the selected Korea date",
+);
+assert(adminAuditSearchReport.controls?.filtered?.fromHeight >= 44, "admin audit from-date input must stay tappable");
+assert(adminAuditSearchReport.controls?.filtered?.toHeight >= 44, "admin audit to-date input must stay tappable");
+assert.equal(
+  adminAuditSearchReport.controls?.filtered?.toMin,
+  adminAuditSearchReport.controls?.filtered?.fromValue,
+  "admin audit end-date minimum must follow the start date",
+);
 for (const screenshot of Object.values(adminAuditSearchReport.screenshots ?? {})) {
   assert(screenshot?.path && existsSync(screenshot.path), "admin audit search screenshot must exist");
   assert(statSync(screenshot.path).size > 10_000, "admin audit search screenshot must be non-empty");
 }
+assert.equal(adminAuditPrivacyIosReport.ok, true, "admin audit privacy iOS simulator evidence must pass");
+assert.equal(adminAuditPrivacyIosReport.build?.result, "BUILD SUCCEEDED", "admin audit privacy iOS build must pass");
+assert(
+  adminAuditPrivacyIosReport.checked?.includes("Capacitor app opens the selected audit detail from the detail deep link"),
+  "admin audit privacy iOS evidence must verify detail deep-link restoration",
+);
+assert(
+  adminAuditPrivacyIosReport.screenshot?.path && existsSync(adminAuditPrivacyIosReport.screenshot.path),
+  "admin audit privacy iOS screenshot must exist",
+);
+assert(statSync(adminAuditPrivacyIosReport.screenshot.path).size > 10_000, "admin audit privacy iOS screenshot must be non-empty");
 assert.equal(adminBranchSelectedScopeReport.ok, true, "admin branch selected-scope browser proof must pass");
 assert.equal(
   adminBranchSelectedScopeReport.state?.title,
@@ -6319,6 +6458,33 @@ assert(
   ),
   "payment create touch-target evidence must verify searchable member selection",
 );
+assert(
+  paymentCreateTouchTargetsReport.checked?.includes(
+    "manual payment create disables while saving, persists exactly once, and shows success feedback",
+  ),
+  "payment create evidence must verify pending state, persistence, and direct feedback",
+);
+assert(
+  paymentCreateTouchTargetsReport.screenshots?.created?.path &&
+    existsSync(paymentCreateTouchTargetsReport.screenshots.created.path),
+  "payment create success feedback screenshot must exist",
+);
+assert.equal(manualPaymentCreateFeedbackReport.ok, true, "manual payment create iOS evidence must pass");
+assert.equal(
+  manualPaymentCreateFeedbackReport.browserEvidence,
+  files.paymentCreateTouchTargetsReport,
+  "manual payment create iOS evidence must reference the interaction proof",
+);
+assert(
+  manualPaymentCreateFeedbackReport.checked?.includes(
+    "manual payment create form restores with a selected member deep link",
+  ),
+  "manual payment create iOS evidence must verify the open form",
+);
+for (const screenshot of manualPaymentCreateFeedbackReport.screenshots ?? []) {
+  assert(screenshot?.path && existsSync(screenshot.path), "manual payment create iOS screenshot must exist");
+  assert(statSync(screenshot.path).size > 10_000, "manual payment create iOS screenshot must be non-empty");
+}
 assert.equal(
   paymentCreateTouchTargetsReport.layouts?.collapsed?.fieldsCount,
   0,
@@ -6393,8 +6559,8 @@ assertIncludes(sources.paymentsExportRoute, "결제 내보내기 권한이 없�
 assertIncludes(sources.paymentsExportRoute, "결제 내보내기를 완료했습니다.", "payments export API service-facing audit copy");
 assertExcludes(sources.paymentsExportRoute, "결제 CSV를 내보낼 권한이 없습니다.", "payments export API file-format-first authorization copy");
 assertExcludes(sources.paymentsExportRoute, "결제 CSV를 내보냈습니다.", "payments export API file-format-first audit copy");
-assertIncludes(sources.adminAuditLogsScreen, '"export.create": "내보내기"', "admin audit logs service-facing export action label");
-assertExcludes(sources.adminAuditLogsScreen, '"export.create": "CSV 내보내기"', "admin audit logs file-format-first action label");
+assertIncludes(sources.auditLogPresentation, '"export.create": "내보내기"', "shared admin audit service-facing export action label");
+assertExcludes(sources.auditLogPresentation, '"export.create": "CSV 내보내기"', "shared admin audit file-format-first action label");
 assertExcludes(sources.adminAuditLogsScreen, ">CSV 내보내기<", "admin audit logs file-format-first summary card label");
 assertIncludes(sources.adminSettings, "결제 생성과 내보내기", "admin settings service-facing audit policy export label");
 assertExcludes(sources.adminSettings, "결제 생성과 CSV 내보내기", "admin settings file-format-first audit policy export label");
@@ -8652,7 +8818,7 @@ console.log(
 	        "admin users pending invitation approval action has a visible label with iOS simulator evidence",
 	        "runtime DB has no leftover admin invitation evidence users",
 	        "adult member and guardian child payment checkout preparation stays API-free with iOS simulator evidence",
-	        "owner manual payment create form keeps 44px searchable registration controls with browser evidence",
+	        "owner manual payment creation persists once with pending feedback and browser/iOS evidence",
 	        "member contact formatting evidence hides raw +82 seed/intake phone values",
         "affected empty-state routes hide old waiting copy in mobile browser evidence",
         "dashboard/members empty-state helper copy remains title-only in mobile browser evidence",
@@ -8685,6 +8851,10 @@ console.log(
         "pilot import missing phone fallback avoids dummy missing-value copy",
         "stale demo seed date rolling member dashboard evidence is present",
         "admin change record rendered copy uses app-safe wording",
+        "admin change record privacy, readable detail rows, and iOS deep-link evidence",
+        "admin change record short-window read retries persist one audit entry",
+        "admin change record date-only range includes the full Korea day",
+        "admin change record rejects reversed date ranges in the form and API",
         "notifications inbox has dedicated iOS simulator evidence",
         "member and guardian notification inbox density has iOS simulator evidence",
         "guardian notification rows stay compact with iOS simulator evidence",
@@ -8742,6 +8912,7 @@ console.log(
         ".data/mobile-builds/ios/family-class-personal-attendance-20260623/guardian-classes-personal-attendance-ios-sim.jpg",
         ...memberDashboardPaymentCheckoutLinkReport.screenshots.map((screenshot) => screenshot.path),
         ...Object.values(paymentCreateTouchTargetsReport.screenshots ?? {}).map((screenshot) => screenshot.path),
+        ...manualPaymentCreateFeedbackReport.screenshots.map((screenshot) => screenshot.path),
       ],
     },
     null,

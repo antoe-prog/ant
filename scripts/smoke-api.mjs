@@ -1044,9 +1044,11 @@ async function run() {
   );
   assert(
     result.payload.data.db.auditLogs.some(
-      (log) => log.action === "member.update" && log.after?.emergencyContact === guardianContact,
+      (log) =>
+        log.action === "member.update" &&
+        log.after?.emergencyContact === `010-****-${guardianContact.slice(-4)}`,
     ),
-    "guardian linked member emergency contact audit log missing",
+    "guardian linked member emergency contact audit log must retain a masked change record",
   );
 
   const blockedGuardianStatus = await guardianAfterLink.request(
@@ -1309,12 +1311,31 @@ async function run() {
     "selected branch mismatch must not create the payment",
   );
 
+  const reversedDatePlanName = `Smoke Reversed Dates ${stamp}`;
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        memberId: "member-jun",
+        planName: reversedDatePlanName,
+        status: "scheduled",
+        amount: 190000,
+        discountAmount: 10000,
+        dueDate: "2026-07-14",
+        expiresAt: "2026-07-13",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 400, "payment create must reject an expiry before the due date");
+
   result = await owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({
       memberId: "member-jun",
       planName: `Smoke Plan ${stamp}`,
-      status: "paid",
+      status: "scheduled",
       amount: 190000,
       discountAmount: 10000,
       dueDate: "2026-06-13",
@@ -1326,8 +1347,111 @@ async function run() {
   assert(createdPayment, "payment create did not return created payment");
   assert(createdPayment.discountAmount === 10000, "payment discount amount did not persist");
   assert(
-    createdPayment.statusHistory?.some((entry) => entry.status === "paid" && entry.event === "created"),
+    createdPayment.statusHistory?.some((entry) => entry.status === "scheduled" && entry.event === "created"),
     "payment create must persist status history",
+  );
+  const createdPaymentHistoryCount = createdPayment.statusHistory?.length ?? 0;
+
+  result = await owner.request(
+    `/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-missing`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 403, "manual payment update must reject an invalid selected branch before validation");
+
+  result = await owner.request(
+    `/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-songpa`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        amount: 200000,
+        discountAmount: 15000,
+        dueDate: "2026-06-14",
+        expiresAt: "2026-07-14",
+        planName: `Smoke Plan Revised ${stamp}`,
+        reason: `Smoke correction ${stamp}`,
+        status: "scheduled",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 403, "manual payment update must reject a selected branch mismatch before validation");
+
+  result = await owner.request(
+    `/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        amount: 200000,
+        discountAmount: 15000,
+        dueDate: "2026-07-15",
+        expiresAt: "2026-07-14",
+        planName: `Smoke Plan Revised ${stamp}`,
+        reason: `Smoke reversed date correction ${stamp}`,
+        status: "scheduled",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 400, "manual payment update must reject an expiry before the due date");
+
+  result = await owner.request(`/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      amount: 200000,
+      discountAmount: 15000,
+      dueDate: "2026-06-14",
+      expiresAt: "2026-07-14",
+      planName: `Smoke Plan Revised ${stamp}`,
+      reason: `Smoke correction ${stamp}`,
+      status: "scheduled",
+    }),
+  });
+  const updatedManualPayment = result.payload.data.db.payments.find((payment) => payment.id === createdPayment.id);
+  assert(
+    updatedManualPayment?.planName === `Smoke Plan Revised ${stamp}` &&
+      updatedManualPayment.amount === 200000 &&
+      updatedManualPayment.discountAmount === 15000 &&
+      updatedManualPayment.dueDate === "2026-06-14" &&
+      updatedManualPayment.expiresAt === "2026-07-14",
+    "manual payment update must persist editable fields",
+  );
+  assert(
+    (updatedManualPayment?.statusHistory?.length ?? 0) === createdPaymentHistoryCount &&
+      !updatedManualPayment?.statusHistory?.some(
+        (entry) => entry.event === "status_changed" && entry.reason.includes(`Smoke correction ${stamp}`),
+      ),
+    "manual payment detail update must not append false status history",
+  );
+  assert(
+    result.payload.data.db.auditLogs.some(
+      (log) => log.action === "payment.update" && log.targetId === createdPayment.id && log.after?.reason === `Smoke correction ${stamp}`,
+    ),
+    "manual payment update audit log missing",
+  );
+
+  result = await owner.request(`/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      amount: 200000,
+      discountAmount: 15000,
+      dueDate: "2026-06-14",
+      expiresAt: "2026-07-14",
+      planName: `Smoke Plan Revised ${stamp}`,
+      reason: `Smoke status correction ${stamp}`,
+      status: "paid",
+    }),
+  });
+  const statusUpdatedManualPayment = result.payload.data.db.payments.find((payment) => payment.id === createdPayment.id);
+  assert(statusUpdatedManualPayment?.status === "paid", "manual payment status update must persist the new status");
+  assert(
+    statusUpdatedManualPayment.statusHistory?.some(
+      (entry) => entry.event === "status_changed" && entry.reason.includes(`Smoke status correction ${stamp}`),
+    ),
+    "manual payment status update must append status history",
   );
 
   result = await owner.request(
@@ -1376,6 +1500,16 @@ async function run() {
     "payment refund audit log missing",
   );
 
+  result = await owner.request(
+    `/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke invalid refunded delete ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 422, "manual payment deletion must block records with refund history");
+
   result = await owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({
@@ -1402,6 +1536,75 @@ async function run() {
   assert(
     cancelledPayment.statusHistory?.some((entry) => entry.status === "cancelled" && entry.reason === `Smoke cancellation ${stamp}`),
     "payment cancellation must append status history",
+  );
+
+  result = await owner.request(
+    `/api/v1/payments/${cancelPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke cancelled manual delete ${stamp}` }),
+    },
+  );
+  assert(
+    !result.payload.data.db.payments.some((payment) => payment.id === cancelPayment.id),
+    "cancelled manual payment deletion must remove the record when no refund amount exists",
+  );
+  assert(
+    result.payload.data.db.auditLogs.some(
+      (log) =>
+        log.action === "payment.delete" &&
+        log.targetId === cancelPayment.id &&
+        log.after?.reason === `Smoke cancelled manual delete ${stamp}`,
+    ),
+    "cancelled manual payment deletion audit log missing",
+  );
+
+  result = await owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      memberId: "member-seo",
+      planName: `Smoke Delete Plan ${stamp}`,
+      status: "scheduled",
+      amount: 140000,
+      discountAmount: 0,
+      dueDate: "2026-06-22",
+      expiresAt: "2026-07-22",
+    }),
+  });
+  const deletePaymentCandidate = result.payload.data.db.payments.find(
+    (payment) => payment.planName === `Smoke Delete Plan ${stamp}`,
+  );
+  assert(deletePaymentCandidate, "payment create for manual deletion did not return created payment");
+
+  result = await coach.request(
+    `/api/v1/payments/${deletePaymentCandidate.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke forbidden delete ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 403, "coach must not delete manual payment records");
+
+  result = await owner.request(
+    `/api/v1/payments/${deletePaymentCandidate.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke duplicate correction ${stamp}` }),
+    },
+  );
+  assert(
+    !result.payload.data.db.payments.some((payment) => payment.id === deletePaymentCandidate.id),
+    "manual payment deletion must remove the record",
+  );
+  assert(
+    result.payload.data.db.auditLogs.some(
+      (log) =>
+        log.action === "payment.delete" &&
+        log.targetId === deletePaymentCandidate.id &&
+        log.after?.reason === `Smoke duplicate correction ${stamp}`,
+    ),
+    "manual payment deletion audit log missing",
   );
 
   result = await owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
@@ -1449,6 +1652,15 @@ async function run() {
     result.payload.data.db.auditLogs.some((log) => log.action === "payment.online_checkout.create" && log.targetId === onlinePaymentSeed.id),
     "online checkout audit log missing",
   );
+  result = await owner.request(
+    `/api/v1/payments/${onlinePaymentSeed.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke invalid online delete ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 422, "manual payment deletion must block records with online payment history");
 
   const providerEventId = `evt-paid-${stamp}`;
   const webhookResult = await owner.request("/api/v1/payments/webhook", {
@@ -2918,6 +3130,18 @@ async function run() {
   assert(result.payload.data.logs.some((log) => log.action === "export.create"), "audit log query must return export logs");
   assert(result.payload.data.summary.exportCount >= 1, "audit log summary must count exports");
 
+  const reversedAuditDateRange = await admin.request(
+    `/api/v1/admin/audit-logs?from=2026-07-14&to=2026-07-13&reason=${encodeURIComponent(`Smoke reversed audit range ${stamp}`)}`,
+    {},
+    { allowError: true },
+  );
+  assert(reversedAuditDateRange.response.status === 400, "audit log query must reject a start date after the end date");
+  assert.match(
+    reversedAuditDateRange.payload.error?.message ?? "",
+    /시작일은 종료일보다 늦을 수 없습니다/,
+    "reversed audit date range must explain the chronology error",
+  );
+
   const missingAuditReason = await admin.request(
     "/api/v1/admin/audit-logs",
     {},
@@ -2947,6 +3171,8 @@ async function run() {
     "class.create",
     "class.update",
     "payment.create",
+    "payment.update",
+    "payment.delete",
     "payment.online_checkout.create",
     "payment.webhook",
     "payment.recurring_agreement.create",
@@ -3000,7 +3226,7 @@ async function run() {
           "member guardian counseling notice invalid selectedBranchId API 403",
           "member create/update/profile/guardian link and adult guardian-link block",
           "class create/update",
-          "payment create/refund/cancel lifecycle history, online webhook receipt/idempotency, and recurring agreement create/cancel",
+          "payment date chronology, detail-only correction history integrity, status changes, delete/refund/cancel lifecycle, online webhook receipt/idempotency, and recurring agreement create/cancel",
           "online and recurring payment invalid selectedBranchId API 403",
           "member/guardian CSV export API 403",
           "CSV export invalid selectedBranchId API 403",
@@ -3042,6 +3268,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  console.error(error instanceof Error ? error.stack : error);
   process.exit(1);
 });
