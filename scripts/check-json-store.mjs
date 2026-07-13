@@ -376,33 +376,51 @@ try {
     RuntimeStateIntegrityError,
     "runtime integrity must reject normalized duplicate phone accounts",
   );
-  assert.throws(
-    () => validateRuntimeStateIntegrity({ ...integrityBase, users: integrityBase.users.slice(1) }),
-    RuntimeStateIntegrityError,
-    "runtime integrity must reject classes and members that reference a deleted coach",
+  const healedAfterCoachDelete = validateRuntimeStateIntegrity({
+    ...integrityBase,
+    users: integrityBase.users.slice(1),
+  });
+  assert.equal(
+    healedAfterCoachDelete.members[0].primaryCoachId,
+    "owner-a",
+    "members referencing a deleted coach must be reassigned to a same-branch operator",
+  );
+  assert.equal(
+    healedAfterCoachDelete.classes[0].coachId,
+    "owner-a",
+    "classes referencing a deleted coach must be reassigned to a same-branch operator",
   );
   assert.throws(
     () =>
-      validateRuntimeStateIntegrity(
-        mergeRuntimeState(
-          integrityBase,
-          {
-            ...integrityBase,
-            users: integrityBase.users.filter((user) => user.id !== "coach-a"),
-            members: integrityBase.members.map((member) => ({ ...member, primaryCoachId: "owner-a" })),
-            classes: integrityBase.classes.map((session) => ({ ...session, coachId: "owner-a" })),
-          },
-          {
-            ...integrityBase,
-            classes: [
-              { id: "class-concurrent", branchId: "branch-a", coachId: "coach-a", enrolledMemberIds: [] },
-              ...integrityBase.classes,
-            ],
-          },
-        ),
-      ),
+      validateRuntimeStateIntegrity({
+        ...integrityBase,
+        users: integrityBase.users.filter((user) => user.role === "member"),
+      }),
     RuntimeStateIntegrityError,
-    "runtime integrity must reject a class concurrently added for a deleted coach",
+    "classes referencing a deleted coach must be rejected when no same-branch operator can take over",
+  );
+  const healedConcurrentCoachDelete = validateRuntimeStateIntegrity(
+    mergeRuntimeState(
+      integrityBase,
+      {
+        ...integrityBase,
+        users: integrityBase.users.filter((user) => user.id !== "coach-a"),
+        members: integrityBase.members.map((member) => ({ ...member, primaryCoachId: "owner-a" })),
+        classes: integrityBase.classes.map((session) => ({ ...session, coachId: "owner-a" })),
+      },
+      {
+        ...integrityBase,
+        classes: [
+          { id: "class-concurrent", branchId: "branch-a", coachId: "coach-a", enrolledMemberIds: [] },
+          ...integrityBase.classes,
+        ],
+      },
+    ),
+  );
+  assert.equal(
+    healedConcurrentCoachDelete.classes.find((session) => session.id === "class-concurrent")?.coachId,
+    "owner-a",
+    "a class concurrently added for a deleted coach must be reassigned to a same-branch operator",
   );
   assert.throws(
     () =>

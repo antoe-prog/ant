@@ -150,25 +150,34 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
   });
 
   const classes = db.classes.map((session) => {
-    const coach = userById.get(session.coachId);
     assertReference(branchById.has(session.branchId), "classes.branchId", session.id);
-    assertReference(
-      Boolean(coach && ["coach", "owner", "admin"].includes(coach.role) && coach.branchIds.includes(session.branchId)),
-      "classes.coachId",
-      session.id,
+
+    let nextCoachId = session.coachId;
+    const coach = userById.get(session.coachId);
+    const coachValid = Boolean(
+      coach && ["coach", "owner", "admin"].includes(coach.role) && coach.branchIds.includes(session.branchId),
     );
+    if (!coachValid) {
+      // 수업은 담당자가 반드시 필요하다: 같은 지점 운영자에게 인계하고, 인계 대상이 없으면 거부한다.
+      const fallbackCoachId = findFallbackCoachId(session.branchId);
+      assertReference(Boolean(fallbackCoachId), "classes.coachId", session.id);
+      nextCoachId = fallbackCoachId;
+      reportHealed("classes.coachId", session.id);
+    }
 
     const enrolledMemberIds = session.enrolledMemberIds.filter(
       (memberId) => memberById.get(memberId)?.branchId === session.branchId,
     );
 
-    if (enrolledMemberIds.length === session.enrolledMemberIds.length) {
+    if (nextCoachId === session.coachId && enrolledMemberIds.length === session.enrolledMemberIds.length) {
       return session;
     }
 
     healed = true;
-    reportHealed("classes.enrolledMemberIds", session.id);
-    return { ...session, enrolledMemberIds };
+    if (enrolledMemberIds.length !== session.enrolledMemberIds.length) {
+      reportHealed("classes.enrolledMemberIds", session.id);
+    }
+    return { ...session, coachId: nextCoachId, enrolledMemberIds };
   });
 
   for (const attendance of db.attendance) {
