@@ -169,9 +169,9 @@
 - [x] 메모 수정 이력: DB에 notesUpdatedAt 커럼 추가 (members 테이블) + 서버 자동 업데이트
 
 ## 18차 기능 구현 - 메모 수정 이력
-- [ ] DB: memberMemoHistory 테이블 추가 (memberId, content, savedAt, savedBy)
-- [ ] DB: 마이그레이션 스크립트 실행
-- [ ] 서버 API: 메모 저장 시 이전 내용을 이력 테이블에 자동 기록
-- [ ] 서버 API: members.memoHistory 조회 API 추가
-- [ ] 회원 상세 메모 탭: "수정 이력 보기" 토글 버튼 추가
-- [ ] 회원 상세 메모 탭: 이력 목록 (날짜, 내용 미리보기, 전체 보기 모달)
+- [x] DB: memberMemoHistory 테이블 추가 (memberId, content, savedAt, savedBy)
+- [x] DB: 마이그레이션 스크립트 실행 (dev MySQL judokan에 0005 적용 확인)
+- [x] 서버 API: 메모 저장 시 이전 내용을 이력 테이블에 자동 기록
+- [x] 서버 API: members.memoHistory 조회 API 추가 (memoHistory.list/deleteItem/clearAll, 같은 초 저장 시 id 보조 정렬)
+- [x] 회원 상세 메모 탭: "수정 이력 보기" 토글 버튼 추가
+- [x] 회원 상세 메모 탭: 이력 목록 (날짜, 내용 미리보기, 전체 보기 모달)

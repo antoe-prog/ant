@@ -1748,7 +1748,8 @@ export async function getMemoHistory(memberId: number) {
     .from(memberMemoHistory)
     .leftJoin(users, eq(memberMemoHistory.savedBy, users.id))
     .where(eq(memberMemoHistory.memberId, memberId))
-    .orderBy(desc(memberMemoHistory.savedAt))
+    // savedAt은 초 단위라 같은 초에 저장된 이력은 id로 순서를 보장한다
+    .orderBy(desc(memberMemoHistory.savedAt), desc(memberMemoHistory.id))
     .limit(50);
 }
 

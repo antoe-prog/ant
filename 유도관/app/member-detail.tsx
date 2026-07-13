@@ -547,6 +547,7 @@ export default function MemberDetailScreen() {
                     placeholder="메모를 입력하세요..."
                     multiline
                     numberOfLines={8}
+                    maxLength={2000}
                     style={{
                       backgroundColor: "transparent",
                       borderWidth: 1,
@@ -559,6 +560,9 @@ export default function MemberDetailScreen() {
                       textAlignVertical: "top",
                     }}
                   />
+                  <Text style={{ fontSize: 11, color: memoText.length >= 2000 ? "#D32F2F" : "#9BA1A6", textAlign: "right", marginTop: 6 }}>
+                    {memoText.length}/2000자
+                  </Text>
                 </View>
                 <TouchableOpacity
                   style={{
