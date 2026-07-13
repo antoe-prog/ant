@@ -10,6 +10,7 @@ import {
 } from "@/server/online-payments";
 import { jsonError, jsonOk } from "@/server/api";
 import { readServerDb, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
   const occurredAt = isIsoDate(occurredAtInput) ? new Date(occurredAtInput as string).toISOString() : new Date().toISOString();
   const nextPayment = createWebhookUpdatedPayment(payment, webhookBody, occurredAt);
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: payment.branchId,
     actorUserId: webhookActorUserId,
     action: "payment.webhook",

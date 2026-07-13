@@ -70,7 +70,7 @@
 | 401 | `UNAUTHENTICATED` | 로그인 필요 |
 | 403 | `FORBIDDEN` | 역할, 지점, 관계 권한 실패 |
 | 404 | `NOT_FOUND` | 리소스 없음 또는 스코프 밖 리소스 |
-| 409 | `CONFLICT` | 출석/권한 변경 충돌 |
+| 409 | `CONFLICT` | 출석/권한 변경 또는 계정 유일성 충돌 |
 | 422 | `BUSINESS_RULE_FAILED` | 정원 초과, self-lockout 등 정책 실패 |
 | 500 | `INTERNAL_ERROR` | 서버 오류 |
 
@@ -79,6 +79,7 @@
 | Method | Path | 권한 | 감사 | 설명 |
 | --- | --- | --- | --- | --- |
 | `POST` | `/auth/login` | 공개 | 예 | 운영 계정 로그인 또는 개발/테스트 역할 로그인 |
+| `POST` | `/auth/register` | 공개 | 예 | 휴대폰 성인 회원가입 |
 | `POST` | `/auth/logout` | 인증 | 예 | 로그아웃 |
 | `POST` | `/auth/password-reset` | 공개 | 예 | 비밀번호 재설정 요청 |
 | `POST` | `/auth/invitations/:token/accept` | 공개 | 예 | 초대 가입 수락 |
@@ -91,7 +92,11 @@
 
 `POST /auth/login`은 `{ "phone": "...", "password": "...", "keepSignedIn": true }` 운영 계정 로그인을 기본 경로로 사용한다. `keepSignedIn`을 보내지 않으면 세션 쿠키는 8시간 유지되고, `true`이면 30일 유지된다. 데모 seed와 파일럿 CSV import 사용자는 서버 저장소에서 PBKDF2 `passwordHash`를 갖지만, 모든 bootstrap/snapshot 응답에서는 `passwordHash`를 제거한다. 파일럿 기본 임시 비밀번호는 `FinalJudoPilot!2026`이며 실제 운영 전 `/app/admin/users` 또는 `POST /admin/users/:userId/password`에서 계정별 값으로 교체한다.
 
+`POST /auth/register`는 이름, 한국 휴대폰 번호, 8자 이상 비밀번호를 받아 UUID 기반 사용자·성인 회원 프로필을 함께 생성한다. 정규화된 휴대폰 번호 범위의 런타임 잠금 안에서 최신 저장소를 다시 확인하므로 같은 번호의 동시 가입은 정확히 한 건만 성공하고 나머지는 `409 CONFLICT`를 반환한다. 병합 후 저장 경계도 휴대폰·이메일 유일성과 사용자·회원 연결을 다시 검증한다.
+
 `POST /admin/users/:userId/password`는 총괄 어드민 전용이다. 요청 본문은 `{ "reason": "..." }`이고, 선택적으로 `{ "temporaryPassword": "..." }`를 보낼 수 있다. 값을 지정하지 않으면 서버가 1회 표시용 임시 비밀번호를 생성해 응답의 `password.temporaryPassword`로 돌려준다. 저장소와 감사 로그에는 원문 비밀번호를 남기지 않고 랜덤 salt PBKDF2 해시, 발급 시각, 발급 사유, `auth.password_reset.complete` 감사 로그만 남긴다.
+
+사용자 수정·역할 변경에서 코치/대표/총괄 역할 또는 담당 지점을 제거하면 해당 사용자의 수업과 담당 회원을 같은 지점의 다른 코치, 대표, 실행 총괄 순으로 자동 인계한다. 변경 기록에는 인계된 수업·회원 건수를 남긴다. 다른 대표가 없는 지점의 단독 대표는 역할 제거, 지점 해제, 계정 삭제를 `422 BUSINESS_RULE_FAILED`로 차단한다. 학부모 역할을 제거하면 회원 `guardianIds`의 역관계와 계정 `childMemberIds`를 함께 정리한다.
 
 `POST /auth/login`의 `{ "role": "coach" }` 역할 선택 데모 로그인은 개발/테스트 환경용이다. production에서는 기본 `403 FORBIDDEN`으로 차단하고, 파일럿 검증 중 명시적으로 필요할 때만 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`로 허용한다. 세션 쿠키는 `httpOnly`, `sameSite=lax`를 사용하며 기본 8시간, 로그인 상태 유지 선택 시 30일 만료를 적용하고 production에서는 `secure`를 적용한다. production 서버는 `x-user-id` 헤더를 세션 대체 수단으로 인정하지 않는다.
 
@@ -301,7 +306,11 @@
 | `GET` | `/exports/payments` | `exports.create` | 예 | 결제 CSV 내보내기 |
 | `GET` | `/exports/operations` | `exports.create` | 예 | 지점 운영 리포트 CSV 내보내기 |
 
-수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지와 만료일이 납부일보다 앞서지 않는지를 생성·수정에 동일하게 검증한다. 결제 생성은 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. `PATCH /payments/:paymentId`는 회원권명, 상태, 금액, 할인, 납부일, 만료일과 필수 `reason`을 정정하고 `payment.update` 변경 기록을 남긴다. 금액·할인·회원권명·날짜만 정정하면 감사 기록만 남기며, 실제 상태가 바뀐 경우에만 `statusHistory`에 `status_changed`를 추가한다. `DELETE /payments/:paymentId`는 필수 `reason`과 삭제 전 스냅샷을 `payment.delete` 변경 기록에 남긴 뒤 오등록 건을 제거한다. 두 API는 대표/총괄과 선택 지점 범위를 확인하며, 온라인 결제·정기결제·환불 금액 이력이 있는 기록은 직접 수정/삭제하지 않고 기존 결제 수명주기 API를 사용한다. 환불 금액이 없는 수기 취소 기록은 사유를 남겨 계속 정정하거나 삭제할 수 있다. 환불/취소 payload는 `reason`을 필수로 받으며, 부분 환불은 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 변경 기록에도 남긴다.
+수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지, 납부일과 만료일이 실제 달력에 존재하는 `YYYY-MM-DD`인지, 만료일이 납부일보다 앞서지 않는지를 생성·수정에 동일하게 검증한다. 수기 등록 상태는 `scheduled`, `paid`, `overdue`, `cancelled`, `refunded`, `expiringSoon`만 허용하며, 환불액 없는 `partially_refunded` 상태를 직접 만들 수 없다. `cancelled` 또는 `refunded` 상태로 생성할 때는 공백이 아닌 `reason`이 필수이고, 서버는 앞뒤 공백을 제거한 사유와 처리 시각을 결제 레코드, 최초 `statusHistory`, `payment.create` 감사 스냅샷에 저장한다. `refunded` 직접 등록은 결제 금액 전체를 환불액으로 기록한다. 결제 생성은 UUID 기반 ID와 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. 클라이언트는 `POST /branches/:branchId/payments`에 16~128자의 `Idempotency-Key`를 보내며, 서버는 처리자·지점 범위의 `payment.create` 감사 기록에 키, 생성 스냅샷과 정규화 payload의 SHA-256 확인값을 보관한다. 취소·환불 완료 생성의 확인값에는 정규화한 사유를 포함하고, 일반 상태 생성은 기존 사유 없는 확인값 형식을 유지한다. 같은 키와 같은 payload의 재시도는 새 결제를 만들지 않고 기존 결과와 `Idempotency-Replayed: true` 응답 헤더를 반환한다. 같은 키에 다른 payload를 보내거나 이미 삭제된 원본을 재시도하면 `409 IDEMPOTENCY_CONFLICT`로 차단한다. 헤더가 없는 기존 호출은 하위 호환을 위해 계속 처리한다. `PATCH /payments/:paymentId`는 회원권명, 상태, 금액, 할인, 납부일, 만료일과 필수 `reason`을 정정하고 `payment.update` 변경 기록을 남긴다. 금액·할인·회원권명·날짜만 정정하면 감사 기록만 남기며, 실제 상태가 바뀐 경우에만 `statusHistory`에 `status_changed`를 추가한다. `DELETE /payments/:paymentId`는 필수 `reason`과 취소 시각·사유·상태 이력을 포함한 삭제 전 스냅샷을 `payment.delete` 변경 기록에 남긴 뒤 오등록 건을 제거한다. 두 API는 대표/총괄과 선택 지점 범위를 확인하며, 온라인 결제·정기결제·환불 금액 이력이 있는 기록은 직접 수정/삭제하지 않고 기존 결제 수명주기 API를 사용한다. 환불 금액이 없는 수기 취소 기록은 사유를 남겨 계속 정정하거나 삭제할 수 있다. 동일 결제의 수기 수정·삭제와 온라인 결제 요청은 공통 mutation lock으로 직렬화하고, 같은 결제 레코드의 stale 동시 변경은 자동 병합하지 않는다. 환불/취소 payload는 `reason`을 필수로 받으며, 부분 환불은 실제 환불 금액과 함께 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 변경 기록에도 남긴다.
+
+같은 키의 동시 처리는 런타임 저장소 공통 잠금으로 직렬화한다. JSON 개발 저장소는 파일시스템 operation lock과 쓰기 직전 최신 파일 병합을 사용하고, PostgreSQL 운영 저장소는 `app_runtime_state` 테이블·상태 키·요청 범위를 조합한 트랜잭션 advisory lock을 사용해 서로 다른 서버 인스턴스도 같은 결제를 동시에 생성하지 못하게 한다. PostgreSQL 잠금 안의 read/write는 같은 DB 연결과 트랜잭션을 사용해 transaction pooling 환경에서도 커밋·롤백과 함께 잠금이 해제된다.
+
+배포는 선택 헤더와 분산 잠금을 이해하는 서버를 먼저 반영한 뒤 클라이언트를 반영한다. advisory lock은 스키마나 저장 데이터를 변경하지 않으므로 롤백 시 클라이언트를 먼저 이전 버전으로 되돌리고 서버 잠금 코드를 제거해도 DB 마이그레이션 롤백이 필요 없다. `IDEMPOTENCY_CONFLICT`가 비정상적으로 증가하면 클라이언트의 키 재사용 범위를 먼저 확인하고, 저장 완료 여부가 불명확한 결제는 새 키로 자동 재등록하지 않는다.
 
 온라인 결제 요청은 예정/미납/만료 예정/부분 환불 결제에 대해 대표/총괄이 생성한다. `POST /api/v1/payments/{paymentId}/online-checkout`은 provider-neutral `onlinePayment` 메타를 결제에 저장하고 `payment.online_checkout.create` 감사 로그를 남긴다. 운영 PG/VAN 계약 전에는 `FINAL_JUDO_PAYMENT_PROVIDER`가 비어 있으면 mock provider로 동작하며, `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL`이 없으면 앱 내부 리허설 URL을 만든다.
 

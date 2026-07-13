@@ -196,6 +196,46 @@ async function runAssertions(baseUrl) {
   assert.equal(publicRegisterLogin.response.status, 200, "phone signup user must be able to log in with the same password");
   assertCookieMaxAge(publicRegisterLogin, 60 * 60 * 24 * 30, "phone signup remembered login");
 
+  const concurrentPhoneSuffix = String((Number(stampPhoneSuffix) + 3) % 100000000).padStart(8, "0");
+  const concurrentRegisterPhone = `010${concurrentPhoneSuffix}`;
+  const concurrentRegisterBody = JSON.stringify({
+    name: "동시 가입 확인",
+    password: `FJ-Concurrent-${stamp}!`,
+    phone: concurrentRegisterPhone,
+  });
+  const concurrentRegisterClients = [createClient(baseUrl), createClient(baseUrl)];
+  const concurrentRegisterResults = await Promise.all(
+    concurrentRegisterClients.map((client) =>
+      client.request(
+        "/api/v1/auth/register",
+        { method: "POST", body: concurrentRegisterBody },
+        { allowError: true },
+      ),
+    ),
+  );
+  assert.deepEqual(
+    concurrentRegisterResults.map((result) => result.response.status).sort((left, right) => left - right),
+    [200, 409],
+    "concurrent registration for one phone must create exactly one account and reject the duplicate",
+  );
+  assert.equal(
+    concurrentRegisterResults.find((result) => result.response.status === 409)?.payload.error?.code,
+    "CONFLICT",
+    "concurrent duplicate registration must return the stable conflict code",
+  );
+  const concurrentRegisterBootstrap = await admin.request("/api/v1/me/bootstrap");
+  const concurrentPhoneUsers = concurrentRegisterBootstrap.payload.data.db.users.filter(
+    (candidate) => candidate.phone === concurrentRegisterPhone,
+  );
+  assert.equal(concurrentPhoneUsers.length, 1, "concurrent registration must persist one user for the phone");
+  assert.equal(
+    concurrentRegisterBootstrap.payload.data.db.members.filter(
+      (candidate) => candidate.id === concurrentPhoneUsers[0]?.memberIds?.[0],
+    ).length,
+    1,
+    "concurrent registration must persist one linked member profile",
+  );
+
   const unauthenticatedUpdate = await anonymous.request(
     "/api/v1/admin/users/user-member",
     {
@@ -603,6 +643,66 @@ async function runAssertions(baseUrl) {
   const reissuedBootstrap = await loginCredentials(reissuedLogin, updatedPhone, reissuedPassword);
   assert.equal(reissuedBootstrap.user.id, invitedUserId, "admin-reissued password must allow login");
 
+  result = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
+    method: "PUT",
+    body: JSON.stringify({ role: "coach", reason: `temporary coach assignment ${stamp}` }),
+  });
+  assert.equal(
+    result.payload.data.db.users.find((candidate) => candidate.id === invitedUserId)?.role,
+    "coach",
+    "role update must allow an assigned branch user to become a coach",
+  );
+  const classStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const classEnd = new Date(classStart.getTime() + 60 * 60 * 1000);
+  const assignedClass = await admin.request(
+    "/api/v1/branches/branch-songpa/classes?selectedBranchId=branch-songpa",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ageGroup: "adult",
+        capacity: 10,
+        coachId: invitedUserId,
+        endsAt: classEnd.toISOString(),
+        enrolledMemberIds: [],
+        level: "입문",
+        name: `역할 인계 검증 ${stamp}`,
+        room: "송파관",
+        startsAt: classStart.toISOString(),
+      }),
+    },
+  );
+  const assignedClassId = assignedClass.payload.data.db.classes.find(
+    (session) => session.name === `역할 인계 검증 ${stamp}`,
+  )?.id;
+  assert(assignedClassId, "role reassignment test must create a class for the temporary coach");
+  result = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
+    method: "PUT",
+    body: JSON.stringify({ role: "member", reason: `temporary coach removal ${stamp}` }),
+  });
+  assert.notEqual(
+    result.payload.data.db.classes.find((session) => session.id === assignedClassId)?.coachId,
+    invitedUserId,
+    "removing the coach role must reassign assigned classes",
+  );
+  const roleReassignmentAudit = result.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.role.update" && log.targetId === invitedUserId && log.after?.role === "member",
+  );
+  assert.equal(
+    roleReassignmentAudit?.after?.reassignedClassCount,
+    1,
+    "role update audit must record reassigned class count",
+  );
+
+  const soleOwnerDemotion = await admin.request(
+    "/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-songpa",
+    {
+      method: "PUT",
+      body: JSON.stringify({ role: "member", reason: `sole owner protection ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(soleOwnerDemotion.response.status, 422, "sole branch owner role removal must be blocked");
+
   const ownerUpdate = await owner.request(
     `/api/v1/admin/users/${invitedUserId}`,
     {
@@ -649,18 +749,29 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(selfDelete.response.status, 422, "admin self-delete must be blocked");
 
-  const linkedCoachDelete = await admin.request(
-    "/api/v1/admin/users/user-coach",
-    {
-      method: "DELETE",
-      body: JSON.stringify({ reason: `linked coach delete block ${stamp}` }),
-    },
-    { allowError: true },
-  );
-  assert.equal(linkedCoachDelete.response.status, 422, "linked coach delete must be blocked");
+  // 담당 수업·회원이 남은 코치도 삭제 가능해야 하며, 연결은 같은 지점의 다른 코치/대표에게 자동 인계된다.
+  const linkedCoachDelete = await admin.request("/api/v1/admin/users/user-coach", {
+    method: "DELETE",
+    body: JSON.stringify({ reason: `linked coach cascade delete ${stamp}` }),
+  });
   assert(
-    Array.isArray(linkedCoachDelete.payload.error?.details?.blockingReasons),
-    "linked coach delete response must include blocking reasons",
+    !linkedCoachDelete.payload.data.db.users.some((candidate) => candidate.id === "user-coach"),
+    "linked coach delete must remove the coach account",
+  );
+  assert(
+    !linkedCoachDelete.payload.data.db.classes.some((session) => session.coachId === "user-coach"),
+    "deleted coach classes must be reassigned to another coach or owner",
+  );
+  assert(
+    !linkedCoachDelete.payload.data.db.members.some((member) => member.primaryCoachId === "user-coach"),
+    "deleted coach members must be reassigned to another coach or owner",
+  );
+  const coachCascadeAudit = linkedCoachDelete.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.delete" && log.targetId === "user-coach",
+  );
+  assert(
+    (coachCascadeAudit?.after?.reassignedClassCount ?? 0) >= 1,
+    "coach cascade delete audit must record the reassigned class count",
   );
 
   const ownerDelete = await owner.request(
@@ -691,6 +802,7 @@ async function runAssertions(baseUrl) {
     "authentication-first admin user API guards",
     "coach bootstrap payment record exclusion",
     "public register API phone signup login flow",
+    "concurrent phone signup uniqueness",
     "authentication-first admin user role and invitation guards",
     "authentication-first admin branch API guards",
     "admin invitation approval login flow",
@@ -703,6 +815,7 @@ async function runAssertions(baseUrl) {
     "audit phone and email masking",
     "short/default password rejection",
     "self-demotion and self-delete protection",
+    "role change operational reassignment and sole owner protection",
     "linked coach delete protection",
     "user.update and user.delete audit logs",
   ];

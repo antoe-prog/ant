@@ -12,7 +12,7 @@ const roleEmails = {
   member: "member@finaljudo.kr",
 };
 const rolePasswords = {
-  admin: process.env.SMOKE_ADMIN_PASSWORD,
+  admin: process.env.SMOKE_ADMIN_PASSWORD ?? defaultPilotPassword,
   owner: defaultPilotPassword,
   coach: defaultPilotPassword,
   guardian: defaultPilotPassword,
@@ -404,7 +404,7 @@ async function run() {
   );
   assert(unauthenticatedPilotReadiness.response.status === 401, "pilot readiness update must require login before validation");
 
-  const credentialRole = rolePasswords.admin ? "admin" : "owner";
+  const credentialRole = "admin";
   const credentialClient = createClient();
   const credentialBootstrap = await loginWithCredentials(
     credentialClient,
@@ -1330,6 +1330,168 @@ async function run() {
   );
   assert(result.response.status === 400, "payment create must reject an expiry before the due date");
 
+  const impossibleDatePlanName = `Smoke Impossible Date ${stamp}`;
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        memberId: "member-jun",
+        planName: impossibleDatePlanName,
+        status: "scheduled",
+        amount: 190000,
+        discountAmount: 10000,
+        dueDate: "2026-02-29",
+        expiresAt: "2026-03-29",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 400, "payment create must reject a date outside the real calendar");
+
+  for (const terminalStatus of ["cancelled", "refunded"]) {
+    result = await owner.request(
+      "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          memberId: "member-jun",
+          planName: `Smoke Reason Required ${terminalStatus} ${stamp}`,
+          status: terminalStatus,
+          amount: 190000,
+          discountAmount: 10000,
+          dueDate: "2026-06-13",
+          expiresAt: "2026-07-13",
+        }),
+      },
+      { allowError: true },
+    );
+    assert(result.response.status === 400, `manual ${terminalStatus} creation must require a reason`);
+  }
+
+  const cancelledCreatePlanName = `Smoke Cancelled Create ${stamp}`;
+  const cancelledCreateReason = `Smoke duplicate cancellation ${stamp}`;
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        memberId: "member-jun",
+        planName: cancelledCreatePlanName,
+        status: "cancelled",
+        amount: 190000,
+        discountAmount: 10000,
+        dueDate: "2026-06-13",
+        expiresAt: "2026-07-13",
+        reason: `  ${cancelledCreateReason}  `,
+      }),
+    },
+  );
+  const cancelledCreatePayment = result.payload.data.db.payments.find(
+    (payment) => payment.planName === cancelledCreatePlanName,
+  );
+  assert(cancelledCreatePayment, "cancelled manual payment with a reason must be created");
+  assert(
+    cancelledCreatePayment.refundReason === cancelledCreateReason && Boolean(cancelledCreatePayment.refundedAt),
+    "cancelled manual payment creation must persist the normalized reason and cancellation time",
+  );
+  assert(
+    cancelledCreatePayment.statusHistory?.some(
+      (entry) => entry.event === "created" && entry.reason.includes(cancelledCreateReason),
+    ),
+    "cancelled manual payment creation must persist its reason in status history",
+  );
+  assert(
+    result.payload.data.db.auditLogs.some(
+      (log) => log.action === "payment.create" && log.targetId === cancelledCreatePayment.id && log.after?.reason === cancelledCreateReason,
+    ),
+    "cancelled manual payment creation must persist its reason in the audit snapshot",
+  );
+  result = await owner.request(
+    `/api/v1/payments/${cancelledCreatePayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke cleanup ${stamp}` }),
+    },
+  );
+  assert(
+    !result.payload.data.db.payments.some((payment) => payment.id === cancelledCreatePayment.id),
+    "cancelled manual payment reason fixture must be removable after verification",
+  );
+
+  const idempotencyKey = `manual.smoke.${stamp}`;
+  const idempotentPlanName = `Smoke Idempotent Plan ${stamp}`;
+  const idempotentPaymentBody = {
+    memberId: "member-seo",
+    planName: idempotentPlanName,
+    status: "scheduled",
+    amount: 175000,
+    discountAmount: 5000,
+    dueDate: "2026-06-18",
+    expiresAt: "2026-07-18",
+  };
+  const createIdempotentPayment = () =>
+    owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(idempotentPaymentBody),
+    });
+  const [idempotentFirstResult, idempotentReplayResult] = await Promise.all([
+    createIdempotentPayment(),
+    createIdempotentPayment(),
+  ]);
+  const idempotentPayments = idempotentReplayResult.payload.data.db.payments.filter(
+    (payment) => payment.planName === idempotentPlanName,
+  );
+
+  assert.equal(idempotentPayments.length, 1, "concurrent payment retries with the same key must create exactly one record");
+  assert(
+    [idempotentFirstResult, idempotentReplayResult].some(
+      ({ response }) => response.headers.get("idempotency-replayed") === "true",
+    ),
+    "an idempotent payment retry must identify the replayed response",
+  );
+  assert.equal(
+    idempotentReplayResult.payload.data.db.auditLogs.filter(
+      (log) => log.action === "payment.create" && log.after?.idempotencyKey === idempotencyKey,
+    ).length,
+    1,
+    "idempotent payment retries must create one payment.create audit log",
+  );
+
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ ...idempotentPaymentBody, amount: idempotentPaymentBody.amount + 1000 }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 409, "a payment idempotency key must reject a different payload");
+  assert(result.payload.error?.code === "IDEMPOTENCY_CONFLICT", "payment idempotency conflicts must use a stable error code");
+
+  const idempotentPayment = idempotentPayments[0];
+  result = await owner.request(
+    `/api/v1/payments/${idempotentPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke idempotency deletion ${stamp}` }),
+    },
+  );
+  assert(!result.payload.data.db.payments.some((payment) => payment.id === idempotentPayment.id), "idempotency fixture deletion must persist");
+
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(idempotentPaymentBody),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 409, "a stale retry must not recreate a deleted payment");
+
   result = await owner.request("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({
@@ -1397,6 +1559,24 @@ async function run() {
     { allowError: true },
   );
   assert(result.response.status === 400, "manual payment update must reject an expiry before the due date");
+
+  result = await owner.request(
+    `/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        amount: 200000,
+        discountAmount: 15000,
+        dueDate: "2026-04-30",
+        expiresAt: "2026-04-31",
+        planName: `Smoke Plan Revised ${stamp}`,
+        reason: `Smoke impossible date correction ${stamp}`,
+        status: "scheduled",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 400, "manual payment update must reject a date outside the real calendar");
 
   result = await owner.request(`/api/v1/payments/${createdPayment.id}?selectedBranchId=branch-gangnam`, {
     method: "PATCH",
@@ -2773,15 +2953,17 @@ async function run() {
   );
   assert(selfDelete.response.status === 422, "self delete must be blocked with 422");
 
-  const linkedCoachDelete = await admin.request(
-    "/api/v1/admin/users/user-coach",
+  // 담당 수업·회원 연결은 더 이상 삭제를 막지 않는다(자동 인계 — check-admin-user-management-api가 검증).
+  // 남은 안전 규칙인 "지점 유일 대표 삭제 차단"을 비파괴적으로 확인한다.
+  const soleOwnerDelete = await admin.request(
+    "/api/v1/admin/users/user-owner",
     {
       method: "DELETE",
-      body: JSON.stringify({ reason: `Smoke linked coach delete block ${stamp}` }),
+      body: JSON.stringify({ reason: `Smoke sole owner delete block ${stamp}` }),
     },
     { allowError: true },
   );
-  assert(linkedCoachDelete.response.status === 422, "linked coach delete must be blocked with 422");
+  assert(soleOwnerDelete.response.status === 422, "sole branch owner delete must be blocked with 422");
 
   const userDeleteReason = `Smoke user delete ${stamp}`;
   const mismatchAdminUserDelete = await admin.request(
@@ -2812,6 +2994,15 @@ async function run() {
   assert(
     result.payload.data.db.users.find((user) => user.id === invitedUser.id)?.role === "member",
     "selected branch mismatch must not update the user role",
+  );
+
+  result = await admin.request(`/api/v1/admin/users/${invitedUser.id}/roles?selectedBranchId=branch-songpa`, {
+    method: "PUT",
+    body: JSON.stringify({ role: "coach", reason: `Smoke invited user role update ${stamp}` }),
+  });
+  assert(
+    result.payload.data.db.users.find((user) => user.id === invitedUser.id)?.role === "coach",
+    "admin role update did not persist for an eligible invited user",
   );
 
   result = await admin.request(`/api/v1/admin/users/${invitedUser.id}?selectedBranchId=branch-songpa`, {
@@ -2847,17 +3038,20 @@ async function run() {
   );
   assert(invalidAdminRoleUpdate.response.status === 403, "admin role update must reject invalid selectedBranchId");
 
-  result = await admin.request("/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-gangnam", {
-    method: "PUT",
-    body: JSON.stringify({ role: "coach", reason: "smoke role downgrade" }),
-  });
-  assert(result.payload.data.db.users.find((user) => user.id === "user-owner")?.role === "coach", "role downgrade failed");
-
-  result = await admin.request("/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-gangnam", {
-    method: "PUT",
-    body: JSON.stringify({ role: "owner", reason: "smoke role restore" }),
-  });
-  assert(result.payload.data.db.users.find((user) => user.id === "user-owner")?.role === "owner", "role restore failed");
+  const soleOwnerRoleDowngrade = await admin.request(
+    "/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-gangnam",
+    {
+      method: "PUT",
+      body: JSON.stringify({ role: "coach", reason: "smoke sole owner role downgrade" }),
+    },
+    { allowError: true },
+  );
+  assert(soleOwnerRoleDowngrade.response.status === 422, "sole branch owner role downgrade must be blocked with 422");
+  result = await admin.request("/api/v1/me/bootstrap");
+  assert(
+    result.payload.data.db.users.find((user) => user.id === "user-owner")?.role === "owner",
+    "blocked sole owner role downgrade must preserve the owner role",
+  );
 
   const pilotEvidence = `Smoke pilot readiness evidence ${stamp}`;
   result = await admin.request("/api/v1/admin/pilot-readiness");
@@ -3226,7 +3420,7 @@ async function run() {
           "member guardian counseling notice invalid selectedBranchId API 403",
           "member create/update/profile/guardian link and adult guardian-link block",
           "class create/update",
-          "payment date chronology, detail-only correction history integrity, status changes, delete/refund/cancel lifecycle, online webhook receipt/idempotency, and recurring agreement create/cancel",
+          "payment calendar validity and chronology, cancelled/refunded create reasons, detail-only correction history integrity, status changes, delete/refund/cancel lifecycle, online webhook receipt/idempotency, and recurring agreement create/cancel",
           "online and recurring payment invalid selectedBranchId API 403",
           "member/guardian CSV export API 403",
           "CSV export invalid selectedBranchId API 403",

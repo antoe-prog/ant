@@ -6,11 +6,15 @@ import { defaultPilotPasswordHash } from "@/server/auth-password";
 import { rollSeededDemoDates } from "@/server/demo-date-roll";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
+import { mergeRuntimeState } from "@/server/runtime-state-merge";
+import { validateRuntimeStateIntegrity } from "@/server/runtime-state-integrity";
 
 const defaultJsonDataDirectory = `${"."}data`;
 const defaultJsonDataFileName = "final-judo-db.json";
 const dbDriver = process.env.FINAL_JUDO_DB_DRIVER === "postgres" ? "postgres" : "json";
 const pilotReadinessStatuses = new Set<PilotReadinessStatus>(["pending", "verified", "blocked"]);
+const legacyAdminSeedPasswordHash =
+  "pbkdf2_sha256$120000$final-judo-mvp-pilot$3eeecee80a931e1629209c360dc5209c4ab34b8fdccc41dacd33c4959c65e2c4";
 const defaultUserPhones = new Map([
   ["user-admin", "01028476013"],
   ["user-owner", "01059274381"],
@@ -137,10 +141,14 @@ function validateMockDatabase(value: unknown) {
           const candidate = user as Record<string, unknown>;
           const defaultPhone = typeof candidate.id === "string" ? defaultUserPhones.get(candidate.id) : undefined;
           const isPendingInvitation = candidate.invitationStatus === "pending";
+          const hasLegacyAdminSeedPassword =
+            candidate.id === "user-admin" && candidate.passwordHash === legacyAdminSeedPasswordHash;
 
           return {
             ...candidate,
-            ...("email" in candidate && !("passwordHash" in candidate) && !isPendingInvitation ? { passwordHash: defaultPilotPasswordHash } : {}),
+            ...("email" in candidate && (!("passwordHash" in candidate) || hasLegacyAdminSeedPassword) && !isPendingInvitation
+              ? { passwordHash: defaultPilotPasswordHash }
+              : {}),
             ...(!("phone" in candidate) && defaultPhone ? { phone: defaultPhone } : {}),
           };
         })
@@ -159,7 +167,7 @@ function validateMockDatabase(value: unknown) {
     }
   }
 
-  return sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase));
+  return validateRuntimeStateIntegrity(sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase)));
 }
 
 function resolveRuntimePath(runtimePath: string) {
@@ -184,6 +192,7 @@ function createServerDbStore() {
       tableName: process.env.FINAL_JUDO_POSTGRES_TABLE ?? "app_runtime_state",
       createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
       validate: validateMockDatabase,
+      merge: mergeRuntimeState,
     });
   }
 
@@ -204,6 +213,7 @@ function createServerDbStore() {
     createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
     validate: validateMockDatabase,
     backupLimit: 20,
+    merge: mergeRuntimeState,
   });
 }
 
@@ -234,6 +244,10 @@ export async function closeServerDb() {
   if ("close" in serverDbStore) {
     await serverDbStore.close();
   }
+}
+
+export function withServerDbLock<Result>(key: string, operation: () => Promise<Result>) {
+  return serverDbStore.withLock(key, operation);
 }
 
 export async function updateServerDb(mutator: (db: MockDatabase) => MockDatabase) {

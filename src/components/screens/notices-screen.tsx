@@ -2,13 +2,13 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bell, BellRing, CheckCheck, Send, Trash2 } from "lucide-react";
+import { Bell, BellRing, CheckCheck, Pencil, Send, Trash2 } from "lucide-react";
 import type { Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient } from "@/lib/api-client";
 import { userRoles } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { matchesNoticeMemberSearch, normalizeNoticeMemberSearchText } from "@/lib/notice-member-search";
-import { canDeleteNotice, noticePublisherRoles } from "@/lib/notice-permissions";
+import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
 import { getNoticeReadCount, isNoticeReadByUser, sortNoticesForDisplay } from "@/lib/notices";
 import { roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -77,7 +77,7 @@ function targetLabel(notice: Notice, classNameById: Map<string, string>, memberN
 export function NoticesScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
-  const { createNotice, deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
+  const { createNotice, updateNotice, deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
   const [noticeSearch, setNoticeListSearch] = useUrlSyncedTextParam("q");
   const [noticeComposerDefaults] = useState(getInitialNoticeComposerState);
   const [noticeBranchId, setNoticeBranchId] = useState("");
@@ -98,6 +98,11 @@ export function NoticesScreen() {
   const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null);
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
+  const [editingNoticeId, setEditingNoticeId] = useState<string | null>(null);
+  const [editNoticeTitle, setEditNoticeTitle] = useState("");
+  const [editNoticeBody, setEditNoticeBody] = useState("");
+  const [editNoticeImportant, setEditNoticeImportant] = useState(false);
+  const [savingNoticeEditId, setSavingNoticeEditId] = useState<string | null>(null);
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [noticeCreateOpen, setNoticeCreateOpen] = useState(noticeComposerDefaults.open);
   const noticeDraftKey = `final-judo-notice-draft:${context.user.id}`;
@@ -353,6 +358,46 @@ export function NoticesScreen() {
     setDeleteFeedback(result.message);
     setDeleteConfirmNoticeId(result.ok ? null : notice.id);
     setDeletingNoticeId(null);
+  }
+
+  function handleStartEditNotice(notice: Notice) {
+    clearNoticeFeedback();
+    setDeleteConfirmNoticeId(null);
+    setEditingNoticeId(notice.id);
+    setEditNoticeTitle(notice.title);
+    setEditNoticeBody(notice.body);
+    setEditNoticeImportant(notice.important === true);
+  }
+
+  function handleCancelEditNotice() {
+    setEditingNoticeId(null);
+    setEditNoticeTitle("");
+    setEditNoticeBody("");
+    setEditNoticeImportant(false);
+  }
+
+  async function handleSaveEditNotice(notice: Notice) {
+    clearNoticeFeedback();
+
+    if (!editNoticeTitle.trim() || !editNoticeBody.trim()) {
+      setDeleteFeedback("공지 제목과 본문이 필요합니다.");
+      return;
+    }
+
+    setSavingNoticeEditId(notice.id);
+
+    const result = await updateNotice(notice.branchId, notice.id, {
+      title: editNoticeTitle.trim(),
+      body: editNoticeBody.trim(),
+      important: editNoticeImportant,
+    });
+
+    setDeleteFeedback(result.message);
+    setSavingNoticeEditId(null);
+
+    if (result.ok) {
+      handleCancelEditNotice();
+    }
   }
 
   if (loading) {
@@ -619,6 +664,7 @@ export function NoticesScreen() {
                   ? "border-zinc-200 bg-zinc-50 text-zinc-500"
                   : "border-amber-200 bg-amber-50 text-amber-700";
                 const canDeleteCurrentNotice = canDeleteNotice(context.user, context.db, notice);
+                const canEditCurrentNotice = canEditNotice(context.user, context.db, notice);
 
                 return (
                   <article
@@ -696,6 +742,26 @@ export function NoticesScreen() {
                                   <span className="sr-only">알림</span>
                                 </button>
                               ) : null}
+                              {canEditCurrentNotice ? (
+                                <button
+                                  aria-label={`${notice.title} 수정`}
+                                  className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
+                                  data-testid="notice-delivery-edit-action"
+                                  disabled={savingNoticeEditId === notice.id}
+                                  title="수정"
+                                  type="button"
+                                  onClick={() => {
+                                    if (editingNoticeId === notice.id) {
+                                      handleCancelEditNotice();
+                                    } else {
+                                      handleStartEditNotice(notice);
+                                    }
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" aria-hidden />
+                                  <span className="sr-only">수정</span>
+                                </button>
+                              ) : null}
                               {canDeleteCurrentNotice ? (
                                 <button
                                   aria-label={`${notice.title} 삭제`}
@@ -705,6 +771,7 @@ export function NoticesScreen() {
                                   title="삭제"
                                   type="button"
                                   onClick={() => {
+                                    handleCancelEditNotice();
                                     setDeleteConfirmNoticeId(notice.id);
                                     clearNoticeFeedback();
                                   }}
@@ -769,6 +836,62 @@ export function NoticesScreen() {
                             <p className={`min-w-0 text-xs ${read ? "text-zinc-400" : "text-zinc-500"}`} data-testid="family-notice-date-line">
                               {formatDateTime(notice.createdAt)}
                             </p>
+                          </div>
+                        ) : null}
+                        {showNoticeDeliveryMeta && editingNoticeId === notice.id ? (
+                          <div
+                            className="mt-2 grid gap-2 rounded-md border border-teal-200 bg-teal-50/60 px-3 py-2"
+                            data-testid="notice-edit-panel"
+                          >
+                            <label className="grid gap-1 text-xs font-semibold text-zinc-700">
+                              제목
+                              <input
+                                className="min-h-11 rounded-md border border-zinc-200 bg-white px-3 text-sm font-normal text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                                data-testid="notice-edit-title-input"
+                                value={editNoticeTitle}
+                                onChange={(event) => setEditNoticeTitle(event.target.value)}
+                              />
+                            </label>
+                            <label className="grid gap-1 text-xs font-semibold text-zinc-700">
+                              본문
+                              <textarea
+                                className="min-h-20 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-normal leading-5 text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                                data-testid="notice-edit-body-input"
+                                rows={3}
+                                value={editNoticeBody}
+                                onChange={(event) => setEditNoticeBody(event.target.value)}
+                              />
+                            </label>
+                            <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-zinc-800">
+                              <input
+                                checked={editNoticeImportant}
+                                className="h-4 w-4 rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+                                data-testid="notice-edit-important-input"
+                                type="checkbox"
+                                onChange={(event) => setEditNoticeImportant(event.target.checked)}
+                              />
+                              중요 공지로 표시
+                            </label>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                                data-testid="notice-edit-cancel"
+                                disabled={savingNoticeEditId === notice.id}
+                                type="button"
+                                onClick={handleCancelEditNotice}
+                              >
+                                취소
+                              </button>
+                              <button
+                                className="inline-flex min-h-11 items-center justify-center rounded-md border border-teal-600 bg-teal-600 px-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                data-testid="notice-edit-save"
+                                disabled={savingNoticeEditId === notice.id}
+                                type="button"
+                                onClick={() => void handleSaveEditNotice(notice)}
+                              >
+                                {savingNoticeEditId === notice.id ? "저장 중" : "수정 저장"}
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                         {showNoticeDeliveryMeta && deleteConfirmNoticeId === notice.id ? (

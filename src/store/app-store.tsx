@@ -39,6 +39,7 @@ import {
   type LoginCredentials,
   type MemberUpdatePayload,
   type NoticeCreatePayload,
+  type NoticeUpdatePayload,
   type ManualPaymentUpdatePayload,
   type PaymentCreatePayload,
   type PaymentDeletePayload,
@@ -178,7 +179,7 @@ type AppStore = AppState & {
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => void;
   updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => void;
-  createPayment: (branchId: string, payload: PaymentCreatePayload) => Promise<PaymentCreateResult>;
+  createPayment: (branchId: string, payload: PaymentCreatePayload, idempotencyKey?: string) => Promise<PaymentCreateResult>;
   updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
   deleteManualPayment: (paymentId: string, payload: PaymentDeletePayload) => Promise<boolean>;
   createOnlinePaymentCheckout: (paymentId: string) => Promise<boolean>;
@@ -196,6 +197,7 @@ type AppStore = AppState & {
   updateBranch: (branchId: string, payload: BranchUpdatePayload) => Promise<boolean>;
   assignBranchOwner: (branchId: string, ownerUserId: string) => Promise<boolean>;
   createNotice: (branchId: string, payload: NoticeCreatePayload) => Promise<NoticeCreateResult>;
+  updateNotice: (branchId: string, noticeId: string, payload: NoticeUpdatePayload) => Promise<NoticeDeleteResult>;
   createPromotion: (payload: { memberId: string; toBelt: string; examDate: string; note?: string }) => Promise<boolean>;
   updatePromotion: (
     promotionId: string,
@@ -1145,13 +1147,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createPayment = useCallback(
-    async (branchId: string, payload: PaymentCreatePayload): Promise<PaymentCreateResult> => {
+    async (branchId: string, payload: PaymentCreatePayload, idempotencyKey?: string): Promise<PaymentCreateResult> => {
       if (!state.user) {
         return { ok: false, message: "로그인이 필요합니다." };
       }
 
       try {
-        const nextPayload = await apiClient.createPayment(branchId, payload, state.selectedBranchId);
+        const nextPayload = await apiClient.createPayment(branchId, payload, state.selectedBranchId, idempotencyKey);
 
         dispatch({ type: "serverSnapshot", payload: nextPayload });
         return { ok: true, message: "수기 결제를 등록했습니다." };
@@ -1586,6 +1588,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const updateNotice = useCallback(
+    async (branchId: string, noticeId: string, payload: NoticeUpdatePayload) => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.updateNotice(branchId, noticeId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return { ok: true, message: "공지를 수정했습니다." };
+      } catch (error) {
+        reportOperationError(error, "공지를 수정하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "공지를 수정하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const deleteNotice = useCallback(
     async (branchId: string, noticeId: string) => {
       if (!state.user) {
@@ -1728,6 +1752,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateBranch,
       assignBranchOwner,
       createNotice,
+      updateNotice,
       deleteNotice,
       createPromotion,
       updatePromotion,
@@ -1763,6 +1788,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createTournament,
       deleteTournament,
       updateTournament,
+      updateNotice,
       deleteNotice,
       deleteUser,
       hydrated,

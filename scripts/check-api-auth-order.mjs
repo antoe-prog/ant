@@ -84,6 +84,10 @@ function lineNumber(content, index) {
   return content.slice(0, index).split(/\r?\n/).length;
 }
 
+function hasSelectedBranchScopeGuard(content) {
+  return /requireSelectedBranchScope\(request,\s*(?:user|latestSession\.user),\s*(?:db|latestDb)\)/.test(content);
+}
+
 function getExportedHandlers(content) {
   const matches = [...content.matchAll(/export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\s*\(/g)];
 
@@ -213,7 +217,7 @@ assert(
 );
 for (const [routePath, routeSource] of operationalMutationRouteSources) {
   assert(
-    routeSource.includes("requireSelectedBranchScope(request, user, db)"),
+    hasSelectedBranchScopeGuard(routeSource),
     `${routePath} must reject invalid selectedBranchId before returning operational scoped data`,
   );
 }
@@ -231,7 +235,7 @@ for (const expected of [
 }
 for (const [routePath, routeSource] of memberNoticeMutationRouteSources) {
   assert(
-    routeSource.includes("requireSelectedBranchScope(request, user, db)"),
+    hasSelectedBranchScopeGuard(routeSource),
     `${routePath} must reject invalid selectedBranchId before returning member/notice scoped data`,
   );
 }
@@ -298,7 +302,7 @@ for (const expected of [
 }
 for (const [routePath, routeSource] of adminMutationRouteSources) {
   assert(
-    routeSource.includes("requireSelectedBranchScope(request, user, db)"),
+    hasSelectedBranchScopeGuard(routeSource),
     `${routePath} must reject invalid selectedBranchId before returning admin scoped data`,
   );
 }

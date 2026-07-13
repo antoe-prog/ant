@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +14,288 @@ const database = process.env.POSTGRES_DB ?? "final_judo";
 const user = process.env.POSTGRES_USER ?? "postgres";
 const password = process.env.POSTGRES_PASSWORD ?? "postgres";
 let closeServerDbFn = null;
+let verificationPool = null;
+
+async function getAvailablePort() {
+  const server = createServer();
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  assert(address && typeof address === "object", "PostgreSQL payment route smoke must allocate a local port");
+  return address.port;
+}
+
+async function startPostgresAppServer(connectionString) {
+  const port = await getAvailablePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const output = [];
+  const appServer = spawn(
+    process.execPath,
+    ["node_modules/next/dist/bin/next", "dev", "--webpack", "--port", String(port)],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        FINAL_JUDO_DB_DRIVER: "postgres",
+        FINAL_JUDO_POSTGRES_STATE_KEY: "postgres-payment-route-smoke",
+        FINAL_JUDO_POSTGRES_URL: connectionString,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  appServer.stdout.on("data", (chunk) => output.push(chunk.toString()));
+  appServer.stderr.on("data", (chunk) => output.push(chunk.toString()));
+
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    if (appServer.exitCode !== null) {
+      throw new Error(`PostgreSQL payment route server exited before ready.\n${output.join("").slice(-4000)}`);
+    }
+
+    const response = await fetch(`${baseUrl}/login`).catch(() => null);
+
+    if (response?.ok) {
+      return { appServer, baseUrl, output };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  appServer.kill("SIGTERM");
+  throw new Error(`PostgreSQL payment route server did not become ready.\n${output.join("").slice(-4000)}`);
+}
+
+async function stopAppServer(appServer) {
+  if (appServer.exitCode !== null) {
+    return;
+  }
+
+  const closed = new Promise((resolve) => appServer.once("close", resolve));
+
+  appServer.kill("SIGINT");
+  await Promise.race([
+    closed,
+    new Promise((resolve) =>
+      setTimeout(() => {
+        if (appServer.exitCode === null) {
+          appServer.kill("SIGTERM");
+        }
+        resolve();
+      }, 5000),
+    ),
+  ]);
+}
+
+async function verifyPostgresPaymentRouteIdempotency(connectionString) {
+  const { appServer, baseUrl, output } = await startPostgresAppServer(connectionString);
+  const { Pool } = await import("pg");
+
+  try {
+    const resetResponse = await fetch(`${baseUrl}/api/v1/dev/reset`, { method: "POST" });
+
+    assert(resetResponse.ok, `PostgreSQL payment route reset failed with ${resetResponse.status}`);
+
+    const loginResponse = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "owner@finaljudo.kr", password: "FinalJudoPilot!2026" }),
+    });
+    const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+
+    assert(loginResponse.ok && cookie, "PostgreSQL payment route owner login must return a session cookie");
+
+    const registrationStamp = String(Date.now() % 100000000).padStart(8, "0");
+    const registrationPhone = `010${registrationStamp}`;
+    const registrationBody = JSON.stringify({
+      name: "PostgreSQL 동시 가입",
+      password: `FJ-Postgres-${registrationStamp}!`,
+      phone: registrationPhone,
+    });
+    const register = () =>
+      fetch(`${baseUrl}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: registrationBody,
+      });
+    const registrationResponses = await Promise.all([register(), register()]);
+    assert.deepEqual(
+      registrationResponses.map((response) => response.status).sort((left, right) => left - right),
+      [200, 409],
+      "PostgreSQL concurrent registration must persist one account and reject the duplicate",
+    );
+    const registrationPool = new Pool({ connectionString, max: 1 });
+    try {
+      const registrationState = await registrationPool.query(
+        "select data from app_runtime_state where key = $1",
+        ["postgres-payment-route-smoke"],
+      );
+      assert.equal(
+        registrationState.rows[0]?.data?.users.filter((candidate) => candidate.phone === registrationPhone).length,
+        1,
+        "PostgreSQL runtime state must contain one user for a concurrently registered phone",
+      );
+    } finally {
+      await registrationPool.end();
+    }
+
+    const stamp = Date.now();
+    const idempotencyKey = `manual.postgres.${stamp}`;
+    const planName = `PostgreSQL 동시 등록 ${stamp}`;
+    const paymentBody = JSON.stringify({
+      amount: 175000,
+      discountAmount: 5000,
+      dueDate: "2026-07-13",
+      expiresAt: "2026-08-13",
+      memberId: "member-seo",
+      planName,
+      status: "scheduled",
+    });
+    const createPayment = () =>
+      fetch(`${baseUrl}/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: cookie,
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: paymentBody,
+      });
+    const responses = await Promise.all([createPayment(), createPayment()]);
+    const payloads = await Promise.all(responses.map((response) => response.json()));
+
+    assert(responses.every((response) => response.ok), "PostgreSQL concurrent payment route requests must both succeed");
+    assert(
+      responses.some((response) => response.headers.get("idempotency-replayed") === "true"),
+      "PostgreSQL concurrent payment route must mark one response as replayed",
+    );
+    const finalDb = payloads.at(-1)?.data?.db;
+
+    assert.equal(
+      finalDb?.payments.filter((payment) => payment.planName === planName).length,
+      1,
+      "PostgreSQL concurrent payment route must persist one payment",
+    );
+    assert.equal(
+      finalDb?.auditLogs.filter(
+        (log) => log.action === "payment.create" && log.after?.idempotencyKey === idempotencyKey,
+      ).length,
+      1,
+      "PostgreSQL concurrent payment route must persist one payment.create audit log",
+    );
+
+    const warmAttendanceResponse = await fetch(
+      `${baseUrl}/api/v1/class-sessions/class-kids-am/attendance?selectedBranchId=branch-gangnam`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ items: [] }),
+      },
+    );
+
+    assert.equal(warmAttendanceResponse.status, 400, "PostgreSQL cross-domain smoke must warm the attendance route");
+
+    const barrierPool = new Pool({ connectionString, max: 1 });
+    const barrierClient = await barrierPool.connect();
+    let barrierCommitted = false;
+
+    try {
+      await barrierClient.query("BEGIN");
+      await barrierClient.query("SELECT revision FROM app_runtime_state WHERE key = $1 FOR UPDATE", [
+        "postgres-payment-route-smoke",
+      ]);
+
+      const crossDomainStamp = Date.now();
+      const crossDomainPlanName = `PostgreSQL 교차 저장 ${crossDomainStamp}`;
+      const crossDomainPayment = fetch(
+        `${baseUrl}/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: cookie,
+            "Idempotency-Key": `manual.postgres.cross.${crossDomainStamp}`,
+          },
+          body: JSON.stringify({
+            amount: 165000,
+            discountAmount: 0,
+            dueDate: "2026-07-14",
+            expiresAt: "2026-08-14",
+            memberId: "member-jun",
+            planName: crossDomainPlanName,
+            status: "scheduled",
+          }),
+        },
+      );
+      const crossDomainAttendance = fetch(
+        `${baseUrl}/api/v1/class-sessions/class-kids-am/attendance?selectedBranchId=branch-gangnam`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Cookie: cookie },
+          body: JSON.stringify({
+            items: [{ memberId: "member-jun", status: "late", note: "교차 저장 검증" }],
+            reason: "교차 저장 검증",
+          }),
+        },
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await barrierClient.query("COMMIT");
+      barrierCommitted = true;
+
+      const crossDomainResponses = await Promise.all([crossDomainPayment, crossDomainAttendance]);
+
+      assert(
+        crossDomainResponses.every((response) => response.ok),
+        "PostgreSQL cross-domain stale revision requests must both succeed",
+      );
+
+      const bootstrapResponse = await fetch(
+        `${baseUrl}/api/v1/me/bootstrap?selectedBranchId=branch-gangnam`,
+        { headers: { Cookie: cookie } },
+      );
+      const bootstrapPayload = await bootstrapResponse.json();
+      const mergedDb = bootstrapPayload.data?.db;
+
+      assert(bootstrapResponse.ok, "PostgreSQL cross-domain smoke must read the merged bootstrap");
+      assert(
+        mergedDb?.payments.some((payment) => payment.planName === crossDomainPlanName),
+        "PostgreSQL stale revision merge must preserve the concurrent payment",
+      );
+      assert(
+        mergedDb?.attendance.some(
+          (record) => record.sessionId === "class-kids-am" && record.memberId === "member-jun" && record.status === "late",
+        ),
+        "PostgreSQL stale revision merge must preserve the concurrent attendance update",
+      );
+      assert(
+        mergedDb?.auditLogs.some(
+          (log) => log.action === "payment.create" && log.after?.planName === crossDomainPlanName,
+        ) &&
+          mergedDb?.auditLogs.some(
+            (log) => log.action === "attendance.update" && log.after?.note === "교차 저장 검증",
+          ),
+        "PostgreSQL stale revision merge must preserve both domain audit logs",
+      );
+    } finally {
+      if (!barrierCommitted) {
+        await barrierClient.query("ROLLBACK").catch(() => undefined);
+      }
+      barrierClient.release();
+      await barrierPool.end();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    throw new Error(`${message}\n${output.join("").slice(-4000)}`);
+  } finally {
+    await stopAppServer(appServer);
+  }
+}
 
 function csvCell(value) {
   const stringValue = value == null ? "" : String(value);
@@ -30,6 +313,16 @@ function recordsFromCsv(csv) {
   return {
     headers,
     records: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))),
+  };
+}
+
+function mergeAuditStoreState(base, requested, latest) {
+  const baseIds = new Set(base.auditLogs.map((log) => log.id));
+  const additions = requested.auditLogs.filter((log) => !baseIds.has(log.id));
+
+  return {
+    ...latest,
+    auditLogs: [...additions, ...latest.auditLogs],
   };
 }
 
@@ -137,9 +430,146 @@ async function main() {
   });
   closeServerDbFn = store.close;
 
+  const secondStore = createPostgresJsonStore({
+    connectionString,
+    key: "runtime-smoke",
+    createDefault: () => ({
+      branches: [],
+      users: [],
+      auditLogs: [],
+    }),
+    validate: (value) => value,
+  });
+
+  try {
+    const lockEvents = [];
+    let markFirstLockStarted;
+    const firstLockStarted = new Promise((resolve) => {
+      markFirstLockStarted = resolve;
+    });
+    const firstLock = store.withLock("payment-create:user-owner:branch-gangnam:key", async () => {
+      lockEvents.push("first:start");
+      markFirstLockStarted();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      lockEvents.push("first:end");
+    });
+
+    await firstLockStarted;
+    const secondLock = secondStore.withLock("payment-create:user-owner:branch-gangnam:key", async () => {
+      lockEvents.push("second:start");
+      lockEvents.push("second:end");
+    });
+
+    await Promise.all([firstLock, secondLock]);
+    assert.deepEqual(
+      lockEvents,
+      ["first:start", "first:end", "second:start", "second:end"],
+      "PostgreSQL advisory locks must serialize the same key across store instances",
+    );
+  } finally {
+    await secondStore.close();
+  }
+
+  const mergeStoreA = createPostgresJsonStore({
+    connectionString,
+    key: "runtime-merge-smoke",
+    createDefault: () => ({ branches: [], users: [], auditLogs: [] }),
+    validate: (value) => value,
+    merge: mergeAuditStoreState,
+  });
+  const mergeStoreB = createPostgresJsonStore({
+    connectionString,
+    key: "runtime-merge-smoke",
+    createDefault: () => ({ branches: [], users: [], auditLogs: [] }),
+    validate: (value) => value,
+    merge: mergeAuditStoreState,
+  });
+
+  try {
+    await mergeStoreA.reset();
+    const [mergeBaseA, mergeBaseB] = await Promise.all([mergeStoreA.read(), mergeStoreB.read()]);
+    const mergeAuditA = { id: "audit-merge-a" };
+    const mergeAuditB = { id: "audit-merge-b" };
+
+    await Promise.all([
+      mergeStoreA.write({ ...mergeBaseA, auditLogs: [mergeAuditA, ...mergeBaseA.auditLogs] }),
+      mergeStoreB.write({ ...mergeBaseB, auditLogs: [mergeAuditB, ...mergeBaseB.auditLogs] }),
+    ]);
+    assert.deepEqual(
+      new Set((await mergeStoreA.read()).auditLogs.map((log) => log.id)),
+      new Set([mergeAuditA.id, mergeAuditB.id]),
+      "PostgreSQL stale snapshot writes must merge disjoint additions",
+    );
+  } finally {
+    await Promise.all([mergeStoreA.close(), mergeStoreB.close()]);
+  }
+
   const baseline = await store.reset();
   assert.equal(baseline.branches.length, 2, "PostgreSQL reset must seed two branches");
   assert.equal(baseline.users.length, 1, "PostgreSQL reset must seed users");
+
+  const committedLockAuditId = `audit-lock-commit-${Date.now()}`;
+  await store.withLock("payment-create:transaction-commit", async () => {
+    const current = await store.read();
+
+    await store.write({
+      ...current,
+      auditLogs: [
+        {
+          id: committedLockAuditId,
+          branchId: "branch-gangnam",
+          actorUserId: "user-admin",
+          action: "payment.create",
+          targetType: "payment",
+          targetId: "payment-lock-commit",
+          before: null,
+          after: { lock: "transaction" },
+          result: "success",
+          message: "Transaction lock commit proof.",
+          createdAt: new Date().toISOString(),
+        },
+        ...current.auditLogs,
+      ],
+    });
+  });
+  assert(
+    (await store.read()).auditLogs.some((log) => log.id === committedLockAuditId),
+    "locked PostgreSQL writes must commit on successful operations",
+  );
+
+  const rolledBackLockAuditId = `audit-lock-rollback-${Date.now()}`;
+  await assert.rejects(
+    store.withLock("payment-create:transaction-rollback", async () => {
+      const current = await store.read();
+
+      await store.write({
+        ...current,
+        auditLogs: [
+          {
+            id: rolledBackLockAuditId,
+            branchId: "branch-gangnam",
+            actorUserId: "user-admin",
+            action: "payment.create",
+            targetType: "payment",
+            targetId: "payment-lock-rollback",
+            before: null,
+            after: { lock: "transaction" },
+            result: "failed",
+            message: "Transaction lock rollback proof.",
+            createdAt: new Date().toISOString(),
+          },
+          ...current.auditLogs,
+        ],
+      });
+      throw new Error("expected locked transaction rollback");
+    }),
+    /expected locked transaction rollback/,
+    "locked PostgreSQL operations must surface operation failures",
+  );
+  assert(
+    !(await store.read()).auditLogs.some((log) => log.id === rolledBackLockAuditId),
+    "locked PostgreSQL writes must roll back when the operation fails",
+  );
 
   const smokeAuditLog = {
     id: `audit-postgres-runtime-${Date.now()}`,
@@ -154,9 +584,10 @@ async function main() {
     message: "PostgreSQL runtime store smoke.",
     createdAt: new Date().toISOString(),
   };
+  const currentAfterLockProof = await store.read();
   await store.write({
-    ...baseline,
-    auditLogs: [smokeAuditLog, ...baseline.auditLogs],
+    ...currentAfterLockProof,
+    auditLogs: [smokeAuditLog, ...currentAfterLockProof.auditLogs],
   });
 
   const persisted = await store.read();
@@ -167,13 +598,20 @@ async function main() {
   assert(status.revision >= 2, "runtime revision must increment after reset and write");
 
   const pool = new Pool({ connectionString });
+  verificationPool = pool;
   const dbResult = await pool.query(
     "select revision, jsonb_array_length(data->'branches') as branches, jsonb_array_length(data->'auditLogs') as audit_logs from app_runtime_state where key = $1",
     ["runtime-smoke"],
   );
 
   assert.equal(Number(dbResult.rows[0]?.branches), 2, "runtime JSONB row must contain branches");
-  assert.equal(Number(dbResult.rows[0]?.audit_logs), 1, "runtime JSONB row must contain smoke audit log");
+  assert.equal(
+    Number(dbResult.rows[0]?.audit_logs),
+    2,
+    "runtime JSONB row must preserve the committed lock proof and smoke audit logs",
+  );
+
+  await verifyPostgresPaymentRouteIdempotency(connectionString);
 
   await runNodeScript(
     "scripts/import-pilot-data.mjs",
@@ -508,6 +946,7 @@ async function main() {
   );
 
   await pool.end();
+  verificationPool = null;
 
   const evidenceResult = await runNodeScript(
     "scripts/export-pilot-evidence.mjs",
@@ -551,6 +990,12 @@ async function main() {
           "runtime table bootstrap",
           "runtime store reset on PostgreSQL",
           "runtime store write/read persistence",
+          "cross-instance PostgreSQL advisory lock",
+          "locked PostgreSQL read/write commit and rollback",
+          "cross-instance stale snapshot merge",
+          "concurrent phone registration uniqueness on PostgreSQL runtime",
+          "concurrent payment route idempotency on PostgreSQL runtime",
+          "cross-domain payment and attendance stale revision merge",
           "revision status",
           "JSONB row verification",
           "pilot CSV import to PostgreSQL runtime store",
@@ -575,6 +1020,10 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    if (verificationPool) {
+      await verificationPool.end().catch(() => undefined);
+      verificationPool = null;
+    }
     if (closeServerDbFn) {
       await closeServerDbFn().catch(() => undefined);
     }

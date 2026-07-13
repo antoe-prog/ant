@@ -4,6 +4,7 @@ import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -118,7 +119,7 @@ export async function POST(
   }
 
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: payment.branchId,
     actorUserId: user.id,
     action: "payment.refund",

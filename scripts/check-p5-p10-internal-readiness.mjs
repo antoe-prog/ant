@@ -267,6 +267,8 @@ const files = {
     ".data/mobile-builds/ios/payment-create-touch-targets-20260704/summary.json",
   manualPaymentCreateFeedbackReport:
     ".data/mobile-builds/ios/manual-payment-create-feedback-20260713/summary.json",
+  adminUserDeletePolicyFeedbackReport:
+    ".data/mobile-builds/ios/admin-user-policy-feedback-20260713/summary.json",
   operatorListSearchReport:
     ".data/mobile-builds/ios/operator-list-search-20260704/summary.json",
   operatorListSearchTouchReport:
@@ -766,6 +768,7 @@ const familyNotificationAlwaysOnGuardReport = JSON.parse(sources.familyNotificat
 const paymentCheckoutEvidenceReport = JSON.parse(sources.paymentCheckoutEvidenceReport);
 const paymentCreateTouchTargetsReport = JSON.parse(sources.paymentCreateTouchTargetsReport);
 const manualPaymentCreateFeedbackReport = JSON.parse(sources.manualPaymentCreateFeedbackReport);
+const adminUserDeletePolicyFeedbackReport = JSON.parse(sources.adminUserDeletePolicyFeedbackReport);
 
 function assertIncludes(source, snippet, label) {
   assert(source.includes(snippet), `${label} must include ${snippet}`);
@@ -6460,9 +6463,14 @@ assert(
 );
 assert(
   paymentCreateTouchTargetsReport.checked?.includes(
-    "manual payment create disables while saving, persists exactly once, and shows success feedback",
+    "manual payment retry reuses its idempotency key, persists exactly once, and shows success feedback",
   ),
-  "payment create evidence must verify pending state, persistence, and direct feedback",
+  "payment create evidence must verify retry idempotency, persistence, and direct feedback",
+);
+assert.equal(
+  paymentCreateTouchTargetsReport.paymentCreateIdempotency?.keyReused,
+  true,
+  "payment create evidence must confirm the same idempotency key was reused",
 );
 assert(
   paymentCreateTouchTargetsReport.screenshots?.created?.path &&
@@ -6485,6 +6493,26 @@ for (const screenshot of manualPaymentCreateFeedbackReport.screenshots ?? []) {
   assert(screenshot?.path && existsSync(screenshot.path), "manual payment create iOS screenshot must exist");
   assert(statSync(screenshot.path).size > 10_000, "manual payment create iOS screenshot must be non-empty");
 }
+assert.equal(adminUserDeletePolicyFeedbackReport.ok, true, "admin user delete policy iOS evidence must pass");
+assert.equal(
+  adminUserDeletePolicyFeedbackReport.expectedFeedback,
+  "사용자 계정을 삭제하지 못했습니다. 현재 계정, 총괄 유지, 지점 대표 배정 상태를 확인해 주세요.",
+  "admin user delete policy evidence must keep the actionable failure copy",
+);
+assert.equal(
+  adminUserDeletePolicyFeedbackReport.releaseClaim,
+  "internal_only",
+  "admin user delete policy evidence must stay internal-only",
+);
+assert.equal(adminUserDeletePolicyFeedbackReport.ipaReady, false, "admin user delete policy evidence must not claim IPA readiness");
+assert(
+  adminUserDeletePolicyFeedbackReport.screenshot?.path && existsSync(adminUserDeletePolicyFeedbackReport.screenshot.path),
+  "admin user delete policy iOS screenshot must exist",
+);
+assert(
+  statSync(adminUserDeletePolicyFeedbackReport.screenshot.path).size > 10_000,
+  "admin user delete policy iOS screenshot must be non-empty",
+);
 assert.equal(
   paymentCreateTouchTargetsReport.layouts?.collapsed?.fieldsCount,
   0,
@@ -7255,8 +7283,9 @@ for (const id of [
         "admin users visible app copy scan must keep first action stack visually clear of mobile bottom nav",
       );
     }
-    assert(page.adminUserDeleteBlockerSummaryText.includes("담당 수업 연결"), "admin users visible app copy scan must explain linked class protection");
-    assert(page.adminUserDeleteBlockerSummaryText.includes("담당 회원 연결"), "admin users visible app copy scan must explain linked member protection");
+    // 담당 수업/회원 연결은 삭제를 막지 않고 자동 인계되므로 차단 사유에 나타나면 안 된다.
+    assert(!page.adminUserDeleteBlockerSummaryText.includes("담당 수업 연결"), "linked class connections must not block deletion (auto handover)");
+    assert(!page.adminUserDeleteBlockerSummaryText.includes("담당 회원 연결"), "linked member connections must not block deletion (auto handover)");
     assert(page.adminUserEditOpenScreenshotSizeBytes > 10_000, "admin users visible app copy scan must capture edit form open state");
     assert(page.adminUserPasswordEditOpenScreenshotSizeBytes > 10_000, "admin users visible app copy scan must capture password edit open state");
     assert(page.adminUserEditShellHeaderTop <= 8, "admin users visible app copy scan must keep the sticky header at the top when edit opens");
@@ -8913,6 +8942,7 @@ console.log(
         ...memberDashboardPaymentCheckoutLinkReport.screenshots.map((screenshot) => screenshot.path),
         ...Object.values(paymentCreateTouchTargetsReport.screenshots ?? {}).map((screenshot) => screenshot.path),
         ...manualPaymentCreateFeedbackReport.screenshots.map((screenshot) => screenshot.path),
+        adminUserDeletePolicyFeedbackReport.screenshot.path,
       ],
     },
     null,

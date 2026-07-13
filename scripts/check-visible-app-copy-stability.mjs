@@ -2275,8 +2275,9 @@ async function main() {
           assert(layout.adminUserDeleteBlockerSummaryCount > 0, "admin users must retain protected delete reasons for non-visual tests");
           assert(!layout.adminUserDeleteBlockerSummaryText.includes("삭제 보호"), "admin users must not use visible-helper protection wording in delete labels");
           assert(layout.adminUserDeleteBlockerSummaryText.includes("현재 로그인 계정"), "admin users must explain self-delete protection");
-          assert(layout.adminUserDeleteBlockerSummaryText.includes("담당 수업 연결"), "admin users must explain linked coach class protection");
-          assert(layout.adminUserDeleteBlockerSummaryText.includes("담당 회원 연결"), "admin users must explain linked coach member protection");
+          // 담당 수업/회원 연결은 삭제를 막지 않고 자동 인계되므로 차단 사유에 나타나면 안 된다.
+          assert(!layout.adminUserDeleteBlockerSummaryText.includes("담당 수업 연결"), "linked coach classes must not block deletion (auto handover)");
+          assert(!layout.adminUserDeleteBlockerSummaryText.includes("담당 회원 연결"), "linked coach members must not block deletion (auto handover)");
           assert.equal(layout.adminUserMobileScopeSummaryCount, 0, "admin users mobile cards must hide repeated scope helper copy");
           assert.equal(layout.adminUserDeleteBlockerVisibleText, "", "admin users protected delete summary must not render a visible helper chip");
           assert.equal(layout.adminUserDeleteBlockerSummaryMaxHeight, 0, "admin users protected delete helper chip must stay removed from mobile cards");

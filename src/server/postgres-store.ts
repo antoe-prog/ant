@@ -1,5 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import type { JsonValidator } from "./json-store";
+import { attachStoreVersion, getStoreVersion } from "./store-version.ts";
 
 export type PostgresJsonStoreOptions<T> = {
   connectionString: string;
@@ -7,6 +10,7 @@ export type PostgresJsonStoreOptions<T> = {
   createDefault: () => T;
   validate?: JsonValidator<T>;
   tableName?: string;
+  merge?: (base: T, requested: T, latest: T) => T;
 };
 
 function defaultValidate<T>(value: unknown) {
@@ -40,8 +44,36 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
     connectionString: options.connectionString,
     max: 5,
   });
+  const transactionClient = new AsyncLocalStorage<PoolClient>();
 
   let initialized: Promise<void> | null = null;
+
+  function query<Row extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<Row>> {
+    const client = transactionClient.getStore();
+
+    return client ? client.query<Row>(text, values) : pool.query<Row>(text, values);
+  }
+
+  async function inTransaction<Result>(operation: () => Promise<Result>) {
+    if (transactionClient.getStore()) {
+      return operation();
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const result = await transactionClient.run(client, operation);
+
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   async function ensureTable() {
     initialized ??= pool
@@ -62,21 +94,60 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
   async function read() {
     await ensureTable();
 
-    const result = await pool.query<{ data: unknown }>(`SELECT data FROM ${tableName} WHERE key = $1`, [options.key]);
+    const result = await query<{ data: unknown; revision: string }>(
+      `SELECT data, revision FROM ${tableName} WHERE key = $1`,
+      [options.key],
+    );
 
     if (result.rowCount && result.rows[0]) {
-      return validate(result.rows[0].data);
+      return attachStoreVersion(validate(result.rows[0].data), Number(result.rows[0].revision));
     }
 
     return write(options.createDefault());
   }
 
   async function write(value: T) {
-    const next = validate(value);
+    const version = getStoreVersion(value);
+    const requested = validate(value);
 
     await ensureTable();
 
-    const result = await pool.query<{ data: unknown }>(
+    if (version) {
+      return inTransaction(async () => {
+        const currentResult = await query<{ data: unknown; revision: string }>(
+          `SELECT data, revision FROM ${tableName} WHERE key = $1 FOR UPDATE`,
+          [options.key],
+        );
+        const currentRow = currentResult.rows[0];
+
+        if (!currentRow) {
+          throw new Error(`PostgreSQL runtime state ${options.key} was removed during an update.`);
+        }
+
+        const currentRevision = Number(currentRow.revision);
+        const latest = validate(currentRow.data);
+        const next = version.revision === currentRevision
+          ? requested
+          : options.merge
+            ? validate(options.merge(version.baseValue, requested, latest))
+            : (() => {
+                throw new Error("PostgreSQL runtime state changed before this write completed.");
+              })();
+        const result = await query<{ data: unknown; revision: string }>(
+          `
+            UPDATE ${tableName}
+            SET data = $2::jsonb, revision = revision + 1, updated_at = now()
+            WHERE key = $1
+            RETURNING data, revision;
+          `,
+          [options.key, JSON.stringify(next)],
+        );
+
+        return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
+      });
+    }
+
+    const result = await query<{ data: unknown; revision: string }>(
       `
         INSERT INTO ${tableName} (key, data, revision)
         VALUES ($1, $2::jsonb, 1)
@@ -85,12 +156,12 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
           data = EXCLUDED.data,
           revision = ${tableName}.revision + 1,
           updated_at = now()
-        RETURNING data;
+        RETURNING data, revision;
       `,
-      [options.key, JSON.stringify(next)],
+      [options.key, JSON.stringify(requested)],
     );
 
-    return validate(result.rows[0]?.data);
+    return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
   }
 
   async function reset() {
@@ -100,7 +171,7 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
   async function status() {
     await ensureTable();
 
-    const result = await pool.query<{ revision: string; updated_at: Date }>(
+    const result = await query<{ revision: string; updated_at: Date }>(
       `SELECT revision, updated_at FROM ${tableName} WHERE key = $1`,
       [options.key],
     );
@@ -119,11 +190,27 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
     await pool.end();
   }
 
+  async function withLock<Result>(key: string, operation: () => Promise<Result>) {
+    await ensureTable();
+
+    if (transactionClient.getStore()) {
+      throw new Error("Nested PostgreSQL runtime locks are not supported.");
+    }
+
+    const scopedKey = `${tableName}:${options.key}:${key}`;
+
+    return inTransaction(async () => {
+      await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [scopedKey]);
+      return operation();
+    });
+  }
+
   return {
     read,
     write,
     reset,
     status,
     close,
+    withLock,
   };
 }

@@ -3,6 +3,7 @@ import type { AuditAction, AuditLog } from "@/lib/domain";
 export const auditActionLabels: Record<AuditAction, string> = {
   "attendance.update": "출석 변경",
   "notice.create": "공지 작성",
+  "notice.update": "공지 수정",
   "notice.delete": "공지 삭제",
   "notice.read": "공지 읽음",
   "notification.subscribe": "알림 수신 등록",
@@ -113,6 +114,7 @@ export const auditPayloadFieldLabels: Record<string, string> = {
   evidence: "확인 자료",
   examDate: "심사일",
   expiresAt: "만료일",
+  idempotencyKey: "중복 방지 요청 키",
   failed: "실패 건수",
   from: "시작",
   fromBelt: "변경 전 띠",
@@ -240,6 +242,7 @@ const countFieldKeys = new Set([
 ]);
 const memberCountFieldKeys = new Set(["capacity", "enrolledCount"]);
 const moneyFieldKeys = new Set(["amount", "discountAmount", "refundedAmount"]);
+const hiddenAuditPayloadFieldKeys = new Set(["idempotencyFingerprint"]);
 
 function formatAuditDate(value: string) {
   const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -364,6 +367,7 @@ export function getAuditPayloadChanges(
   const keys = [...new Set([...Object.keys(beforePayload), ...Object.keys(afterPayload)])];
 
   return keys
+    .filter((key) => !hiddenAuditPayloadFieldKeys.has(key))
     .filter((key) => JSON.stringify(beforePayload[key]) !== JSON.stringify(afterPayload[key]))
     .map((key, index) => ({
       after: formatAuditPayloadValue(key, afterPayload[key]),

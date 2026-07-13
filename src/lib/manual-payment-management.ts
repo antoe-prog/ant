@@ -8,6 +8,19 @@ export const manualPaymentEditableStatuses = [
   "cancelled",
 ] as const satisfies readonly PaymentStatus[];
 
+export const manualPaymentCreatableStatuses = [
+  "paid",
+  "scheduled",
+  "overdue",
+  "expiringSoon",
+  "cancelled",
+  "refunded",
+] as const satisfies readonly PaymentStatus[];
+
+export function requiresManualPaymentCreateReason(status: PaymentStatus) {
+  return status === "cancelled" || status === "refunded";
+}
+
 export type ManualPaymentUpdatePayload = Pick<
   Payment,
   "amount" | "dueDate" | "expiresAt" | "planName" | "status"
@@ -21,7 +34,21 @@ type ManualPaymentUpdateValidation =
   | { ok: false; message: string };
 
 function isDateOnly(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00`));
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(0);
+
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 export function getManualPaymentDateRangeError(dueDate: string, expiresAt: string) {

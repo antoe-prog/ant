@@ -80,6 +80,7 @@ const inviteAcceptRouteSource = readFileSync("src/app/api/v1/auth/invitations/[t
 const inviteAcceptScreenSource = readFileSync("src/components/screens/invite-accept-screen.tsx", "utf8");
 const inviteApproveRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/approve-invitation/route.ts", "utf8");
 const adminUsersScreenSource = readFileSync("src/components/screens/admin-users-screen.tsx", "utf8");
+const mockDataSource = readFileSync("src/lib/mock-data.ts", "utf8");
 const serverDbSource = readFileSync("src/server/db.ts", "utf8");
 const loginScreenSource = readFileSync("src/components/screens/login-screen.tsx", "utf8");
 const selectRoleScreenSource = readFileSync("src/components/screens/select-role-screen.tsx", "utf8");
@@ -180,6 +181,14 @@ assert(
   serverDbSource.includes('candidate.invitationStatus === "pending"') && serverDbSource.includes("!isPendingInvitation"),
   "server DB upgrade must not assign the default pilot password to pending invitations",
 );
+assert(
+  mockDataSource.includes("passwordHash: defaultPilotPasswordHash"),
+  "seeded admin account must use the shared default pilot password hash",
+);
+assert(
+  serverDbSource.includes("legacyAdminSeedPasswordHash") && serverDbSource.includes("hasLegacyAdminSeedPassword"),
+  "server DB upgrade must replace only the known legacy seeded admin password hash",
+);
 assert(adminUsersScreenSource.includes('data-admin-user-action="approve-invitation"'), "admin users screen must expose invitation approval action");
 assert(
   adminUsersScreenSource.includes('<span>{approvalPending ? "승인 중" : "승인"}</span>'),
@@ -228,6 +237,8 @@ console.log(
         "confirmation step before admin invitation approval",
         "pending invitations are listed before active users",
         "pending invitations avoid default pilot password upgrade",
+        "seeded admin account shares the default pilot password hash contract",
+        "legacy seeded admin password hash upgrade",
       ],
     },
     null,

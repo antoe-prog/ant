@@ -13,7 +13,7 @@
 - [x] `npm run test:unit` 도메인 규칙 단위 테스트 통과
 - [x] `npm run test:role-csv-export-gates` 회원/학부모 CSV 내보내기 비노출, 대표/총괄 export API/UI 전용 가드, 회원/학부모 CSV export API 403 smoke 증거 통과
 - [x] `npm run test:deleted-request-surface` 삭제된 `/app/requests`, `/requests`, 요청 생성/승인/반려 API, 보강 메뉴/카드/알림 링크 재유입 차단과 release runner/문서 등록 검증 통과
-- [x] `npm run test:store` JSON 저장소 백업/복구와 stale demo seed 날짜 보정 테스트 통과
+- [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과
 - [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책 통과
 - [x] `npm run test:dev-reset-guard` production reset API 기본 차단 정책 통과
 - [x] `npm run test:env-readiness` 개발/운영 env 예시, 환경 변수 매트릭스, 위험 플래그, PostgreSQL/결제/푸시 필수 변수 문서 정합성 통과
@@ -73,11 +73,11 @@
 - [x] `npm run test:owner-decision-register` `owner:decision-register -- --workspace=.data --out=.data/p1-owner-decision-register.json --markdown=.data/p1-owner-decision-register.md --csv=.data/p1-owner-decision-register.csv --guide=.data/p1-owner-decision-register.guide.md`가 대표 결정 문항, 담당 lane, 필수 증빙, 검증 명령, 담당자/기한/증빙 입력 열과 CSV 작성 안내 guide를 생성하고 missing/secret-like fixture를 차단
 - [x] `npm run test:owner-decision-register-apply-csv` `owner:decision-register:apply-csv -- --workspace=.data --csv=.data/p1-owner-decision-register.csv --json=.data/p1-owner-decision-register.json --out=.data/p1-owner-decision-register.completed.json --markdown=.data/p1-owner-decision-register.completed.md`가 대표가 채운 담당자/기한/증빙 책임자 입력을 별도 completed JSON/Markdown으로 적용하고 고정 열 변조, placeholder, 잘못된 날짜, HTTP 증빙 URL, secret-like fixture를 차단
 - [x] `npm run test:owner-briefing-package` `owner:briefing-package -- --workspace=.data --out=.data/p1-owner-briefing-package.json --markdown=.data/p1-owner-briefing-package.md --package-dir=.data/p1-owner-briefing-package`가 대표 보고서, [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md) P1 6인 팀 목표 프롬프트, 현재 초안, 대표 의사결정 등록표와 `.data/p1-owner-decision-register.guide.md`, optional `.data/p1-owner-decision-register.completed.*`, 운영자 상태판, 완료 기준 매트릭스, 외부 blocker CSV, 패키지 README와 한국어 대표 요약 Markdown을 SHA-256/byte size manifest로 묶고 누락/secret-like fixture를 차단
-- [x] `npm run test:payment-lifecycle` 결제 생성/수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
+- [x] `npm run test:payment-lifecycle` 결제 생성 `Idempotency-Key`의 처리자·지점 범위 재시도/충돌/삭제 원본 보호, 일반 상태 확인값 하위 호환, 취소·환불 완료 등록 사유 필수와 상태 이력·감사 스냅샷 반영, UUID 식별자, 수기 부분 환불 직접 생성 차단, 실제 달력 날짜·납부일/만료일 순서 검증, 동일 결제 수기 변경·온라인 요청 직렬화, 삭제 전 취소·상태 이력 감사 스냅샷, 수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
 - [x] `npm run test:online-payments` provider-neutral 온라인 결제 요청, webhook secret, provider event ID 중복 처리, 영수증 메타, 결제 CSV provider 컬럼, 코치 금액/링크 마스킹, production provider/checkout/webhook secret 누락 차단 검증 통과
 - [x] `npm run test:family-payment-checkout` 회원/학부모 결제 카드에서 내부 결제 준비 화면 이동, 성인 회원 직접 결제 허용, 유소년/청소년 회원 직접 결제 차단과 학부모 자녀 결제 허용, 실 PG/API 미연결 상태 및 iOS Simulator 증빙 검증 통과
 - [x] `npm run test:payment-checkout-method-flow` 성인 회원/학부모 결제 상세의 compact 납부 요약, 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 그리드, 우리WON페이 모달, 학부모 자녀 결제 화면이 390px 모바일에서 overflow/콘솔 오류 없이 동작하고 `납부 정보 확인` 버튼/`온라인 결제 준비` 안내가 하단 고정 내비게이션에 가리지 않으며 실제 PG/API 호출이 없는지 검증 통과
-- [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 등록 중 중복 제출 차단, 성공 안내와 정확히 1건 목록 반영, 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
+- [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 취소·환불 완료 상태의 44px 사유 입력과 빈 사유 제출 차단, 등록 중 중복 제출 차단, 저장 후 응답 유실 시 동일 `Idempotency-Key` 재시도와 정확히 1건 목록 반영, 수정 사유·날짜 검증, 삭제 사유·완료 안내 교체, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과. iPhone 16e 네이티브 등록·정정·삭제 증빙은 `.data/mobile-builds/ios/manual-payment-management-20260713/simulator-summary.json`, 취소 상태 조건부 사유 증빙은 `.data/mobile-builds/ios/manual-payment-create-audit-reason-20260713/simulator-summary.json`에 보관하며 실 PG·운영 데이터·IPA 준비 완료를 의미하지 않음
 - [x] `npm run test:class-management-touch-targets` 대표/총괄 수업 생성/수정 입력과 코치 출석 메모 토글/입력/빠른 메모/사유 저장 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:member-management-touch-targets` 대표 회원 관리의 계정 초대/회원 등록 기본 접힘, 초대/등록/상태/기본정보/보호자 검색/상담 메모 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:admin-user-management-touch-targets` 총괄 사용자 관리의 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙 검증 통과
@@ -91,7 +91,8 @@
 - [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과
 - [x] `npm run test:payment-provider-handoff` 실 PG/VAN provider handoff manifest, webhook 서명/idempotency, checkout/영수증/정기결제 보관 정책, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, ISO 생성/승인 시각과 생성 이후 승인 순서, 원문 secret 미보관 fixture 검증 통과
-- [x] `npm run test:admin-user-management-api` 임시 DB와 임시 `next start` 서버에서 총괄 사용자 수정/삭제 API, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete` 변경 기록, 본인/마지막 총괄/담당 수업 연결 계정 보호 검증 통과
+- [x] `npm run test:admin-user-management-api` 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경 API, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete`/`user.role.update` 변경 기록 검증 통과
+- [x] iPhone 16e Simulator에서 사용자 삭제 API 실패 시 폼을 유지하고 현재 계정·총괄 유지·지점 대표 배정 상태 확인 안내가 하단 내비게이션 위에 완전히 표시됨 (`.data/mobile-builds/ios/admin-user-policy-feedback-20260713/summary.json`, 내부 QA 전용)
 - [x] `npm run test:dashboard-priority-kpi` 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시하는지 검증 통과
 - [x] `npm run test:member-profile-guardian-edit` 운영자 회원 상세 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위 검증 통과
 - [x] `npm run test:guardian-age-policy-ui` 운영자 회원 상세 연령 정책, 보호자 연결 후보 렌더링, 회원 검색 지우기 44px 터치 목표 검증 통과
@@ -254,7 +255,7 @@
 - [x] 대표/총괄 회원 등록/상태 변경 서버 API 검증
 - [x] 대표/총괄 보호자-자녀 연결 서버/UI 검증
 - [x] 대표/총괄 수업 생성/수정 서버 API 검증
-- [x] 대표/총괄 수기 결제 등록 서버 API 검증
+- [x] 대표/총괄 수기 결제 등록·취소/환불 완료 등록 사유·사유 기반 수정·삭제 서버 API와 iPhone 16e 네이티브 흐름 검증
 - [x] 대표/총괄 결제 할인/환불/취소 처리와 사유 변경 기록 검증
 - [x] 대표/총괄 결제 상태 이력, 확인할 결제, CSV lifecycle 컬럼 검증
 - [x] 대표/총괄 온라인 결제 요청, provider webhook 성공/실패/환불 상태 반영, 영수증 메타, 코치 금액/결제 링크 비노출 검증
@@ -284,7 +285,7 @@
 - [x] 회원/학부모 결제 상태 화면에는 CSV 내보내기 버튼이 없고 `test:smoke`의 회원/학부모 CSV export API 403 런타임 요청에서 `/api/v1/exports/payments`, `/api/v1/exports/operations`가 대표/총괄 외 403으로 제한되는지 검증
 - [x] 대표 운영 리포트 기간별 운영 추세, 오늘 우선순위, 회원 신규·이탈·순증과 CSV 추세 행 검증
 - [x] `app_runtime_state` PostgreSQL 런타임 저장소 migration 검증
-- [x] `npm run test:postgres-store` PostgreSQL 런타임 저장소 연결/쓰기/읽기/파일럿 import/준비 증빙 apply/비밀번호 교체 CSV/변경 기록/prelaunch draft/launch package/증빙 리포트/status 요약 검증
+- [x] `npm run test:postgres-store` PostgreSQL 런타임 저장소 연결/쓰기/읽기, 서로 다른 store 인스턴스의 동일 키 advisory lock과 커밋/롤백, stale snapshot merge, 임시 Next 서버의 동시 결제 route 1건 저장과 결제·출석 교차 도메인 동시 변경 보존, 파일럿 import/준비 증빙 apply/비밀번호 교체 CSV/변경 기록/prelaunch draft/launch package/증빙 리포트/status 요약 검증
 - [x] 파일럿 준비 항목이 JSON/PostgreSQL runtime store와 파일럿 import DB shape에 포함되는지 검증
 - [x] 파일럿 이슈 로그가 JSON/PostgreSQL runtime store와 파일럿 import DB shape에 포함되는지 검증
 - [x] 파일럿 운영 로그가 JSON/PostgreSQL runtime store와 파일럿 import DB shape에 포함되는지 검증
@@ -354,7 +355,7 @@ npm run test:release
 
 - MVP 앱 런타임은 Next.js Route Handler와 JSON 파일 저장소를 기본값으로 사용한다. `FINAL_JUDO_DB_DRIVER=postgres` 설정 시 PostgreSQL `app_runtime_state` JSONB 저장소를 사용할 수 있다.
 - JSON 파일 저장소는 파일럿 검증용이며 원자적 쓰기/최신 백업/primary 복구 확인 기준을 갖췄다. 다중 인스턴스 운영은 PostgreSQL runtime store 사용을 권장한다.
-- SQL 마이그레이션/seed와 PostgreSQL runtime store는 Docker PostgreSQL 16에서 `npm run test:db`, `npm run test:postgres-store`로 검증했다. PostgreSQL 파일럿 import, 준비 증빙 apply, 계정별 비밀번호 교체 CSV 검증, 변경 기록, prelaunch draft, launch package 생성과 DB URL 비밀번호 redaction, 증빙 리포트 생성, status 요약도 `test:postgres-store`에 포함된다.
+- SQL 마이그레이션/seed와 PostgreSQL runtime store는 Docker PostgreSQL 16에서 `npm run test:db`, `npm run test:postgres-store`로 검증했다. 서로 다른 runtime store 인스턴스의 동일 결제 요청 advisory lock, stale snapshot 3-way merge, 결제·출석 교차 도메인 동시 변경 보존, PostgreSQL 파일럿 import, 준비 증빙 apply, 계정별 비밀번호 교체 CSV 검증, 변경 기록, prelaunch draft, launch package 생성과 DB URL 비밀번호 redaction, 증빙 리포트 생성, status 요약도 `test:postgres-store`에 포함된다.
 - API smoke, 저장소 복구, 도메인 규칙 단위 테스트, 출석 30초 게이트, 모바일 전체 출석/개별 출석 브라우저 E2E와 오프라인 대기 큐 복구/재동기화 자동화를 추가했다.
 - 개발/테스트 전용 reset API는 production에서 기본 차단되며 `FINAL_JUDO_ENABLE_DEV_RESET=1` 명시 플래그가 있을 때만 열리도록 자동 검증한다.
 - 데모 역할 로그인은 production에서 기본 차단되며 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1` 명시 플래그, 기본 8시간/로그인 상태 유지 30일 secure/httpOnly session cookie 정책, production `x-user-id` 헤더 인증 우회 차단을 자동 검증한다.

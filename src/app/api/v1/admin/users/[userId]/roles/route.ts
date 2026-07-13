@@ -3,6 +3,8 @@ import type { AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
+import { findOwnerCoverageBlockers, reassignUserOperationalLinks } from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -65,8 +67,25 @@ export async function PUT(
     : targetUser.branchIds.length > 0
       ? targetUser.branchIds
       : fallbackBranchIds;
+  const ownerCoverageBlockers = findOwnerCoverageBlockers(targetUser, nextRole, nextBranchIds, db);
+
+  if (ownerCoverageBlockers.length > 0) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "다른 대표를 먼저 배정해 주세요.", {
+      branchNames: ownerCoverageBlockers,
+    });
+  }
+
+  const nextTargetUser = { ...targetUser, role: nextRole, branchIds: nextBranchIds };
+
+  if (nextRole !== "member") {
+    delete nextTargetUser.memberIds;
+  }
+  if (nextRole !== "guardian") {
+    delete nextTargetUser.childMemberIds;
+  }
+
   const nextUsers = db.users.map((candidate) =>
-    candidate.id === targetUser.id ? { ...candidate, role: nextRole, branchIds: nextBranchIds } : candidate,
+    candidate.id === targetUser.id ? nextTargetUser : candidate,
   );
   const adminCount = nextUsers.filter((candidate) => candidate.role === "admin").length;
 
@@ -74,8 +93,22 @@ export async function PUT(
     return jsonError(422, "BUSINESS_RULE_FAILED", "최소 1명의 총괄 어드민이 필요합니다.");
   }
 
+  const membersAfterGuardianSync = nextRole === "guardian"
+    ? db.members
+    : db.members.map((member) => ({
+        ...member,
+        guardianIds: member.guardianIds.filter((guardianId) => guardianId !== targetUser.id),
+      }));
+  const operationalLinks = reassignUserOperationalLinks({
+    actorUserId: user.id,
+    db: { ...db, users: nextUsers, members: membersAfterGuardianSync },
+    nextBranchIds,
+    nextRole,
+    targetUserId: targetUser.id,
+  });
+
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: null,
     actorUserId: user.id,
     action: "user.role.update",
@@ -89,6 +122,8 @@ export async function PUT(
       role: nextRole,
       branchIds: nextBranchIds,
       reason,
+      reassignedClassCount: operationalLinks.reassignedClassCount,
+      reassignedMemberCount: operationalLinks.reassignedMemberCount,
     },
     result: "success",
     message: "사용자 역할을 변경했습니다.",
@@ -96,6 +131,8 @@ export async function PUT(
   };
   const nextDb = await writeServerDb({
     ...db,
+    classes: operationalLinks.classes,
+    members: operationalLinks.members,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
   });

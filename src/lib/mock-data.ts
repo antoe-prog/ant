@@ -1,6 +1,7 @@
 import { defaultBranchSettings, type MockDatabase } from "@/lib/domain";
 import { createDefaultPilotReadinessChecks } from "@/lib/pilot-readiness";
 import { createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
+import { defaultPilotPasswordHash } from "@/lib/pilot-password-contract";
 
 export { createDefaultPilotReadinessChecks } from "@/lib/pilot-readiness";
 
@@ -135,7 +136,7 @@ export function createMockData(): MockDatabase {
         id: "user-admin",
         email: "admin@finaljudo.kr",
         name: "정유진",
-        passwordHash: "pbkdf2_sha256$120000$final-judo-mvp-pilot$3eeecee80a931e1629209c360dc5209c4ab34b8fdccc41dacd33c4959c65e2c4",
+        passwordHash: defaultPilotPasswordHash,
         phone: "01028476013",
         role: "admin",
         title: "총괄 운영 관리자",

@@ -332,6 +332,7 @@ export type PilotOperationLog = {
 export type AuditAction =
   | "attendance.update"
   | "notice.create"
+  | "notice.update"
   | "notice.delete"
   | "notice.read"
   | "notification.subscribe"

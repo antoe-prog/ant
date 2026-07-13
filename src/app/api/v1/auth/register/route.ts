@@ -3,7 +3,8 @@ import type { AppUser, AuditLog, Member } from "@/lib/domain";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { createRandomPasswordHash } from "@/server/auth-password";
 import { createBootstrapPayload, jsonError, jsonOk } from "@/server/api";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -12,10 +13,6 @@ type RegisterBody = {
   password?: string;
   phone?: string;
 };
-
-function createRuntimeId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as RegisterBody | null;
@@ -35,78 +32,80 @@ export async function POST(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "비밀번호는 8자 이상이어야 합니다.");
   }
 
-  const db = await readServerDb();
+  return withServerDbLock(`auth-register-phone:${phone}`, async () => {
+    const db = await readServerDb();
 
-  if (db.users.some((candidate) => samePhoneNumber(candidate.phone, phone))) {
-    return jsonError(409, "CONFLICT", "이미 등록된 휴대폰 번호입니다.");
-  }
+    if (db.users.some((candidate) => samePhoneNumber(candidate.phone, phone))) {
+      return jsonError(409, "CONFLICT", "이미 등록된 휴대폰 번호입니다.");
+    }
 
-  const branch = db.branches.find((candidate) => candidate.status !== "inactive") ?? db.branches[0];
+    const branch = db.branches.find((candidate) => candidate.status !== "inactive") ?? db.branches[0];
 
-  if (!branch) {
-    return jsonError(503, "SERVICE_UNAVAILABLE", "가입 가능한 지점을 찾지 못했습니다.");
-  }
+    if (!branch) {
+      return jsonError(503, "SERVICE_UNAVAILABLE", "가입 가능한 지점을 찾지 못했습니다.");
+    }
 
-  const now = new Date().toISOString();
-  const userId = createRuntimeId("user-member");
-  const memberId = createRuntimeId("member");
-  const user: AppUser = {
-    id: userId,
-    name,
-    passwordHash: createRandomPasswordHash(password),
-    passwordUpdatedAt: now,
-    phone,
-    role: "member",
-    title: "성인 회원",
-    branchIds: [branch.id],
-    memberIds: [memberId],
-  };
-  const member: Member = {
-    id: memberId,
-    alerts: [],
-    ageGroup: "adult",
-    belt: "흰띠",
-    branchId: branch.id,
-    createdAt: now,
-    emergencyContact: phone,
-    guardianIds: [],
-    level: "입문",
-    primaryCoachId: db.users.find((candidate) => candidate.role === "coach" && candidate.branchIds.includes(branch.id))?.id ?? "",
-    status: "trial",
-    statusChangedAt: now,
-    name,
-  };
-  const auditLog: AuditLog = {
-    id: createRuntimeId("audit"),
-    branchId: branch.id,
-    actorUserId: user.id,
-    action: "member.create",
-    targetType: "member",
-    targetId: member.id,
-    before: null,
-    after: {
-      accountCreated: true,
-      ageGroup: member.ageGroup,
-      branchId: branch.id,
+    const now = new Date().toISOString();
+    const userId = createRuntimeId("user-member");
+    const memberId = createRuntimeId("member");
+    const user: AppUser = {
+      id: userId,
+      name,
+      passwordHash: createRandomPasswordHash(password),
+      passwordUpdatedAt: now,
       phone,
-      role: user.role,
-      status: member.status,
-    },
-    result: "success",
-    message: "휴대폰 회원가입을 완료했습니다.",
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb({
-    ...db,
-    users: [user, ...db.users],
-    members: [member, ...db.members],
-    auditLogs: [auditLog, ...db.auditLogs],
-  });
+      role: "member",
+      title: "성인 회원",
+      branchIds: [branch.id],
+      memberIds: [memberId],
+    };
+    const member: Member = {
+      id: memberId,
+      alerts: [],
+      ageGroup: "adult",
+      belt: "흰띠",
+      branchId: branch.id,
+      createdAt: now,
+      emergencyContact: phone,
+      guardianIds: [],
+      level: "입문",
+      primaryCoachId: db.users.find((candidate) => candidate.role === "coach" && candidate.branchIds.includes(branch.id))?.id ?? "",
+      status: "trial",
+      statusChangedAt: now,
+      name,
+    };
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId: branch.id,
+      actorUserId: user.id,
+      action: "member.create",
+      targetType: "member",
+      targetId: member.id,
+      before: null,
+      after: {
+        accountCreated: true,
+        ageGroup: member.ageGroup,
+        branchId: branch.id,
+        phone,
+        role: user.role,
+        status: member.status,
+      },
+      result: "success",
+      message: "휴대폰 회원가입을 완료했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...db,
+      users: [user, ...db.users],
+      members: [member, ...db.members],
+      auditLogs: [auditLog, ...db.auditLogs],
+    });
 
-  return jsonOk({
-    ...createBootstrapPayload(nextDb, user, branch.id),
-    ok: true,
-    userId,
-    memberId,
+    return jsonOk({
+      ...createBootstrapPayload(nextDb, user, branch.id),
+      ok: true,
+      userId,
+      memberId,
+    });
   });
 }

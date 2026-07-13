@@ -14,3 +14,8 @@ export function canDeleteNotice(user: AppUser, db: MockDatabase, notice: Notice)
 
   return notice.createdByUserId === user.id;
 }
+
+// 수정 권한은 삭제 권한과 동일: 대표/총괄은 전체, 코치는 본인이 작성한 공지만
+export function canEditNotice(user: AppUser, db: MockDatabase, notice: Notice) {
+  return canDeleteNotice(user, db, notice);
+}

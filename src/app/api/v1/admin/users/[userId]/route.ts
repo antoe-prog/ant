@@ -7,6 +7,8 @@ import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
+import { createRuntimeId } from "@/server/runtime-id";
+import { findOwnerCoverageBlockers, reassignUserOperationalLinks } from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -124,7 +126,6 @@ function createUserAuditLog({
   after,
   before,
   branchId,
-  db,
   message,
   targetId,
 }: {
@@ -133,12 +134,11 @@ function createUserAuditLog({
   after: AuditLog["after"];
   before: AuditLog["before"];
   branchId: string | null;
-  db: Awaited<ReturnType<typeof readServerDb>>;
   message: string;
   targetId: string;
 }): AuditLog {
   return {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId,
     action,
@@ -153,35 +153,8 @@ function createUserAuditLog({
 }
 
 function findBlockingDeleteReasons(targetUser: AppUser, db: Awaited<ReturnType<typeof readServerDb>>) {
-  const reasons: string[] = [];
-
-  if (db.classes.some((session) => session.coachId === targetUser.id)) {
-    reasons.push("담당 수업");
-  }
-
-  if (db.members.some((member) => member.primaryCoachId === targetUser.id)) {
-    reasons.push("담당 회원");
-  }
-
-  if (targetUser.role === "owner") {
-    const orphanBranchNames = targetUser.branchIds
-      .filter(
-        (branchId) =>
-          !db.users.some(
-            (candidate) =>
-              candidate.id !== targetUser.id &&
-              candidate.role === "owner" &&
-              candidate.branchIds.includes(branchId),
-          ),
-      )
-      .map((branchId) => db.branches.find((branch) => branch.id === branchId)?.name ?? branchId);
-
-    if (orphanBranchNames.length > 0) {
-      reasons.push(`대표 미배정 지점: ${orphanBranchNames.join(", ")}`);
-    }
-  }
-
-  return reasons;
+  const orphanBranchNames = findOwnerCoverageBlockers(targetUser, null, [], db);
+  return orphanBranchNames.length > 0 ? [`대표 미배정 지점: ${orphanBranchNames.join(", ")}`] : [];
 }
 
 function createSafeActor(db: Awaited<ReturnType<typeof readServerDb>>, user: AppUser) {
@@ -281,6 +254,19 @@ export async function PATCH(
     return jsonError(403, "FORBIDDEN", "선택한 지점 배정은 유지해야 합니다.");
   }
 
+  const ownerCoverageBlockers = findOwnerCoverageBlockers(
+    targetUser,
+    nextRole as UserRole,
+    nextBranchIds,
+    db,
+  );
+
+  if (ownerCoverageBlockers.length > 0) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "다른 대표를 먼저 배정해 주세요.", {
+      branchNames: ownerCoverageBlockers,
+    });
+  }
+
   const requestedMemberIds = body && "memberIds" in body ? cleanMemberIds(body.memberIds) : targetUser.memberIds ?? [];
   const requestedChildMemberIds = body && "childMemberIds" in body ? cleanMemberIds(body.childMemberIds) : targetUser.childMemberIds ?? [];
   const nextMemberIds = nextRole === "member" ? requestedMemberIds : [];
@@ -341,6 +327,13 @@ export async function PATCH(
     nextName,
     nextPhone,
   );
+  const operationalLinks = reassignUserOperationalLinks({
+    actorUserId: user.id,
+    db: { ...db, users: nextUsers, members: nextMembers },
+    nextBranchIds,
+    nextRole: nextRole as UserRole,
+    targetUserId: targetUser.id,
+  });
   const adminCount = nextUsers.filter((candidate) => candidate.role === "admin").length;
 
   if (adminCount < 1) {
@@ -351,7 +344,6 @@ export async function PATCH(
     action: "user.update",
     actorUserId: user.id,
     branchId: nextBranchIds[0] ?? null,
-    db,
     targetId: targetUser.id,
     before: {
       branchIds: targetUser.branchIds,
@@ -373,6 +365,8 @@ export async function PATCH(
       passwordUpdated: Boolean(nextPassword),
       phone: nextPhone,
       reason,
+      reassignedClassCount: operationalLinks.reassignedClassCount,
+      reassignedMemberCount: operationalLinks.reassignedMemberCount,
       role: nextRole,
       syncedMemberIds: nextRole === "member" ? nextMemberIds : [],
       title: nextTitle,
@@ -381,7 +375,8 @@ export async function PATCH(
   });
   const nextDb = await writeServerDb({
     ...db,
-    members: nextMembers,
+    classes: operationalLinks.classes,
+    members: operationalLinks.members,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
   });
@@ -444,11 +439,18 @@ export async function DELETE(
     });
   }
 
+  const operationalLinks = reassignUserOperationalLinks({
+    actorUserId: user.id,
+    db,
+    nextBranchIds: [],
+    nextRole: null,
+    targetUserId: targetUser.id,
+  });
+
   const auditLog = createUserAuditLog({
     action: "user.delete",
     actorUserId: user.id,
     branchId: targetUser.branchIds[0] ?? null,
-    db,
     targetId: targetUser.id,
     before: {
       branchIds: targetUser.branchIds,
@@ -461,13 +463,16 @@ export async function DELETE(
     },
     after: {
       reason,
+      reassignedClassCount: operationalLinks.reassignedClassCount,
+      reassignedMemberCount: operationalLinks.reassignedMemberCount,
     },
     message: "사용자 계정을 삭제했습니다.",
   });
   const nextDb = await writeServerDb({
     ...db,
     users: db.users.filter((candidate) => candidate.id !== targetUser.id),
-    members: db.members.map((member) => ({
+    classes: operationalLinks.classes,
+    members: operationalLinks.members.map((member) => ({
       ...member,
       guardianIds: member.guardianIds.filter((guardianId) => guardianId !== targetUser.id),
     })),

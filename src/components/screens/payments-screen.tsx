@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Ban, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards, X } from "lucide-react";
 import type { OnlinePaymentStatus, Payment, PaymentStatus, RecurringBillingStatus } from "@/lib/domain";
@@ -13,16 +13,23 @@ import { ApiClientError, apiClient } from "@/lib/api-client";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { ManualPaymentManagement } from "@/components/domain/manual-payment-management";
 import { formatCurrency, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
-import { canManageManualPayment, getManualPaymentDateRangeError } from "@/lib/manual-payment-management";
+import {
+  canManageManualPayment,
+  getManualPaymentDateRangeError,
+  manualPaymentCreatableStatuses,
+  requiresManualPaymentCreateReason,
+  type ManualPaymentUpdatePayload,
+} from "@/lib/manual-payment-management";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentCheckoutAmount } from "@/lib/payment-checkout-access";
+import { createPaymentCreateIdempotencyKey } from "@/lib/payment-create-idempotency";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
 import { paymentStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
-const paymentStatusOptions: PaymentStatus[] = ["paid", "scheduled", "overdue", "expiringSoon", "cancelled", "refunded"];
+const paymentStatusOptions: PaymentStatus[] = [...manualPaymentCreatableStatuses];
 const paymentFilterOptions: Array<{ label: string; value: PaymentStatus | "all" | "risk" }> = [
   { label: "전체", value: "all" },
   { label: "미납/만료 예정", value: "risk" },
@@ -182,6 +189,7 @@ export function PaymentsScreen() {
   const [paymentCreateOpen, setPaymentCreateOpen] = useState(() => Boolean(searchParams.get("payMemberId")?.trim()));
   const [paymentCreateFeedback, setPaymentCreateFeedback] = useState<PaymentCreateFeedback | null>(null);
   const [paymentCreatePending, setPaymentCreatePending] = useState(false);
+  const paymentCreateIdempotencyKeyRef = useRef(createPaymentCreateIdempotencyKey());
 
   // 회원 카드 "결제 등록" 바로가기처럼 클라이언트 내비게이션으로 진입해도 회원 프리셋이 적용되게 한다.
   useEffect(() => {
@@ -199,6 +207,7 @@ export function PaymentsScreen() {
         setNewPaymentMemberId(presetMemberId);
         setPaymentMemberSearch(presetMemberSearch);
         setPaymentCreateFeedback(null);
+        paymentCreateIdempotencyKeyRef.current = createPaymentCreateIdempotencyKey();
         setPaymentCreateOpen(true);
       });
 
@@ -213,6 +222,7 @@ export function PaymentsScreen() {
   const [newPaymentDiscountAmount, setNewPaymentDiscountAmount] = useState("0");
   const [newPaymentDueDate, setNewPaymentDueDate] = useState(() => dateInputValue(0));
   const [newPaymentExpiresAt, setNewPaymentExpiresAt] = useState(() => dateInputValue(30));
+  const [newPaymentReason, setNewPaymentReason] = useState("");
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [paymentFilter, setPaymentFilterState] = useState<PaymentStatus | "all" | "risk">(getInitialPaymentFilter);
   function setPaymentFilter(value: PaymentStatus | "all" | "risk") {
@@ -329,6 +339,7 @@ export function PaymentsScreen() {
   function handlePaymentCreateToggle() {
     if (!paymentCreateOpen) {
       setPaymentCreateFeedback(null);
+      paymentCreateIdempotencyKeyRef.current = createPaymentCreateIdempotencyKey();
     }
 
     setPaymentCreateOpen((open) => !open);
@@ -371,21 +382,34 @@ export function PaymentsScreen() {
       return;
     }
 
+    const reason = newPaymentReason.trim();
+
+    if (requiresManualPaymentCreateReason(newPaymentStatus) && !reason) {
+      setPaymentCreateFeedback({ message: "취소 또는 환불 완료 등록 사유를 입력해 주세요.", tone: "error" });
+      return;
+    }
+
     setPaymentCreatePending(true);
     setPaymentCreateFeedback(null);
-    const result = await createPayment(selectedPaymentBranchId, {
-      memberId: selectedPaymentMemberId,
-      planName: newPaymentPlanName.trim(),
-      status: newPaymentStatus,
-      amount,
-      discountAmount,
-      dueDate: newPaymentDueDate,
-      expiresAt: newPaymentExpiresAt,
-    });
+    const result = await createPayment(
+      selectedPaymentBranchId,
+      {
+        memberId: selectedPaymentMemberId,
+        planName: newPaymentPlanName.trim(),
+        status: newPaymentStatus,
+        amount,
+        discountAmount,
+        dueDate: newPaymentDueDate,
+        expiresAt: newPaymentExpiresAt,
+        ...(requiresManualPaymentCreateReason(newPaymentStatus) ? { reason } : {}),
+      },
+      paymentCreateIdempotencyKeyRef.current,
+    );
     setPaymentCreatePending(false);
     setPaymentCreateFeedback({ message: result.message, tone: result.ok ? "success" : "error" });
 
     if (result.ok) {
+      paymentCreateIdempotencyKeyRef.current = createPaymentCreateIdempotencyKey();
       setNewPaymentMemberId("");
       setPaymentMemberSearch("");
       setNewPaymentPlanName("월 회원권");
@@ -394,8 +418,26 @@ export function PaymentsScreen() {
       setNewPaymentDiscountAmount("0");
       setNewPaymentDueDate(dateInputValue(0));
       setNewPaymentExpiresAt(dateInputValue(30));
+      setNewPaymentReason("");
       setPaymentCreateOpen(false);
     }
+  }
+
+  async function handleManualPaymentUpdate(paymentId: string, payload: ManualPaymentUpdatePayload) {
+    setPaymentCreateFeedback(null);
+
+    return updateManualPayment(paymentId, payload);
+  }
+
+  async function handleManualPaymentDelete(paymentId: string, reason: string) {
+    setPaymentCreateFeedback(null);
+    const deleted = await deleteManualPayment(paymentId, { reason });
+
+    if (deleted) {
+      setPaymentCreateFeedback({ message: "수기 결제 기록을 삭제했습니다.", tone: "success" });
+    }
+
+    return deleted;
   }
 
   function getRemainingRefundable(payment: Payment) {
@@ -525,6 +567,7 @@ export function PaymentsScreen() {
   function handlePrefillRenewal(payment: Payment) {
     const renewalMember = context.db.members.find((member) => member.id === payment.memberId);
 
+    paymentCreateIdempotencyKeyRef.current = createPaymentCreateIdempotencyKey();
     setNewPaymentBranchId(payment.branchId);
     setNewPaymentMemberId(payment.memberId);
     setPaymentMemberSearch(renewalMember?.name ?? "");
@@ -1005,7 +1048,14 @@ export function PaymentsScreen() {
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                 data-testid="payment-create-status-select"
                 value={newPaymentStatus}
-                onChange={(event) => setNewPaymentStatus(event.target.value as PaymentStatus)}
+                onChange={(event) => {
+                  const status = event.target.value as PaymentStatus;
+
+                  setNewPaymentStatus(status);
+                  if (!requiresManualPaymentCreateReason(status)) {
+                    setNewPaymentReason("");
+                  }
+                }}
               >
                 {paymentStatusOptions.map((status) => (
                   <option key={status} value={status}>
@@ -1014,6 +1064,19 @@ export function PaymentsScreen() {
                 ))}
               </select>
             </label>
+            {requiresManualPaymentCreateReason(newPaymentStatus) ? (
+              <label className="md:col-span-2 xl:col-span-2">
+                <span className="mb-1 block text-xs font-semibold text-zinc-500">취소/환불 사유</span>
+                <input
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="payment-create-reason-input"
+                  placeholder="예: 이중 납부 확인"
+                  required
+                  value={newPaymentReason}
+                  onChange={(event) => setNewPaymentReason(event.target.value)}
+                />
+              </label>
+            ) : null}
             <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">금액</span>
               <input
@@ -1070,7 +1133,8 @@ export function PaymentsScreen() {
                 paymentCreatePending ||
                 !selectedPaymentBranchId ||
                 !selectedPaymentMemberId ||
-                !newPaymentPlanName.trim()
+                !newPaymentPlanName.trim() ||
+                (requiresManualPaymentCreateReason(newPaymentStatus) && !newPaymentReason.trim())
               }
               type="submit"
             >
@@ -1559,8 +1623,8 @@ export function PaymentsScreen() {
                   {canManagePayments && canManageManualPayment(payment) ? (
                     <ManualPaymentManagement
                       payment={payment}
-                      onDelete={(paymentId, reason) => deleteManualPayment(paymentId, { reason })}
-                      onUpdate={updateManualPayment}
+                      onDelete={handleManualPaymentDelete}
+                      onUpdate={handleManualPaymentUpdate}
                     />
                   ) : null}
                   {canManagePayments ? (

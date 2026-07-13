@@ -141,12 +141,16 @@ MVP 기본 역할은 다음과 같다.
 - 테이블: `app_runtime_state`
 - 키: `FINAL_JUDO_POSTGRES_STATE_KEY` 기본값 `mvp`
 - 검증: `npm run test:postgres-store`
+- 동시 쓰기: 읽은 스냅샷의 비직렬화 revision/base 메타를 다음 쓰기까지 전파한다. revision이 바뀌었으면 컬렉션 `id`와 필드 단위 3-way merge로 서로 다른 추가·수정·삭제를 최신 스냅샷에 적용하고, 같은 필드가 서로 다르게 변경된 경우 `RuntimeStateMergeConflictError`로 중단해 조용한 lost update를 막는다. 결제 레코드는 금액·환불·온라인 요청의 순서가 중요하므로 같은 `payment.id`의 동시 변경을 필드 단위로 자동 병합하지 않는다.
+- 병합 후 무결성: 사용자 휴대폰은 국가번호/구분 문자를 제거한 값, 이메일은 소문자 기준으로 유일해야 한다. 사용자 지점·회원 연결, 회원 담당 코치·학부모, 수업 코치·회원, 출석 회차·회원, 결제 회원·지점, 공지 대상, 푸시 구독 사용자 참조를 다시 확인하고 위반 시 `RuntimeStateIntegrityError`로 전체 쓰기를 중단한다.
+- JSON 다중 프로세스: `.locks` 파일시스템 디렉터리 잠금으로 operation/read/write를 직렬화하고 조회·쓰기 직전에 primary를 다시 읽는다. 읽기 전용 인스턴스도 디스크 내용이 달라지면 캐시와 로컬 revision을 갱신한다. 로컬 revision이 같아도 base와 디스크 최신본이 다르면 3-way merge하며, 2분 이상 남은 비정상 lock만 복구한다. primary 교체가 끝난 뒤 백업 pruning 실패는 커밋된 쓰기를 실패로 되돌리지 않는다.
+- 결제 재시도: 같은 요청 키는 transaction-scoped PostgreSQL advisory lock으로 여러 앱 인스턴스 사이에서 직렬화한다. 잠금 내부 read/write는 같은 트랜잭션 연결을 사용한다.
 - 스냅샷 포함 collection: `pilotReadinessChecks`, `pilotIncidents`
 - 파일럿 운영 증빙 collection: `pilotOperationLogs`. 출석 기록이 있는 `verified` 로그는 `mobileAttendanceDurationSeconds <= 30`과 `mobileAttendanceEvidence`를 함께 저장한다.
 - 운영 계정 로그인: runtime snapshot의 `users.passwordHash`는 서버 전용 PBKDF2 해시로 보강하며 bootstrap/snapshot 응답에서는 제거한다. 총괄 어드민의 임시 비밀번호 발급은 원문을 저장하지 않고 랜덤 salt 해시, 발급 시각, `auth.password_reset.complete` 감사 로그만 남긴다.
 - 기본 파일럿 준비 체크는 기존 runtime row에 누락된 항목이 있어도 서버 검증 단계에서 병합한다. 계정별 비밀번호 교체 확인은 `security` 카테고리로 관리한다.
 
-정규화 테이블은 장기 운영 기준이고, `app_runtime_state`는 route handler/API 계약을 유지하면서 운영 DB에 붙이기 위한 전환 단계다.
+정규화 테이블은 장기 운영 기준이고, `app_runtime_state`는 route handler/API 계약을 유지하면서 운영 DB에 붙이기 위한 전환 단계다. 3-way merge는 전환 단계의 데이터 유실 방어이며 동일 레코드의 복잡한 비즈니스 트랜잭션을 대체하지 않으므로 장기 운영에서는 아래 정규화 테이블과 행 단위 트랜잭션으로 이전한다.
 
 ## 5. 지점 스코프 정책
 

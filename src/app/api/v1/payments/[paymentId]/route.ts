@@ -7,7 +7,8 @@ import {
 } from "@/lib/manual-payment-management";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,11 @@ function getPaymentSnapshot(payment: Payment) {
     expiresAt: payment.expiresAt,
     memberId: payment.memberId,
     planName: payment.planName,
+    refundedAmount: payment.refundedAmount ?? 0,
+    refundedAt: payment.refundedAt,
+    refundReason: payment.refundReason,
     status: payment.status,
+    statusHistory: payment.statusHistory,
   };
 }
 
@@ -90,64 +95,73 @@ export async function PATCH(
     return jsonError(400, "VALIDATION_ERROR", validated.message);
   }
 
-  const { db, payment, selectedBranchId, user } = context;
-  const now = new Date().toISOString();
   const value = validated.value;
-  const statusChanged = payment.status !== value.status;
-  const updatedPaymentBase: Payment = {
-    ...payment,
-    amount: value.amount,
-    discountAmount: value.discountAmount,
-    dueDate: value.dueDate,
-    expiresAt: value.expiresAt,
-    planName: value.planName,
-    status: value.status,
-    ...(statusChanged && value.status === "cancelled"
-      ? { refundedAt: now, refundReason: value.reason }
-      : statusChanged && payment.status === "cancelled"
-        ? { refundedAt: undefined, refundReason: undefined }
-        : {}),
-  };
 
-  if (!hasEditablePaymentChange(payment, updatedPaymentBase)) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "변경된 결제 정보가 없습니다.");
-  }
+  return withServerDbLock(`payment-mutation:${paymentId}`, async () => {
+    const latestContext = await requireManualPaymentRequestContext(request, paymentId);
 
-  const nextPayment = statusChanged
-    ? appendPaymentStatusHistory(
-        updatedPaymentBase,
-        createPaymentStatusHistoryEntry({
-          actorUserId: user.id,
-          changedAt: now,
-          event: "status_changed",
-          reason: `수기 결제 상태 변경: ${value.reason}`,
-          status: value.status,
-        }),
-      )
-    : updatedPaymentBase;
-  const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId: payment.branchId,
-    actorUserId: user.id,
-    action: "payment.update",
-    targetType: "payment",
-    targetId: payment.id,
-    before: getPaymentSnapshot(payment),
-    after: {
-      ...getPaymentSnapshot(nextPayment),
-      reason: value.reason,
-    },
-    result: "success",
-    message: "수기 결제 기록을 수정했습니다.",
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb({
-    ...db,
-    payments: db.payments.map((candidate) => (candidate.id === payment.id ? nextPayment : candidate)),
-    auditLogs: [auditLog, ...db.auditLogs],
+    if ("response" in latestContext) {
+      return latestContext.response;
+    }
+
+    const { db, payment, selectedBranchId, user } = latestContext;
+    const now = new Date().toISOString();
+    const statusChanged = payment.status !== value.status;
+    const updatedPaymentBase: Payment = {
+      ...payment,
+      amount: value.amount,
+      discountAmount: value.discountAmount,
+      dueDate: value.dueDate,
+      expiresAt: value.expiresAt,
+      planName: value.planName,
+      status: value.status,
+      ...(statusChanged && value.status === "cancelled"
+        ? { refundedAt: now, refundReason: value.reason }
+        : statusChanged && payment.status === "cancelled"
+          ? { refundedAt: undefined, refundReason: undefined }
+          : {}),
+    };
+
+    if (!hasEditablePaymentChange(payment, updatedPaymentBase)) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "변경된 결제 정보가 없습니다.");
+    }
+
+    const nextPayment = statusChanged
+      ? appendPaymentStatusHistory(
+          updatedPaymentBase,
+          createPaymentStatusHistoryEntry({
+            actorUserId: user.id,
+            changedAt: now,
+            event: "status_changed",
+            reason: `수기 결제 상태 변경: ${value.reason}`,
+            status: value.status,
+          }),
+        )
+      : updatedPaymentBase;
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId: payment.branchId,
+      actorUserId: user.id,
+      action: "payment.update",
+      targetType: "payment",
+      targetId: payment.id,
+      before: getPaymentSnapshot(payment),
+      after: {
+        ...getPaymentSnapshot(nextPayment),
+        reason: value.reason,
+      },
+      result: "success",
+      message: "수기 결제 기록을 수정했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...db,
+      payments: db.payments.map((candidate) => (candidate.id === payment.id ? nextPayment : candidate)),
+      auditLogs: [auditLog, ...db.auditLogs],
+    });
+
+    return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId));
   });
-
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId));
 }
 
 export async function DELETE(
@@ -168,29 +182,37 @@ export async function DELETE(
     return jsonError(400, "VALIDATION_ERROR", "삭제 사유를 입력해 주세요.");
   }
 
-  const { db, payment, selectedBranchId, user } = context;
-  const now = new Date().toISOString();
-  const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId: payment.branchId,
-    actorUserId: user.id,
-    action: "payment.delete",
-    targetType: "payment",
-    targetId: payment.id,
-    before: getPaymentSnapshot(payment),
-    after: {
-      deletedAt: now,
-      reason,
-    },
-    result: "success",
-    message: "수기 결제 기록을 삭제했습니다.",
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb({
-    ...db,
-    payments: db.payments.filter((candidate) => candidate.id !== payment.id),
-    auditLogs: [auditLog, ...db.auditLogs],
-  });
+  return withServerDbLock(`payment-mutation:${paymentId}`, async () => {
+    const latestContext = await requireManualPaymentRequestContext(request, paymentId);
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId));
+    if ("response" in latestContext) {
+      return latestContext.response;
+    }
+
+    const { db, payment, selectedBranchId, user } = latestContext;
+    const now = new Date().toISOString();
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId: payment.branchId,
+      actorUserId: user.id,
+      action: "payment.delete",
+      targetType: "payment",
+      targetId: payment.id,
+      before: getPaymentSnapshot(payment),
+      after: {
+        deletedAt: now,
+        reason,
+      },
+      result: "success",
+      message: "수기 결제 기록을 삭제했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...db,
+      payments: db.payments.filter((candidate) => candidate.id !== payment.id),
+      auditLogs: [auditLog, ...db.auditLogs],
+    });
+
+    return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId));
+  });
 }

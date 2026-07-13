@@ -3,9 +3,18 @@ import { readFile } from "node:fs/promises";
 
 const { appendPaymentStatusHistory, createPaymentStatusHistoryEntry, getLatestPaymentStatusChange } = await import("../src/lib/payment-lifecycle.ts");
 const {
+  createPaymentCreateIdempotencyKey,
+  createPaymentCreateFingerprint,
+  createPaymentCreateSnapshot,
+  parsePaymentCreateIdempotencyKey,
+  resolvePaymentCreateReplay,
+} = await import("../src/lib/payment-create-idempotency.ts");
+const {
   canManageManualPayment,
   getManualPaymentDateRangeError,
   getManualPaymentManagementBlockReason,
+  manualPaymentCreatableStatuses,
+  requiresManualPaymentCreateReason,
   validateManualPaymentUpdate,
 } = await import("../src/lib/manual-payment-management.ts");
 
@@ -39,6 +48,56 @@ const paymentWithHistory = appendPaymentStatusHistory(
   refundedEntry,
 );
 
+const idempotencyKey = createPaymentCreateIdempotencyKey();
+const idempotentSnapshot = createPaymentCreateSnapshot({
+  memberId: basePayment.memberId,
+  planName: basePayment.planName,
+  status: basePayment.status,
+  amount: 180000.4,
+  discountAmount: 0,
+  dueDate: basePayment.dueDate,
+  expiresAt: basePayment.expiresAt,
+});
+const idempotencyFingerprint = await createPaymentCreateFingerprint(idempotentSnapshot);
+const legacyCanonicalPayload = JSON.stringify([
+  idempotentSnapshot.memberId,
+  idempotentSnapshot.planName,
+  idempotentSnapshot.status,
+  idempotentSnapshot.amount,
+  idempotentSnapshot.discountAmount,
+  idempotentSnapshot.dueDate,
+  idempotentSnapshot.expiresAt,
+]);
+const legacyDigest = await globalThis.crypto.subtle.digest(
+  "SHA-256",
+  new TextEncoder().encode(legacyCanonicalPayload),
+);
+const legacyFingerprint = Array.from(new Uint8Array(legacyDigest), (value) =>
+  value.toString(16).padStart(2, "0"),
+).join("");
+const cancelledSnapshot = createPaymentCreateSnapshot({
+  ...idempotentSnapshot,
+  status: "cancelled",
+  reason: "  이중 등록 취소  ",
+});
+const ordinarySnapshotWithStaleReason = createPaymentCreateSnapshot({
+  ...idempotentSnapshot,
+  reason: "이전 취소 사유",
+});
+const idempotentCreationLog = {
+  id: "audit-idempotency",
+  branchId: basePayment.branchId,
+  actorUserId: "user-owner",
+  action: "payment.create",
+  targetType: "payment",
+  targetId: basePayment.id,
+  before: null,
+  after: { ...idempotentSnapshot, idempotencyFingerprint, idempotencyKey, planName: "[감사 로그 표시용 마스킹 값]" },
+  result: "success",
+  message: "수기 결제 기록을 등록했습니다.",
+  createdAt: "2026-06-15T10:00:00.000Z",
+};
+
 function assertAppearsAfter(source, needle, earlierNeedle, message) {
   const needleIndex = source.indexOf(needle);
   const earlierIndex = source.indexOf(earlierNeedle);
@@ -49,8 +108,76 @@ function assertAppearsAfter(source, needle, earlierNeedle, message) {
 }
 
 assert.equal(paymentWithHistory.statusHistory.length, 2, "payment lifecycle helper must append status history");
+assert.equal(parsePaymentCreateIdempotencyKey(idempotencyKey).ok, true, "generated payment idempotency keys must be valid");
+assert.equal(parsePaymentCreateIdempotencyKey("short").ok, false, "short payment idempotency keys must be rejected");
+assert.equal(idempotentSnapshot.amount, 180000, "idempotency snapshots must use the persisted rounded amount");
+assert.equal(
+  idempotencyFingerprint,
+  legacyFingerprint,
+  "ordinary manual payment fingerprints must remain compatible with pre-reason requests",
+);
+assert.equal(
+  "reason" in ordinarySnapshotWithStaleReason,
+  false,
+  "ordinary manual payment snapshots must discard stale terminal-state reasons",
+);
+assert.equal(
+  await createPaymentCreateFingerprint(ordinarySnapshotWithStaleReason),
+  legacyFingerprint,
+  "stale reasons must not change ordinary manual payment fingerprints",
+);
+assert.equal(cancelledSnapshot.reason, "이중 등록 취소", "manual payment create reasons must be normalized");
+assert.notEqual(
+  await createPaymentCreateFingerprint(cancelledSnapshot),
+  idempotencyFingerprint,
+  "manual payment create reasons must participate in new idempotency fingerprints",
+);
+assert.equal(
+  resolvePaymentCreateReplay({
+    actorUserId: "user-owner",
+    auditLogs: [idempotentCreationLog],
+    branchId: basePayment.branchId,
+    fingerprint: idempotencyFingerprint,
+    idempotencyKey,
+    payments: [{ ...basePayment, amount: 200000 }],
+  }).kind,
+  "replay",
+  "an exact retry must use the immutable creation audit even if the payment was later edited",
+);
+assert.equal(
+  resolvePaymentCreateReplay({
+    actorUserId: "user-owner",
+    auditLogs: [idempotentCreationLog],
+    branchId: basePayment.branchId,
+    fingerprint: await createPaymentCreateFingerprint({ ...idempotentSnapshot, amount: 200000 }),
+    idempotencyKey,
+    payments: [basePayment],
+  }).kind,
+  "conflict",
+  "an idempotency key must not accept a different payment payload",
+);
+assert.equal(
+  resolvePaymentCreateReplay({
+    actorUserId: "user-owner",
+    auditLogs: [idempotentCreationLog],
+    branchId: basePayment.branchId,
+    fingerprint: idempotencyFingerprint,
+    idempotencyKey,
+    payments: [],
+  }).kind,
+  "conflict",
+  "a deleted payment must not be silently recreated by an old retry",
+);
 assert.equal(getLatestPaymentStatusChange(paymentWithHistory)?.reason, "부분 환불", "payment lifecycle helper must return latest change");
 assert.equal(canManageManualPayment(basePayment), true, "plain manual payments must be manageable");
+assert.equal(
+  manualPaymentCreatableStatuses.includes("partially_refunded"),
+  false,
+  "manual payment creation must not accept a partial refund without a refund amount",
+);
+assert.equal(requiresManualPaymentCreateReason("paid"), false, "ordinary manual payment creation must not require a reason");
+assert.equal(requiresManualPaymentCreateReason("cancelled"), true, "cancelled manual payment creation must require a reason");
+assert.equal(requiresManualPaymentCreateReason("refunded"), true, "refunded manual payment creation must require a reason");
 assert.equal(
   canManageManualPayment({
     ...basePayment,
@@ -116,6 +243,21 @@ assert.match(
   /만료일은 납부일과 같거나 이후/,
   "manual payment dates must reject an expiry before the due date",
 );
+assert.match(
+  getManualPaymentDateRangeError("2026-02-29", "2026-03-31") ?? "",
+  /납부일과 만료일을 확인/,
+  "manual payment dates must reject a non-leap-year February 29",
+);
+assert.match(
+  getManualPaymentDateRangeError("2026-04-30", "2026-04-31") ?? "",
+  /납부일과 만료일을 확인/,
+  "manual payment dates must reject a day outside the calendar month",
+);
+assert.equal(
+  getManualPaymentDateRangeError("2028-02-29", "2028-02-29"),
+  null,
+  "manual payment dates must accept a real leap-year February 29",
+);
 assert.equal(
   validateManualPaymentUpdate({
     amount: 10000,
@@ -138,9 +280,11 @@ const files = {
   domain: "src/lib/domain.ts",
   manualPaymentAuditMigration: "db/migrations/0003_payment_management_audit_actions.sql",
   manualPaymentComponent: "src/components/domain/manual-payment-management.tsx",
+  paymentCreateIdempotency: "src/lib/payment-create-idempotency.ts",
   paymentCreateRoute: "src/app/api/v1/branches/[branchId]/payments/route.ts",
   paymentExportRoute: "src/app/api/v1/exports/payments/route.ts",
   paymentManageRoute: "src/app/api/v1/payments/[paymentId]/route.ts",
+  paymentOnlineCheckoutRoute: "src/app/api/v1/payments/[paymentId]/online-checkout/route.ts",
   paymentRefundRoute: "src/app/api/v1/payments/[paymentId]/refund/route.ts",
   paymentsScreen: "src/components/screens/payments-screen.tsx",
   packageJson: "package.json",
@@ -148,6 +292,7 @@ const files = {
   readme: "README.md",
   releaseChecklist: "docs/RELEASE_CHECKLIST.md",
   releaseRunner: "scripts/run-release-checks.mjs",
+  runtimeId: "src/server/runtime-id.ts",
   smokeApi: "scripts/smoke-api.mjs",
 };
 
@@ -159,9 +304,11 @@ const [
   domainSource,
   manualPaymentAuditMigrationSource,
   manualPaymentComponentSource,
+  paymentCreateIdempotencySource,
   paymentCreateRouteSource,
   paymentExportRouteSource,
   paymentManageRouteSource,
+  paymentOnlineCheckoutRouteSource,
   paymentRefundRouteSource,
   paymentsScreenSource,
   packageJsonSource,
@@ -169,6 +316,7 @@ const [
   readmeSource,
   releaseChecklistSource,
   releaseRunnerSource,
+  runtimeIdSource,
   smokeApiSource,
 ] = await Promise.all(Object.values(files).map((file) => readFile(file, "utf8")));
 const packageJson = JSON.parse(packageJsonSource);
@@ -177,11 +325,27 @@ assert(domainSource.includes("PaymentStatusHistoryEntry"), "domain must define p
 assert(domainSource.includes("statusHistory?: PaymentStatusHistoryEntry[]"), "Payment must carry statusHistory");
 assert(paymentCreateRouteSource.includes("createPaymentStatusHistoryEntry"), "payment create route must persist initial status history");
 assert(paymentCreateRouteSource.includes("getManualPaymentDateRangeError"), "payment create route must validate date chronology with the shared rule");
+assert(paymentCreateRouteSource.includes("withServerDbLock"), "payment create route must use the runtime store lock for concurrent retries");
+assert(paymentCreateRouteSource.includes("Idempotency-Replayed"), "payment create route must mark replayed responses");
+assert(paymentCreateRouteSource.includes('createRuntimeId("pay")'), "payment create route must use collision-resistant payment IDs");
+assert(runtimeIdSource.includes("randomUUID"), "runtime IDs must use UUID entropy instead of timestamps and array lengths");
+assert(paymentCreateIdempotencySource.includes("actorUserId") && paymentCreateIdempotencySource.includes("branchId"), "payment idempotency lookup must be scoped by actor and branch");
+assert(paymentCreateIdempotencySource.includes('reason: "deleted"'), "payment idempotency must protect deleted records from stale retries");
 assert(paymentRefundRouteSource.includes("appendPaymentStatusHistory"), "payment refund route must append status history");
 assert(paymentManageRouteSource.includes('action: "payment.update"'), "manual payment update must create an update audit log");
 assert(paymentManageRouteSource.includes('action: "payment.delete"'), "manual payment deletion must create a delete audit log");
 assert(paymentManageRouteSource.includes("getManualPaymentManagementBlockReason"), "manual payment route must block external/refunded records");
 assert(paymentManageRouteSource.includes("requireSelectedBranchScope"), "manual payment route must enforce selected branch scope");
+assert(
+  paymentManageRouteSource.includes("payment-mutation:${paymentId}") &&
+    paymentOnlineCheckoutRouteSource.includes("payment-mutation:${paymentId}"),
+  "manual edits and online checkout creation must share the same payment mutation lock",
+);
+assert(
+  paymentManageRouteSource.includes("refundedAt: payment.refundedAt") &&
+    paymentManageRouteSource.includes("statusHistory: payment.statusHistory"),
+  "manual payment deletion audits must retain cancellation and status history details",
+);
 assert(
   paymentManageRouteSource.includes("statusChanged") && paymentManageRouteSource.includes(": updatedPaymentBase"),
   "manual payment detail corrections must not create false status history entries",
@@ -260,11 +424,14 @@ assert(paymentExportRouteSource.includes("status_history_count"), "payment CSV m
 assert(paymentExportRouteSource.includes("last_status_changed_at"), "payment CSV must include latest status timestamp");
 assert(paymentExportRouteSource.includes("last_status_reason"), "payment CSV must include latest status reason");
 assert(smokeApiSource.includes("payment create must persist status history"), "smoke test must verify payment create history");
+assert(smokeApiSource.includes("concurrent payment retries with the same key"), "smoke test must verify concurrent payment idempotency");
+assert(smokeApiSource.includes("a stale retry must not recreate a deleted payment"), "smoke test must verify deleted payment retry protection");
 assert(smokeApiSource.includes("payment refund must append status history"), "smoke test must verify payment refund history");
 assert(smokeApiSource.includes("manual payment update must persist editable fields"), "smoke test must verify manual payment editing");
 assert(smokeApiSource.includes("manual payment deletion must remove the record"), "smoke test must verify manual payment deletion");
 assert(backendSchemaSource.includes("CREATE TABLE payment_status_events"), "DB schema must include payment status events");
 assert(apiContractSource.includes("statusHistory"), "API contract must document payment status history");
+assert(apiContractSource.includes("Idempotency-Key"), "API contract must document manual payment idempotency");
 
 assert.equal(
   packageJson.scripts["test:payment-lifecycle"],
@@ -290,7 +457,13 @@ console.log(
       ok: true,
       checked: [
         "payment lifecycle helper appends and reads latest status changes",
-        "manual payment create/update rejects reversed due and expiry dates",
+        "manual payment create retries are scoped, replayed once, and reject conflicting or deleted originals",
+        "manual payment create reasons preserve legacy fingerprints and bind terminal-state retries",
+        "manual payment create/update rejects reversed and impossible calendar dates",
+        "manual payment cancelled/refunded creation requires an audit reason",
+        "manual payment creation rejects impossible partial-refund state",
+        "same-payment manual and online mutations are serialized",
+        "payment and audit IDs use UUID entropy",
         "cancelled manual payments remain correctable and deletable when no refund amount exists",
         "manual payment detail corrections do not append false status changes",
         "payment create/refund routes persist status history",

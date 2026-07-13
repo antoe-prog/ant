@@ -83,14 +83,7 @@ function createDeleteBlockers(user: AppUser, db: MockDatabase, actorUserId: stri
     blockers.push("마지막 총괄 어드민");
   }
 
-  if (db.classes.some((session) => session.coachId === user.id)) {
-    blockers.push("담당 수업 연결");
-  }
-
-  if (db.members.some((member) => member.primaryCoachId === user.id)) {
-    blockers.push("담당 회원 연결");
-  }
-
+  // 담당 수업/회원 연결은 삭제를 막지 않는다 — 서버가 같은 지점 코치(없으면 대표)에게 자동 인계한다.
   if (user.role === "owner") {
     const ownerOnlyBranchNames = user.branchIds
       .filter(
@@ -529,7 +522,7 @@ export function AdminUsersScreen() {
     if (!ok) {
       setUserActionFeedbacks((current) => ({
         ...current,
-        [targetUser.id]: "사용자 계정을 삭제하지 못했습니다. 본인 계정, 마지막 총괄 어드민, 담당 수업/회원 연결을 확인해 주세요.",
+        [targetUser.id]: "사용자 계정을 삭제하지 못했습니다. 현재 계정, 총괄 유지, 지점 대표 배정 상태를 확인해 주세요.",
       }));
       return;
     }
@@ -1562,7 +1555,8 @@ export function AdminUsersScreen() {
                         />
                       </label>
                       <p className="mt-2 text-xs font-medium leading-5 text-red-700">
-                        삭제 후 해당 계정은 로그인할 수 없습니다. 담당 수업이나 회원 연결이 남아 있으면 저장되지 않습니다.
+                        삭제 후 해당 계정은 로그인할 수 없습니다. 남아 있는 담당 수업 연결·담당 회원 연결은 같은 지점의 다른
+                        코치(없으면 대표)에게 자동 인계됩니다.
                       </p>
                       {userFeedback ? <p className="mt-2 text-xs font-semibold text-red-800">{userFeedback}</p> : null}
                     </div>

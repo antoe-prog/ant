@@ -211,6 +211,8 @@ function assertStaticContracts() {
     'data-testid="payment-create-member-result"',
     'data-testid="payment-create-selected-member"',
     'data-testid="payment-create-plan-input"',
+    'data-testid="payment-create-status-select"',
+    'data-testid="payment-create-reason-input"',
     'data-testid="payment-create-amount-input"',
     'data-testid="payment-create-due-date-input"',
     'data-testid="payment-create-expiry-date-input"',
@@ -231,6 +233,14 @@ function assertStaticContracts() {
     assert(manualPaymentManagement.includes(snippet), `manual payment management must include ${snippet}`);
   }
   assert(!paymentsScreen.includes("선택 가능한 샘플 회원"), "payment create form must not expose sample member copy");
+  assert(
+    paymentsScreen.includes("paymentCreateIdempotencyKeyRef.current"),
+    "payment create form must reuse its idempotency key until persistence is confirmed",
+  );
+  assert(
+    paymentsScreen.includes("requiresManualPaymentCreateReason(newPaymentStatus)"),
+    "cancelled/refunded manual payment creation must require a reason in the UI",
+  );
 }
 
 async function gotoOwnerPayments(page) {
@@ -556,15 +566,61 @@ try {
   const selectedLayout = await collectSelectedLayout(page);
   const selectedScreenshotPath = join(outDir, "owner-payments-create-selected-mobile.png");
   await page.screenshot({ path: selectedScreenshotPath, fullPage: false });
+  await page.getByTestId("payment-create-status-select").selectOption("cancelled");
+  const terminalReasonInput = page.getByTestId("payment-create-reason-input");
+  await terminalReasonInput.waitFor({ state: "visible" });
+  await terminalReasonInput.scrollIntoViewIfNeeded();
+  const terminalReasonLayout = await page.evaluate(() => {
+    const input = document.querySelector('[data-testid="payment-create-reason-input"]')?.getBoundingClientRect();
+    const submit = document.querySelector('[data-testid="payment-create-submit"]');
+
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      inputHeight: Math.round(input?.height ?? 0),
+      scrollWidth: document.documentElement.scrollWidth,
+      submitDisabledWithoutReason: submit instanceof HTMLButtonElement ? submit.disabled : null,
+    };
+  });
+  assert(terminalReasonLayout.inputHeight >= 44, `terminal payment reason input must stay 44px tall; got ${terminalReasonLayout.inputHeight}px`);
+  assert.equal(terminalReasonLayout.submitDisabledWithoutReason, true, "cancelled payment create must stay disabled without a reason");
+  assert.equal(terminalReasonLayout.scrollWidth, terminalReasonLayout.clientWidth, "terminal payment reason field must not overflow horizontally");
+  await terminalReasonInput.fill("이중 등록 취소");
+  assert.equal(await page.getByTestId("payment-create-submit").isEnabled(), true, "cancelled payment create must enable after a reason is entered");
+  const terminalReasonScreenshotPath = join(outDir, "owner-payments-create-terminal-reason-mobile.png");
+  await page.screenshot({ path: terminalReasonScreenshotPath, fullPage: false, caret: "initial" });
+  await page.getByTestId("payment-create-status-select").selectOption("paid");
+  assert.equal(await page.getByTestId("payment-create-reason-input").count(), 0, "ordinary payment create must hide the terminal-state reason field");
   const createdPlanName = `모바일 등록 검증 ${Date.now()}`;
+  const paymentCreateIdempotencyKeys = [];
+  let paymentCreateAttempt = 0;
   await page.getByTestId("payment-create-plan-input").fill(createdPlanName);
   await page.route(
     "**/api/v1/branches/*/payments*",
     async (route) => {
+      paymentCreateAttempt += 1;
+      paymentCreateIdempotencyKeys.push(route.request().headers()["idempotency-key"] ?? null);
       await sleep(300);
+
+      if (paymentCreateAttempt === 1) {
+        const upstreamResponse = await route.fetch();
+
+        assert(upstreamResponse.ok(), "the simulated lost-response request must persist on the server");
+        await route.fulfill({
+          status: 504,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: {
+              code: "GATEWAY_TIMEOUT",
+              message: "저장 결과를 확인하지 못했습니다. 다시 시도해 주세요.",
+            },
+          }),
+        });
+        return;
+      }
+
       await route.continue();
     },
-    { times: 1 },
+    { times: 2 },
   );
   const paymentCreateSubmit = page.getByTestId("payment-create-submit");
   await paymentCreateSubmit.click();
@@ -573,6 +629,22 @@ try {
   );
   const paymentCreateFeedback = page.getByTestId("payment-create-feedback");
   await paymentCreateFeedback.waitFor({ state: "visible", timeout: 15000 });
+  assert.match(
+    (await paymentCreateFeedback.textContent()) ?? "",
+    /저장 결과를 확인하지 못했습니다/,
+    "manual payment create must keep the draft retryable when the response is lost",
+  );
+  assert.equal(await paymentCreateSubmit.isEnabled(), true, "manual payment create must re-enable retry after an uncertain response");
+
+  await paymentCreateSubmit.click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="payment-create-submit"]')?.disabled === true,
+  );
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="payment-create-feedback"]')?.textContent?.includes("수기 결제를 등록했습니다"),
+    undefined,
+    { timeout: 15000 },
+  );
   assert.match(
     (await paymentCreateFeedback.textContent()) ?? "",
     /수기 결제를 등록했습니다/,
@@ -587,6 +659,17 @@ try {
   );
   const createdPaymentCount = await page.locator("[data-payment-id]").filter({ hasText: createdPlanName }).count();
   assert.equal(createdPaymentCount, 1, "one manual payment submission must create exactly one list record");
+  assert.equal(paymentCreateIdempotencyKeys.length, 2, "manual payment response-loss flow must issue exactly two create attempts");
+  assert.match(
+    paymentCreateIdempotencyKeys[0] ?? "",
+    /^manual\.[A-Za-z0-9-]+$/,
+    "manual payment create must send a valid idempotency key",
+  );
+  assert.equal(
+    paymentCreateIdempotencyKeys[1],
+    paymentCreateIdempotencyKeys[0],
+    "manual payment retry must reuse the original idempotency key",
+  );
   const createdScreenshotPath = join(outDir, "owner-payments-create-success-mobile.png");
   await page.screenshot({ path: createdScreenshotPath, fullPage: false });
   await page.getByTestId("payment-create-toggle").click();
@@ -660,11 +743,28 @@ try {
   await page.screenshot({ path: manualDeleteConfirmScreenshotPath, fullPage: false, caret: "initial" });
   await manualPaymentArticle.getByTestId("manual-payment-delete-submit").click();
   await manualPaymentArticle.waitFor({ state: "detached", timeout: 15000 });
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="payment-create-feedback"]')?.textContent?.includes("수기 결제 기록을 삭제했습니다"),
+  );
+  assert.doesNotMatch(
+    (await page.getByTestId("payment-create-feedback").textContent()) ?? "",
+    /수기 결제를 등록했습니다/,
+    "manual payment delete must replace stale create feedback",
+  );
   await page.waitForTimeout(250);
   const manualDeletedScreenshotPath = join(outDir, "owner-manual-payment-deleted-mobile.png");
   await page.screenshot({ path: manualDeletedScreenshotPath, fullPage: false, caret: "initial" });
 
-  assert.deepEqual(messages, [], `payment create touch-target flow must not emit console warnings/errors: ${messages.join(" | ")}`);
+  const expectedGatewayTimeoutMessage = "error: Failed to load resource: the server responded with a status of 504 (Gateway Timeout)";
+  const expectedConsoleMessages = messages.filter((message) => message === expectedGatewayTimeoutMessage);
+  const unexpectedConsoleMessages = messages.filter((message) => message !== expectedGatewayTimeoutMessage);
+
+  assert.equal(expectedConsoleMessages.length, 1, "payment create response-loss proof must record exactly one expected 504");
+  assert.deepEqual(
+    unexpectedConsoleMessages,
+    [],
+    `payment create touch-target flow must not emit unexpected console warnings/errors: ${unexpectedConsoleMessages.join(" | ")}`,
+  );
   assert.deepEqual(desktopMessages, [], `payment refund desktop alignment flow must not emit console warnings/errors: ${desktopMessages.join(" | ")}`);
 
   const report = {
@@ -683,7 +783,9 @@ try {
       "payment create toggle, search input, results, fields, and submit action stay 44px touch targets",
       "payment create member search finds and selects a real member without scroll-only picker behavior",
       "payment create submit enables only after member selection",
-      "manual payment create disables while saving, persists exactly once, and shows success feedback",
+      "cancelled/refunded manual payment create exposes a 44px reason field and blocks empty submission",
+      "manual payment create disables while saving and keeps its draft retryable after an uncertain response",
+      "manual payment retry reuses its idempotency key, persists exactly once, and shows success feedback",
       "starting the next manual payment clears stale success feedback",
       "390px owner payment create flow stays overflow-free and console-clean",
       "manual payment edit rejects an expiry before the due date with visible feedback",
@@ -691,14 +793,21 @@ try {
       "cancelled manual payment deletion requires a reason and removes the selected record",
       "manual payment edit/delete actions and form controls stay 44px tall and overflow-free at 390px",
     ],
-    consoleMessages: messages,
+    consoleMessages: unexpectedConsoleMessages,
+    expectedConsoleMessages,
     layouts: {
       collapsed: collapsedLayout,
       desktopRefund: desktopRefundLayout,
       search: searchLayout,
       selected: selectedLayout,
+      terminalReason: terminalReasonLayout,
       manualEdit: manualEditLayout,
       manualDelete: manualDeleteLayout,
+    },
+    paymentCreateIdempotency: {
+      attempts: paymentCreateIdempotencyKeys.length,
+      keyPresent: paymentCreateIdempotencyKeys.every(Boolean),
+      keyReused: paymentCreateIdempotencyKeys[0] === paymentCreateIdempotencyKeys[1],
     },
     outputCleanup: {
       outDir,
@@ -719,6 +828,10 @@ try {
       selected: {
         path: selectedScreenshotPath,
         sizeBytes: statSync(selectedScreenshotPath).size,
+      },
+      terminalReason: {
+        path: terminalReasonScreenshotPath,
+        sizeBytes: statSync(terminalReasonScreenshotPath).size,
       },
       created: {
         path: createdScreenshotPath,

@@ -94,6 +94,7 @@ export type ClassSessionUpdatePayload = Partial<ClassSessionCreatePayload>;
 
 export type PaymentCreatePayload = Pick<Payment, "memberId" | "planName" | "amount" | "dueDate" | "expiresAt"> & {
   discountAmount?: number;
+  reason?: string;
   status: PaymentStatus;
 };
 
@@ -187,6 +188,20 @@ export type NoticeDeleteResponsePayload = BootstrapPayload & {
   notice: {
     deletedAt: string;
     id: string;
+  };
+};
+
+export type NoticeUpdatePayload = {
+  title?: string;
+  body?: string;
+  important?: boolean;
+  audience?: NoticeAudience[];
+};
+
+export type NoticeUpdateResponsePayload = BootstrapPayload & {
+  notice: {
+    id: string;
+    updatedAt: string;
   };
 };
 
@@ -447,16 +462,21 @@ async function apiRequest<T>(path: string, init?: RequestInit) {
   let response: Response;
   const timeout = createRequestTimeoutSignal(init);
   const storedUserId = canSendStoredUserHeader() ? getStoredUserId() : null;
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (storedUserId) {
+    headers.set("x-user-id", storedUserId);
+  }
 
   try {
     response = await fetch(path, {
       credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        ...(storedUserId ? { "x-user-id": storedUserId } : {}),
-        ...(init?.headers ?? {}),
-      },
       ...init,
+      headers,
       signal: timeout.signal,
     });
   } catch (error) {
@@ -721,11 +741,17 @@ export const apiClient = {
     );
   },
 
-  createPayment(branchId: string, payload: PaymentCreatePayload, selectedBranchId: string | null) {
+  createPayment(
+    branchId: string,
+    payload: PaymentCreatePayload,
+    selectedBranchId: string | null,
+    idempotencyKey?: string,
+  ) {
     return apiRequest<BootstrapPayload>(
       `/api/v1/branches/${encodeURIComponent(branchId)}/payments${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "POST",
+        ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
         body: JSON.stringify(payload),
       },
     );
@@ -986,6 +1012,16 @@ export const apiClient = {
       `/api/v1/branches/${encodeURIComponent(branchId)}/notices${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  updateNotice(branchId: string, noticeId: string, payload: NoticeUpdatePayload, selectedBranchId: string | null) {
+    return apiRequest<NoticeUpdateResponsePayload>(
+      `/api/v1/branches/${encodeURIComponent(branchId)}/notices/${encodeURIComponent(noticeId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
         body: JSON.stringify(payload),
       },
     );
