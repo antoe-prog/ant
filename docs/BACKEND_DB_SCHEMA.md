@@ -588,6 +588,41 @@ CREATE TABLE push_subscriptions (
 CREATE UNIQUE INDEX ux_push_subscriptions_endpoint ON push_subscriptions (endpoint);
 CREATE INDEX ix_push_subscriptions_user_active ON push_subscriptions (user_id, updated_at DESC) WHERE disabled_at IS NULL;
 
+CREATE TABLE auth_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash char(64) NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz
+);
+
+CREATE INDEX ix_auth_sessions_user_active ON auth_sessions (user_id, expires_at DESC) WHERE revoked_at IS NULL;
+
+CREATE TABLE push_dispatch_jobs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_audit_log_id uuid NOT NULL,
+  notice_id uuid NOT NULL REFERENCES notices(id),
+  branch_id uuid NOT NULL REFERENCES branches(id),
+  subscription_id uuid NOT NULL REFERENCES push_subscriptions(id),
+  recipient_user_id uuid NOT NULL REFERENCES users(id),
+  status varchar(24) NOT NULL CHECK (status IN ('pending', 'leased', 'retry_scheduled', 'sent', 'disabled', 'dead', 'cancelled')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  max_attempts integer NOT NULL DEFAULT 5 CHECK (max_attempts > 0),
+  next_attempt_at timestamptz NOT NULL,
+  lease_token varchar(128),
+  lease_expires_at timestamptz,
+  payload_snapshot jsonb NOT NULL,
+  last_failure_reason varchar(240),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  UNIQUE (request_audit_log_id, subscription_id)
+);
+
+CREATE INDEX ix_push_dispatch_jobs_due ON push_dispatch_jobs (next_attempt_at, created_at)
+WHERE status IN ('pending', 'retry_scheduled');
+
 CREATE TABLE counseling_notes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   branch_id uuid NOT NULL REFERENCES branches(id),

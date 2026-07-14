@@ -20,6 +20,9 @@ const noticeMemberSearch = readFileSync("src/lib/notice-member-search.ts", "utf8
 const paymentCheckoutAccess = readFileSync("src/lib/payment-checkout-access.ts", "utf8");
 const serverDb = readFileSync("src/server/db.ts", "utf8");
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
+const notificationOutbox = readFileSync("src/server/notification-outbox.ts", "utf8");
+const notificationOutboxRunner = readFileSync("src/server/notification-outbox-runner.ts", "utf8");
+const notificationOutboxCron = readFileSync("src/app/api/v1/internal/notification-outbox/route.ts", "utf8");
 const pushConfigRoute = readFileSync("src/app/api/v1/notifications/push-config/route.ts", "utf8");
 const pushSubscriptionRoute = readFileSync("src/app/api/v1/notifications/subscriptions/route.ts", "utf8");
 const noticeCreateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/route.ts", "utf8");
@@ -105,12 +108,23 @@ assert(
     noticeDeleteUi.includes("coach notice updates must not expand the existing audience") &&
     noticeDeleteUi.includes("notice update audit must not retain the updated body") &&
     noticeDeleteUi.includes("final notice read state must match the last serialized read or visible edit operation") &&
-    noticeDeleteUi.includes("notice updates must reject unsupported class/member target changes"),
-  "notice UI/API regression proof must exercise read-state, concurrency, coach audience, target immutability, and audit body contracts",
+    noticeDeleteUi.includes("notice updates must reject unsupported class/member target changes") &&
+    noticeDeleteUi.includes("notice create and manual resend finalize durable pre-dispatch audit markers"),
+  "notice UI/API regression proof must exercise read-state, concurrency, coach audience, target immutability, audit body, and durable dispatch contracts",
 );
 
 function assertExcludes(source, snippet, label) {
   assert(!source.includes(snippet), `${label} must not include ${snippet}`);
+}
+
+function assertOrdered(source, snippets, label) {
+  let previousIndex = -1;
+
+  for (const snippet of snippets) {
+    const index = source.indexOf(snippet, previousIndex + 1);
+    assert(index > previousIndex, `${label} must keep ${snippet} after the preceding persistence step`);
+    previousIndex = index;
+  }
 }
 
 assert(noticesScreen.includes("apiClient.dispatchNoticePush"), "notices screen must expose notice push dispatch");
@@ -427,7 +441,7 @@ assert(pushHelper.includes("FINAL_JUDO_VAPID_SUBJECT"), "push helper must read V
 assert(!pushHelper.includes("ops@finaljudo.test"), "push helper must not use a sample mailto subject fallback");
 assert(pushHelper.includes("webPush.sendNotification"), "push helper must send web push notifications");
 assert(pushHelper.includes("statusCode === 404 || statusCode === 410"), "push helper must disable expired subscriptions");
-assert(pushHelper.includes("[중요]"), "push helper must mark important notice push titles");
+assert(notificationOutbox.includes("[중요]"), "outbox payload snapshot must mark important notice push titles");
 assert(pushHelper.includes("export function getNoticeRecipients"), "push helper must expose notice recipients for dispatch feedback");
 assert(pushHelper.includes("export function getNoticeFamilyRecipientCount"), "push helper must expose member and guardian recipient counts");
 assert(pushHelper.includes("export function createNoticePushDispatchMessage"), "push helper must centralize user-facing dispatch result copy");
@@ -464,10 +478,54 @@ assert(
 assert(noticeCreateRoute.includes("getAccessibleMemberIds(user, db, [branchId])"), "notice create route must scope coach branch notices to assigned members");
 assert(noticeCreateRoute.includes("createdByUserId: user.id"), "notice create route must persist creator visibility metadata");
 assert(noticeCreateRoute.includes("담당 수업과 담당 회원에게만 공지를 발행할 수 있습니다."), "notice create route must reject out-of-scope coach targets");
-assert(noticeCreateRoute.includes("dispatchNoticePushNotifications(nextDbWithNotice, nextNotice)"), "notice create route must dispatch notifications immediately after publishing");
-assert(noticeCreateRoute.includes('action: "notification.dispatch"'), "notice create route must audit publish-time notification dispatch");
+assert(
+  noticeCreateRoute.includes("withServerDbLock(noticeStateLockKey") &&
+    noticePushRoute.includes("withServerDbLock(noticeStateLockKey"),
+  "notice create and manual dispatch must share the serialized notice-state persistence boundary",
+);
+assertOrdered(
+  noticeCreateRoute,
+  [
+    "notices: [nextNotice, ...db.notices]",
+    "const dispatchRequestAuditLog = createNoticePushDispatchRequestAuditLog",
+    "prepareNoticePushDispatchJobs(dbWithAudits, nextNotice",
+    "await writeServerDb(prepared.db)",
+    "await processNotificationOutbox",
+  ],
+  "notice create outbox dispatch",
+);
+assertOrdered(
+  noticePushRoute,
+  [
+    "const baseDispatchRequestAuditLog = createNoticePushDispatchRequestAuditLog",
+    "const dispatchRequestAuditLog = {",
+    "idempotencyDigest: idempotency.digest",
+    "prepareNoticePushDispatchJobs(dbWithAudit, notice",
+    "await writeServerDb(prepared.db)",
+    "await processNotificationOutbox",
+  ],
+  "manual notice outbox dispatch",
+);
+assert(
+  pushHelper.includes('dispatchState: "requested"') &&
+    notificationOutbox.includes("syncDispatchAudit") &&
+    notificationOutbox.includes('"retry_scheduled"') &&
+    notificationOutbox.includes('"dead"'),
+  "notice dispatch must retain a durable requested marker and retry/dead states",
+);
+assert(!noticeCreateRoute.includes("dispatchNoticePushNotifications"), "notice create route must not send before durable outbox persistence");
+assertExcludes(noticeCreateRoute, "PUSH_DISPATCH_FAILED", "notice create response after durable persistence");
+assertExcludes(noticeCreateRoute, "PUSH_RESULT_PERSIST_FAILED", "notice create response after durable persistence");
+assert(
+  noticeCreateRoute.includes("The durable jobs remain pending or leased for the scheduled worker"),
+  "notice creation must preserve queued work after an inline delivery failure",
+);
+assert(
+  noticeCreateRoute.includes("createNoticePushDispatchRequestAuditLog") &&
+    pushHelper.includes('action: "notification.dispatch"'),
+  "notice create route must audit publish-time notification dispatch",
+);
 assert(noticeCreateRoute.includes("autoDispatchedOnCreate: true"), "notice create route must distinguish automatic publish-time dispatch");
-assert(noticeCreateRoute.includes("createNoticePushDispatchMessage"), "notice create route must reuse shared delivery feedback copy");
 assert(noticeCreateRoute.includes("push: {"), "notice create route must return delivery feedback to the composer");
 assert(noticeReadRoute.includes("requireSelectedBranchScope"), "notice read route must reject invalid selected branch scope");
 assert(noticeReadRoute.includes("canReadNotice"), "notice read route must enforce readable notice scope");
@@ -475,9 +533,19 @@ assert(noticeBulkReadRoute.includes("canReadNotice"), "notice bulk read route mu
 assert(noticeBulkReadRoute.includes("requireSelectedBranchScope"), "notice bulk read route must reject invalid selected branch scope");
 assert(noticeBulkReadRoute.includes("markNoticeRead"), "notice bulk read route must reuse audited read persistence");
 assert(noticeBulkReadRoute.includes("noticeIds.length > 50"), "notice bulk read route must limit batch size");
-assert(noticePushRoute.includes("dispatchNoticePushNotifications"), "notice push route must dispatch targeted notifications");
-assert(noticePushRoute.includes("notification.dispatch"), "notice push route must audit push dispatch");
-assert(noticePushRoute.includes("configured: summary.configured"), "notice push route must return configured state");
+assert(!noticePushRoute.includes("dispatchNoticePushNotifications"), "notice push route must use durable outbox jobs");
+assert(
+  noticePushRoute.includes("createNoticePushDispatchRequestAuditLog") &&
+    pushHelper.includes('action: "notification.dispatch"'),
+  "notice push route must audit push dispatch",
+);
+assert(
+  noticePushRoute.includes("...summary") && notificationOutbox.includes("configured:"),
+  "notice push route must return the persisted outbox summary",
+);
+assert(notificationOutboxRunner.includes("validateLeasedPushDispatchJob"), "outbox must revalidate recipients and subscriptions before send");
+assert(notificationOutboxRunner.includes("createAttemptAuditLog"), "outbox must append a sanitized audit row per delivery attempt");
+assert(notificationOutboxCron.includes("timingSafeEqual") && notificationOutboxCron.includes("CRON_SECRET"), "cron worker must require timing-safe bearer authorization");
 assert(
   noticePushRoute.includes("noticePublisherRoles.has(user.role)") &&
     noticePermissions.includes('export const noticePublisherRoles = new Set<UserRole>(["owner", "admin", "coach"]);'),
@@ -489,11 +557,11 @@ assert(
 );
 assert(noticePushRoute.includes("getNoticeFamilyRecipientCount"), "notice push route must count member and guardian app inbox recipients");
 assert(noticePushRoute.includes("recipientCount"), "notice push route must return recipient count in feedback");
-assert(noticePushRoute.includes("createNoticePushDispatchMessage"), "notice push route must reuse shared dispatch result copy");
+assert(noticePushRoute.includes("requestAudit?.message"), "notice push route must return the durable audit result copy");
 assert(pushHelper.includes("알림함에는 표시됩니다. 휴대폰 푸시는 기기 알림 연결 후 발송할 수 있습니다."), "notice dispatch copy must separate app inbox delivery from phone push setup");
 assert(pushHelper.includes("휴대폰 푸시를 받을 기기가 아직 없습니다."), "notice dispatch copy must explain missing device subscriptions without hiding app inbox delivery");
 assert(noticePushRoute.includes("공지 알림을 보낼 수 없습니다."), "notice push route must use user-facing forbidden copy");
-assert(pushHelper.includes("알림 수신 등록을 다시 확인해야 합니다."), "push helper must use app-safe disabled subscription failure copy");
+assert(pushHelper.includes("알림 수신 등록이 만료됐습니다."), "push helper must use app-safe disabled subscription failure copy");
 assert(pushHelper.includes("알림 발송 상태를 다시 확인해야 합니다."), "push helper must use app-safe dispatch failure copy");
 assertExcludes(noticePushRoute, "공지 푸시 발송 권한", "notice push dispatch app/API feedback");
 assertExcludes(noticePushRoute, "알림 발송 설정", "notice push dispatch unclear setup copy");
@@ -514,7 +582,7 @@ assert(backendSchema.includes("important boolean NOT NULL DEFAULT false"), "DB s
 assert(serviceWorker.includes('self.addEventListener("push"'), "service worker must accept future push events");
 assert(serviceWorker.includes("self.registration.showNotification"), "service worker push handler must show notifications");
 assert(serviceWorker.includes('self.addEventListener("notificationclick"'), "service worker must handle notification clicks");
-assert(pushHelper.includes('url: "/app/notifications"'), "notice push payload must open the notification inbox");
+assert(notificationOutbox.includes('|| "/app/notifications"'), "notice push payload must open the notification inbox");
 assert(serviceWorker.includes('"/app/notifications"'), "notification click fallback must return to the notification inbox");
 assert(serviceWorker.includes("clients.openWindow"), "notification click must open the app when no window is focused");
 

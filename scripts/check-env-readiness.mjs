@@ -67,6 +67,7 @@ const runtimeEnvKeys = [
   "FINAL_JUDO_VAPID_PUBLIC_KEY",
   "FINAL_JUDO_VAPID_PRIVATE_KEY",
   "FINAL_JUDO_VAPID_SUBJECT",
+  "CRON_SECRET",
 ];
 
 assert(
@@ -101,6 +102,7 @@ for (const placeholder of [
   "replace-with-provider-webhook-secret",
   "replace-with-vapid-public-key",
   "replace-with-vapid-private-key",
+  "replace-with-random-cron-secret",
 ]) {
   assert(sources.envProductionExample.includes(placeholder), `.env.production.example must keep explicit placeholder ${placeholder}`);
 }

@@ -8,11 +8,7 @@ const skipDevReset = process.env.E2E_SKIP_DEV_RESET === "1";
 const note = `Mobile E2E attendance ${Date.now()}`;
 const offlineNote = `Mobile E2E offline queue ${Date.now()}`;
 const coachPhone = "01031967428";
-const defaultPilotPassword = "FinalJudoPilot!2026";
-const roleSessionUserIds = {
-  guardian: "user-guardian",
-  member: "user-member",
-};
+const coachPassword = process.env.SMOKE_COACH_PASSWORD ?? "FinalJudoPilot!2026";
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -53,23 +49,15 @@ async function resetDemoData(phase) {
 async function loginWithCredentials(page, phone) {
   await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
   await page.getByLabel("휴대폰 번호").fill(phone);
-  await page.getByLabel("비밀번호", { exact: true }).fill(defaultPilotPassword);
+  await page.getByLabel("비밀번호", { exact: true }).fill(coachPassword);
   await page.getByRole("button", { name: "로그인" }).click();
   await page.waitForURL("**/app/dashboard", { timeout: 10000 });
 }
 
 async function loginWithRoleShortcut(page, role) {
   await page.context().clearCookies();
-  await page.context().addCookies([
-    {
-      name: "final-judo-session",
-      value: roleSessionUserIds[role],
-      url: baseUrl,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
-  await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "domcontentloaded" });
+  const next = encodeURIComponent("/app/dashboard");
+  await page.goto(`${baseUrl}/api/v1/dev/auto-login?role=${role}&next=${next}`, { waitUntil: "domcontentloaded" });
   await page.waitForURL("**/app/dashboard", { timeout: 10000 });
 }
 

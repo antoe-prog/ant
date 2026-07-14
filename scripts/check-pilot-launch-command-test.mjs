@@ -16,6 +16,7 @@ async function runLaunchPackage(tempDir, extraArgs = []) {
   const preflight = join(tempDir, `pilot-preflight-${Math.random().toString(16).slice(2)}.json`);
   const readinessEvidence = join(tempDir, `pilot-readiness-evidence-${Math.random().toString(16).slice(2)}.csv`);
   const passwordRotation = join(tempDir, `pilot-password-rotation-${Math.random().toString(16).slice(2)}.csv`);
+  const runtimeFile = join(tempDir, "pilot-runtime.json");
   const args = [
     ...transformArgs,
     "scripts/create-pilot-launch-package.mjs",
@@ -26,6 +27,8 @@ async function runLaunchPackage(tempDir, extraArgs = []) {
     `--preflight-out=${preflight}`,
     `--readiness-evidence=${readinessEvidence}`,
     `--password-rotation=${passwordRotation}`,
+    "--driver=json",
+    `--runtime-file=${runtimeFile}`,
     ...extraArgs,
   ];
 
@@ -73,6 +76,20 @@ function parseJson(value, label) {
 const tempDir = await mkdtemp(join(tmpdir(), "final-judo-pilot-launch-command-"));
 
 try {
+  const runtimeFile = join(tempDir, "pilot-runtime.json");
+  await execFile(process.execPath, [
+    ...transformArgs,
+    "scripts/import-pilot-data.mjs",
+    "--driver=json",
+    `--out=${runtimeFile}`,
+    "--write",
+    pilotCsv,
+  ], {
+    cwd: process.cwd(),
+    env: process.env,
+    maxBuffer: 1024 * 1024 * 5,
+  });
+
   const auditRun = await runLaunchPackage(tempDir, ["--allow-incomplete"]);
   assert.equal(auditRun.exitCode, 0, "launch package audit mode should exit successfully for blocked demo runtime");
   const auditPackage = parseJson(auditRun.stdout, "audit launch package stdout");

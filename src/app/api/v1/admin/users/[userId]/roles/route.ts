@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRuntimeId } from "@/server/runtime-id";
+import { authSecurityLockKey, revokeUserAuthSessions } from "@/server/auth-session";
+import { isActiveAdmin } from "@/server/user-administration";
 import {
   findOwnerCoverageBlockers,
   reassignUserOperationalLinks,
@@ -22,21 +24,21 @@ export async function PUT(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const initialDb = await readServerDb();
+  const { user: initialUser, response } = requireSession(request, initialDb);
 
-  if (!user) {
+  if (!initialUser) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (initialUser.role !== "admin") {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자 역할을 변경할 수 있습니다.");
   }
 
-  const selectedScope = requireSelectedBranchScope(request, user, db);
+  const initialScope = requireSelectedBranchScope(request, initialUser, initialDb);
 
-  if (selectedScope.response) {
-    return selectedScope.response;
+  if (initialScope.response) {
+    return initialScope.response;
   }
 
   const body = (await request.json().catch(() => null)) as RoleUpdateBody | null;
@@ -50,6 +52,24 @@ export async function PUT(
   if (!reason) {
     return jsonError(400, "VALIDATION_ERROR", "권한 변경 사유가 필요합니다.");
   }
+
+  return withServerDbLock(authSecurityLockKey, async () => {
+    const db = await readServerDb();
+    const { user, response: freshSessionResponse } = requireSession(request, db);
+
+    if (!user) {
+      return freshSessionResponse;
+    }
+
+    if (user.role !== "admin") {
+      return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자 역할을 변경할 수 있습니다.");
+    }
+
+    const selectedScope = requireSelectedBranchScope(request, user, db);
+
+    if (selectedScope.response) {
+      return selectedScope.response;
+    }
 
   const targetUser = db.users.find((candidate) => candidate.id === userId);
 
@@ -91,7 +111,7 @@ export async function PUT(
   const nextUsers = db.users.map((candidate) =>
     candidate.id === targetUser.id ? nextTargetUser : candidate,
   );
-  const adminCount = nextUsers.filter((candidate) => candidate.role === "admin").length;
+  const adminCount = nextUsers.filter(isActiveAdmin).length;
 
   if (adminCount < 1) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "최소 1명의 총괄 어드민이 필요합니다.");
@@ -141,13 +161,20 @@ export async function PUT(
     message: "사용자 역할을 변경했습니다.",
     createdAt: new Date().toISOString(),
   };
-  const nextDb = await writeServerDb({
+  const nextDb = await writeServerDb(revokeUserAuthSessions({
     ...db,
     classes: operationalLinks.classes,
     members: operationalLinks.members,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  }, targetUser.id));
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
+    const actor = nextDb.users.find((candidate) => candidate.id === user.id);
+
+    if (!actor) {
+      return jsonError(409, "CONFLICT", "권한 변경 중 관리자 계정 상태가 변경되었습니다. 다시 시도해 주세요.");
+    }
+
+    return jsonOk(createBootstrapPayload(nextDb, actor, selectedScope.selectedBranchId));
+  });
 }

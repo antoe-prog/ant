@@ -1,5 +1,8 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
-import { defaultPilotPasswordHash } from "../lib/pilot-password-contract.ts";
+import {
+  defaultPilotPasswordHash,
+  isLegacyDefaultPilotPasswordHash,
+} from "../lib/pilot-password-contract.ts";
 
 const algorithm = "pbkdf2_sha256";
 const defaultIterations = 120_000;
@@ -7,7 +10,20 @@ const keyLength = 32;
 const digest = "sha256";
 
 export const defaultPilotPassword = "FinalJudoPilot!2026";
-export { defaultPilotPasswordHash };
+export { defaultPilotPasswordHash, isLegacyDefaultPilotPasswordHash };
+
+export class SharedDemoPasswordError extends Error {
+  constructor() {
+    super("The retired shared demo password cannot be stored for a user account.");
+    this.name = "SharedDemoPasswordError";
+  }
+}
+
+export function assertPasswordIsNotSharedDemoPassword(password: string) {
+  if (password === defaultPilotPassword) {
+    throw new SharedDemoPasswordError();
+  }
+}
 
 export function createPasswordHash(password: string, salt = "final-judo-mvp-pilot") {
   const hash = pbkdf2Sync(password, salt, defaultIterations, keyLength, digest).toString("hex");
@@ -16,11 +32,12 @@ export function createPasswordHash(password: string, salt = "final-judo-mvp-pilo
 }
 
 export function createRandomPasswordHash(password: string) {
+  assertPasswordIsNotSharedDemoPassword(password);
   return createPasswordHash(password, randomBytes(16).toString("hex"));
 }
 
 export function generateTemporaryPassword() {
-  return `FJ-${randomBytes(4).toString("hex")}-${randomBytes(4).toString("hex")}`;
+  return `FJ-${randomBytes(4).toString("hex")}-${randomBytes(4).toString("hex")}-${randomBytes(8).toString("hex")}`;
 }
 
 export function verifyPassword(password: string, storedHash: string | undefined) {

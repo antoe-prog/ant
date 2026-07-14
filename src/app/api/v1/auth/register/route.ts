@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, Member } from "@/lib/domain";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
-import { createRandomPasswordHash } from "@/server/auth-password";
+import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
 import { createBootstrapPayload, jsonError, jsonOk } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createRuntimeId } from "@/server/runtime-id";
@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
 
   if (password.length < 8) {
     return jsonError(400, "VALIDATION_ERROR", "비밀번호는 8자 이상이어야 합니다.");
+  }
+
+  if (password === defaultPilotPassword) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "다른 비밀번호를 입력해 주세요.");
   }
 
   return withServerDbLock(`auth-register-phone:${phone}`, async () => {

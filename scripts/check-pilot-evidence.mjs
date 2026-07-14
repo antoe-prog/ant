@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
+import { rmSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,6 +8,24 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const { prePilotReadinessIds } = await import("../src/lib/pilot-readiness.ts");
+const directory = await mkdtemp(join(tmpdir(), "final-judo-evidence-"));
+const runtimePath = join(directory, "pilot-runtime.json");
+process.on("exit", () => rmSync(directory, { recursive: true, force: true }));
+
+await execFile(process.execPath, [
+  "--experimental-transform-types",
+  "--disable-warning=ExperimentalWarning",
+  "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+  "scripts/import-pilot-data.mjs",
+  "--driver=json",
+  `--out=${runtimePath}`,
+  "--write",
+  "docs/pilot-templates/pilot-data-intake.csv",
+], {
+  cwd: process.cwd(),
+  env: process.env,
+  maxBuffer: 1024 * 1024,
+});
 
 const nodeArgs = [
   "--experimental-transform-types",
@@ -14,6 +33,8 @@ const nodeArgs = [
   "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
   "scripts/export-pilot-evidence.mjs",
   "--format=json",
+  "--driver=json",
+  `--file=${runtimePath}`,
 ];
 
 const result = await execFile(process.execPath, nodeArgs, {
@@ -30,6 +51,8 @@ const postPilotRun = await execFile(
     "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
     "scripts/export-pilot-evidence.mjs",
     "--format=json",
+    "--driver=json",
+    `--file=${runtimePath}`,
     "--require-retro",
   ],
   {
@@ -39,7 +62,6 @@ const postPilotRun = await execFile(
   },
 );
 const postPilotReport = JSON.parse(postPilotRun.stdout.trim());
-const directory = await mkdtemp(join(tmpdir(), "final-judo-evidence-"));
 const markdownPath = join(directory, "pilot-evidence.md");
 const markdownRun = await execFile(
   process.execPath,
@@ -49,6 +71,8 @@ const markdownRun = await execFile(
     "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
     "scripts/export-pilot-evidence.mjs",
     "--format=markdown",
+    "--driver=json",
+    `--file=${runtimePath}`,
     `--out=${markdownPath}`,
   ],
   {
@@ -61,7 +85,7 @@ const markdown = await readFile(markdownPath, "utf8");
 
 assert.equal(report.mode, "pre-pilot", "pilot evidence report should default to pre-pilot mode");
 assert.equal(report.releaseDecision, "blocked", "demo pilot evidence report should remain blocked until field evidence is complete");
-assert.equal(report.runtime.driver, process.env.FINAL_JUDO_DB_DRIVER === "postgres" ? "postgres" : "json");
+assert.equal(report.runtime.driver, "json");
 assert.equal(report.counts.branches, 2, "pilot evidence report should include demo branch count");
 assert(report.counts.users >= 6, "pilot evidence report should include at least the core demo users");
 assert.equal(report.counts.requiredReadiness, prePilotReadinessIds.length, "pilot evidence report must track pre-pilot readiness checks");

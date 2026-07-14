@@ -153,6 +153,25 @@ async function loginCredentials(client, phone, password, options = {}) {
   return result.payload.data;
 }
 
+async function createAcceptedAdmin(baseUrl, actor, { email, name, password, phone }) {
+  const invitation = await actor.request("/api/v1/admin/users/invitations", {
+    method: "POST",
+    body: JSON.stringify({ branchIds: [], email, name, phone, role: "admin" }),
+  });
+  const userId = invitation.payload.data.invitation.userId;
+  const token = invitation.payload.data.invitation.token;
+  const client = createClient(baseUrl);
+  const acceptance = await client.request(`/api/v1/auth/invitations/${token}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+
+  assert.equal(acceptance.payload.data.user.id, userId, "accepted concurrent-test admin id mismatch");
+  assert.equal(acceptance.payload.data.user.role, "admin", "accepted concurrent-test user must be an admin");
+
+  return { client, userId };
+}
+
 async function runAssertions(baseUrl) {
   const anonymous = createClient(baseUrl);
   const admin = createClient(baseUrl);
@@ -247,6 +266,17 @@ async function runAssertions(baseUrl) {
     { allowError: true },
   );
   assert.equal(unauthenticatedUpdate.response.status, 401, "unauthenticated admin user update must require login before validation");
+
+  const forgedUserIdCookie = await anonymous.request(
+    "/api/v1/admin/users/user-member",
+    {
+      method: "PATCH",
+      headers: { Cookie: "final-judo-session=user-admin" },
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(forgedUserIdCookie.response.status, 401, "raw user-id cookies must not authenticate as admin sessions");
 
   const unauthenticatedPasswordIssue = await anonymous.request(
     "/api/v1/admin/users/user-member/password",
@@ -962,6 +992,7 @@ async function runAssertions(baseUrl) {
       ?.branchIds.includes(isolatedBranchId),
     "admin fallback test must explicitly assign the admin to the isolated branch",
   );
+  await loginRole(admin, "admin");
 
   const adminFallbackDelete = await admin.request(`/api/v1/admin/users/${isolatedCoachId}`, {
     method: "DELETE",
@@ -1047,9 +1078,161 @@ async function runAssertions(baseUrl) {
   assert(!result.payload.data.db.users.some((user) => user.id === invitedUserId), "admin user delete must remove target user");
   assert.equal(deleteAudit?.after?.reason, deleteReason, "admin user delete audit must include reason");
 
+  const concurrentOwnerPhone = `010${String((Number(stampPhoneSuffix) + 10) % 100000000).padStart(8, "0")}`;
+  const concurrentOwnerInvite = await admin.request("/api/v1/admin/users/invitations", {
+    method: "POST",
+    body: JSON.stringify({
+      branchIds: ["branch-gangnam", "branch-songpa"],
+      email: `concurrent-owner-${stamp}@example.com`,
+      name: `동시 대표 ${stamp}`,
+      phone: concurrentOwnerPhone,
+      role: "owner",
+    }),
+  });
+  const concurrentOwnerId = concurrentOwnerInvite.payload.data.invitation.userId;
+  const concurrentOwnerClient = createClient(baseUrl);
+  await concurrentOwnerClient.request(
+    `/api/v1/auth/invitations/${concurrentOwnerInvite.payload.data.invitation.token}/accept`,
+    {
+      method: "POST",
+      body: JSON.stringify({ password: `FJ-Concurrent-Owner-${stamp}!` }),
+    },
+  );
+  const concurrentOwnerDemotions = await Promise.all([
+    admin.request(
+      "/api/v1/admin/users/user-owner/roles",
+      {
+        method: "PUT",
+        body: JSON.stringify({ role: "coach", reason: `concurrent original owner demotion ${stamp}` }),
+      },
+      { allowError: true },
+    ),
+    admin.request(
+      `/api/v1/admin/users/${concurrentOwnerId}/roles`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ role: "coach", reason: `concurrent second owner demotion ${stamp}` }),
+      },
+      { allowError: true },
+    ),
+  ]);
+  assert.deepEqual(
+    concurrentOwnerDemotions.map((entry) => entry.response.status).sort((left, right) => left - right),
+    [200, 422],
+    "concurrent owner demotions must preserve accepted owner coverage",
+  );
+  const ownerConcurrencySuccess = concurrentOwnerDemotions.find((entry) => entry.response.status === 200);
+  for (const branchId of ["branch-gangnam", "branch-songpa"]) {
+    assert(
+      ownerConcurrencySuccess.payload.data.db.users.some(
+        (candidate) =>
+          candidate.role === "owner" &&
+          candidate.invitationStatus !== "pending" &&
+          candidate.branchIds.includes(branchId),
+      ),
+      `concurrent owner demotions must retain an accepted owner for ${branchId}`,
+    );
+  }
+
+  const secondAdminPhone = `010${String((Number(stampPhoneSuffix) + 11) % 100000000).padStart(8, "0")}`;
+  const secondAdmin = await createAcceptedAdmin(baseUrl, admin, {
+    email: `concurrent-admin-second-${stamp}@example.com`,
+    name: `동시 관리자 B ${stamp}`,
+    password: `FJ-Concurrent-Admin-B-${stamp}!`,
+    phone: secondAdminPhone,
+  });
+  const [roleDemotion, originalAdminDelete] = await Promise.all([
+    admin.request(
+      `/api/v1/admin/users/${secondAdmin.userId}/roles`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ role: "owner", reason: `concurrent role demotion ${stamp}` }),
+      },
+      { allowError: true },
+    ),
+    secondAdmin.client.request(
+      "/api/v1/admin/users/user-admin",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ reason: `concurrent original admin delete ${stamp}` }),
+      },
+      { allowError: true },
+    ),
+  ]);
+  assert.equal(
+    [roleDemotion, originalAdminDelete].filter((entry) => entry.response.status === 200).length,
+    1,
+    "concurrent role/delete mutations must allow exactly one administrator removal",
+  );
+  const firstConcurrencySuccess = [roleDemotion, originalAdminDelete].find((entry) => entry.response.status === 200);
+  const firstRemainingAdmins = firstConcurrencySuccess.payload.data.db.users.filter(
+    (candidate) => candidate.role === "admin" && candidate.invitationStatus !== "pending",
+  );
+  assert.equal(firstRemainingAdmins.length, 1, "concurrent role/delete mutations must preserve one active admin");
+  const firstRemainingAdminId = firstRemainingAdmins[0].id;
+  const firstRemainingAdminClient = firstRemainingAdminId === "user-admin" ? admin : secondAdmin.client;
+  const soleAdminDelete = await firstRemainingAdminClient.request(
+    `/api/v1/admin/users/${firstRemainingAdminId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `sole admin protection after concurrency ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(soleAdminDelete.response.status, 422, "the remaining sole admin must still be protected from self-delete");
+
+  const thirdAdminPhone = `010${String((Number(stampPhoneSuffix) + 12) % 100000000).padStart(8, "0")}`;
+  const thirdAdminEmail = `concurrent-admin-third-${stamp}@example.com`;
+  const thirdAdminName = `동시 관리자 C ${stamp}`;
+  const thirdAdmin = await createAcceptedAdmin(baseUrl, firstRemainingAdminClient, {
+    email: thirdAdminEmail,
+    name: thirdAdminName,
+    password: `FJ-Concurrent-Admin-C-${stamp}!`,
+    phone: thirdAdminPhone,
+  });
+  const [profileDemotion, remainingAdminDelete] = await Promise.all([
+    firstRemainingAdminClient.request(
+      `/api/v1/admin/users/${thirdAdmin.userId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          email: thirdAdminEmail,
+          name: thirdAdminName,
+          phone: thirdAdminPhone,
+          reason: `concurrent profile demotion ${stamp}`,
+          role: "owner",
+          title: "동시성 검증 관리자",
+        }),
+      },
+      { allowError: true },
+    ),
+    thirdAdmin.client.request(
+      `/api/v1/admin/users/${firstRemainingAdminId}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ reason: `concurrent remaining admin delete ${stamp}` }),
+      },
+      { allowError: true },
+    ),
+  ]);
+  assert.equal(
+    [profileDemotion, remainingAdminDelete].filter((entry) => entry.response.status === 200).length,
+    1,
+    "concurrent profile/delete mutations must allow exactly one administrator removal",
+  );
+  const secondConcurrencySuccess = [profileDemotion, remainingAdminDelete].find((entry) => entry.response.status === 200);
+  assert.equal(
+    secondConcurrencySuccess.payload.data.db.users.filter(
+      (candidate) => candidate.role === "admin" && candidate.invitationStatus !== "pending",
+    ).length,
+    1,
+    "concurrent profile/delete mutations must preserve one active admin",
+  );
+
   return [
     "admin-only user update/delete",
     "authentication-first admin user API guards",
+    "raw user-id session cookie forgery rejection",
     "coach bootstrap payment record exclusion",
     "public register API phone signup login flow",
     "concurrent phone signup uniqueness",
@@ -1071,6 +1254,8 @@ async function runAssertions(baseUrl) {
     "role change operational reassignment and sole owner protection",
     "linked coach delete protection",
     "user.update and user.delete audit logs",
+    "shared-lock active admin protection across profile, role, and delete mutations",
+    "shared-lock accepted branch owner protection",
   ];
 }
 

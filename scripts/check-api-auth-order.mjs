@@ -46,6 +46,7 @@ const adminBranchOwnerRoutePath = path.join(apiRoot, "admin", "branches", "[bran
 const adminInvitationRoutePath = path.join(apiRoot, "admin", "users", "invitations", "route.ts");
 const adminUserRoutePath = path.join(apiRoot, "admin", "users", "[userId]", "route.ts");
 const adminUserInvitationApproveRoutePath = path.join(apiRoot, "admin", "users", "[userId]", "approve-invitation", "route.ts");
+const adminUserInvitationLinkRoutePath = path.join(apiRoot, "admin", "users", "[userId]", "invitation-link", "route.ts");
 const adminUserRoleRoutePath = path.join(apiRoot, "admin", "users", "[userId]", "roles", "route.ts");
 const adminUserPasswordRoutePath = path.join(apiRoot, "admin", "users", "[userId]", "password", "route.ts");
 const adminPilotReadinessRoutePath = path.join(apiRoot, "admin", "pilot-readiness", "route.ts");
@@ -131,6 +132,7 @@ const adminMutationRouteSources = [
   adminInvitationRoutePath,
   adminUserRoutePath,
   adminUserInvitationApproveRoutePath,
+  adminUserInvitationLinkRoutePath,
   adminUserRoleRoutePath,
   adminUserPasswordRoutePath,
   adminPilotReadinessRoutePath,
@@ -161,6 +163,7 @@ for (const routeFile of routeFiles) {
     const authGuardIndexes = [
       handler.source.indexOf("requireSession("),
       handler.source.indexOf("requireManualPaymentRequestContext("),
+      handler.source.indexOf("requireRefundRequestContext("),
     ].filter((index) => index >= 0);
 
     if (authGuardIndexes.length === 0) {
@@ -203,6 +206,12 @@ assert(
   paymentManageRouteSource.includes("async function requireManualPaymentRequestContext") &&
     paymentManageRouteSource.includes("requireSession(request, db)"),
   "manual payment management helper must authenticate before returning payment context",
+);
+const paymentRefundRouteSource = readFileSync(paymentRefundRoutePath, "utf8");
+assert(
+  paymentRefundRouteSource.includes("async function requireRefundRequestContext") &&
+    paymentRefundRouteSource.includes("requireSession(request, db)"),
+  "payment refund helper must authenticate before returning payment context",
 );
 assert(
   readFileSync("scripts/smoke-api.mjs", "utf8").includes("/api/v1/me/bootstrap?selectedBranchId=branch-missing"),
@@ -311,6 +320,7 @@ for (const [routePath, expectedGuard] of [
   [adminBranchOwnerRoutePath, "selectedScope.selectedBranchId !== branchId"],
   [adminInvitationRoutePath, "branchIds.some((branchId) => branchId !== selectedScope.selectedBranchId)"],
   [adminUserInvitationApproveRoutePath, "!targetUser.branchIds.includes(selectedScope.selectedBranchId)"],
+  [adminUserInvitationLinkRoutePath, "!targetUser.branchIds.includes(selectedScope.selectedBranchId)"],
   [adminUserPasswordRoutePath, "!targetUser.branchIds.includes(selectedScope.selectedBranchId)"],
   [adminUserRoleRoutePath, "!targetUser.branchIds.includes(selectedScope.selectedBranchId)"],
 ]) {

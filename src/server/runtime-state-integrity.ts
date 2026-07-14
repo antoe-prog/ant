@@ -1,6 +1,7 @@
 import type { AuditLog, MockDatabase, UserRole } from "../lib/domain.ts";
 import { normalizePhoneNumber } from "../lib/phone.ts";
 import { createRuntimeId } from "./runtime-id.ts";
+import { isAcceptedBranchOwner, isActiveAdmin } from "./user-administration.ts";
 import { findAcceptedBranchOperatorId } from "./user-operational-reassignment.ts";
 
 const runtimeCollectionKeys = [
@@ -14,7 +15,9 @@ const runtimeCollectionKeys = [
   "tournaments",
   "payments",
   "notices",
+  "authSessions",
   "pushSubscriptions",
+  "pushDispatchJobs",
   "pilotReadinessChecks",
   "pilotIncidents",
   "pilotOperationLogs",
@@ -149,6 +152,21 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
     { allowEmpty: true },
   );
 
+  assertUniqueValues(
+    db.authSessions.map((session) => ({ targetId: session.id, value: session.tokenHash })),
+    "authSessions.tokenHash",
+  );
+
+  for (const session of db.authSessions) {
+    if (
+      !/^[a-f0-9]{64}$/.test(session.tokenHash) ||
+      !Number.isFinite(Date.parse(session.expiresAt)) ||
+      !db.users.some((user) => user.id === session.userId)
+    ) {
+      throw new RuntimeStateIntegrityError("authSessions.format", session.id);
+    }
+  }
+
   return db;
 }
 
@@ -158,6 +176,10 @@ export function inspectRuntimeStateIntegrity(db: MockDatabase): RuntimeStateInte
   const userById = new Map(db.users.map((user) => [user.id, user]));
   const memberById = new Map(db.members.map((member) => [member.id, member]));
   const classById = new Map(db.classes.map((session) => [session.id, session]));
+
+  if (db.users.length > 0 && !db.users.some(isActiveAdmin)) {
+    issues.push(createIssue("users.activeAdminCoverage", "global", "blocker", false, {}));
+  }
 
   for (const user of db.users) {
     const validBranchIds = user.branchIds.filter((branchId) => branchIds.has(branchId));
@@ -312,6 +334,27 @@ export function assertNoNewRuntimeStateIntegrityIssues(
     seenNextFingerprintCounts.set(issue.fingerprint, nextCount);
     return nextCount > (previousFingerprintCounts.get(issue.fingerprint) ?? 0);
   });
+
+  if (previous) {
+    if (
+      previous.users.some(isActiveAdmin) &&
+      !next.users.some(isActiveAdmin) &&
+      !newIssues.some((issue) => issue.rule === "users.activeAdminCoverage")
+    ) {
+      newIssues.push(createIssue("users.activeAdminCoverage", "global", "blocker", false, {}));
+    }
+
+    const nextBranchIds = new Set(next.branches.map((branch) => branch.id));
+    for (const branch of previous.branches) {
+      if (
+        nextBranchIds.has(branch.id) &&
+        previous.users.some((user) => isAcceptedBranchOwner(user, branch.id)) &&
+        !next.users.some((user) => isAcceptedBranchOwner(user, branch.id))
+      ) {
+        newIssues.push(createIssue("users.branchOwnerCoverage", branch.id, "blocker", false, {}));
+      }
+    }
+  }
 
   if (newIssues.length > 0) {
     throw new RuntimeStateWriteIntegrityError(newIssues);

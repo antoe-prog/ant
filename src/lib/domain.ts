@@ -277,6 +277,61 @@ export type PushSubscriptionRecord = {
   lastFailureReason?: string;
 };
 
+export type PushDispatchJobStatus =
+  | "pending"
+  | "leased"
+  | "retry_scheduled"
+  | "sent"
+  | "disabled"
+  | "dead"
+  | "cancelled";
+
+export type PushDispatchPayloadSnapshot = {
+  title: string;
+  body: string;
+  tag: string;
+  url: string;
+};
+
+export type PushDispatchProviderOutcome = "not_started" | "accepted" | "failed" | "uncertain";
+
+export type PushDispatchJob = {
+  id: string;
+  auditLogId: string;
+  branchId: string;
+  noticeId: string;
+  subscriptionId: string;
+  recipientUserId: string;
+  status: PushDispatchJobStatus;
+  revision: number;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  createdAt: string;
+  updatedAt: string;
+  leaseToken?: string;
+  leaseExpiresAt?: string;
+  lastAttemptAt?: string;
+  completedAt?: string;
+  lastFailureReason?: string;
+  cancellationRequestedAt?: string;
+  cancellationReason?: string;
+  providerCallStartedAt?: string;
+  providerCallCompletedAt?: string;
+  providerOutcome?: PushDispatchProviderOutcome;
+  deliveryMayHaveOccurred?: boolean;
+  payloadSnapshot: PushDispatchPayloadSnapshot;
+};
+
+export type AuthSession = {
+  id: string;
+  tokenHash: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+};
+
 export type PilotReadinessStatus = "pending" | "verified" | "blocked";
 
 export type PilotReadinessCheck = {
@@ -435,7 +490,9 @@ export type MockDatabase = {
   tournaments: Tournament[];
   payments: Payment[];
   notices: Notice[];
+  authSessions: AuthSession[];
   pushSubscriptions: PushSubscriptionRecord[];
+  pushDispatchJobs: PushDispatchJob[];
   pilotReadinessChecks: PilotReadinessCheck[];
   pilotIncidents: PilotIncident[];
   pilotOperationLogs: PilotOperationLog[];

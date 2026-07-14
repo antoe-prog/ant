@@ -1,14 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const sessionCookieName = "final-judo-session";
 const localAutoLoginHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-const localAutoLoginUserIds = {
-  admin: "user-admin",
-  coach: "user-coach",
-  guardian: "user-guardian",
-  member: "user-member",
-  owner: "user-owner",
-} as const;
+const localAutoLoginRoles = new Set(["admin", "coach", "guardian", "member", "owner"]);
 
 function getSafeNextPath(request: NextRequest) {
   const next = request.nextUrl.searchParams.get("next");
@@ -22,27 +15,20 @@ function getSafeNextPath(request: NextRequest) {
 
 export function proxy(request: NextRequest) {
   const role = request.nextUrl.searchParams.get("role");
-  const userId = localAutoLoginUserIds[role as keyof typeof localAutoLoginUserIds];
 
   if (
     request.nextUrl.searchParams.get("autoLogin") !== "1" ||
     !localAutoLoginHosts.has(request.nextUrl.hostname) ||
-    !userId
+    !role ||
+    !localAutoLoginRoles.has(role)
   ) {
     return NextResponse.next();
   }
 
-  const response = NextResponse.redirect(new URL(getSafeNextPath(request), request.url));
-
-  response.cookies.set(sessionCookieName, userId, {
-    httpOnly: true,
-    maxAge: 60 * 60 * 8,
-    path: "/",
-    sameSite: "lax",
-    secure: false,
-  });
-
-  return response;
+  const autoLoginUrl = new URL("/api/v1/dev/auto-login", request.url);
+  autoLoginUrl.searchParams.set("role", role);
+  autoLoginUrl.searchParams.set("next", getSafeNextPath(request));
+  return NextResponse.redirect(autoLoginUrl);
 }
 
 export const config = {

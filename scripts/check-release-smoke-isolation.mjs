@@ -35,6 +35,15 @@ try {
   assert.equal(defaultPlan.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET, "final-judo-dev-webhook-secret");
   assert.equal(defaultPlan.env.PILOT_DB_FILE, `${defaultPlan.dataDir}/final-judo-db.json`);
   assert.equal(defaultPlan.env.SMOKE_SKIP_DEV_RESET, "0");
+  const smokeRolePasswords = [
+    defaultPlan.env.SMOKE_ADMIN_PASSWORD,
+    defaultPlan.env.SMOKE_OWNER_PASSWORD,
+    defaultPlan.env.SMOKE_COACH_PASSWORD,
+    defaultPlan.env.SMOKE_GUARDIAN_PASSWORD,
+    defaultPlan.env.SMOKE_MEMBER_PASSWORD,
+  ];
+  assert(smokeRolePasswords.every((password) => /^FJ-Smoke-[A-Za-z0-9_-]{20,}$/.test(password ?? "")));
+  assert.equal(new Set(smokeRolePasswords).size, smokeRolePasswords.length, "isolated smoke role passwords must be unique");
   assert.equal(
     getSmokeResetRequestOptions({ env: defaultPlan.env }).headers["x-final-judo-smoke-ownership-token"],
     defaultPlan.env.FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN,

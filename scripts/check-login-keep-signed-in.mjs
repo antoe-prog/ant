@@ -292,6 +292,7 @@ async function performLogin(browser, { keepSignedIn, screenshotPath, accountSwit
     return {
       cookieExpires: sessionCookie.expires,
       cookieLifetimeSeconds: lifetimeSeconds,
+      sessionCookieValue: sessionCookie.value,
       layout,
       accountSwitchLayout,
       accountSwitchScreenshotPath,
@@ -378,6 +379,8 @@ try {
     keepSignedIn: true,
     screenshotPath: join(outDir, "login-keep-signed-in-mobile.png"),
   });
+  const rememberedSessionCookieValue = remembered.sessionCookieValue;
+  delete remembered.sessionCookieValue;
   const cookieOnlyAccountSwitch = await collectCookieOnlyAccountSwitch(
     browser,
     {
@@ -385,7 +388,7 @@ try {
       httpOnly: true,
       name: sessionCookieName,
       path: "/",
-      value: "user-member",
+      value: rememberedSessionCookieValue,
     },
     join(outDir, "login-account-switch-cookie-only-mobile.png"),
   );
@@ -394,6 +397,7 @@ try {
     keepSignedIn: false,
     screenshotPath: join(outDir, "login-standard-session-mobile.png"),
   });
+  delete standard.sessionCookieValue;
   const resetAfter = await resetDevData("after");
   const report = {
     ok: true,

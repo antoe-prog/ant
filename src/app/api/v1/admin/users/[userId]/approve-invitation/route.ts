@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import type { AuditLog, UserRole } from "@/lib/domain";
+import type { AuditLog, MockDatabase, UserRole } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, generateTemporaryPassword } from "@/server/auth-password";
+import { revokeUserAuthSessions } from "@/server/auth-session";
 
 export const runtime = "nodejs";
 
@@ -76,7 +77,7 @@ export async function POST(
     message: "초대를 승인했습니다.",
     createdAt: now,
   };
-  const nextDb = await writeServerDb({
+  const updatedDb: MockDatabase = {
     ...db,
     users: db.users.map((candidate) =>
       candidate.id === targetUser.id
@@ -95,7 +96,10 @@ export async function POST(
         : candidate,
     ),
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  };
+  const nextDb = await writeServerDb(
+    temporaryPassword ? revokeUserAuthSessions(updatedDb, targetUser.id, new Date(now)) : updatedDb,
+  );
   const actor = nextDb.users.find((candidate) => candidate.id === user.id) ?? user;
 
   return jsonOk({

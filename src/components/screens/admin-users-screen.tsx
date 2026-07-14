@@ -3,7 +3,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Copy, ExternalLink, KeyRound, Pencil, Save, Search, Trash2, UserCheck, UserCog, UserPlus, X } from "lucide-react";
+import { Copy, ExternalLink, KeyRound, Pencil, RefreshCw, Save, Search, Trash2, UserCheck, UserCog, UserPlus, X } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { userRoles, type AppUser, type Member, type MockDatabase, type UserRole } from "@/lib/domain";
 import { formatPhoneNumber } from "@/lib/format";
@@ -40,10 +40,6 @@ function getRoleFilterFromParams(params: Pick<URLSearchParams, "get">): UserRole
   const role = params.get("role");
 
   return adminUserRoleFilters.includes(role as UserRole) ? (role as UserRole) : "all";
-}
-
-function getInvitationPathForUser(user: AppUser) {
-  return user.invitationToken ? `/invite/${user.invitationToken}` : null;
 }
 
 function sortUsersForInvitationReview(users: AppUser[]) {
@@ -156,7 +152,7 @@ function clearUserPanelHash(userId: string) {
 export function AdminUsersScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
-  const { approveInvitation, createInvitation, deleteUser, resetUserPassword, updateUser } = useAppStore();
+  const { approveInvitation, createInvitation, deleteUser, reissueInvitationLink, resetUserPassword, updateUser } = useAppStore();
   const queryParam = getUserQueryFromParams(searchParams);
   const roleFilterParam = getRoleFilterFromParams(searchParams);
   const previousListFilterParamRef = useRef({ query: queryParam, role: roleFilterParam });
@@ -170,6 +166,8 @@ export function AdminUsersScreen() {
   const [inviteBranchIds, setInviteBranchIds] = useState<string[]>([]);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [invitePath, setInvitePath] = useState<string | null>(null);
+  const [pendingInvitePaths, setPendingInvitePaths] = useState<Record<string, string>>({});
+  const [pendingInviteReissueUserId, setPendingInviteReissueUserId] = useState<string | null>(null);
   const [approvalFeedbacks, setApprovalFeedbacks] = useState<Record<string, string>>({});
   const [approvalConfirmUserId, setApprovalConfirmUserId] = useState<string | null>(null);
   const [approvalPendingUserId, setApprovalPendingUserId] = useState<string | null>(null);
@@ -585,6 +583,21 @@ export function AdminUsersScreen() {
     }
   }
 
+  async function handleReissuePendingInvitationLink(targetUser: AppUser) {
+    setPendingInviteReissueUserId(targetUser.id);
+    setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "" }));
+    const path = await reissueInvitationLink(targetUser.id);
+    setPendingInviteReissueUserId(null);
+
+    if (!path) {
+      setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "초대 링크를 다시 만들지 못했습니다." }));
+      return;
+    }
+
+    setPendingInvitePaths((current) => ({ ...current, [targetUser.id]: path }));
+    setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "새 초대 링크를 만들었습니다." }));
+  }
+
   function openInvitationApprovalConfirm(targetUser: AppUser) {
     if (approvalConfirmUserId === targetUser.id) {
       setApprovalConfirmUserId(null);
@@ -932,7 +945,8 @@ export function AdminUsersScreen() {
             const approvalPending = approvalPendingUserId === user.id;
             const approvalConfirmOpen = approvalConfirmUserId === user.id;
             const approvalFeedback = approvalFeedbacks[user.id] ?? "";
-            const pendingInvitePath = user.invitationStatus === "pending" ? getInvitationPathForUser(user) : null;
+            const pendingInvitePath = user.invitationStatus === "pending" ? pendingInvitePaths[user.id] ?? null : null;
+            const pendingInviteReissuePending = pendingInviteReissueUserId === user.id;
             const resetPanelOpen = passwordResetOpenUserId === user.id || Boolean(userIssuedPassword) || resetPending;
             const editPanelOpen = editOpenUserId === user.id;
             const deletePanelOpen = deleteOpenUserId === user.id;
@@ -1021,30 +1035,45 @@ export function AdminUsersScreen() {
                       초대 대기
                     </p>
                   ) : null}
-                  {pendingInvitePath ? (
+                  {user.invitationStatus === "pending" ? (
                     <div
                       className="mt-2 flex flex-wrap gap-2"
                       data-testid={`admin-user-pending-invite-link-actions-${user.id}`}
                     >
-                      <a
-                        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-teal-200 bg-white px-2.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
-                        data-admin-user-action="open-invitation-link"
-                        data-testid={`admin-user-pending-invite-link-open-${user.id}`}
-                        href={pendingInvitePath}
-                      >
-                        <ExternalLink className="h-4 w-4" aria-hidden />
-                        링크 열기
-                      </a>
                       <button
-                        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-teal-700 px-2.5 text-xs font-semibold text-white transition hover:bg-teal-800"
-                        data-admin-user-action="copy-invitation-link"
-                        data-testid={`admin-user-pending-invite-link-copy-${user.id}`}
+                        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        data-admin-user-action="reissue-invitation-link"
+                        data-testid={`admin-user-pending-invite-link-reissue-${user.id}`}
+                        disabled={pendingInviteReissuePending}
                         type="button"
-                        onClick={() => void handleCopyPendingInvitationLink(user, pendingInvitePath)}
+                        onClick={() => void handleReissuePendingInvitationLink(user)}
                       >
-                        <Copy className="h-4 w-4" aria-hidden />
-                        링크 복사
+                        <RefreshCw className="h-4 w-4" aria-hidden />
+                        {pendingInviteReissuePending ? "만드는 중" : "링크 다시 만들기"}
                       </button>
+                      {pendingInvitePath ? (
+                        <>
+                          <a
+                            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-teal-200 bg-white px-2.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
+                            data-admin-user-action="open-invitation-link"
+                            data-testid={`admin-user-pending-invite-link-open-${user.id}`}
+                            href={pendingInvitePath}
+                          >
+                            <ExternalLink className="h-4 w-4" aria-hidden />
+                            링크 열기
+                          </a>
+                          <button
+                            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-teal-700 px-2.5 text-xs font-semibold text-white transition hover:bg-teal-800"
+                            data-admin-user-action="copy-invitation-link"
+                            data-testid={`admin-user-pending-invite-link-copy-${user.id}`}
+                            type="button"
+                            onClick={() => void handleCopyPendingInvitationLink(user, pendingInvitePath)}
+                          >
+                            <Copy className="h-4 w-4" aria-hidden />
+                            링크 복사
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

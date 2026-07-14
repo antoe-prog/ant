@@ -58,12 +58,13 @@ function screenshotSize(path) {
 
 async function gotoApp(page, role, next) {
   const loginUrl = new URL("/login", baseUrl);
+  const expectedOrigin = loginUrl.origin;
   loginUrl.searchParams.set("next", next);
   loginUrl.searchParams.set("autoLogin", "1");
   loginUrl.searchParams.set("role", role);
 
   await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
-  await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
+  await page.waitForURL((url) => url.origin === expectedOrigin && url.pathname === next, { timeout: 15000 });
 }
 
 mkdirSync(outDir, { recursive: true });

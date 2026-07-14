@@ -16,6 +16,9 @@
 - [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과
 - [x] `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. 읽기 검증은 기존 데이터를 자동 변경하지 않고, 쓰기는 기존 스냅샷과 비교해 새 무결성 결함만 차단하며, 명시적 복구는 변경마다 `system.integrity.repair` 감사 기록을 남긴다. 출석·결제 이력은 자동 삭제하지 않고 운영 복제본 검사는 레코드 식별자·개인정보를 출력하지 않는다.
 - [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책 통과
+- [x] `npm run test:auth-session-security` 원시 사용자 ID 쿠키 차단, 불투명 토큰 해시 저장, 만료·단일/전체 세션 폐기, 로그인·로그아웃·계정 보안 변경 공통 잠금, 차단 재시도 잠금 연장·미일치 로그아웃 쓰기 방지 검증 통과
+- [x] `npm run test:invitation-token-security` 256-bit 초대 원문 1회 응답, SHA-256 저장, 7일 만료, timing-safe 비교, 사용자별 비밀번호 실패 제한, `Retry-After`, 동시 수락 단일 성공, 권한·지점 범위 재발급과 이전 링크 무효화, bootstrap 해시·비밀정보 미노출 검증 통과
+- [x] `npm run test:local-demo-password-rotation` 격리 JSON 계정별 비밀번호 회전과 원본/비밀정보 보호 검증 통과
 - [x] `npm run test:dev-reset-guard` production reset API 기본 차단 정책 통과
 - [x] `npm run test:env-readiness` 개발/운영 env 예시, 환경 변수 매트릭스, 위험 플래그, PostgreSQL/결제/푸시 필수 변수 문서 정합성 통과
 - [x] `npm run test:deployment-handoff-draft` 운영 env/preflight 기반 배포 handoff 초안 생성, 원문 secret 미보관, strict handoff 연결 fixture 검증 통과
@@ -202,6 +205,7 @@
 - [ ] 최종 P1 release package 생성 후 `npm run p1:release-archive -- --package=.data/p1-release-package.json --archive-dir=.data/p1-release-archives/final-judo-p1-20260715`로 package와 9개 필수 리포트 원본 해시를 재검증하고 fresh archive 폴더/`p1-release-archive-manifest.json` 보관
 - [ ] P1 release archive 업로드 전 `npm run p1:release-storage-receipt:draft -- --archive=.data/p1-release-archives/final-judo-p1-20260715/p1-release-archive-manifest.json --out=.data/p1-release-storage-receipt.json`로 장기 보관 receipt 초안을 생성하고, ISO uploadedAt, HTTPS/provider URI 업로드 위치, 담당자, HTTPS/provider URI 업로드 증빙, 보존 정책 증빙을 채운 뒤 `npm run p1:release-storage-receipt -- --file=.data/p1-release-storage-receipt.json --archive=.data/p1-release-archives/final-judo-p1-20260715/p1-release-archive-manifest.json` 통과 및 receipt 보관
 - [x] `npm run test:notification-readiness` 공지 화면 알림 권한 UI, VAPID 구성 상태, PushSubscription 저장/해지 API, 역할별 활성 구독 수 스코프, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, AppShell 상단 공지 버튼 미읽음 배지, 테스트 알림 표시, push/click 경로, 브라우저/서비스 워커 구현 문구 비노출 검증 통과
+- [x] `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 구독별 durable 작업, lease/revision/backoff/dead letter, 수동 재발송 멱등 digest, 공지 변경 전송 취소 경계, provider timeout·불확실 전송·stale settlement 감사, 발송 직전 권한 재검증, 시도별 감사 기록, CRON_SECRET 보호 검증 통과
 - [x] 스모크 테스트 실행 전후 JSON 데모 데이터 기준 상태 복구
 - [x] 데모 역할 로그인 production 기본 비활성화와 명시 플래그 허용 검증
 - [x] 이메일/임시 비밀번호 운영 로그인과 `passwordHash` 응답 마스킹 smoke 검증

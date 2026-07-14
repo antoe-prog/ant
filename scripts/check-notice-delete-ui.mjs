@@ -297,12 +297,25 @@ async function verifyNoticeUpdateContract(browser) {
       },
     );
     const noticeId = createResult.payload?.data?.notice?.id;
+    const createdNotice = createResult.payload?.data?.db?.notices?.find((notice) => notice.id === noticeId);
+    const publishDispatchAudit = createResult.payload?.data?.db?.auditLogs?.find(
+      (log) => log.action === "notification.dispatch" && log.targetId === noticeId,
+    );
     const dispatchAuditCountBeforeUpdate = createResult.payload?.data?.db?.auditLogs?.filter(
       (log) => log.action === "notification.dispatch" && log.targetId === noticeId,
     ).length;
 
     assert.equal(createResult.status, 200, "admin notice update fixture must be created");
     assert(noticeId, "admin notice update fixture must return a notice id");
+    assert(createdNotice, "notice creation must persist the notice before returning dispatch feedback");
+    assert(publishDispatchAudit, "notice creation must retain its publish-time dispatch audit");
+    assert.notEqual(
+      publishDispatchAudit.after?.dispatchState,
+      "requested",
+      "successful notice creation must finalize the durable dispatch request marker",
+    );
+    assert(publishDispatchAudit.after?.requestedAt, "publish-time dispatch audit must retain the durable request timestamp");
+    assert(publishDispatchAudit.after?.completedAt, "publish-time dispatch audit must retain the completion timestamp");
 
     await loginTo(guardianPage, "guardian", "/app/notifications");
     await guardianPage.waitForSelector('[data-testid="notifications-screen"]', { timeout: 15000 });
@@ -752,6 +765,34 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
     await firstCard.getByTestId("notice-delivery-push-action").click();
     await page.getByTestId("notice-push-feedback").waitFor({ state: "visible", timeout: 10000 });
 
+    const manualDispatchProof = await page.evaluate(async (title) => {
+      const response = await fetch("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+      const payload = await response.json();
+      const notice = payload?.data?.db?.notices?.find((candidate) => candidate.title === title);
+      const dispatchAudits = payload?.data?.db?.auditLogs?.filter(
+        (log) => log.action === "notification.dispatch" && log.targetId === notice?.id,
+      );
+      const latestAudit = dispatchAudits?.[0];
+
+      return {
+        auditCount: dispatchAudits?.length ?? 0,
+        completedAt: latestAudit?.after?.completedAt ?? null,
+        dispatchState: latestAudit?.after?.dispatchState ?? null,
+        requestedAt: latestAudit?.after?.requestedAt ?? null,
+        status: response.status,
+      };
+    }, readTitle);
+
+    assert.equal(manualDispatchProof.status, 200, "manual dispatch proof must reload persisted notice state");
+    assert(manualDispatchProof.auditCount >= 2, "manual resend must retain both publish-time and resend dispatch audits");
+    assert.notEqual(
+      manualDispatchProof.dispatchState,
+      "requested",
+      "successful manual resend must finalize the durable dispatch request marker",
+    );
+    assert(manualDispatchProof.requestedAt, "manual resend audit must retain the durable request timestamp");
+    assert(manualDispatchProof.completedAt, "manual resend audit must retain the completion timestamp");
+
     const feedbackResetState = await page.evaluate(() => ({
       createFeedbackCount: document.querySelectorAll('[data-testid="notice-create-feedback"]').length,
       deleteFeedbackCount: document.querySelectorAll('[data-testid="notice-delete-feedback"]').length,
@@ -818,6 +859,7 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
       bottomState,
       feedbackResetState,
       layoutState,
+      manualDispatchProof,
       messages,
       readFeedbackScreenshotPath,
       readFeedbackScreenshotSizeBytes: statSync(readFeedbackScreenshotPath).size,
@@ -953,6 +995,7 @@ async function main() {
         "notice edit and read writes serialize without stale read-state merges",
         "notice updates reject malformed values and unsupported class/member target changes",
         "notice update audit history stores body length and change flags without body content",
+        "notice create and manual resend finalize durable pre-dispatch audit markers",
         "delete UI screens stay nonblank, overlay-free, console-clean, and horizontally contained",
       ],
       iosSimulator: previousSummary.iosSimulator ?? null,

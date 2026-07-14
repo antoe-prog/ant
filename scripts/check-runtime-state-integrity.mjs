@@ -7,6 +7,7 @@ const {
   reconcileRuntimeStateIntegrity,
   validateRuntimeStateIntegrity,
 } = await import("../src/server/runtime-state-integrity.ts");
+const { mergeRuntimeState } = await import("../src/server/runtime-state-merge.ts");
 
 function emptyRuntimeState() {
   return {
@@ -20,7 +21,9 @@ function emptyRuntimeState() {
     tournaments: [],
     payments: [],
     notices: [],
+    authSessions: [],
     pushSubscriptions: [],
+    pushDispatchJobs: [],
     pilotReadinessChecks: [],
     pilotIncidents: [],
     pilotOperationLogs: [],
@@ -62,6 +65,11 @@ assert.throws(
   }),
   RuntimeStateWriteIntegrityError,
   "an initial runtime write must reject dangling references",
+);
+assert.deepEqual(
+  assertNoNewRuntimeStateIntegrityIssues(null, emptyRuntimeState()),
+  emptyRuntimeState(),
+  "an empty bootstrap state must remain valid before users and branches are seeded",
 );
 assert.throws(
   () => validateRuntimeStateIntegrity({ ...clean, notices: [{ id: "", branchId: "branch-a" }] }),
@@ -167,6 +175,123 @@ assert.throws(
   () => assertNoNewRuntimeStateIntegrityIssues(oneBrokenEdge, repeatedBrokenEdge),
   RuntimeStateWriteIntegrityError,
   "increasing the count of an existing broken edge must be rejected",
+);
+
+const twoAdminState = {
+  ...clean,
+  users: [
+    ...clean.users,
+    { id: "admin-second", branchIds: [], email: "admin-second@example.test", phone: "01044445555", role: "admin" },
+  ],
+};
+const demoteFirstAdmin = {
+  ...twoAdminState,
+  users: twoAdminState.users.map((user) => user.id === "admin-global" ? { ...user, role: "coach", branchIds: ["branch-a"] } : user),
+};
+const demoteSecondAdmin = {
+  ...twoAdminState,
+  users: twoAdminState.users.map((user) => user.id === "admin-second" ? { ...user, role: "coach", branchIds: ["branch-a"] } : user),
+};
+const mergedAdminDemotions = mergeRuntimeState(twoAdminState, demoteFirstAdmin, demoteSecondAdmin);
+assert.equal(
+  mergedAdminDemotions.users.filter((user) => user.role === "admin").length,
+  0,
+  "the regression fixture must reproduce different-user merge loss before write validation",
+);
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(twoAdminState, mergedAdminDemotions),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "users.activeAdminCoverage"),
+  "write validation must reject merged different-user changes that remove every active admin",
+);
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(clean, { ...clean, users: [] }),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "users.activeAdminCoverage"),
+  "write validation must reject removing the entire user collection from a state with active admin coverage",
+);
+const pendingAdminDoesNotCover = {
+  ...twoAdminState,
+  users: twoAdminState.users.map((user) =>
+    user.id === "admin-second" ? { ...user, invitationStatus: "pending" } : user,
+  ),
+};
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(pendingAdminDoesNotCover, {
+    ...pendingAdminDoesNotCover,
+    users: pendingAdminDoesNotCover.users.map((user) =>
+      user.id === "admin-global" ? { ...user, role: "coach", branchIds: ["branch-a"] } : user,
+    ),
+  }),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "users.activeAdminCoverage"),
+  "a pending admin invitation must not satisfy active administrator coverage",
+);
+const legacyWithoutAdmin = {
+  ...clean,
+  users: clean.users.filter((user) => user.role !== "admin"),
+};
+assert.deepEqual(
+  assertNoNewRuntimeStateIntegrityIssues(legacyWithoutAdmin, structuredClone(legacyWithoutAdmin)),
+  legacyWithoutAdmin,
+  "an unchanged legacy state without an active admin must remain writable for compatibility",
+);
+
+const twoOwnerState = {
+  ...clean,
+  users: [
+    ...clean.users,
+    { id: "owner-second", branchIds: ["branch-a"], email: "owner-second@example.test", phone: "01055557777", role: "owner" },
+  ],
+};
+const demoteFirstOwner = {
+  ...twoOwnerState,
+  users: twoOwnerState.users.map((user) => user.id === "owner-a" ? { ...user, role: "coach" } : user),
+};
+const demoteSecondOwner = {
+  ...twoOwnerState,
+  users: twoOwnerState.users.map((user) => user.id === "owner-second" ? { ...user, role: "coach" } : user),
+};
+const mergedOwnerDemotions = mergeRuntimeState(twoOwnerState, demoteFirstOwner, demoteSecondOwner);
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(twoOwnerState, mergedOwnerDemotions),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "users.branchOwnerCoverage" && issue.targetId === "branch-a"),
+  "write validation must reject merged different-user changes that remove accepted owner coverage",
+);
+const pendingOwnerDoesNotCover = {
+  ...twoOwnerState,
+  users: twoOwnerState.users.map((user) =>
+    user.id === "owner-second" ? { ...user, invitationStatus: "pending" } : user,
+  ),
+};
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(pendingOwnerDoesNotCover, {
+    ...pendingOwnerDoesNotCover,
+    users: pendingOwnerDoesNotCover.users.map((user) =>
+      user.id === "owner-a" ? { ...user, role: "coach" } : user,
+    ),
+  }),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "users.branchOwnerCoverage"),
+  "a pending owner invitation must not satisfy accepted branch owner coverage",
+);
+const legacyOwnerlessBranch = {
+  ...clean,
+  users: clean.users.filter((user) => user.role !== "owner"),
+};
+assert.deepEqual(
+  assertNoNewRuntimeStateIntegrityIssues(legacyOwnerlessBranch, {
+    ...legacyOwnerlessBranch,
+    branches: [...legacyOwnerlessBranch.branches, { id: "branch-new-ownerless" }],
+  }).branches,
+  [...legacyOwnerlessBranch.branches, { id: "branch-new-ownerless" }],
+  "legacy and newly created ownerless branches must remain compatible until owner coverage is assigned",
 );
 
 const emptyMemberAssignment = {
@@ -285,5 +410,9 @@ console.log(JSON.stringify({
     "legacy branch reference diagnosis",
     "empty runtime ID rejection",
     "verified admin reconciliation actor",
+    "active administrator coverage after concurrent merge",
+    "pending administrator exclusion",
+    "accepted branch owner coverage after concurrent merge",
+    "pending owner exclusion and ownerless branch compatibility",
   ],
 }, null, 2));

@@ -6,12 +6,13 @@ import path from "node:path";
 
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-integrity-tools-"));
 const snapshot = path.join(directory, "runtime-copy.json");
+const incompleteSnapshot = path.join(directory, "runtime-copy-incomplete.json");
 const invalidPilotCsv = path.join(directory, "cross-branch-pilot.csv");
 
 function emptyRuntimeState() {
   return {
     branches: [], users: [], members: [], classes: [], attendance: [], counselingNotes: [],
-    promotions: [], tournaments: [], payments: [], notices: [], pushSubscriptions: [],
+    promotions: [], tournaments: [], payments: [], notices: [], authSessions: [], pushSubscriptions: [], pushDispatchJobs: [],
     pilotReadinessChecks: [], pilotIncidents: [], pilotOperationLogs: [], auditLogs: [],
   };
 }
@@ -72,6 +73,21 @@ try {
   assert(compatibilityReport.counts.blockers >= 1);
   assert(!compatibility.stdout.includes("member-a"), "compatibility report must not expose record IDs");
   assert.equal(await readFile(snapshot, "utf8"), original, "compatibility preflight must not modify its snapshot");
+
+  const incompleteRuntime = structuredClone(legacy);
+  delete incompleteRuntime.authSessions;
+  delete incompleteRuntime.pushDispatchJobs;
+  await writeFile(incompleteSnapshot, `${JSON.stringify(incompleteRuntime, null, 2)}\n`, "utf8");
+  const incompleteCompatibility = await run("scripts/check-runtime-state-compatibility.mjs", [
+    `--file=${incompleteSnapshot}`,
+    "--allow-issues",
+  ]);
+  assert.equal(incompleteCompatibility.code, 0, incompleteCompatibility.stderr);
+  const incompleteReport = JSON.parse(incompleteCompatibility.stdout);
+  assert.equal(incompleteReport.structuralError?.name, "RuntimeStateSchemaError");
+  assert.deepEqual(incompleteReport.structuralError?.missingCollections, ["authSessions", "pushDispatchJobs"]);
+  assert.deepEqual(incompleteReport.structuralError?.invalidCollections, []);
+  assert(!incompleteCompatibility.stdout.includes("member-a"), "schema reports must not expose record IDs");
   const overwriteAttempt = await run("scripts/check-runtime-state-compatibility.mjs", [
     `--file=${snapshot}`,
     `--out=${snapshot}`,
@@ -128,6 +144,7 @@ try {
     ok: true,
     checked: [
       "read-only snapshot compatibility preflight",
+      "explicit missing runtime collection diagnostics",
       "snapshot and report output separation",
       "explicit existing admin audit actor requirement",
       "aggregate report privacy",

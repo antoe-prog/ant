@@ -14,10 +14,10 @@ const roleEmails = {
 };
 const rolePasswords = {
   admin: process.env.SMOKE_ADMIN_PASSWORD ?? defaultPilotPassword,
-  owner: defaultPilotPassword,
-  coach: defaultPilotPassword,
-  guardian: defaultPilotPassword,
-  member: defaultPilotPassword,
+  owner: process.env.SMOKE_OWNER_PASSWORD ?? defaultPilotPassword,
+  coach: process.env.SMOKE_COACH_PASSWORD ?? defaultPilotPassword,
+  guardian: process.env.SMOKE_GUARDIAN_PASSWORD ?? defaultPilotPassword,
+  member: process.env.SMOKE_MEMBER_PASSWORD ?? defaultPilotPassword,
 };
 
 function createSmokePhone(offset) {
@@ -2221,10 +2221,14 @@ async function run() {
       body: JSON.stringify({}),
     });
     assert(result.payload.data.push.configured === false, "notice push dispatch must expose missing VAPID configuration");
-    assert(result.payload.data.push.attempted >= 1, "notice push dispatch must count target subscriptions");
+    assert.equal(result.payload.data.push.attempted, 0, "missing VAPID must not count a provider delivery attempt");
+    const blockedDispatchAudit = result.payload.data.db.auditLogs.find(
+      (log) => log.action === "notification.dispatch" && log.targetId === createdNotice.id && log.result === "blocked",
+    );
+    assert(blockedDispatchAudit, "notice push dispatch must audit missing VAPID state");
     assert(
-      result.payload.data.db.auditLogs.some((log) => log.action === "notification.dispatch" && log.result === "blocked"),
-      "notice push dispatch must audit missing VAPID state",
+      Number(blockedDispatchAudit.after?.candidateCount ?? 0) >= 1,
+      "notice push dispatch audit must preserve the target subscription count",
     );
   }
 

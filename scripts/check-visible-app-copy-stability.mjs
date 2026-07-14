@@ -31,7 +31,7 @@ const appCases = [
   { id: "admin-users", role: "admin", next: "/app/admin/users" },
   { id: "admin-branches", role: "admin", next: "/app/admin/branches" },
   { id: "admin-roles", role: "admin", next: "/app/admin/roles" },
-  { id: "admin-audit", role: "admin", next: "/app/admin/audit-logs" },
+  { id: "admin-audit", role: "admin", next: "/app/admin/audit-logs?action=attendance.update" },
   { id: "admin-members", role: "admin", next: "/app/members" },
   { id: "admin-notices", role: "admin", next: "/app/notices" },
   { id: "owner-dashboard", role: "owner", next: "/app/dashboard" },

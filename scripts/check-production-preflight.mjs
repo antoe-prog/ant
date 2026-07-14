@@ -3,7 +3,7 @@ import path from "node:path";
 
 const { canUseDemoRoleLogin } = await import("../src/server/auth-policy.ts");
 const { canResetDevData } = await import("../src/server/dev-reset-policy.ts");
-const { defaultPilotPasswordHash } = await import("../src/server/auth-password.ts");
+const { defaultPilotPassword, verifyPassword } = await import("../src/server/auth-password.ts");
 const { getOnlinePaymentRuntimeReadiness } = await import("../src/server/online-payments.ts");
 const { prePilotReadinessIds } = await import("../src/lib/pilot-readiness.ts");
 const { sensitivePatterns } = await import("./pilot-data-utils.mjs");
@@ -16,6 +16,9 @@ const requiredCollections = [
   "attendance",
   "payments",
   "notices",
+  "authSessions",
+  "pushSubscriptions",
+  "pushDispatchJobs",
   "pilotReadinessChecks",
   "pilotIncidents",
   "pilotOperationLogs",
@@ -28,14 +31,20 @@ const allowIncomplete = args.includes("--allow-incomplete");
 const requireRetro = args.includes("--require-retro");
 const explicitDriver = args.find((arg) => arg.startsWith("--driver="))?.slice("--driver=".length);
 const explicitFile = args.find((arg) => arg.startsWith("--file="))?.slice("--file=".length);
-const explicitPostgresUrl = args.find((arg) => arg.startsWith("--postgres-url="))?.slice("--postgres-url=".length);
+const explicitPostgresUrlArgument = args.find((arg) => arg.startsWith("--postgres-url="));
+const explicitPostgresUrl = explicitPostgresUrlArgument?.slice("--postgres-url=".length);
 const explicitStateKey = args.find((arg) => arg.startsWith("--state-key="))?.slice("--state-key=".length);
 const explicitTable = args.find((arg) => arg.startsWith("--table="))?.slice("--table=".length);
 const explicitOutFile = args.find((arg) => arg.startsWith("--out="))?.slice("--out=".length);
 
 const driver = explicitDriver ?? (process.env.FINAL_JUDO_DB_DRIVER === "postgres" ? "postgres" : "json");
 const jsonFile = path.resolve(explicitFile ?? process.env.PILOT_DB_FILE ?? ".data/final-judo-db.json");
-const postgresUrl = explicitPostgresUrl ?? process.env.FINAL_JUDO_POSTGRES_URL ?? process.env.DATABASE_URL;
+const rejectCliPostgresSecret = Boolean(
+  explicitPostgresUrlArgument && process.env.NODE_ENV === "production" && !allowIncomplete,
+);
+const postgresUrl = (rejectCliPostgresSecret ? undefined : explicitPostgresUrl)
+  ?? process.env.FINAL_JUDO_POSTGRES_URL
+  ?? process.env.DATABASE_URL;
 const postgresStateKey = explicitStateKey ?? process.env.FINAL_JUDO_POSTGRES_STATE_KEY ?? "mvp";
 const postgresTable = explicitTable ?? process.env.FINAL_JUDO_POSTGRES_TABLE ?? "app_runtime_state";
 
@@ -65,6 +74,55 @@ function redactConnectionString(connectionString) {
 
 function addIssue(list, code, message, detail = null) {
   list.push({ code, message, ...(detail ? { detail } : {}) });
+}
+
+function hasNonPlaceholderValue(value, minimumLength = 1) {
+  const normalized = value?.trim() ?? "";
+
+  if (normalized.length < minimumLength) {
+    return false;
+  }
+
+  return !/(change[-_ ]?me|replace[-_ ]?me|placeholder|example|todo)/i.test(normalized);
+}
+
+function pushFeatureIsUsed(db) {
+  const explicitlyEnabled = ["1", "true", "yes", "on"].includes(
+    process.env.FINAL_JUDO_PUSH_ENABLED?.trim().toLowerCase() ?? "",
+  );
+  const hasPushEnvironment = [
+    process.env.FINAL_JUDO_VAPID_PUBLIC_KEY,
+    process.env.FINAL_JUDO_VAPID_PRIVATE_KEY,
+    process.env.FINAL_JUDO_VAPID_SUBJECT,
+    process.env.CRON_SECRET,
+  ].some((value) => Boolean(value?.trim()));
+  const hasRuntimePushState = Boolean(
+    db?.pushSubscriptions?.some((subscription) => !subscription.disabledAt)
+      || db?.pushDispatchJobs?.some((job) => !["sent", "disabled", "dead", "cancelled"].includes(job.status)),
+  );
+
+  return explicitlyEnabled || hasPushEnvironment || hasRuntimePushState;
+}
+
+function validatePushConfiguration(db, blockers) {
+  if (process.env.NODE_ENV !== "production" || !pushFeatureIsUsed(db)) {
+    return;
+  }
+
+  if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PUBLIC_KEY, 16)) {
+    addIssue(blockers, "PUSH_VAPID_PUBLIC_KEY_MISSING", "푸시 기능 사용 중 VAPID 공개키가 없거나 placeholder입니다.");
+  }
+  if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PRIVATE_KEY, 16)) {
+    addIssue(blockers, "PUSH_VAPID_PRIVATE_KEY_MISSING", "푸시 기능 사용 중 VAPID 비공개키가 없거나 placeholder입니다.");
+  }
+
+  const subject = process.env.FINAL_JUDO_VAPID_SUBJECT?.trim() ?? "";
+  if (!hasNonPlaceholderValue(subject) || !/^mailto:[^@\s]+@[^@\s]+$/i.test(subject)) {
+    addIssue(blockers, "PUSH_VAPID_SUBJECT_INVALID", "푸시 기능 사용 중 VAPID subject가 유효한 mailto 주소가 아닙니다.");
+  }
+  if (!hasNonPlaceholderValue(process.env.CRON_SECRET, 16)) {
+    addIssue(blockers, "PUSH_CRON_SECRET_MISSING", "푸시 재시도 worker용 CRON_SECRET이 없거나 너무 짧거나 placeholder입니다.");
+  }
 }
 
 function ids(values) {
@@ -533,6 +591,17 @@ async function main() {
   const warnings = [];
   let runtime = null;
 
+  if (explicitPostgresUrlArgument) {
+    const target = process.env.NODE_ENV === "production" && !allowIncomplete ? blockers : warnings;
+    addIssue(
+      target,
+      "POSTGRES_URL_CLI_ARGUMENT",
+      process.env.NODE_ENV === "production" && !allowIncomplete
+        ? "strict production preflight에서는 --postgres-url 사용을 거부합니다. secret store 환경 변수를 사용하세요."
+        : "--postgres-url은 프로세스 목록과 셸 기록에 노출될 수 있습니다. FINAL_JUDO_POSTGRES_URL 환경 변수를 사용하세요.",
+    );
+  }
+
   if (process.env.NODE_ENV !== "production") {
     addIssue(warnings, "NODE_ENV_NOT_PRODUCTION", "파일럿/운영 preflight는 NODE_ENV=production에서 실행하는 것을 권장합니다.", {
       nodeEnv: process.env.NODE_ENV ?? null,
@@ -582,6 +651,7 @@ async function main() {
     const hasRequiredShape = requiredCollections.every((collection) => Array.isArray(db?.[collection]));
 
     if (hasRequiredShape) {
+      validatePushConfiguration(db, blockers);
       const activeBranches = db.branches.filter((branch) => (branch.status ?? "active") === "active");
       if (activeBranches.length < 1) {
         addIssue(blockers, "NO_ACTIVE_BRANCH", "활성 파일럿 지점이 없습니다.");
@@ -593,7 +663,7 @@ async function main() {
         }
       }
 
-      const defaultPasswordUsers = db.users.filter((user) => user.passwordHash === defaultPilotPasswordHash);
+      const defaultPasswordUsers = db.users.filter((user) => verifyPassword(defaultPilotPassword, user.passwordHash));
       if (defaultPasswordUsers.length > 0) {
         addIssue(blockers, "DEFAULT_PASSWORD_ACTIVE", "기본 임시 비밀번호가 남아 있는 계정이 있습니다.", {
           users: defaultPasswordUsers.map((user) => ({ id: user.id, email: user.email ?? null, role: user.role })),
@@ -687,6 +757,8 @@ async function main() {
     warnings,
     checked: [
       "production demo-login/reset flags",
+      "production push VAPID/cron configuration when push is enabled or runtime push state exists",
+      "Postgres secret environment transport (no strict production --postgres-url)",
       "runtime DB readability",
       "required runtime collections",
       "five pilot roles",

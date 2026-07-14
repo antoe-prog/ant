@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 
 const { createCheckoutUrl, getOnlinePaymentAmount, getOnlinePaymentProvider, getOnlinePaymentRuntimeReadiness, getWebhookSecret } =
   await import("../src/server/online-payments.ts");
+const { isPositiveSafeIntegerPaymentAmount, validatePaymentWebhookTransition } =
+  await import("../src/server/payment-mutation-policy.ts");
 
 const files = {
   adminSettings: "src/components/screens/admin-settings-screen.tsx",
@@ -43,6 +45,24 @@ const samplePayment = {
   refundedAmount: 30000,
   status: "scheduled",
 };
+const onlinePayment = {
+  amount: 180000,
+  checkoutUrl: "/checkout/provider-123",
+  provider: "mock",
+  providerPaymentId: "provider-123",
+  requestedAt: "2026-06-15T08:00:00.000Z",
+  requestedByUserId: "user-owner",
+  status: "paid",
+};
+const paidWebhookHistory = {
+  actorUserId: "system-payment-webhook",
+  changedAt: "2026-06-15T10:00:00.000Z",
+  event: "webhook",
+  id: "history-paid",
+  providerEventId: "event-paid",
+  reason: "온라인 결제 입금 확인",
+  status: "paid",
+};
 
 assert.equal(getOnlinePaymentAmount(samplePayment), 130000, "online payment amount must subtract discount and refunds");
 assert(createCheckoutUrl("provider-123").includes("provider-123"), "checkout URL must include provider payment id");
@@ -73,6 +93,84 @@ assert.throws(
   /PAYMENT_PROVIDER_NOT_CONFIGURED/,
   "production online payment provider must not silently fall back to mock mode",
 );
+assert.equal(isPositiveSafeIntegerPaymentAmount(1), true, "one KRW must be a valid payment mutation amount");
+assert.equal(isPositiveSafeIntegerPaymentAmount(0.4), false, "fractional KRW must be rejected");
+assert.equal(isPositiveSafeIntegerPaymentAmount(Number.POSITIVE_INFINITY), false, "infinite amounts must be rejected");
+assert.equal(isPositiveSafeIntegerPaymentAmount(Number.MAX_SAFE_INTEGER + 1), false, "unsafe integer amounts must be rejected");
+assert.equal(
+  validatePaymentWebhookTransition(
+    { ...samplePayment, onlinePayment, refundedAmount: 180000, status: "refunded" },
+    "paid",
+    "2026-06-15T12:00:00.000Z",
+  ).ok,
+  false,
+  "a paid webhook must not resurrect a fully refunded payment",
+);
+assert.equal(
+  validatePaymentWebhookTransition(
+    { ...samplePayment, onlinePayment, status: "cancelled" },
+    "paid",
+    "2026-06-15T12:00:00.000Z",
+  ).ok,
+  false,
+  "a paid webhook must not resurrect a cancelled payment",
+);
+assert.equal(
+  validatePaymentWebhookTransition(
+    { ...samplePayment, onlinePayment: { ...onlinePayment, status: "refunded" }, refundedAmount: 30000, status: "partially_refunded" },
+    "paid",
+    "2026-06-15T12:00:00.000Z",
+  ).ok,
+  false,
+  "a paid webhook must not erase a partial refund state",
+);
+assert.deepEqual(
+  validatePaymentWebhookTransition(
+    { ...samplePayment, onlinePayment, status: "paid", statusHistory: [paidWebhookHistory] },
+    "refunded",
+    "2026-06-15T11:00:00.000Z",
+  ),
+  { ok: true },
+  "a newer refund webhook must remain valid after payment completion",
+);
+assert.deepEqual(
+  validatePaymentWebhookTransition(
+    {
+      ...samplePayment,
+      onlinePayment: { ...onlinePayment, status: "refunded" },
+      refundedAmount: 30000,
+      status: "partially_refunded",
+      statusHistory: [paidWebhookHistory],
+    },
+    "refunded",
+    "2026-06-15T11:00:00.000Z",
+  ),
+  { ok: true },
+  "a later refund webhook must remain valid after a partial refund",
+);
+assert.equal(
+  validatePaymentWebhookTransition(
+    { ...samplePayment, onlinePayment, status: "paid", statusHistory: [paidWebhookHistory] },
+    "refunded",
+    "2026-06-15T09:00:00.000Z",
+  ).code,
+  "OUT_OF_ORDER",
+  "an older provider event must not override a newer webhook state",
+);
+assert.deepEqual(
+  validatePaymentWebhookTransition(
+    {
+      ...samplePayment,
+      onlinePayment: { ...onlinePayment, status: "failed" },
+      refundedAmount: 0,
+      statusHistory: [{ ...paidWebhookHistory, changedAt: "2026-06-15T09:00:00.000Z", status: "scheduled" }],
+    },
+    "paid",
+    "2026-06-15T10:00:00.000Z",
+  ),
+  { ok: true },
+  "a newer paid event must remain valid after an earlier failed attempt",
+);
 
 assert(sources.domain.includes("OnlinePaymentRequest"), "domain must define online payment request metadata");
 assert(sources.domain.includes("PaymentReceipt"), "domain must define payment receipt metadata");
@@ -89,6 +187,11 @@ assert(sources.recurringAgreementRoute.includes("온라인 결제 설정 확인�
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-webhook-secret"), "webhook route must verify secret header");
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-event-id"), "webhook route must accept provider event id header");
 assert(sources.paymentWebhookRoute.includes("processedWebhookEventIds?.includes"), "webhook route must dedupe provider event ids");
+assert(sources.paymentWebhookRoute.includes("payment-mutation:${paymentId}"), "webhook route must share the payment mutation lock key");
+assert(sources.paymentWebhookRoute.includes("const db = await readServerDb()"), "webhook route must re-read payment state inside the lock");
+assert(sources.paymentWebhookRoute.includes("CONCURRENT_MODIFICATION"), "webhook route must expose stable concurrent conflict responses");
+assert(sources.paymentWebhookRoute.includes("hasValidOccurredAt"), "follow-up webhook events must require a valid provider occurrence time");
+assert(sources.paymentWebhookRoute.includes("isPositiveSafeIntegerPaymentAmount(webhookBody.amount)"), "webhook refunds must reject fractional or unsafe amounts");
 assert(sources.paymentWebhookRoute.includes("payment.webhook"), "webhook route must audit provider events");
 assert(sources.paymentWebhookRoute.includes("createPaymentReceipt"), "webhook route must persist receipt metadata");
 assert(sources.paymentWebhookRoute.includes("결제 승인 상태를 확인해 주세요."), "webhook route must use app-safe payment failure reason");
@@ -141,6 +244,7 @@ console.log(
         "online payment amount and checkout URL helpers",
         "online checkout and webhook routes",
         "provider webhook event id idempotency",
+        "webhook event ordering, terminal-state monotonicity, and payment mutation locking",
         "payment screen request/status/receipt UI",
         "payment CSV online provider columns",
         "API/DB docs and release gates include online payments without app UI command exposure",

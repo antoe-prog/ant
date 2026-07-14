@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-const { createPasswordHash, defaultPilotPasswordHash } = await import("../src/server/auth-password.ts");
+const { createPasswordHash, defaultPilotPassword } = await import("../src/server/auth-password.ts");
 
 const nodeArgs = [
   "--experimental-transform-types",
@@ -137,6 +137,9 @@ function createRuntimeDb() {
       },
     ],
     notices: [],
+    authSessions: [],
+    pushSubscriptions: [],
+    pushDispatchJobs: [],
     pilotReadinessChecks: [
       createVerifiedCheck("pilot-branches", "scope", "운영 준비 지점 1-2곳과 2주 기간 확정"),
       createVerifiedCheck("pilot-accounts", "scope", "대표/코치/학부모/회원 운영 계정 확정"),
@@ -181,6 +184,11 @@ async function runPreflight(filePath, extraArgs = [], extraEnv = {}) {
     FINAL_JUDO_PAYMENT_PROVIDER: "external",
     FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
     FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "test-webhook-secret",
+    FINAL_JUDO_PUSH_ENABLED: "0",
+    FINAL_JUDO_VAPID_PUBLIC_KEY: "",
+    FINAL_JUDO_VAPID_PRIVATE_KEY: "",
+    FINAL_JUDO_VAPID_SUBJECT: "",
+    CRON_SECRET: "",
     ...extraEnv,
   };
 
@@ -229,7 +237,7 @@ try {
   const postPilotDb = structuredClone(validDb);
   const incompletePostPilotDb = structuredClone(validDb);
 
-  blockedDb.users[0].passwordHash = defaultPilotPasswordHash;
+  blockedDb.users[0].passwordHash = createPasswordHash(defaultPilotPassword, "legacy-shared-password-random-salt");
   blockedDb.pilotReadinessChecks[0] = {
     ...blockedDb.pilotReadinessChecks[0],
     status: "pending",
@@ -445,6 +453,52 @@ try {
     "preflight must catch missing production payment webhook secret",
   );
 
+  const missingPushSecretsRun = await runPreflight(validFile, [], { FINAL_JUDO_PUSH_ENABLED: "1" });
+  assert.notEqual(missingPushSecretsRun.code, 0, "enabled production push without VAPID/cron secrets must fail");
+  const missingPushCodes = blockerCodes(parseReport(missingPushSecretsRun.stdout));
+  assert(missingPushCodes.has("PUSH_VAPID_PUBLIC_KEY_MISSING"));
+  assert(missingPushCodes.has("PUSH_VAPID_PRIVATE_KEY_MISSING"));
+  assert(missingPushCodes.has("PUSH_VAPID_SUBJECT_INVALID"));
+  assert(missingPushCodes.has("PUSH_CRON_SECRET_MISSING"));
+
+  const configuredPushRun = await runPreflight(validFile, [], {
+    FINAL_JUDO_PUSH_ENABLED: "1",
+    FINAL_JUDO_VAPID_PUBLIC_KEY: "BPublicKeyFixture1234567890",
+    FINAL_JUDO_VAPID_PRIVATE_KEY: "PrivateKeyFixture1234567890",
+    FINAL_JUDO_VAPID_SUBJECT: "mailto:push-ops@finaljudo.kr",
+    CRON_SECRET: "cron-secret-fixture-1234567890",
+  });
+  assert.equal(configuredPushRun.code, 0, configuredPushRun.stderr);
+
+  const runtimePushDb = structuredClone(validDb);
+  runtimePushDb.pushSubscriptions.push({
+    id: "push-runtime-fixture",
+    userId: "user-guardian",
+    branchIds: ["branch-pilot"],
+    endpoint: "https://push.example/runtime-fixture",
+    keys: { auth: "fixture-auth", p256dh: "fixture-p256dh" },
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  });
+  const runtimePushFile = path.join(directory, "runtime-push.json");
+  await writeFile(runtimePushFile, `${JSON.stringify(runtimePushDb, null, 2)}\n`, "utf8");
+  const runtimePushMissingConfigRun = await runPreflight(runtimePushFile);
+  assert.notEqual(runtimePushMissingConfigRun.code, 0, "active runtime subscriptions must require push secrets");
+  assert(blockerCodes(parseReport(runtimePushMissingConfigRun.stdout)).has("PUSH_CRON_SECRET_MISSING"));
+
+  const cliSecret = "postgresql://preflight_user:raw-secret-must-not-leak@localhost:5432/final_judo";
+  const cliSecretRun = await runPreflight(validFile, [`--postgres-url=${cliSecret}`]);
+  assert.notEqual(cliSecretRun.code, 0, "strict production preflight must reject --postgres-url");
+  const cliSecretReport = parseReport(cliSecretRun.stdout);
+  assert(blockerCodes(cliSecretReport).has("POSTGRES_URL_CLI_ARGUMENT"));
+  assert(!cliSecretRun.stdout.includes("raw-secret-must-not-leak"), "preflight output must not echo a CLI secret");
+
+  const cliSecretAuditRun = await runPreflight(validFile, ["--allow-incomplete", `--postgres-url=${cliSecret}`]);
+  assert.equal(cliSecretAuditRun.code, 0, cliSecretAuditRun.stderr);
+  const cliSecretAuditReport = parseReport(cliSecretAuditRun.stdout);
+  assert(cliSecretAuditReport.warnings.some((warning) => warning.code === "POSTGRES_URL_CLI_ARGUMENT"));
+  assert(!cliSecretAuditRun.stdout.includes("raw-secret-must-not-leak"));
+
   console.log(
     JSON.stringify(
       {
@@ -465,6 +519,9 @@ try {
           "production demo-login flag blocks preflight",
           "production dev-reset flag blocks preflight",
           "production payment provider settings block preflight when missing",
+          "production push use requires VAPID and cron secrets",
+          "runtime push state activates strict push preflight",
+          "strict preflight rejects CLI Postgres secrets without echoing them",
         ],
       },
       null,

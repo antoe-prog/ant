@@ -52,8 +52,9 @@ Provider event ID는 body의 `providerEventId` 또는 `x-final-judo-payment-even
 | `FINAL_JUDO_VAPID_PUBLIC_KEY` | 비움 가능 | 필수 | 브라우저 PushSubscription용 public key. |
 | `FINAL_JUDO_VAPID_PRIVATE_KEY` | 비움 가능 | 필수 | 서버 푸시 발송용 private key. |
 | `FINAL_JUDO_VAPID_SUBJECT` | `mailto:ops@finaljudo.test` | 운영 연락처 | VAPID subject. |
+| `CRON_SECRET` | 비움 가능 | 필수 | 푸시 outbox 재시도 endpoint를 보호하는 무작위 Bearer secret. 원문은 배포 플랫폼 secret store에만 둔다. |
 
-VAPID 키가 없으면 UI와 API는 `configured: false`를 보여주고 실제 push 발송 대신 구성 필요 상태를 기록한다.
+VAPID 키가 없으면 UI와 API는 `configured: false`를 보여주고 실제 push 발송 대신 구성 필요 상태를 기록한다. `vercel.json`의 일일 cron은 모든 Vercel 플랜에서 배포 가능한 안전한 기본값이며, 더 짧은 재시도 주기는 배포 시점의 플랜 제한을 확인한 뒤 조정한다.
 
 ## Test And Pilot Commands
 

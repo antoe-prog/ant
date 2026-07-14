@@ -80,7 +80,9 @@ function createRuntime(allRecords) {
     counselingNotes: [],
     payments: [],
     notices: [],
+    authSessions: [],
     pushSubscriptions: [],
+    pushDispatchJobs: [],
     pilotReadinessChecks: allRecords.map((record) => ({
       id: record.id,
       category: record.category,

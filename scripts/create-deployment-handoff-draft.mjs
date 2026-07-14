@@ -22,6 +22,7 @@ const envContracts = [
   { key: "FINAL_JUDO_VAPID_PUBLIC_KEY", classification: "config", redactConfiguredValue: true },
   { key: "FINAL_JUDO_VAPID_PRIVATE_KEY", classification: "secret" },
   { key: "FINAL_JUDO_VAPID_SUBJECT", classification: "config", arg: "vapidSubject" },
+  { key: "CRON_SECRET", classification: "secret" },
 ];
 
 function parseArgs(argv) {

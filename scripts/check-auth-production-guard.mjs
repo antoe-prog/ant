@@ -153,6 +153,11 @@ assert(
 assert(!loginScreenSource.includes("관리자 승인 후 로그인"), "registered login notice must not imply a second admin approval step");
 assert(loginRouteSource.includes("keepSignedIn?: boolean"), "login API must accept an explicit keep-signed-in flag");
 assert(
+  loginRouteSource.includes("shared_demo_password_blocked") &&
+    loginRouteSource.includes('process.env.NODE_ENV === "production"'),
+  "production credential login must reject the retired shared demo password",
+);
+assert(
   loginRouteSource.includes("body?.keepSignedIn === true") &&
     loginRouteSource.includes("createSessionCookieOptions(process.env, { keepSignedIn })"),
   "login API must map the keep-signed-in flag to the session cookie max-age",

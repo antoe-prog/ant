@@ -397,6 +397,22 @@ assert(runtimeIdSource.includes("randomUUID"), "runtime IDs must use UUID entrop
 assert(paymentCreateIdempotencySource.includes("actorUserId") && paymentCreateIdempotencySource.includes("branchId"), "payment idempotency lookup must be scoped by actor and branch");
 assert(paymentCreateIdempotencySource.includes('reason: "deleted"'), "payment idempotency must protect deleted records from stale retries");
 assert(paymentRefundRouteSource.includes("appendPaymentStatusHistory"), "payment refund route must append status history");
+assert(
+  paymentRefundRouteSource.includes("payment-mutation:${paymentId}"),
+  "payment refund route must share the payment mutation lock key",
+);
+assert(
+  paymentRefundRouteSource.includes("const latestContext = await requireRefundRequestContext(request, paymentId)"),
+  "payment refund route must re-read authorization and payment state inside the lock",
+);
+assert(
+  paymentRefundRouteSource.includes("isPositiveSafeIntegerPaymentAmount(amount)"),
+  "payment refunds must reject fractional and unsafe KRW amounts before mutation",
+);
+assert(
+  paymentRefundRouteSource.includes("CONCURRENT_MODIFICATION"),
+  "payment refund route must expose stable concurrent conflict responses",
+);
 assert(paymentManageRouteSource.includes('action: "payment.update"'), "manual payment update must create an update audit log");
 assert(paymentManageRouteSource.includes('action: "payment.delete"'), "manual payment deletion must create a delete audit log");
 assert(paymentManageRouteSource.includes("getManualPaymentManagementBlockReason"), "manual payment route must block external/refunded records");
@@ -540,6 +556,7 @@ console.log(
         "refunded and partial-refund states remain immutable even without a positive refund amount",
         "manual payment detail corrections do not append false status changes",
         "payment create/refund routes persist status history",
+        "payment refunds serialize same-record mutations and reject fractional or unsafe KRW amounts",
         "manual payment update/delete routes enforce role, branch, and transaction history boundaries",
         "manual payment creation waits for persistence and exposes direct result feedback",
         "manual payment edit/delete UI requires reasons and explicit confirmation",

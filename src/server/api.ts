@@ -6,6 +6,7 @@ import {
   getAccessibleMemberIds,
   getSelectedBranchIds,
 } from "@/lib/mock-api";
+import { findAuthSessionUser } from "@/server/auth-session";
 
 export const sessionCookieName = "final-judo-session";
 
@@ -42,15 +43,10 @@ export function jsonError(status: number, code: string, message: string, details
 }
 
 export function getSessionUser(request: NextRequest, db: MockDatabase) {
-  const cookieUserId = request.cookies.get(sessionCookieName)?.value;
+  const sessionToken = request.cookies.get(sessionCookieName)?.value;
   const localHeaderUserId = process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null;
-  const userId = cookieUserId ?? localHeaderUserId ?? undefined;
-
-  if (!userId) {
-    return null;
-  }
-
-  return db.users.find((user) => user.id === userId) ?? null;
+  return findAuthSessionUser(db, sessionToken) ??
+    (localHeaderUserId ? db.users.find((user) => user.id === localHeaderUserId) ?? null : null);
 }
 
 export function getSelectedBranchId(request: NextRequest) {
@@ -106,9 +102,9 @@ function createSafeUser(user: AppUser, db?: MockDatabase, viewerRole: AppUser["r
   const safeUser = { ...user };
 
   delete safeUser.passwordHash;
+  delete safeUser.invitationToken;
 
   if (viewerRole !== "admin") {
-    delete safeUser.invitationToken;
     delete safeUser.invitedAt;
     delete safeUser.acceptedAt;
     delete safeUser.passwordResetRequestedAt;
@@ -221,7 +217,9 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     tournaments: db.tournaments ?? [],
     payments,
     notices,
+    authSessions: [],
     pushSubscriptions,
+    pushDispatchJobs: [],
     pilotReadinessChecks: user.role === "admin" ? db.pilotReadinessChecks : [],
     pilotIncidents: user.role === "admin" ? db.pilotIncidents : [],
     pilotOperationLogs: user.role === "admin" ? db.pilotOperationLogs : [],

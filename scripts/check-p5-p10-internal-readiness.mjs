@@ -2647,14 +2647,17 @@ for (const snippet of [
   'data-testid="admin-user-invite-link-actions"',
   'data-testid="admin-user-invite-link-open"',
   'data-testid="admin-user-invite-link-copy"',
-  "function getInvitationPathForUser",
+  "handleReissuePendingInvitationLink",
   'data-testid={`admin-user-pending-invite-link-actions-${user.id}`}',
+  'data-admin-user-action="reissue-invitation-link"',
+  'data-testid={`admin-user-pending-invite-link-reissue-${user.id}`}',
   'data-admin-user-action="open-invitation-link"',
   'data-admin-user-action="copy-invitation-link"',
   'data-testid={`admin-user-pending-invite-link-open-${user.id}`}',
   'data-testid={`admin-user-pending-invite-link-copy-${user.id}`}',
   "초대 링크가 준비됐습니다.",
   "초대 링크 열기",
+  "링크 다시 만들기",
   "링크 복사",
   "navigator.clipboard.writeText",
 ]) {
@@ -3786,8 +3789,9 @@ for (const snippet of [
   'matcher: "/login"',
   'localAutoLoginHosts.has(request.nextUrl.hostname)',
   'request.nextUrl.searchParams.get("autoLogin") !== "1"',
-  'NextResponse.redirect(new URL(getSafeNextPath(request), request.url))',
-  'secure: false',
+  'new URL("/api/v1/dev/auto-login", request.url)',
+  'autoLoginUrl.searchParams.set("next", getSafeNextPath(request))',
+  'NextResponse.redirect(autoLoginUrl)',
 ]) {
   assertIncludes(sources.proxy, snippet, "local simulator autoLogin proxy guard");
 }
@@ -3795,8 +3799,11 @@ for (const snippet of [
 for (const snippet of [
   'runtime = "nodejs"',
   'localAutoLoginHosts.has(request.nextUrl.hostname)',
-  'NextResponse.redirect(new URL(getSafeNextPath(request), request.url))',
-  'secure: false',
+  'request.headers.get("x-forwarded-host")',
+  'localAutoLoginHosts.has(origin.hostname)',
+  'NextResponse.redirect(new URL(getSafeNextPath(request), getLocalRedirectOrigin(request)))',
+  'createSessionCookieOptions({ NODE_ENV: "development" })',
+  'response.cookies.set(sessionCookieName, issuedSession.token, cookieOptions)',
 ]) {
   assertIncludes(sources.devAutoLoginRoute, snippet, "local simulator dev auto-login route guard");
 }
@@ -5056,7 +5063,7 @@ for (const snippet of [
 
 assertIncludes(sources.pushHelper, "알림함에는 표시됩니다. 휴대폰 푸시는 기기 알림 연결 후 발송할 수 있습니다.", "notification app-safe setup copy");
 assertIncludes(sources.pushHelper, "FINAL_JUDO_VAPID_SUBJECT", "notification app-safe setup copy");
-assertIncludes(sources.pushHelper, "알림 수신 등록을 다시 확인해야 합니다.", "notification app-safe disabled subscription failure copy");
+assertIncludes(sources.pushHelper, "알림 수신 등록이 만료됐습니다.", "notification app-safe disabled subscription failure copy");
 assertIncludes(sources.pushHelper, "알림 발송 상태를 다시 확인해야 합니다.", "notification app-safe dispatch failure copy");
 assertExcludes(sources.noticePushRoute, "알림 발송 설정", "notification unclear setup copy");
 assertExcludes(sources.noticePushRoute, "공지 알림을 보류", "notification unclear blocked copy");

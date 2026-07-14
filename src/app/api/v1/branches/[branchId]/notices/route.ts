@@ -3,14 +3,19 @@ import type { AuditLog, Notice, NoticeAudience } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { noticeStateLockKey } from "@/lib/notices";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import {
-  createNoticePushDispatchMessage,
-  dispatchNoticePushNotifications,
+  createNoticePushDispatchRequestAuditLog,
   getNoticeFamilyRecipientCount,
   getNoticePushSubscriptions,
 } from "@/server/push-notifications";
+import {
+  prepareNoticePushDispatchJobs,
+  processNotificationOutbox,
+} from "@/server/notification-outbox-runner";
+import { getNotificationOutboxDispatchSummary } from "@/server/notification-outbox";
 
 export const runtime = "nodejs";
 
@@ -32,28 +37,28 @@ export async function POST(
   { params }: { params: Promise<{ branchId: string }> },
 ) {
   const { branchId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const initialDb = await readServerDb();
+  const { user: initialUser, response } = requireSession(request, initialDb);
 
-  if (!user) {
+  if (!initialUser) {
     return response;
   }
 
-  if (!noticePublisherRoles.has(user.role)) {
+  if (!noticePublisherRoles.has(initialUser.role)) {
     return jsonError(403, "FORBIDDEN", "공지 작성 권한이 없습니다.");
   }
 
-  if (!getAccessibleBranchIds(user, db).includes(branchId)) {
+  if (!getAccessibleBranchIds(initialUser, initialDb).includes(branchId)) {
     return jsonError(403, "FORBIDDEN", "선택한 지점에 공지를 작성할 수 없습니다.");
   }
 
-  const selectedScope = requireSelectedBranchScope(request, user, db);
+  const initialSelectedScope = requireSelectedBranchScope(request, initialUser, initialDb);
 
-  if (selectedScope.response) {
-    return selectedScope.response;
+  if (initialSelectedScope.response) {
+    return initialSelectedScope.response;
   }
 
-  if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== branchId) {
+  if (initialSelectedScope.selectedBranchId && initialSelectedScope.selectedBranchId !== branchId) {
     return jsonError(403, "FORBIDDEN", "선택한 지점에 공지를 작성할 수 없습니다.");
   }
 
@@ -63,7 +68,7 @@ export async function POST(
   const important = body?.important === true;
   const audience = [...new Set(body?.audience ?? [])];
   const targetClassIds = [...new Set(body?.targetClassIds ?? [])].filter(Boolean);
-  let targetMemberIds = [...new Set(body?.targetMemberIds ?? [])].filter(Boolean);
+  const requestedTargetMemberIds = [...new Set(body?.targetMemberIds ?? [])].filter(Boolean);
 
   if (!title || !noticeBody) {
     return jsonError(400, "VALIDATION_ERROR", "공지 제목과 본문이 필요합니다.");
@@ -73,131 +78,168 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "공지 대상이 올바르지 않습니다.");
   }
 
-  const branch = db.branches.find((candidate) => candidate.id === branchId);
+  const creation = await withServerDbLock(noticeStateLockKey, async () => {
+    const db = await readServerDb();
+    const { user, response: lockedResponse } = requireSession(request, db);
 
-  if (!branch) {
-    return jsonError(404, "NOT_FOUND", "지점을 찾을 수 없습니다.");
-  }
+    if (!user) {
+      return lockedResponse;
+    }
 
-  const invalidClassIds = targetClassIds.filter(
-    (classId) => !db.classes.some((session) => session.id === classId && session.branchId === branchId),
-  );
-  const invalidMemberIds = targetMemberIds.filter(
-    (memberId) => !db.members.some((member) => member.id === memberId && member.branchId === branchId),
-  );
+    if (!noticePublisherRoles.has(user.role)) {
+      return jsonError(403, "FORBIDDEN", "공지 작성 권한이 없습니다.");
+    }
 
-  if (invalidClassIds.length > 0 || invalidMemberIds.length > 0) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "공지 대상 반/회원이 선택한 지점에 속하지 않습니다.", {
-      invalidClassIds,
-      invalidMemberIds,
-    });
-  }
+    if (!getAccessibleBranchIds(user, db).includes(branchId)) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점에 공지를 작성할 수 없습니다.");
+    }
 
-  if (user.role === "coach") {
-    const coachClassIds = new Set(
-      db.classes
-        .filter((session) => session.branchId === branchId && session.coachId === user.id)
-        .map((session) => session.id),
+    const selectedScope = requireSelectedBranchScope(request, user, db);
+
+    if (selectedScope.response) {
+      return selectedScope.response;
+    }
+
+    if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== branchId) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점에 공지를 작성할 수 없습니다.");
+    }
+
+    if (!db.branches.some((candidate) => candidate.id === branchId)) {
+      return jsonError(404, "NOT_FOUND", "지점을 찾을 수 없습니다.");
+    }
+
+    const invalidClassIds = targetClassIds.filter(
+      (classId) => !db.classes.some((session) => session.id === classId && session.branchId === branchId),
     );
-    const coachMemberIds = new Set(getAccessibleMemberIds(user, db, [branchId]));
-    const outOfScopeClassIds = targetClassIds.filter((classId) => !coachClassIds.has(classId));
-    const outOfScopeMemberIds = targetMemberIds.filter((memberId) => !coachMemberIds.has(memberId));
+    const invalidMemberIds = requestedTargetMemberIds.filter(
+      (memberId) => !db.members.some((member) => member.id === memberId && member.branchId === branchId),
+    );
 
-    if (outOfScopeClassIds.length > 0 || outOfScopeMemberIds.length > 0) {
-      return jsonError(403, "FORBIDDEN", "담당 수업과 담당 회원에게만 공지를 발행할 수 있습니다.", {
-        outOfScopeClassIds,
-        outOfScopeMemberIds,
+    if (invalidClassIds.length > 0 || invalidMemberIds.length > 0) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "공지 대상 반/회원이 선택한 지점에 속하지 않습니다.", {
+        invalidClassIds,
+        invalidMemberIds,
       });
     }
 
-    if (targetClassIds.length === 0 && targetMemberIds.length === 0) {
-      targetMemberIds = [...coachMemberIds];
+    let targetMemberIds = requestedTargetMemberIds;
+
+    if (user.role === "coach") {
+      const coachClassIds = new Set(
+        db.classes
+          .filter((session) => session.branchId === branchId && session.coachId === user.id)
+          .map((session) => session.id),
+      );
+      const coachMemberIds = new Set(getAccessibleMemberIds(user, db, [branchId]));
+      const outOfScopeClassIds = targetClassIds.filter((classId) => !coachClassIds.has(classId));
+      const outOfScopeMemberIds = targetMemberIds.filter((memberId) => !coachMemberIds.has(memberId));
+
+      if (outOfScopeClassIds.length > 0 || outOfScopeMemberIds.length > 0) {
+        return jsonError(403, "FORBIDDEN", "담당 수업과 담당 회원에게만 공지를 발행할 수 있습니다.", {
+          outOfScopeClassIds,
+          outOfScopeMemberIds,
+        });
+      }
+
+      if (targetClassIds.length === 0 && targetMemberIds.length === 0) {
+        targetMemberIds = [...coachMemberIds];
+      }
+
+      if (targetClassIds.length === 0 && targetMemberIds.length === 0) {
+        return jsonError(422, "BUSINESS_RULE_FAILED", "공지 받을 담당 회원이 없습니다.");
+      }
     }
 
-    if (targetClassIds.length === 0 && targetMemberIds.length === 0) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "공지 받을 담당 회원이 없습니다.");
-    }
-  }
-
-  const now = new Date().toISOString();
-  const noticeId = `notice-${Date.now()}`;
-  const nextNotice: Notice = {
-    id: noticeId,
-    branchId,
-    title,
-    body: noticeBody,
-    important,
-    audience,
-    createdByUserId: user.id,
-    createdAt: now,
-    readByUserIds: [],
-    ...(targetClassIds.length > 0 ? { targetClassIds } : {}),
-    ...(targetMemberIds.length > 0 ? { targetMemberIds } : {}),
-  };
-  const nextDbWithNotice = {
-    ...db,
-    notices: [nextNotice, ...db.notices],
-  };
-  const recipientCount = getNoticeFamilyRecipientCount(nextDbWithNotice, nextNotice);
-  const candidateCount = getNoticePushSubscriptions(nextDbWithNotice, nextNotice).length;
-  const { db: dbWithDispatchResult, summary } = await dispatchNoticePushNotifications(nextDbWithNotice, nextNotice);
-  const dispatchResult: AuditLog["result"] = !summary.configured || candidateCount === 0 ? "blocked" : summary.failed > 0 ? "failed" : "success";
-  const dispatchMessage = createNoticePushDispatchMessage({ candidateCount, recipientCount, summary });
-  const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId,
-    actorUserId: user.id,
-    action: "notice.create",
-    targetType: "notice",
-    targetId: noticeId,
-    before: null,
-    after: {
+    const now = new Date().toISOString();
+    const noticeId = `notice-${Date.now()}`;
+    const nextNotice: Notice = {
+      id: noticeId,
+      branchId,
       title,
+      body: noticeBody,
       important,
       audience,
       createdByUserId: user.id,
-      targetClassIds,
-      targetMemberIds,
-    },
-    result: "success",
-    message: "공지를 작성했습니다.",
-    createdAt: now,
-  };
-  const dispatchAuditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 2}`,
-    branchId,
-    actorUserId: user.id,
-    action: "notification.dispatch",
-    targetType: "notice",
-    targetId: noticeId,
-    before: null,
-    after: {
-      autoDispatchedOnCreate: true,
-      configured: summary.configured,
-      attempted: summary.attempted,
+      createdAt: now,
+      readByUserIds: [],
+      ...(targetClassIds.length > 0 ? { targetClassIds } : {}),
+      ...(targetMemberIds.length > 0 ? { targetMemberIds } : {}),
+    };
+    const dbWithNotice = {
+      ...db,
+      notices: [nextNotice, ...db.notices],
+    };
+    const recipientCount = getNoticeFamilyRecipientCount(dbWithNotice, nextNotice);
+    const candidateCount = getNoticePushSubscriptions(dbWithNotice, nextNotice).length;
+    const noticeAuditLog: AuditLog = {
+      id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+      branchId,
+      actorUserId: user.id,
+      action: "notice.create",
+      targetType: "notice",
+      targetId: noticeId,
+      before: null,
+      after: {
+        title,
+        important,
+        audience,
+        createdByUserId: user.id,
+        targetClassIds,
+        targetMemberIds,
+      },
+      result: "success",
+      message: "공지를 작성했습니다.",
+      createdAt: now,
+    };
+    const dispatchRequestAuditLog = createNoticePushDispatchRequestAuditLog({
+      auditId: `audit-${Date.now()}-${db.auditLogs.length + 2}`,
+      branchId,
+      actorUserId: user.id,
+      noticeId,
+      candidateCount,
       recipientCount,
-      sent: summary.sent,
-      failed: summary.failed,
-      disabled: summary.disabled,
-    },
-    result: dispatchResult,
-    message: dispatchMessage,
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb({
-    ...dbWithDispatchResult,
-    auditLogs: [dispatchAuditLog, auditLog, ...dbWithDispatchResult.auditLogs],
+      requestedAt: now,
+      autoDispatchedOnCreate: true,
+    });
+    const dbWithAudits = {
+      ...dbWithNotice,
+      auditLogs: [dispatchRequestAuditLog, noticeAuditLog, ...db.auditLogs],
+    };
+    const prepared = prepareNoticePushDispatchJobs(dbWithAudits, nextNotice, dispatchRequestAuditLog, now);
+    await writeServerDb(prepared.db);
+
+    return {
+      actorUserId: user.id,
+      auditLogId: dispatchRequestAuditLog.id,
+      candidateCount,
+      noticeId,
+      recipientCount,
+      selectedBranchId: selectedScope.selectedBranchId ?? branchId,
+    };
   });
 
+  if (creation instanceof Response) {
+    return creation;
+  }
+
+  try {
+    await processNotificationOutbox({ auditLogId: creation.auditLogId, limit: Math.max(creation.candidateCount, 1) });
+  } catch {
+    // The durable jobs remain pending or leased for the scheduled worker.
+  }
+
+  const responseDb = await readServerDb();
+  const actor = responseDb.users.find((candidate) => candidate.id === creation.actorUserId) ?? initialUser;
+  const summary = getNotificationOutboxDispatchSummary(responseDb, creation.auditLogId);
+  const requestAudit = responseDb.auditLogs.find((auditLog) => auditLog.id === creation.auditLogId);
+
   return jsonOk({
-    ...createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? branchId),
-    notice: {
-      id: noticeId,
-    },
+    ...createBootstrapPayload(responseDb, actor, creation.selectedBranchId),
+    notice: { id: creation.noticeId },
     push: {
       ...summary,
-      recipientCount,
-      message: dispatchMessage,
+      recipientCount: creation.recipientCount,
+      message: requestAudit?.message ?? "공지 알림을 대기열에 저장했습니다.",
     },
   });
 }

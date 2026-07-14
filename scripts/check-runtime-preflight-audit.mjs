@@ -1,13 +1,34 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
 const allowedAuditBlockers = new Set(["DEFAULT_PASSWORD_ACTIVE", "PILOT_READINESS_INCOMPLETE"]);
 const allowedAuditWarnings = new Set(["NODE_ENV_NOT_PRODUCTION", "TEST_EMAIL_ACCOUNTS"]);
-const runtimeDbPath = process.env.PILOT_DB_FILE ?? ".data/final-judo-db.json";
+const tempDir = mkdtempSync(join(tmpdir(), "final-judo-runtime-preflight-"));
+const runtimeDbPath = join(tempDir, "pilot-runtime.json");
+process.on("exit", () => rmSync(tempDir, { recursive: true, force: true }));
+
+execFileSync(process.execPath, [
+  "--experimental-transform-types",
+  "--disable-warning=ExperimentalWarning",
+  "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+  "scripts/import-pilot-data.mjs",
+  "--driver=json",
+  `--out=${runtimeDbPath}`,
+  "--write",
+  "docs/pilot-templates/pilot-data-intake.csv",
+], {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: "pipe",
+});
+
 const runtimeDb = JSON.parse(readFileSync(runtimeDbPath, "utf8"));
 const expectedRuntimeUserIds = (runtimeDb.users ?? []).map((user) => user.id).filter(Boolean).sort();
 const expectedCountKeys = [
@@ -31,6 +52,7 @@ const nodeArgs = [
   "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
   "scripts/check-production-preflight.mjs",
   "--allow-incomplete",
+  `--file=${runtimeDbPath}`,
 ];
 const { prePilotReadinessIds } = await import("../src/lib/pilot-readiness.ts");
 

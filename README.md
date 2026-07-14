@@ -131,6 +131,9 @@ npm run test:guardian-age-policy-ui
 npm run test:admin-user-guardian-bottom-safe-area
 npm run test:api-auth-order
 npm run test:auth-production-guard
+npm run test:auth-session-security
+npm run test:invitation-token-security
+npm run test:local-demo-password-rotation
 npm run test:dev-reset-guard
 npm run test:env-readiness
 npm run test:deployment-handoff-draft
@@ -147,6 +150,8 @@ npm run test:ios-provisioning-runbook
 npm run test:android-release-handoff-draft
 npm run test:android-release-handoff
 npm run test:notification-readiness
+npm run test:notification-outbox
+npm run test:notification-outbox-integration
 npm run test:pilot
 npm run test:pilot-readiness-contract
 npm run test:pilot-import
@@ -249,7 +254,7 @@ npm run test:release
 `test:dashboard-priority-kpi`는 `/app/dashboard` 총괄 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 먼저 보여주는지 확인합니다.
 `test:member-profile-guardian-edit`는 `/app/members` 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위를 확인합니다.
 `test:api-auth-order`는 보호 API route handler에서 `request.json()`을 읽기 전에 `requireSession()`을 먼저 호출하는지 정적으로 검증합니다. 공개 body route는 로그인, 비밀번호 재설정, 초대 수락, 결제 webhook만 명시 allowlist로 유지합니다.
-`test:auth-production-guard`는 production 환경에서 데모 역할 로그인이 기본 차단되고 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`일 때만 명시 허용되는 정책, session cookie의 `httpOnly`/`secure`/기본 8시간/로그인 상태 유지 30일 만료 속성, production `x-user-id` 헤더 인증 우회 차단, 기본 임시 비밀번호 해시 검증을 확인합니다. 또한 관리자 seed가 공유 기본 해시를 사용하고, 정확히 알려진 과거 관리자 seed 해시만 현재 기본 해시로 승격되는지 검사합니다.
+`test:auth-production-guard`는 production 환경에서 데모 역할 로그인이 기본 차단되고 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`일 때만 명시 허용되는 정책, session cookie의 `httpOnly`/`secure`/기본 8시간/로그인 상태 유지 30일 만료 속성, production `x-user-id` 헤더 인증 우회 차단을 확인합니다. `test:auth-session-security`는 사용자 ID 쿠키 위조 차단, 불투명 세션 토큰의 해시 저장, 만료와 폐기를 검증합니다. `test:invitation-token-security`는 256-bit 초대 토큰의 해시 저장·만료·단일 사용, 비밀번호 시도 제한, 권한과 지점 범위를 확인하는 링크 재발급 및 이전 링크 무효화를 검증합니다. `test:local-demo-password-rotation`은 격리된 로컬 JSON 복사본에서 공용 데모 비밀번호를 계정별 값으로 교체하되 원본·공개 산출물·PostgreSQL을 수정하지 않는지 검사합니다.
 `test:dev-reset-guard`는 production 환경에서 `/api/v1/dev/reset`이 기본 차단되고 `FINAL_JUDO_ENABLE_DEV_RESET=1`로 열더라도 helper가 발급한 실행별 소유권 토큰, run-owned 임시 JSON 디렉터리, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야만 초기화되는 정책을 확인합니다. 공유 파일, PostgreSQL, 심볼릭 링크 대상은 초기화하지 않습니다.
 `test:env-readiness`는 `.env.example`, `.env.production.example`, `docs/ENVIRONMENT_MATRIX.md`가 개발/운영 저장소, 위험 플래그, PostgreSQL, 결제, 푸시 필수 환경 변수를 안전한 기본값과 placeholder로 안내하는지 검증합니다.
 `test:deployment-handoff-draft`는 운영 env와 preflight 리포트에서 `.data/deployment-handoff.json` 초안을 만들되 PostgreSQL URL, webhook secret, VAPID private key 같은 원문 secret 값이 JSON에 남지 않는지 검증합니다.
@@ -260,7 +265,7 @@ npm run test:release
 `test:android-packaging`은 P1 Android TWA/Bubblewrap 전략, `mobile/android` 템플릿, Digital Asset Links, Next PWA manifest 호환성, Android 런처/splash/TWA store icon이 `public/icons/final-judo-icon-512.png` 검정 FINAL 심볼 PNG에서 생성되는지, PWA manifest가 stale SVG 아이콘 경로를 Android 설치 아이콘으로 우선 노출하지 않는지, release gate와 `.github/workflows/android-twa.yml` CI 패키징 경로 포함 여부를 정적으로 검증합니다. `android:twa:doctor`는 운영 HTTPS 웹앱 origin, release signing SHA-256 fingerprint, JDK, Android SDK command line tools, adb, npx, `ANDROID_HOME`/`ANDROID_SDK_ROOT` 또는 repo-local `.data/toolchains` 준비 상태를 JSON으로 출력하고 `--markdown=.data/android-twa-doctor.md`를 받으면 공유용 Markdown 점검표와 macOS/환경변수/CI 설치 힌트도 생성합니다. 기본 실행은 준비 부족을 보고만 하며, 실제 APK/AAB 생성 직전에는 `npm run android:twa:doctor -- --strict --origin=<https-origin> --sha256=<fingerprint>`로 차단 모드를 사용합니다. `localhost`, `.example`, `.test`, `.local`, `TODO`, `TBD`, `<https-origin>` 같은 예시/임시 origin과 API-only `api.*` origin은 doctor/prepare/build/release handoff에서 실제 운영 앱 origin으로 인정하지 않습니다. `android:twa:prepare`는 JDK/SDK가 없어도 `assetlinks.json`, `bubblewrap-manifest.json`, `build-plan.json`을 만들되 출력 JSON에 Java/keytool/sdkmanager/adb/npx/Android SDK home `buildReady/buildBlockers`를 남기고, `android:twa:build`는 모든 blocker가 해소된 경우에만 Bubblewrap 빌드를 시작합니다. `test:android-release-handoff-draft`는 doctor/assetlinks/build-plan/APK/AAB 파일에서 handoff 초안의 해시와 크기를 자동 채우는 흐름을 검증하고, `test:android-release-handoff`는 APK/AAB, doctor report, assetlinks/build-plan, Play/App signing 결정, keystore custody, Android 설치 smoke, 주소창/공유/더보기 같은 브라우저 UI 비노출, ISO 생성/승인 시각, 생성 이후 승인 순서, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, 최종 승인 manifest를 검증합니다. 실제 APK/AAB 생성은 운영 HTTPS 웹앱 도메인, release signing SHA-256 fingerprint, JDK/Android SDK 준비 후 `npm run android:twa:build` 또는 GitHub Actions의 `Android TWA Package` 수동 workflow로 진행합니다.
 
 `test:android-play-release-artifacts`는 최신 `.data/mobile-builds/android-play-release-*/google-play-release-report.json`과 `mobile/android-cap/app/build.gradle`, Android Capacitor `server.url`, timestamped AAB/APK, Desktop 복사본 `~/Desktop/final-judo-play-release.aab`/`~/Desktop/final-judo-release.apk`, jarsigner/apksigner 검증 파일, APK badging을 대조합니다. Play Console에 올릴 파일이 현재 versionCode/versionName, 운영 로그인 URL, 업로드 서명, SHA-256과 맞지 않으면 실패합니다.
-`test:notification-readiness`는 `/app/notices`의 알림 권한 상태 UI, 미지원/차단 상태, 알림 구성 상태, PushSubscription 서버 저장/해지 API, 공지별 push dispatch API의 사용자 피드백 문구, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, AppShell 미읽음 공지 배지, 서비스 워커 `showNotification`/push/click 경로를 정적으로 검증합니다. 실제 발송은 `FINAL_JUDO_VAPID_PUBLIC_KEY`, `FINAL_JUDO_VAPID_PRIVATE_KEY`, `FINAL_JUDO_VAPID_SUBJECT`를 운영 환경에 넣으면 활성화됩니다.
+`test:notification-readiness`는 `/app/notices`의 알림 권한 상태 UI, PushSubscription API, 공지 발행/배지/푸시 제목, 공지함 읽음 처리와 서비스 워커 경로를 정적으로 검증합니다. `test:notification-outbox`와 `test:notification-outbox-integration`은 구독별 durable 작업, lease/revision/backoff/dead letter, 수동 재발송 멱등 digest, 공지 변경 취소 경계, provider timeout·불확실 전송·stale settlement 감사, 발송 직전 대상 재검증과 `CRON_SECRET` 보호를 검증합니다. 실제 발송은 VAPID 변수와 cron secret을 운영 환경에 넣으면 활성화됩니다.
 `notification-push:handoff:draft`는 운영 origin, VAPID env, Android 기기/공지 발송 증빙 인자에서 `.data/notification-push-handoff.json` 초안을 생성합니다. VAPID private key는 값이 아니라 `FINAL_JUDO_VAPID_PRIVATE_KEY` secret 이름과 저장 여부만 기록합니다. `test:notification-push-handoff-draft`는 pending 초안 strict 차단, env 추론, 원문 private key 미기록, 운영자 완료 초안 strict 통과를 검증합니다. 실제 푸시 파일럿 전에는 증빙을 채운 뒤 `npm run notification-push:handoff -- --file=.data/notification-push-handoff.json --out=.data/notification-push-handoff.report.json`로 ready/blocked 리포트를 보관합니다.
 `test:notification-push-handoff`는 `docs/notification-push-handoff.template.json` 기준 운영 HTTPS origin, VAPID public key 구성, private key secret store 보관, Android 실기기 권한/구독/공지 push 수신/클릭, 공지 대상 발송/만료 구독 처리/변경 기록, 권한 차단/미지원 상태, ISO 생성/승인 시각, 생성 이후 승인 순서, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO production origin과 예시 VAPID subject 차단, 원문 secret 미보관 fixture를 검증합니다.
 `test:team-agent-prompts`는 [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md)가 P0 완료 후 P1 운영/모바일 배포 단계 기준으로 유지되는지 검증합니다. Android APK artifact와 iOS Simulator/IPA release 상태 분리, iOS Team ID/bundle id, 7개 외부 blocker, P1 필수 검증 명령을 누락하면 release gate에서 차단합니다.

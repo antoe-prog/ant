@@ -26,6 +26,10 @@
 - `npm run test:admin-user-guardian-bottom-safe-area` 통과. 관리자 사용자 목록의 44px 액션 버튼과 사용자 상세의 보호자 연결 선택/해제 목록/저장 액션이 모바일 하단 내비게이션에 가려지지 않는지 확인
 - `npm run test:api-auth-order` 통과. 보호 API route handler의 `request.json()` 본문 읽기가 `requireSession()` 이후에만 실행되고, 공개 body route allowlist가 로그인/비밀번호 재설정/초대 수락/결제 webhook으로 유지되는지 확인
 - `npm run test:login-keep-signed-in` 통과. 390px 로그인 화면에서 로그인 상태 유지 선택지가 44px 이상 터치 영역으로 보이고, 선택 시 30일/해제 시 8시간 세션 쿠키가 설정되는지 확인. 로그인된 상태 또는 HttpOnly 쿠키만 남은 앱 재시작 상태로 `/login`에 진입했을 때 `로그아웃하고 계정 전환` 액션도 44px 터치 높이를 유지해야 한다.
+- `npm run test:auth-session-security` 통과. 사용자 ID를 세션 쿠키로 직접 넣어도 인증되지 않고, 무작위 토큰 원문은 저장소에 남지 않으며 만료·로그아웃·사용자 전체 세션 폐기가 적용되는지 확인
+- `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
+- `npm run test:local-demo-password-rotation` 통과. 공용 데모 비밀번호의 고정/임의 salt 해시를 모두 탐지하고, 명시적 격리 JSON 확인 없이는 쓰지 않으며 원본·PostgreSQL·공개 산출물에 비밀번호를 남기지 않는지 확인
+- `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 통과. 구독별 멱등 enqueue, lease/revision 경쟁, 지수 backoff, 최대 시도, 404/410 비활성화, 수동 재발송 멱등 digest, 공지 변경/삭제 취소 경계, provider timeout·불확실 전송·stale settlement 감사, CRON_SECRET 인증과 endpoint/key 없는 시도 감사 기록을 확인
 - `npm run test:phone-signup-login-flow` 통과. 390px 휴대폰 회원가입에서 입력한 비밀번호로 가입 완료 안내 로그인 화면에 진입하고, 같은 비밀번호로 회원 대시보드까지 이동하며 잘못된 비밀번호 문구가 먼저 노출되지 않는지 확인. 브라우저 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-20260705/summary.json`, iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-ios-20260705/summary.json`에 보관
 - `npm run test:payment-lifecycle` 통과. 수기 결제 등록이 처리자·지점 범위의 `Idempotency-Key` 재시도를 한 건으로 유지하고 다른 payload나 삭제된 원본의 키 재사용을 차단하며, UUID 식별자를 사용하고 환불액 없는 부분 환불 직접 생성을 거부하는지 확인한다. 취소·환불 완료 상태 등록은 사유를 필수로 받고 정규화한 사유를 최초 상태 이력·감사 스냅샷·확인값에 저장하며, 일반 상태 확인값은 기존 형식과 호환되는지 검증한다. 존재하지 않는 달력 날짜와 납부일보다 앞선 만료일을 차단하고, 동일 결제의 수기 변경과 온라인 요청은 직렬화되며 삭제 감사 스냅샷에는 취소·상태 이력이 유지되고, 등록과 환불/취소 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하는지 검증
 - `npm run test:auth-production-guard` 통과
@@ -215,6 +219,9 @@
 | QA-AUTH-06 | 생성된 `/invite/:token` 접속 후 12자 이상 초기 비밀번호로 초대 수락 | 초대 사용자가 로그인되고 `auth.invite.accept` 기록, `passwordHash` 미노출, 초기 비밀번호로 재로그인 가능 |
 | QA-AUTH-06A | 총괄이 `/app/admin/users`에서 초대 수락 사용자에 발급 사유 입력 후 임시 비밀번호 발급 | 임시 비밀번호가 1회 표시되고 새 비밀번호로 로그인 가능, 기본 임시 비밀번호는 재사용되지 않으며 `auth.password_reset.complete` 기록 |
 | QA-AUTH-06B | 초대 수락에서 비밀번호 누락, 기본 임시 비밀번호 사용, 이미 사용한 링크 재사용 시도 | 각각 400/422/409로 차단되고 가입 세션이 새로 생성되지 않음 |
+| QA-AUTH-06C | 같은 초대 링크로 두 요청을 동시에 수락 | 전용 저장소 잠금 아래 정확히 한 요청만 200과 로그인 세션을 받고 다른 요청은 409, 성공 감사 기록도 한 건만 생성. 저장소·감사에는 토큰 원문과 비밀번호 원문이 남지 않음 |
+| QA-AUTH-06D | 유효한 대기 초대에서 15분 안에 비밀번호 정책 실패 5회 후 다시 수락 | 사용자 target의 최근 실패 감사 기록을 기준으로 다음 요청은 `429 RATE_LIMITED`, `Retry-After` 포함. 미일치 256-bit 토큰은 404이며 대상 감사·세션·PBKDF2 작업 없음. 앞뒤 공백 비밀번호는 자동 trim 없이 400 |
+| QA-AUTH-06E | 총괄 또는 담당 지점 대표가 대기 초대의 `링크 다시 만들기` 실행 | 새 원문 링크는 해당 응답에서만 표시되고 저장소에는 SHA-256 해시만 남는다. 이전 링크는 즉시 404, 비관리자·담당 밖 지점은 403이며 bootstrap 사용자 목록에는 해시도 노출되지 않음 |
 | QA-AUTH-07 | `/app/account` 접속 | 계정 유형, 이용 지점, 웹/PWA의 홈 화면 추가 액션 표시. 네이티브 앱에서는 설치 안내 카드가 숨겨짐 |
 | QA-AUTH-08 | 대표가 `/app/members`에서 코치/학부모/회원 초대 | 자기 지점 범위 초대 링크 생성, `user.invite.create` 기록 |
 | QA-AUTH-09 | 대표가 총괄 어드민 초대 API 호출 | `403 FORBIDDEN`으로 차단 |
@@ -290,6 +297,7 @@
 | QA-MOB-10E | 실제 `.data/android-release-handoff.json` 작성 후 `npm run android:release-handoff -- --file=.data/android-release-handoff.json --out=.data/android-release-handoff.report.json` 실행 | 실제 APK/AAB, doctor report, assetlinks/build-plan, Play/App signing, keystore custody, Android 설치 smoke, 주소창/공유/더보기 브라우저 UI 비노출 승인 증빙, HTTPS/provider URI 증빙, ISO 생성/승인 시각과 생성 이후 승인 순서가 모두 ready이고 blockers가 없으면 파일럿 배포 전 통과 |
 | QA-MOB-11 | `npm run test:notification-readiness` 실행 | 공지 화면 알림 권한 UI, VAPID 구성 필요/구독 가능/구독됨 상태, PushSubscription 저장/해지 API, 역할별 활성 구독 수 스코프, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, 공지 요약, AppShell 미읽음 공지 배지, 테스트 알림 표시, push/click handler, 공지함 이동 경로, `브라우저`, `브라우저 권한`, `서비스 워커` 같은 구현 기준 문구 비노출이 검증되면 통과 |
 | QA-MOB-11A | `npm run test:notification-push-handoff-draft`와 `npm run test:notification-push-handoff` 실행 | 운영 푸시 handoff 초안이 원문 VAPID private key를 저장하지 않고, strict 검증기가 HTTPS origin, VAPID secret store, Android 실기기 push 수신/클릭, 공지 발송 변경 기록, 권한 차단/미지원 상태 HTTPS/provider URI 증빙 누락, 템플릿의 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO production origin과 VAPID subject, non-reference evidence, non-ISO timestamp, 시간 역전을 차단하면 통과 |
+| QA-MOB-11B | `npm run test:notification-outbox`와 `npm run test:notification-outbox-integration` 실행 | 수동 재발송 `Idempotency-Key` 원문 미저장·동일 요청 재사용, revision fencing, 공지 변경/삭제 시 대기·임대 작업 취소, provider 호출 전 발송 중단, 호출 후 취소·15초 timeout의 전송 가능성 감사, 늦은 이전 결과의 상태 덮어쓰기 차단, CRON_SECRET timing-safe 검증이 통과 |
 
 ## 6. 결제/공지/삭제된 요청 테스트
 
@@ -301,12 +309,14 @@
 | QA-PAY-03 | 대표 | `/app/payments`에서 회원 검색 후 일반 상태와 취소·환불 완료 상태로 수기 결제 등록 | 일반 상태는 결제 목록에 UUID 기반 새 회원권이 추가되고 동일 `Idempotency-Key` 재시도는 한 건만 유지. 취소·환불 완료 상태는 사유 입력 전 제출할 수 없고, 정규화한 사유·처리 시각이 `refundReason`/`refundedAt`, 최초 상태 이력과 `payment.create` 변경 기록에 저장되며 Payment 루트에는 감사용 `reason`이 중복되지 않음 |
 | QA-PAY-04 | 대표 | `/app/payments`에서 결제 내보내기 | CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-PAY-05 | 대표 | `/app/payments`에서 환불 금액과 사유 입력 후 처리 | 상태가 부분/전액 환불로 변경되고 `payment.refund` 변경 기록 생성 |
+| QA-PAY-05A | 대표/총괄 | 동일 결제에 1,000원 환불 12건을 동시에 요청하고 `0.4원`·안전 정수 범위 밖 금액을 제출 | 12건은 공통 결제 잠금 안에서 순차 반영되어 `500` 없이 환불액·상태 이력 12건이 일치하고, 소수·비안전 정수 금액은 `400 VALIDATION_ERROR`로 차단 |
 | QA-PAY-06 | 대표 | `/app/payments`에서 예정/미납 결제를 사유와 함께 취소 | 상태가 취소로 변경되고 `payment.refund` 변경 기록 생성 |
 | QA-PAY-07 | 대표 | `/app/payments`에서 상태 필터를 `미납/만료 예정`으로 변경 | 위험 결제만 표시되고 조회 건수/미납/확인 필요 금액이 필터 기준으로 재계산 |
 | QA-PAY-08 | 대표 | `/app/payments` 결제 행의 `재등록` 클릭 | 같은 회원/회원권/금액/할인이 수기 결제 등록 폼에 채워지고 상태는 납부 예정으로 설정 |
 | QA-PAY-09 | 대표 | `/app/payments` 결제 행 확인 | 회원별 결제 이력 건수와 최근 만료일이 표시 |
 | QA-PAY-10 | 대표 | `/app/payments`에서 예정/미납 결제의 `온라인 요청` 클릭 | 온라인 결제 대기 상태, provider 결제 ID, 결제 링크가 저장되고 `payment.online_checkout.create` 변경 기록 생성 |
 | QA-PAY-11 | 대표 | `/api/v1/payments/webhook`에 성공/실패/환불 이벤트 전송 후 같은 `providerEventId`를 재전송 | 첫 이벤트는 결제 완료/실패/환불 상태와 영수증/실패/환불 메타, `payment.webhook` 변경 기록을 남기고, 중복 event ID는 상태 이력과 변경 기록을 추가하지 않음 |
+| QA-PAY-11A | 결제 provider | `paid → refunded → 다른 ID의 paid`와 최신 처리 시각보다 오래된 이벤트를 전송 | 환불 완료 상태는 `409 INVALID_TRANSITION`, 오래된 이벤트는 `409 OUT_OF_ORDER`로 차단되고 결제·온라인 결제 상태와 환불액이 환불 완료로 유지 |
 | QA-PAY-12 | 코치 | 온라인 요청이 있는 결제 포함 수업/회원 화면 확인 | 회원권 상태는 보이되 `onlinePayment.amount`와 결제 링크는 노출되지 않음 |
 | QA-PAY-13 | 대표 | `/app/payments`에서 결제 완료/납부 예정/미납/만료 예정 결제의 `정기결제 약정` 클릭 | provider 약정 ID, 월 청구일, 다음 청구일, `payment.recurring_agreement.create` 변경 기록이 저장됨 |
 | QA-PAY-14 | 대표 | 정기결제 약정이 있는 결제에서 사유 입력 후 `정기결제 해지` 클릭 | 약정 상태가 해지로 바뀌고 해지 사유, 해지 시각, `payment.recurring_agreement.cancel` 변경 기록이 저장됨 |
@@ -357,6 +367,7 @@
 | QA-NOTICE-02 | 코치 | 공지 읽음 처리 클릭 | 상태가 읽음으로 변경되고 읽음 수 증가 |
 | QA-NOTICE-02A | 회원/학부모/코치 | `/app/notices`에서 단일 공지 `확인`/`읽음` 클릭 | 버튼은 저장 중 중복 클릭을 막고 `공지 확인을 저장했습니다.` 피드백을 표시하며 읽은 공지는 톤다운 상태로 전환 |
 | QA-NOTICE-02B | 대표/총괄/코치 | `/app/notices`에서 공지 읽음 후 같은 공지의 알림 발송 클릭 | 새 알림 발송 피드백만 남고 이전 읽음/작성/삭제 피드백은 함께 보이지 않음 |
+| QA-NOTICE-02C | 대표/총괄/코치 | 공지 생성·수동 재발송 뒤 `notification.dispatch` 감사 기록 확인 | 공지 생성과 `dispatchState: requested` 감사 기록이 외부 발송보다 먼저 저장되고 결과가 `completed`/`blocked`/`failed`와 완료 시각으로 갱신됨. 생성 후 푸시 실패는 공지 생성 실패로 오인되지 않아 같은 공지를 다시 만들지 않음 |
 | QA-NOTICE-03 | 대표 | `/app/notices`에서 공지 작성 | `작성 열기`로 폼을 연 뒤 새 공지를 발행하면 공지함에 표시되고 `notice.create` 변경 기록 생성 |
 | QA-NOTICE-04 | 전체 | `/app/notices` 접속 | 공지 목록, 읽음 상태, 읽음 처리 표시 |
 | QA-NOTICE-05 | 대표/총괄 | `/app/notices`에서 공지 작성 | 새 공지가 공지함에 표시되고 `notice.create` 변경 기록 생성 |

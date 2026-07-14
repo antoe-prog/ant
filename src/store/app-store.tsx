@@ -190,6 +190,7 @@ type AppStore = AppState & {
   updateUser: (userId: string, payload: AdminUserUpdatePayload) => Promise<boolean>;
   deleteUser: (userId: string, payload: AdminUserDeletePayload) => Promise<boolean>;
   createInvitation: (payload: InvitationCreatePayload) => Promise<string | null>;
+  reissueInvitationLink: (userId: string) => Promise<string | null>;
   approveInvitation: (userId: string) => Promise<InvitationApprovalResult | null>;
   resetUserPassword: (userId: string, payload: AdminPasswordResetPayload) => Promise<string | null>;
   acceptInvitation: (token: string, password: string) => Promise<InvitationAcceptResult>;
@@ -1358,6 +1359,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const reissueInvitationLink = useCallback(
+    async (userId: string) => {
+      if (!state.user) {
+        return null;
+      }
+
+      try {
+        const nextPayload = await apiClient.reissueInvitationLink(userId, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return nextPayload.invitation.path;
+      } catch (error) {
+        reportOperationError(error, "초대 링크를 다시 만들지 못했습니다.");
+        return null;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const approveInvitation = useCallback(
     async (userId: string) => {
       if (!state.user) {
@@ -1745,6 +1765,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateUser,
       deleteUser,
       createInvitation,
+      reissueInvitationLink,
       approveInvitation,
       resetUserPassword,
       acceptInvitation,
@@ -1776,6 +1797,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createBranch,
       createCounselingNote,
       createInvitation,
+      reissueInvitationLink,
       createMember,
       createClassSession,
       createNotice,

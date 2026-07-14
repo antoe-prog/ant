@@ -1,5 +1,12 @@
 import * as webPush from "web-push";
-import type { AppUser, MockDatabase, Notice, PushSubscriptionRecord } from "@/lib/domain";
+import type {
+  AppUser,
+  AuditLog,
+  MockDatabase,
+  Notice,
+  PushDispatchPayloadSnapshot,
+  PushSubscriptionRecord,
+} from "@/lib/domain";
 import { isNoticeRecipient } from "@/lib/mock-api";
 
 type WebPushSubscriptionInput = {
@@ -24,6 +31,78 @@ export type PushDispatchSummary = {
   failed: number;
   sent: number;
 };
+
+export type PushDeliveryResult =
+  | { outcome: "sent" }
+  | {
+      outcome: "failed";
+      statusCode?: number;
+      errorCode: string;
+      message: string;
+      deliveryUncertain?: boolean;
+    };
+
+type NoticePushDispatchAuditInput = {
+  auditId: string;
+  branchId: string;
+  actorUserId: string;
+  noticeId: string;
+  candidateCount: number;
+  recipientCount: number;
+  requestedAt: string;
+  autoDispatchedOnCreate?: boolean;
+};
+
+const defaultPushProviderTimeoutMs = 15_000;
+
+export function getPushProviderTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
+  const configured = Number(env.FINAL_JUDO_PUSH_PROVIDER_TIMEOUT_MS);
+
+  if (!Number.isSafeInteger(configured) || configured < 1_000 || configured > 60_000) {
+    return defaultPushProviderTimeoutMs;
+  }
+
+  return configured;
+}
+
+export async function runPushDeliveryWithTimeout(
+  deliver: () => Promise<PushDeliveryResult>,
+  timeoutMs = getPushProviderTimeoutMs(),
+): Promise<PushDeliveryResult> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("Push provider timeout must be a positive safe integer.");
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutResult = new Promise<PushDeliveryResult>((resolve) => {
+    timeout = setTimeout(() => {
+      resolve({
+        outcome: "failed",
+        errorCode: "PUSH_PROVIDER_TIMEOUT",
+        message: "알림 provider 응답 시간이 초과됐습니다.",
+        deliveryUncertain: true,
+      });
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      Promise.resolve()
+        .then(deliver)
+        .catch(() => ({
+          outcome: "failed" as const,
+          errorCode: "PUSH_DELIVERY_EXCEPTION",
+          message: "알림 provider 호출 결과를 확인할 수 없습니다.",
+          deliveryUncertain: true,
+        })),
+      timeoutResult,
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 export function getPushConfig(): PushConfigPayload {
   const publicKey = process.env.FINAL_JUDO_VAPID_PUBLIC_KEY?.trim() || null;
@@ -69,13 +148,50 @@ export function createEndpointHint(endpoint: string) {
   return endpoint.length <= 16 ? endpoint : `...${endpoint.slice(-16)}`;
 }
 
-export function createPushPayload(notice: Notice) {
-  return {
-    title: notice.important ? `[중요] ${notice.title}` : notice.title,
-    body: notice.body,
-    tag: `final-judo-notice-${notice.id}`,
-    url: "/app/notifications",
-  };
+export async function sendPushPayloadToSubscription(
+  subscription: PushSubscriptionRecord,
+  payload: PushDispatchPayloadSnapshot,
+): Promise<PushDeliveryResult> {
+  const config = getPushConfig();
+  const privateKey = process.env.FINAL_JUDO_VAPID_PRIVATE_KEY?.trim();
+
+  if (!config.configured || !config.publicKey || !config.subject || !privateKey) {
+    return {
+      outcome: "failed",
+      errorCode: "PUSH_NOT_CONFIGURED",
+      message: "알림 발송 설정을 확인해야 합니다.",
+    };
+  }
+
+  webPush.setVapidDetails(config.subject, config.publicKey, privateKey);
+  const timeoutMs = getPushProviderTimeoutMs();
+
+  try {
+    await webPush.sendNotification(
+      {
+        endpoint: subscription.endpoint,
+        keys: subscription.keys,
+      },
+      JSON.stringify(payload),
+      { timeout: timeoutMs },
+    );
+    return { outcome: "sent" };
+  } catch (error) {
+    const statusCode = typeof error === "object" && error && "statusCode" in error ? Number(error.statusCode) : undefined;
+    const errorCode = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+    const timedOut = errorCode === "ETIMEDOUT" || errorCode === "ESOCKETTIMEDOUT";
+    return {
+      outcome: "failed",
+      ...(Number.isSafeInteger(statusCode) && statusCode ? { statusCode } : {}),
+      errorCode: timedOut ? "PUSH_PROVIDER_TIMEOUT" : statusCode ? `PUSH_HTTP_${statusCode}` : "PUSH_DELIVERY_FAILED",
+      message: timedOut
+        ? "알림 provider 응답 시간이 초과됐습니다."
+        : statusCode === 404 || statusCode === 410
+          ? "알림 수신 등록이 만료됐습니다."
+          : "알림 발송 상태를 다시 확인해야 합니다.",
+      ...(timedOut ? { deliveryUncertain: true } : {}),
+    };
+  }
 }
 
 export function getNoticeRecipients(db: MockDatabase, notice: Notice) {
@@ -131,6 +247,64 @@ export function createNoticePushDispatchMessage({
   return `대상 ${recipientCount}명 알림함 표시, 휴대폰 푸시 ${summary.sent}건 발송, 실패 ${summary.failed}건입니다.`;
 }
 
+export function createNoticePushDispatchRequestAuditLog({
+  auditId,
+  branchId,
+  actorUserId,
+  noticeId,
+  candidateCount,
+  recipientCount,
+  requestedAt,
+  autoDispatchedOnCreate,
+}: NoticePushDispatchAuditInput): AuditLog {
+  return {
+    id: auditId,
+    branchId,
+    actorUserId,
+    action: "notification.dispatch",
+    targetType: "notice",
+    targetId: noticeId,
+    before: null,
+    after: {
+      ...(autoDispatchedOnCreate ? { autoDispatchedOnCreate: true } : {}),
+      dispatchState: "requested",
+      candidateCount,
+      recipientCount,
+      requestedAt,
+    },
+    result: "blocked",
+    message: "공지 알림 발송 요청을 저장했습니다. 발송 결과를 확인해야 합니다.",
+    createdAt: requestedAt,
+  };
+}
+
+export function completeNoticePushDispatchAuditLog(
+  requestAuditLog: AuditLog,
+  summary: PushDispatchSummary,
+  completedAt: string,
+): AuditLog {
+  const candidateCount = Number(requestAuditLog.after?.candidateCount ?? 0);
+  const recipientCount = Number(requestAuditLog.after?.recipientCount ?? 0);
+  const result: AuditLog["result"] =
+    !summary.configured || candidateCount === 0 ? "blocked" : summary.failed > 0 ? "failed" : "success";
+
+  return {
+    ...requestAuditLog,
+    after: {
+      ...requestAuditLog.after,
+      dispatchState: result === "success" ? "completed" : result,
+      configured: summary.configured,
+      attempted: summary.attempted,
+      sent: summary.sent,
+      failed: summary.failed,
+      disabled: summary.disabled,
+      completedAt,
+    },
+    result,
+    message: createNoticePushDispatchMessage({ candidateCount, recipientCount, summary }),
+  };
+}
+
 export function upsertPushSubscription(
   db: MockDatabase,
   user: AppUser,
@@ -181,74 +355,5 @@ export function disablePushSubscription(db: MockDatabase, endpoint: string, user
       pushSubscriptions: db.pushSubscriptions.map((item) => (item.id === existing.id ? nextRecord : item)),
     },
     record: nextRecord,
-  };
-}
-
-export async function dispatchNoticePushNotifications(
-  db: MockDatabase,
-  notice: Notice,
-): Promise<{ db: MockDatabase; summary: PushDispatchSummary }> {
-  const config = getPushConfig();
-  const subscriptions = getNoticePushSubscriptions(db, notice);
-  const summary: PushDispatchSummary = {
-    configured: config.configured,
-    attempted: subscriptions.length,
-    disabled: 0,
-    failed: 0,
-    sent: 0,
-  };
-
-  if (!config.configured || !config.publicKey || !config.subject || !process.env.FINAL_JUDO_VAPID_PRIVATE_KEY) {
-    return { db, summary };
-  }
-
-  webPush.setVapidDetails(config.subject, config.publicKey, process.env.FINAL_JUDO_VAPID_PRIVATE_KEY);
-
-  const payload = JSON.stringify(createPushPayload(notice));
-  const now = new Date().toISOString();
-  let nextSubscriptions = db.pushSubscriptions;
-
-  for (const subscription of subscriptions) {
-    try {
-      await webPush.sendNotification(
-        {
-          endpoint: subscription.endpoint,
-          keys: subscription.keys,
-        },
-        payload,
-      );
-      summary.sent += 1;
-      nextSubscriptions = nextSubscriptions.map((item) =>
-        item.id === subscription.id
-          ? { ...item, lastSentAt: now, lastFailureAt: undefined, lastFailureReason: undefined, updatedAt: now }
-          : item,
-      );
-    } catch (error) {
-      const statusCode = typeof error === "object" && error && "statusCode" in error ? Number(error.statusCode) : 0;
-      const shouldDisable = statusCode === 404 || statusCode === 410;
-      const failureReason = shouldDisable ? "알림 수신 등록을 다시 확인해야 합니다." : "알림 발송 상태를 다시 확인해야 합니다.";
-
-      summary.failed += 1;
-      summary.disabled += shouldDisable ? 1 : 0;
-      nextSubscriptions = nextSubscriptions.map((item) =>
-        item.id === subscription.id
-          ? {
-              ...item,
-              disabledAt: shouldDisable ? now : item.disabledAt,
-              lastFailureAt: now,
-              lastFailureReason: failureReason.slice(0, 240),
-              updatedAt: now,
-            }
-          : item,
-      );
-    }
-  }
-
-  return {
-    db: {
-      ...db,
-      pushSubscriptions: nextSubscriptions,
-    },
-    summary,
   };
 }

@@ -17,6 +17,25 @@ if (!snapshotArg) {
 
 const snapshotFile = path.resolve(snapshotArg);
 const outFile = outArg ? path.resolve(outArg) : null;
+const requiredCollections = [
+  "branches",
+  "users",
+  "members",
+  "classes",
+  "attendance",
+  "counselingNotes",
+  "promotions",
+  "tournaments",
+  "payments",
+  "notices",
+  "authSessions",
+  "pushSubscriptions",
+  "pushDispatchJobs",
+  "pilotReadinessChecks",
+  "pilotIncidents",
+  "pilotOperationLogs",
+  "auditLogs",
+];
 
 async function assertSeparateOutput() {
   if (!outFile) {
@@ -42,14 +61,26 @@ const raw = await readFile(snapshotFile, "utf8");
 const parsed = JSON.parse(raw);
 let structuralError = null;
 let issues = [];
+const missingCollections = requiredCollections.filter((collection) => !(collection in parsed));
+const invalidCollections = requiredCollections.filter(
+  (collection) => collection in parsed && !Array.isArray(parsed[collection]),
+);
 
-try {
-  validateRuntimeStateIntegrity(parsed);
-  issues = inspectRuntimeStateIntegrity(parsed);
-} catch (error) {
-  structuralError = error && typeof error === "object" && "rule" in error
-    ? { name: "RuntimeStateIntegrityError", rule: error.rule }
-    : { name: error instanceof Error ? error.name : "UnknownError" };
+if (missingCollections.length > 0 || invalidCollections.length > 0) {
+  structuralError = {
+    name: "RuntimeStateSchemaError",
+    missingCollections,
+    invalidCollections,
+  };
+} else {
+  try {
+    validateRuntimeStateIntegrity(parsed);
+    issues = inspectRuntimeStateIntegrity(parsed);
+  } catch (error) {
+    structuralError = error && typeof error === "object" && "rule" in error
+      ? { name: "RuntimeStateIntegrityError", rule: error.rule }
+      : { name: error instanceof Error ? error.name : "UnknownError" };
+  }
 }
 
 function summarizeIssues(values) {

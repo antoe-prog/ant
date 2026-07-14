@@ -6,6 +6,7 @@ import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/noti
 import { hasNoticeVisibleContentChanged, hasSameNoticeAudience, noticeStateLockKey } from "@/lib/notices";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { cancelPendingNoticePushJobs } from "@/server/notification-outbox-runner";
 
 export const runtime = "nodejs";
 
@@ -172,11 +173,16 @@ export async function PATCH(
       message: "공지를 수정했습니다.",
       createdAt: now,
     };
-    const nextDb = await writeServerDb({
+    const updatedDb = {
       ...db,
       notices: db.notices.map((candidate) => (candidate.id === notice.id ? nextNotice : candidate)),
       auditLogs: [auditLog, ...db.auditLogs],
-    });
+    };
+    const nextDb = await writeServerDb(
+      visibleContentChanged
+        ? cancelPendingNoticePushJobs(updatedDb, notice.id, "공지 내용이 변경되어 이전 발송 요청을 취소했습니다.", now)
+        : updatedDb,
+    );
 
     return jsonOk({
       ...createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId),
@@ -250,11 +256,11 @@ export async function DELETE(
     message: "공지를 삭제했습니다.",
     createdAt: now,
   };
-  const nextDb = await writeServerDb({
+  const nextDb = await writeServerDb(cancelPendingNoticePushJobs({
     ...db,
     notices: db.notices.filter((candidate) => candidate.id !== notice.id),
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  }, notice.id, "공지가 삭제되어 대기 중인 발송 요청을 취소했습니다.", now));
 
   return jsonOk({
     ...createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId),

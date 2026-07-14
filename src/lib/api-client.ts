@@ -854,6 +854,13 @@ export const apiClient = {
     });
   },
 
+  reissueInvitationLink(userId: string, selectedBranchId: string | null) {
+    return apiRequest<InvitationPayload>(
+      `/api/v1/admin/users/${encodeURIComponent(userId)}/invitation-link${selectedBranchQuery(selectedBranchId)}`,
+      { method: "POST" },
+    );
+  },
+
   approveInvitation(userId: string, selectedBranchId: string | null) {
     return apiRequest<InvitationApprovalResponse>(
       `/api/v1/admin/users/${encodeURIComponent(userId)}/approve-invitation${selectedBranchQuery(selectedBranchId)}`,

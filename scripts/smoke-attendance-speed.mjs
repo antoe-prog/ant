@@ -7,7 +7,7 @@ const selectedBranchId = process.env.ATTENDANCE_SPEED_BRANCH_ID ?? "branch-gangn
 const skipDevReset = process.env.ATTENDANCE_SPEED_SKIP_DEV_RESET === "1";
 const stamp = Date.now();
 const coachEmail = "coach@finaljudo.kr";
-const defaultPilotPassword = "FinalJudoPilot!2026";
+const coachPassword = process.env.SMOKE_COACH_PASSWORD ?? "FinalJudoPilot!2026";
 
 function assert(condition, message) {
   if (!condition) {
@@ -74,7 +74,7 @@ async function run() {
   const client = createClient();
   let result = await client.request("/api/v1/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: coachEmail, password: defaultPilotPassword }),
+    body: JSON.stringify({ email: coachEmail, password: coachPassword }),
   });
 
   assert(result.payload.data.user.role === "coach", "coach login failed");

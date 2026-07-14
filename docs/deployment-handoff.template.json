@@ -113,6 +113,14 @@
       "configured": true,
       "expectedValue": "mailto:ops@example.com",
       "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "CRON_SECRET",
+      "classification": "secret",
+      "storage": "deployment-platform-secret-store",
+      "configured": true,
+      "secretName": "CRON_SECRET",
+      "evidence": "TODO_SECRET_EVIDENCE_URI"
     }
   ],
   "database": {

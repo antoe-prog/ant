@@ -71,7 +71,9 @@
 | 403 | `FORBIDDEN` | 역할, 지점, 관계 권한 실패 |
 | 404 | `NOT_FOUND` | 리소스 없음 또는 스코프 밖 리소스 |
 | 409 | `CONFLICT` | 출석/권한 변경 또는 계정 유일성 충돌 |
+| 410 | `BUSINESS_RULE_FAILED` | 만료된 초대 등 더 이상 사용할 수 없는 일회성 리소스 |
 | 422 | `BUSINESS_RULE_FAILED` | 정원 초과, self-lockout 등 정책 실패 |
+| 429 | `RATE_LIMITED` | 인증·초대 비밀번호 시도 제한, `Retry-After` 포함 |
 | 500 | `INTERNAL_ERROR` | 서버 오류 |
 
 ## 3. 인증/내 계정
@@ -90,15 +92,19 @@
 | `POST` | `/me/notices/:noticeId/read` | 인증 + self/relation | 예 | 공지 읽음 처리 |
 | `POST` | `/me/notices/bulk-read` | 인증 + self/relation | 예 | 여러 공지 읽음 처리 |
 
-`POST /auth/login`은 `{ "phone": "...", "password": "...", "keepSignedIn": true }` 운영 계정 로그인을 기본 경로로 사용한다. `keepSignedIn`을 보내지 않으면 세션 쿠키는 8시간 유지되고, `true`이면 30일 유지된다. 데모 seed와 파일럿 CSV import 사용자는 서버 저장소에서 PBKDF2 `passwordHash`를 갖지만, 모든 bootstrap/snapshot 응답에서는 `passwordHash`를 제거한다. 파일럿 기본 임시 비밀번호는 `FinalJudoPilot!2026`이며 실제 운영 전 `/app/admin/users` 또는 `POST /admin/users/:userId/password`에서 계정별 값으로 교체한다.
+`POST /auth/login`은 `{ "phone": "...", "password": "...", "keepSignedIn": true }` 운영 계정 로그인을 기본 경로로 사용한다. `keepSignedIn`을 보내지 않으면 세션 쿠키는 8시간 유지되고, `true`이면 30일 유지된다. 데모 seed와 파일럿 CSV import 사용자는 서버 저장소에서 PBKDF2 `passwordHash`를 갖지만, 모든 bootstrap/snapshot 응답에서는 `passwordHash`를 제거한다. 공용 데모 비밀번호는 로컬 seed 호환용일 뿐 신규 가입·초대·재발급에 사용할 수 없다. 파일럿 전에는 `local-demo:password-rotate`로 격리 JSON 복사본의 계정별 비밀번호를 만들고, production preflight가 salt와 무관하게 공용 비밀번호로 검증되는 해시를 차단한다. 실제 운영 반영과 전달 증빙은 별도 승인 절차로 수행한다.
 
 `POST /auth/register`는 이름, 한국 휴대폰 번호, 8자 이상 비밀번호를 받아 UUID 기반 사용자·성인 회원 프로필을 함께 생성한다. 정규화된 휴대폰 번호 범위의 런타임 잠금 안에서 최신 저장소를 다시 확인하므로 같은 번호의 동시 가입은 정확히 한 건만 성공하고 나머지는 `409 CONFLICT`를 반환한다. 병합 후 저장 경계도 휴대폰·이메일 유일성과 사용자·회원 연결을 다시 검증한다.
+
+계정별 15분 내 로그인 비밀번호 실패 5회부터 `429`와 `Retry-After`를 반환한다. 차단된 재시도는 감사에는 남지만 제한 종료 시각을 연장하지 않으며 성공 로그인은 이전 실패 창을 초기화한다. 로그인·로그아웃·초대 수락·비밀번호·역할·계정 상태 변경은 같은 보안 잠금 아래 최신 상태를 다시 읽고 세션 발급·폐기를 저장한다. 무작위 세션 원문은 쿠키에만 한 번 제공하고 저장소에는 SHA-256 해시만 남긴다.
+
+`POST /admin/users/invitations`는 256-bit 무작위 base64url 토큰을 생성하고 원문은 해당 생성 응답의 `invitation.token`과 `invitation.path`에서만 한 번 제공한다. 사용자 저장소에는 SHA-256 해시와 `invitedAt`만 남기며 감사 로그에는 토큰 원문·해시를 모두 남기지 않는다. 초대는 발급 후 7일에 만료된다. 원문 링크를 잃어버린 대기 초대는 `POST /admin/users/:userId/invitation-link`로 다시 발급하며, 총괄 또는 담당 지점 대표만 호출할 수 있다. 재발급 응답에서 새 원문을 한 번만 제공하고 저장된 해시를 교체하므로 이전 링크는 즉시 무효가 된다. bootstrap 사용자 목록에는 관리자에게도 초대 토큰 해시를 노출하지 않는다. `POST /auth/invitations/:token/accept`는 인증·사용자 변경과 공유하는 저장소 잠금 아래 최신 상태에서 timing-safe 해시 비교, 만료, `pending` 상태를 확인한 뒤 비밀번호 설정·초대 단일 사용·기존 세션 폐기·새 세션 발급을 한 번에 저장한다. 미일치 토큰은 사용자 대상을 만들거나 PBKDF2를 실행하지 않는다. 해시가 일치한 유효 초대의 비밀번호 정책 실패는 사용자별 최근 15분 감사 기록으로 제한하며 5회 실패 후 `429 RATE_LIMITED`와 `Retry-After`를 반환한다. 비밀번호 앞뒤 공백은 자동 제거하지 않고 `400 VALIDATION_ERROR`로 거부하며 원문 토큰·비밀번호·IP는 실패 감사에 저장하지 않는다.
 
 `POST /admin/users/:userId/password`는 총괄 어드민 전용이다. 요청 본문은 `{ "reason": "..." }`이고, 선택적으로 `{ "temporaryPassword": "..." }`를 보낼 수 있다. 값을 지정하지 않으면 서버가 1회 표시용 임시 비밀번호를 생성해 응답의 `password.temporaryPassword`로 돌려준다. 저장소와 감사 로그에는 원문 비밀번호를 남기지 않고 랜덤 salt PBKDF2 해시, 발급 시각, 발급 사유, `auth.password_reset.complete` 감사 로그만 남긴다.
 
 사용자 수정·역할 변경에서 코치/대표/총괄 역할 또는 담당 지점을 제거하면 해당 사용자의 수업과 담당 회원을 같은 지점의 다른 코치, 대표, 실행 총괄 순으로 자동 인계한다. 변경 기록에는 인계된 수업·회원 건수를 남긴다. 다른 대표가 없는 지점의 단독 대표는 역할 제거, 지점 해제, 계정 삭제를 `422 BUSINESS_RULE_FAILED`로 차단한다. 학부모 역할을 제거하면 회원 `guardianIds`의 역관계와 계정 `childMemberIds`를 함께 정리한다.
 
-`POST /auth/login`의 `{ "role": "coach" }` 역할 선택 데모 로그인은 개발/테스트 환경용이다. production에서는 기본 `403 FORBIDDEN`으로 차단하고, 파일럿 검증 중 명시적으로 필요할 때만 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`로 허용한다. 세션 쿠키는 `httpOnly`, `sameSite=lax`를 사용하며 기본 8시간, 로그인 상태 유지 선택 시 30일 만료를 적용하고 production에서는 `secure`를 적용한다. production 서버는 `x-user-id` 헤더를 세션 대체 수단으로 인정하지 않는다.
+`POST /auth/login`의 `{ "role": "coach" }` 역할 선택 데모 로그인은 개발/테스트 환경용이다. production에서는 기본 `403 FORBIDDEN`으로 차단하고, 파일럿 검증 중 명시적으로 필요할 때만 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`로 허용한다. 세션 쿠키에는 사용자 ID가 아닌 256-bit 무작위 토큰만 저장하고 서버 저장소에는 SHA-256 토큰 해시·사용자·만료·폐기 상태만 보관한다. 쿠키는 `httpOnly`, `sameSite=lax`를 사용하며 기본 8시간, 로그인 상태 유지 선택 시 30일 만료를 적용하고 production에서는 `secure`를 적용한다. 비밀번호·역할·지점 범위 변경과 계정 삭제 시 기존 세션을 폐기한다. production 서버는 `x-user-id` 헤더를 세션 대체 수단으로 인정하지 않는다.
 
 운영 환경 변수 기준은 `.env.example`, `.env.production.example`, `docs/ENVIRONMENT_MATRIX.md`에 고정한다. `npm run test:env-readiness`는 PostgreSQL runtime store, demo/reset 위험 플래그, 결제 provider, webhook secret, VAPID push 변수가 문서와 release gate에 누락되지 않았는지 검증한다.
 
@@ -137,6 +143,7 @@
 | --- | --- | --- | --- | --- |
 | `GET` | `/admin/users` | `users.manage` | 민감 필터 시 예 | 전체 사용자 목록 |
 | `POST` | `/admin/users/invitations` | `users.manage` 또는 대표 지점 범위 | 예 | 사용자 초대 |
+| `POST` | `/admin/users/:userId/invitation-link` | `users.manage` 또는 대표 지점 범위 | 예 | 대기 초대 링크 재발급 |
 | `PATCH` | `/admin/users/:userId` | `users.manage` | 예 | 사용자 상태/프로필 수정 |
 | `GET` | `/admin/roles` | `rbac.manage` | 아니오 | 역할 목록 |
 | `GET` | `/admin/roles/:roleId/permissions` | `rbac.manage` | 아니오 | 권한 매트릭스 |
@@ -306,7 +313,7 @@
 | `GET` | `/exports/payments` | `exports.create` | 예 | 결제 CSV 내보내기 |
 | `GET` | `/exports/operations` | `exports.create` | 예 | 지점 운영 리포트 CSV 내보내기 |
 
-수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지, 납부일과 만료일이 실제 달력에 존재하는 `YYYY-MM-DD`인지, 만료일이 납부일보다 앞서지 않는지를 생성·수정에 동일하게 검증한다. 수기 등록 상태는 `scheduled`, `paid`, `overdue`, `cancelled`, `refunded`, `expiringSoon`만 허용하며, 환불액 없는 `partially_refunded` 상태를 직접 만들 수 없다. `cancelled` 또는 `refunded` 상태로 생성할 때는 공백이 아닌 `reason`이 필수이고, 서버는 앞뒤 공백을 제거한 사유와 처리 시각을 결제의 `refundReason`/`refundedAt`, 최초 `statusHistory`, `payment.create` 감사 스냅샷에 저장한다. 감사용 `reason`은 Payment 루트 필드에 중복 저장하지 않는다. `refunded` 직접 등록은 결제 금액 전체를 환불액으로 기록하고, 금액이 0원이어도 환불 완료 상태 자체를 환불 이력으로 간주해 직접 수정·삭제를 차단한다. 결제 생성은 UUID 기반 ID와 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. 클라이언트는 `POST /branches/:branchId/payments`에 16~128자의 `Idempotency-Key`를 보내며, 서버는 처리자·지점 범위의 `payment.create` 감사 기록에 키, 생성 스냅샷과 정규화 payload의 SHA-256 확인값을 보관한다. 취소·환불 완료 생성의 확인값에는 정규화한 사유를 포함하고, 일반 상태 생성은 기존 사유 없는 확인값 형식을 유지한다. 같은 키와 같은 payload의 재시도는 새 결제를 만들지 않고 기존 결과와 `Idempotency-Replayed: true` 응답 헤더를 반환한다. 같은 키에 다른 payload를 보내거나 이미 삭제된 원본을 재시도하면 `409 IDEMPOTENCY_CONFLICT`로 차단한다. 헤더가 없는 기존 호출은 하위 호환을 위해 계속 처리한다. `PATCH /payments/:paymentId`는 회원권명, 상태, 금액, 할인, 납부일, 만료일과 필수 `reason`을 정정하고 `payment.update` 변경 기록을 남긴다. 금액·할인·회원권명·날짜만 정정하면 감사 기록만 남기며, 실제 상태가 바뀐 경우에만 `statusHistory`에 `status_changed`를 추가한다. `DELETE /payments/:paymentId`는 필수 `reason`과 취소 시각·사유·상태 이력을 포함한 삭제 전 스냅샷을 `payment.delete` 변경 기록에 남긴 뒤 오등록 건을 제거한다. 두 API는 대표/총괄과 선택 지점 범위를 확인하며, 온라인 결제·정기결제·환불 금액 또는 환불 완료/부분 환불 상태 이력이 있는 기록은 직접 수정/삭제하지 않고 기존 결제 수명주기 API를 사용한다. 환불 금액이 없는 수기 취소 기록은 사유를 남겨 계속 정정하거나 삭제할 수 있다. 동일 결제의 수기 수정·삭제와 온라인 결제 요청은 공통 mutation lock으로 직렬화하고, 같은 결제 레코드의 stale 동시 변경은 자동 병합하지 않는다. 환불/취소 payload는 `reason`을 필수로 받으며, 부분 환불은 실제 환불 금액과 함께 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 변경 기록에도 남긴다.
+수기 결제 기록 payload는 `discountAmount`를 받을 수 있고, 서버는 할인 금액이 결제 금액을 초과하지 않는지, 납부일과 만료일이 실제 달력에 존재하는 `YYYY-MM-DD`인지, 만료일이 납부일보다 앞서지 않는지를 생성·수정에 동일하게 검증한다. 수기 등록 상태는 `scheduled`, `paid`, `overdue`, `cancelled`, `refunded`, `expiringSoon`만 허용하며, 환불액 없는 `partially_refunded` 상태를 직접 만들 수 없다. `cancelled` 또는 `refunded` 상태로 생성할 때는 공백이 아닌 `reason`이 필수이고, 서버는 앞뒤 공백을 제거한 사유와 처리 시각을 결제의 `refundReason`/`refundedAt`, 최초 `statusHistory`, `payment.create` 감사 스냅샷에 저장한다. 감사용 `reason`은 Payment 루트 필드에 중복 저장하지 않는다. `refunded` 직접 등록은 결제 금액 전체를 환불액으로 기록하고, 금액이 0원이어도 환불 완료 상태 자체를 환불 이력으로 간주해 직접 수정·삭제를 차단한다. 결제 생성은 UUID 기반 ID와 `statusHistory`에 최초 상태, 처리자, 처리 시각, 사유를 저장한다. 클라이언트는 `POST /branches/:branchId/payments`에 16~128자의 `Idempotency-Key`를 보내며, 서버는 처리자·지점 범위의 `payment.create` 감사 기록에 키, 생성 스냅샷과 정규화 payload의 SHA-256 확인값을 보관한다. 취소·환불 완료 생성의 확인값에는 정규화한 사유를 포함하고, 일반 상태 생성은 기존 사유 없는 확인값 형식을 유지한다. 같은 키와 같은 payload의 재시도는 새 결제를 만들지 않고 기존 결과와 `Idempotency-Replayed: true` 응답 헤더를 반환한다. 같은 키에 다른 payload를 보내거나 이미 삭제된 원본을 재시도하면 `409 IDEMPOTENCY_CONFLICT`로 차단한다. 헤더가 없는 기존 호출은 하위 호환을 위해 계속 처리한다. `PATCH /payments/:paymentId`는 회원권명, 상태, 금액, 할인, 납부일, 만료일과 필수 `reason`을 정정하고 `payment.update` 변경 기록을 남긴다. 금액·할인·회원권명·날짜만 정정하면 감사 기록만 남기며, 실제 상태가 바뀐 경우에만 `statusHistory`에 `status_changed`를 추가한다. `DELETE /payments/:paymentId`는 필수 `reason`과 취소 시각·사유·상태 이력을 포함한 삭제 전 스냅샷을 `payment.delete` 변경 기록에 남긴 뒤 오등록 건을 제거한다. 두 API는 대표/총괄과 선택 지점 범위를 확인하며, 온라인 결제·정기결제·환불 금액 또는 환불 완료/부분 환불 상태 이력이 있는 기록은 직접 수정/삭제하지 않고 기존 결제 수명주기 API를 사용한다. 환불 금액이 없는 수기 취소 기록은 사유를 남겨 계속 정정하거나 삭제할 수 있다. 동일 결제의 수기 수정·삭제, 온라인 결제 요청, 환불, provider webhook은 `payment-mutation:{paymentId}` 잠금으로 직렬화하고 잠금 안에서 최신 결제와 권한을 다시 확인한다. 같은 결제 레코드의 남은 stale 동시 변경은 자동 병합하지 않고 `409 CONCURRENT_MODIFICATION`으로 반환한다. 환불/취소 payload는 `reason`을 필수로 받으며, 환불 금액은 1원 이상의 안전한 정수 원화만 허용한다. 부분 환불은 실제 환불 금액과 함께 `partially_refunded`, 전액 환불은 `refunded`, 예정/미납/만료 예정 결제 취소는 `cancelled` 상태로 저장한다. 환불/취소는 결제의 `statusHistory`에 상태 변경 이벤트를 추가하고, 전후 상태와 사유는 `payment.refund` 변경 기록에도 남긴다.
 
 같은 키의 동시 처리는 런타임 저장소 공통 잠금으로 직렬화한다. JSON 개발 저장소는 파일시스템 operation lock과 쓰기 직전 최신 파일 병합을 사용하고, PostgreSQL 운영 저장소는 `app_runtime_state` 테이블·상태 키·요청 범위를 조합한 트랜잭션 advisory lock을 사용해 서로 다른 서버 인스턴스도 같은 결제를 동시에 생성하지 못하게 한다. PostgreSQL 잠금 안의 read/write는 같은 DB 연결과 트랜잭션을 사용해 transaction pooling 환경에서도 커밋·롤백과 함께 잠금이 해제된다.
 
@@ -328,7 +335,7 @@
 }
 ```
 
-`POST /api/v1/payments/webhook`은 `x-final-judo-payment-webhook-secret` 헤더를 검증한다. production에서는 `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET`이 없으면 `503 PAYMENT_WEBHOOK_NOT_CONFIGURED`로 차단하고, 개발/테스트에서는 `final-judo-dev-webhook-secret` fallback으로 smoke 테스트를 수행한다. payload는 `{ "providerPaymentId": "...", "providerEventId": "...", "event": "paid" | "failed" | "refunded", "amount": 30000, "receiptId": "...", "receiptUrl": "...", "reason": "..." }` 형태다. provider가 event ID를 body가 아니라 header로 보낼 때는 `x-final-judo-payment-event-id`도 허용한다. 성공 이벤트는 결제 상태를 `paid`로 바꾸고 receipt 메타를 저장하며, 실패 이벤트는 결제 상태를 유지하고 실패 사유를 `onlinePayment.failureReason`에 저장한다. 환불 webhook은 `refundedAmount`, `refundReason`, `statusHistory`와 `payment.webhook` 감사 로그를 남긴다. 이미 처리한 `providerEventId`가 다시 들어오면 상태 이력과 감사 로그를 추가하지 않고 `{ "duplicate": true }`로 idempotent 응답한다.
+`POST /api/v1/payments/webhook`은 `x-final-judo-payment-webhook-secret` 헤더를 검증한다. production에서는 `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET`이 없으면 `503 PAYMENT_WEBHOOK_NOT_CONFIGURED`로 차단하고, 개발/테스트에서는 `final-judo-dev-webhook-secret` fallback으로 smoke 테스트를 수행한다. payload는 `{ "providerPaymentId": "...", "providerEventId": "...", "event": "paid" | "failed" | "refunded", "occurredAt": "2026-07-14T04:00:00.000Z", "amount": 30000, "receiptId": "...", "receiptUrl": "...", "reason": "..." }` 형태다. provider가 event ID를 body가 아니라 header로 보낼 때는 `x-final-judo-payment-event-id`도 허용한다. 첫 이벤트 이후의 후속 이벤트는 유효한 `occurredAt`이 필수이며, 이미 처리한 최신 webhook보다 과거이면 `409 OUT_OF_ORDER`로 차단한다. 전액 환불·취소 상태와 환불 이력이 있는 결제는 `paid` 또는 `failed`로 역전할 수 없고 `409 INVALID_TRANSITION`을 반환한다. 성공 이벤트는 결제 상태를 `paid`로 바꾸고 receipt 메타를 저장하며, 실패 이벤트는 결제 상태를 유지하고 실패 사유를 `onlinePayment.failureReason`에 저장한다. 환불 webhook은 안전한 정수 원화 금액만 허용하고 `refundedAmount`, `refundReason`, `statusHistory`와 `payment.webhook` 감사 로그를 남긴다. 이미 처리한 `providerEventId`가 다시 들어오면 상태 이력과 감사 로그를 추가하지 않고 `{ "duplicate": true }`로 idempotent 응답한다.
 
 정기결제 약정은 완료/납부 예정/미납/만료 예정/부분 환불 결제에서 대표/총괄이 생성한다. `POST /api/v1/payments/{paymentId}/recurring-agreement`는 `{ "nextBillingDate": "2026-07-16", "billingDayOfMonth": 16 }`를 선택적으로 받고, 없으면 회원권 `expiresAt` 다음 날과 1-28일 범위의 청구일을 자동 계산한다. mock provider에서는 즉시 `active`, 외부 provider에서는 `pending` 상태로 저장한다. 해지는 `DELETE /api/v1/payments/{paymentId}/recurring-agreement`에 `{ "reason": "..." }`를 보내며 사유가 없으면 `400 VALIDATION_ERROR`로 차단한다. 생성/해지는 `recurringAgreement`, `statusHistory`, `payment.recurring_agreement.create` 또는 `payment.recurring_agreement.cancel` 감사 로그를 남긴다.
 
@@ -373,6 +380,7 @@
 | `POST` | `/notifications/subscriptions` | 인증 | 예 | 현재 브라우저 PushSubscription 저장. 응답의 활성 구독 수는 역할별 스코프만 반환 |
 | `DELETE` | `/notifications/subscriptions` | 인증 | 예 | 현재 사용자 PushSubscription 비활성화. 회원/학부모는 항상 켜짐 정책으로 비활성화하지 않고 `disabledAt: null`과 `enforcedAlwaysOn: true`를 반환하며 활성 구독 수는 본인 범위만 반환 |
 | `POST` | `/branches/:branchId/notices/:noticeId/push` | `notices.publish` (owner/admin/coach 담당 범위) | 예 | 공지 대상자 구독에 서버 푸시 발송 |
+| `GET` | `/internal/notification-outbox` | `Authorization: Bearer CRON_SECRET` | 아니오 | 만료 lease 복구와 대기/재시도 푸시 작업 처리. 일반 사용자 세션으로 호출 불가 |
 
 공지 대상:
 
@@ -389,7 +397,9 @@
 
 `important`는 운영자가 즉시 확인해야 하는 공지를 표시하는 선택값이며, UI와 푸시 제목에 중요 상태를 노출한다. `audience`는 역할 대상(`all`, `member`, `guardian`, `coach`, `owner`, `admin`)을 뜻한다. `targetClassIds`가 있으면 해당 반 수강생/보호자/담당 코치 범위로 좁히고, `targetMemberIds`가 있으면 지정 회원 본인/보호자/담당 코치 범위로 좁힌다. 둘 다 없으면 대표/총괄은 선택 지점 전체 역할 대상 공지로 발행하고, 코치는 담당 수업/담당 회원 범위의 회원·학부모 공지로 좁혀 발행한다. 서버는 대상 반/회원이 공지 지점에 속하는지 검증하고, 코치가 담당 범위 밖 반/회원을 지정하면 거부한다. 공지 수정에서 대표/총괄은 역할 `audience`를 바꿀 수 있지만 코치는 기존 audience 집합을 유지해야 한다. 순서와 중복만 다른 같은 집합은 변경으로 보지 않는다. 반·개인 대상은 생성 후 수정하지 않으며 PATCH에 `targetClassIds` 또는 `targetMemberIds`를 보내면 `400 VALIDATION_ERROR`를 반환한다. 제목·본문·중요 여부·audience 중 하나가 실제로 바뀌면 `readByUserIds`를 초기화해 대상자의 알림함에 다시 미확인으로 표시하고, 동일 내용 재저장은 읽음 상태를 보존한다. 공지 수정과 단일/일괄 읽음 쓰기는 같은 저장소 락으로 직렬화해 동시 요청의 마지막 작업과 최종 읽음 상태를 일치시킨다. 잘못된 title/body/audience/important 타입은 `400`으로 거부한다. `notice.update` 감사 로그는 본문 원문을 저장하지 않고 제목, 본문 변경 여부와 길이, 중요 여부, audience, 읽음 수와 초기화 여부만 기록한다. 수정 요청 자체는 휴대폰 푸시를 자동 재발송하지 않으며 재발송은 별도 push API를 사용한다. `createdByUserId`는 작성자가 회원/학부모 대상 공지를 발행한 뒤에도 자기 공지 목록에서 계속 볼 수 있게 유지하는 메타데이터다. 학부모/회원 읽음 처리는 관계가 맞는 공지만 허용한다. `POST /me/notices/bulk-read`는 `{ "noticeIds": ["notice-1"] }`를 받아 최대 50건까지 현재 사용자가 읽을 수 있는 공지만 일괄 처리하고, 포함된 공지가 없거나 스코프 밖이면 실패한다.
 
-앱 알림함과 휴대폰 푸시는 같은 대상 산정 결과를 사용한다. 공지는 작성/발행되는 즉시 대상 회원/학부모 알림함에 미확인으로 표시되고, 서버 푸시 환경과 대상 기기 구독이 준비된 경우 같은 요청에서 휴대폰 푸시도 자동 발송한다. `/branches/:branchId/notices/:noticeId/push`는 발행 이후 같은 대상에게 휴대폰 푸시를 다시 보내는 수동 재발송 동작이며, 생성/재발송 응답은 모두 `recipientCount`로 알림함 대상 수를 함께 돌려준다. PWA 서버 푸시는 `FINAL_JUDO_VAPID_PUBLIC_KEY`, `FINAL_JUDO_VAPID_PRIVATE_KEY`, `FINAL_JUDO_VAPID_SUBJECT`를 사용한다. 키가 없거나 대상 기기 구독이 없으면 `/notifications/push-config`와 공지 생성/재발송 응답은 `configured: false` 또는 `attempted: 0` 상태를 반환하고, 앱/API는 “알림함에는 표시됩니다. 휴대폰 푸시는 기기 알림 연결 후 발송할 수 있습니다.”처럼 알림함 표시와 휴대폰 푸시 미발송을 분리해서 안내한다. 구독 저장소는 endpoint, `p256dh`, `auth`, 사용자, 지점 범위, 마지막 발송/실패/비활성화 시각을 보관한다. 활성 구독 수는 전체 시스템 수를 공개하지 않고 대표/총괄은 담당 지점 범위, 코치/회원/학부모는 본인 구독 범위로만 계산한다. 회원/학부모는 알림 설정을 앱 내부에서 항상 켜짐으로 취급하므로 설정 카드와 해지 액션을 노출하지 않으며, 구독 해지 API가 직접 호출되어도 기존 구독을 활성 상태로 유지하고 `notification.unsubscribe` 감사 로그에 `family_notification_always_on` 정책 차단으로 남긴다. 감사 로그에는 원문 endpoint/key 전체를 남기지 않고 endpoint hint, 지점 범위, 발송 건수, 실패/비활성화 건수만 남긴다. 만료되거나 사라진 push endpoint가 404/410을 반환하면 서버가 해당 구독을 비활성화한다.
+앱 알림함과 휴대폰 푸시는 같은 대상 산정 결과를 사용한다. 공지는 작성/발행되는 즉시 대상 회원/학부모 알림함에 미확인으로 표시된다. 서버는 공지, `dispatchState: requested` 감사 기록, 구독별 durable outbox 작업을 먼저 한 번에 저장한 뒤 외부 푸시를 호출한다. 각 작업은 lease, revision, 지수 backoff, 최대 5회 시도, `sent`/`disabled`/`dead`/`cancelled` 상태를 가지며 요청 중 전송에 실패해도 cron worker가 재처리한다. 발송 직전 현재 공지 내용·대상·사용자·지점·구독 활성 상태와 revision을 다시 확인한다. 공지 수정·삭제는 대기 작업을 취소하고 임대된 작업에는 취소 요청을 기록한다. 제공자 호출 전이면 발송을 중단하지만 호출이 시작된 뒤에는 취소를 보장할 수 없어 `deliveryMayHaveOccurred` 감사 상태로 남긴다. 제공자 호출은 15초 제한을 두며 시간 초과는 전송 결과 불확실 상태로 재시도한다. 늦게 도착한 이전 revision 결과는 현재 작업 상태를 덮어쓰지 않고 거부 감사로 남긴다. 각 시도는 endpoint/key 없이 별도 `notification.dispatch` 감사 행으로 남긴다. Web Push는 제공자 전송 성공 직후 저장 장애에서 exactly-once를 보장할 수 없으므로 at-least-once이며, 재시도는 같은 `final-judo-notice-{noticeId}` tag를 사용해 표시 중복을 줄인다. `/branches/:branchId/notices/:noticeId/push`는 수동 재발송이며 16~128자 `Idempotency-Key`를 권장한다. 서버는 키 원문 대신 digest만 감사 기록에 남기고 같은 키 재시도는 기존 요청 결과를 재사용한다. 헤더가 없는 기존 호출은 5분 호환 구간으로 중복 요청을 합친다. 생성/재발송 응답은 `recipientCount`와 outbox 상태를 반환한다. PWA 서버 푸시는 `FINAL_JUDO_VAPID_PUBLIC_KEY`, `FINAL_JUDO_VAPID_PRIVATE_KEY`, `FINAL_JUDO_VAPID_SUBJECT`를 사용한다. 키가 없거나 대상 기기 구독이 없으면 `configured: false` 또는 `attempted: 0`으로 알림함 표시와 휴대폰 푸시 미발송을 분리 안내한다. 구독 저장소는 endpoint, `p256dh`, `auth`, 사용자, 지점 범위, 마지막 발송/실패/비활성화 시각을 보관한다. 회원/학부모 알림은 항상 켜짐 정책을 유지한다. 감사 로그에는 원문 endpoint/key를 남기지 않으며 404/410 endpoint는 비활성화한다. 기본 Vercel cron은 플랜 호환을 위해 일 1회이고, 더 짧은 재시도 주기는 배포 시점 플랜 또는 외부 스케줄러 확인 후 설정한다.
+
+공지 생성·수정·삭제·읽음 처리와 outbox lease·취소·settlement는 같은 `notice-state` 잠금 도메인에서 직렬화한다. 따라서 공지 변경이 저장되는 동안 worker가 이전 내용으로 새 provider 호출을 시작할 수 없으며, 이미 시작된 호출은 앞서 설명한 전송 가능성 감사 경계로 처리한다.
 
 ## 11. 감사 로그/CSV
 
@@ -412,6 +422,7 @@
 | `apiClient.requestPasswordReset` | `POST /api/v1/auth/password-reset` |
 | `apiClient.acceptInvitation` | `POST /api/v1/auth/invitations/:token/accept` |
 | `apiClient.createInvitation` | `POST /api/v1/admin/users/invitations` |
+| `apiClient.reissueInvitationLink` | `POST /api/v1/admin/users/:userId/invitation-link` |
 | `apiClient.resetUserPassword` | `POST /api/v1/admin/users/:userId/password` |
 | `apiClient.updatePilotReadiness` | `PATCH /api/v1/admin/pilot-readiness` |
 | `apiClient.createPilotIncident` | `POST /api/v1/admin/pilot-incidents` |

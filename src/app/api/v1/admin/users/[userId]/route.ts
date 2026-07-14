@@ -4,10 +4,12 @@ import { userRoles } from "@/lib/domain";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getNoticeReadByUserIds } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
+import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
 import { createRuntimeId } from "@/server/runtime-id";
+import { isActiveAdmin } from "@/server/user-administration";
 import {
   findOwnerCoverageBlockers,
   reassignUserOperationalLinks,
@@ -170,25 +172,44 @@ export async function PATCH(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const initialDb = await readServerDb();
+  const { user: initialUser, response } = requireSession(request, initialDb);
 
-  if (!user) {
+  if (!initialUser) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (initialUser.role !== "admin") {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자를 수정할 수 있습니다.");
   }
 
-  const selectedScope = requireSelectedBranchScope(request, user, db);
+  const initialScope = requireSelectedBranchScope(request, initialUser, initialDb);
 
-  if (selectedScope.response) {
-    return selectedScope.response;
+  if (initialScope.response) {
+    return initialScope.response;
   }
 
   const body = (await request.json().catch(() => null)) as UserUpdateBody | null;
-  const reason = cleanText(body?.reason) || "-";
+
+  return withServerDbLock(authSecurityLockKey, async () => {
+    const db = await readServerDb();
+    const { user, response: freshSessionResponse } = requireSession(request, db);
+
+    if (!user) {
+      return freshSessionResponse;
+    }
+
+    if (user.role !== "admin") {
+      return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자를 수정할 수 있습니다.");
+    }
+
+    const selectedScope = requireSelectedBranchScope(request, user, db);
+
+    if (selectedScope.response) {
+      return selectedScope.response;
+    }
+
+    const reason = cleanText(body?.reason) || "-";
 
   const targetUser = db.users.find((candidate) => candidate.id === userId);
 
@@ -214,7 +235,7 @@ export async function PATCH(
   const nextTitle = body && "title" in body ? cleanText(body.title) : targetUser.title;
   const nextEmail = body && "email" in body ? cleanEmail(body.email) : targetUser.email?.toLowerCase() ?? "";
   const nextPhone = body && "phone" in body ? normalizePhoneNumber(cleanText(body.phone)) : normalizePhoneNumber(targetUser.phone ?? "");
-  const nextPassword = body && "password" in body ? cleanText(body.password) : "";
+  const nextPassword = body && "password" in body ? readUnmodifiedPassword(body.password) : "";
 
   if (!nextName || !nextTitle || !nextPhone) {
     return jsonError(400, "VALIDATION_ERROR", "이름, 휴대폰 번호, 설명은 비워둘 수 없습니다.");
@@ -347,7 +368,7 @@ export async function PATCH(
     );
   }
 
-  const adminCount = nextUsers.filter((candidate) => candidate.role === "admin").length;
+  const adminCount = nextUsers.filter(isActiveAdmin).length;
 
   if (adminCount < 1) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "최소 1명의 총괄 어드민이 필요합니다.");
@@ -386,15 +407,22 @@ export async function PATCH(
     },
     message: "사용자 정보를 수정했습니다.",
   });
-  const nextDb = await writeServerDb({
+  const updatedDb = {
     ...db,
     classes: operationalLinks.classes,
     members: operationalLinks.members,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  };
+  const securityContextChanged = Boolean(nextPassword) ||
+    nextRole !== targetUser.role ||
+    nextBranchIds.join("\u0000") !== targetUser.branchIds.join("\u0000");
+  const nextDb = await writeServerDb(
+    securityContextChanged ? revokeUserAuthSessions(updatedDb, targetUser.id) : updatedDb,
+  );
 
-  return jsonOk(createBootstrapPayload(nextDb, createSafeActor(nextDb, user), selectedScope.selectedBranchId));
+    return jsonOk(createBootstrapPayload(nextDb, createSafeActor(nextDb, user), selectedScope.selectedBranchId));
+  });
 }
 
 export async function DELETE(
@@ -402,21 +430,21 @@ export async function DELETE(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const initialDb = await readServerDb();
+  const { user: initialUser, response } = requireSession(request, initialDb);
 
-  if (!user) {
+  if (!initialUser) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (initialUser.role !== "admin") {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자를 삭제할 수 있습니다.");
   }
 
-  const selectedScope = requireSelectedBranchScope(request, user, db);
+  const initialScope = requireSelectedBranchScope(request, initialUser, initialDb);
 
-  if (selectedScope.response) {
-    return selectedScope.response;
+  if (initialScope.response) {
+    return initialScope.response;
   }
 
   const body = (await request.json().catch(() => null)) as UserDeleteBody | null;
@@ -425,6 +453,24 @@ export async function DELETE(
   if (!reason) {
     return jsonError(400, "VALIDATION_ERROR", "사용자 삭제 사유가 필요합니다.");
   }
+
+  return withServerDbLock(authSecurityLockKey, async () => {
+    const db = await readServerDb();
+    const { user, response: freshSessionResponse } = requireSession(request, db);
+
+    if (!user) {
+      return freshSessionResponse;
+    }
+
+    if (user.role !== "admin") {
+      return jsonError(403, "FORBIDDEN", "총괄 어드민만 사용자를 삭제할 수 있습니다.");
+    }
+
+    const selectedScope = requireSelectedBranchScope(request, user, db);
+
+    if (selectedScope.response) {
+      return selectedScope.response;
+    }
 
   const targetUser = db.users.find((candidate) => candidate.id === userId);
 
@@ -440,7 +486,7 @@ export async function DELETE(
     return jsonError(422, "BUSINESS_RULE_FAILED", "현재 로그인한 계정은 삭제할 수 없습니다.");
   }
 
-  if (targetUser.role === "admin" && db.users.filter((candidate) => candidate.role === "admin").length <= 1) {
+  if (isActiveAdmin(targetUser) && db.users.filter(isActiveAdmin).length <= 1) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "최소 1명의 총괄 어드민이 필요합니다.");
   }
 
@@ -501,9 +547,11 @@ export async function DELETE(
       ...notice,
       readByUserIds: getNoticeReadByUserIds(notice).filter((readByUserId) => readByUserId !== targetUser.id),
     })),
+    authSessions: db.authSessions.filter((session) => session.userId !== targetUser.id),
     pushSubscriptions: db.pushSubscriptions.filter((subscription) => subscription.userId !== targetUser.id),
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
+    return jsonOk(createBootstrapPayload(nextDb, createSafeActor(nextDb, user), selectedScope.selectedBranchId));
+  });
 }

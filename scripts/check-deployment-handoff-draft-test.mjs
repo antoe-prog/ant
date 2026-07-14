@@ -34,6 +34,7 @@ const secretEnv = {
   FINAL_JUDO_VAPID_PUBLIC_KEY: "B".repeat(88),
   FINAL_JUDO_VAPID_PRIVATE_KEY: "C".repeat(88),
   FINAL_JUDO_VAPID_SUBJECT: "mailto:ops@finaljudo.kr",
+  CRON_SECRET: "cron-secret-for-test-only",
 };
 
 const draftReport = await runScript(
@@ -67,12 +68,14 @@ assert.deepEqual(draftReport.missingEnvironmentVariables, []);
 assert(draftReport.configuredSecrets.includes("FINAL_JUDO_POSTGRES_URL"));
 assert(draftReport.configuredSecrets.includes("FINAL_JUDO_PAYMENT_WEBHOOK_SECRET"));
 assert(draftReport.configuredSecrets.includes("FINAL_JUDO_VAPID_PRIVATE_KEY"));
+assert(draftReport.configuredSecrets.includes("CRON_SECRET"));
 
 const draft = JSON.parse(await readFile(draftPath, "utf8"));
 const draftSource = JSON.stringify(draft);
 assert(!draftSource.includes("super-secret"), "draft must not write raw PostgreSQL passwords");
 assert(!draftSource.includes("provider-webhook-secret"), "draft must not write raw webhook secrets");
 assert(!draftSource.includes("C".repeat(88)), "draft must not write raw VAPID private keys");
+assert(!draftSource.includes("cron-secret-for-test-only"), "draft must not write raw cron secrets");
 
 const postgresUrlEntry = draft.environmentVariables.find((entry) => entry.key === "FINAL_JUDO_POSTGRES_URL");
 assert.equal(postgresUrlEntry.secretName, "FINAL_JUDO_POSTGRES_URL");

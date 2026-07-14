@@ -52,6 +52,19 @@ export const smokeOwnershipHeader = "x-final-judo-smoke-ownership-token";
 export const smokeDataDirectoryPrefix = "final-judo-release-smoke-";
 export const smokeDataOwnershipMarker = ".final-judo-smoke-owner.json";
 export const smokeDataFileName = "final-judo-db.json";
+const smokeRolePasswordEnvKeys = [
+  "SMOKE_ADMIN_PASSWORD",
+  "SMOKE_OWNER_PASSWORD",
+  "SMOKE_COACH_PASSWORD",
+  "SMOKE_GUARDIAN_PASSWORD",
+  "SMOKE_MEMBER_PASSWORD",
+];
+
+function issueSmokeRolePasswords(env) {
+  for (const envKey of smokeRolePasswordEnvKeys) {
+    env[envKey] = `FJ-Smoke-${randomBytes(18).toString("base64url")}`;
+  }
+}
 
 function assertStrongSmokeOwnershipToken(token, label) {
   if (!/^[a-f0-9]{64}$/.test(token ?? "")) {
@@ -191,6 +204,7 @@ export async function prepareStandaloneSmokeEnvironment({
   }
 
   env.SMOKE_BASE_URL = baseUrl;
+  issueSmokeRolePasswords(env);
 
   if (env.FINAL_JUDO_DATA_DIR?.trim()) {
     if (env.FINAL_JUDO_DB_DRIVER !== "json") {
@@ -270,6 +284,8 @@ export async function createReleaseSmokeEnvironment({ baseUrl = null, env = proc
   const ownershipToken = createSmokeOwnershipToken();
   const dataDir = await mkdtemp(path.join(tmpdir(), smokeDataDirectoryPrefix));
   await writeSmokeDataOwnershipMarker(dataDir, ownershipToken);
+  const smokeEnv = { ...env };
+  issueSmokeRolePasswords(smokeEnv);
 
   return {
     baseUrl: resolvedBaseUrl,
@@ -277,7 +293,7 @@ export async function createReleaseSmokeEnvironment({ baseUrl = null, env = proc
     port: Number(target.port),
     dataDir,
     env: {
-      ...env,
+      ...smokeEnv,
       SMOKE_BASE_URL: resolvedBaseUrl,
       FINAL_JUDO_DB_DRIVER: "json",
       FINAL_JUDO_DATA_DIR: dataDir,

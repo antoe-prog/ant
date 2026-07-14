@@ -75,6 +75,7 @@ const environmentVariables = [
   ["FINAL_JUDO_VAPID_PUBLIC_KEY", "config", "configured-in-platform"],
   ["FINAL_JUDO_VAPID_PRIVATE_KEY", "secret", null],
   ["FINAL_JUDO_VAPID_SUBJECT", "config", "mailto:ops@finaljudo.kr"],
+  ["CRON_SECRET", "secret", null],
 ].map(([key, classification, expectedValue]) => ({
   key,
   classification,
