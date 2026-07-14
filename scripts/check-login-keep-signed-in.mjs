@@ -12,7 +12,6 @@ import {
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.LOGIN_KEEP_SIGNED_IN_OUT_DIR ?? ".data/mobile-builds/ios/login-keep-signed-in-20260701";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const defaultPassword = "FinalJudoPilot!2026";
 const memberPhone = "01093645827";
 const sessionCookieName = "final-judo-session";
 const standardSessionSeconds = 60 * 60 * 8;
@@ -91,11 +90,19 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const serverUrl = new URL(baseUrl);
+  const managedPort = serverUrl.port || "3000";
+  const managedHostname = serverUrl.hostname === "localhost" ? "127.0.0.1" : serverUrl.hostname;
+
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", managedHostname, "--port", managedPort],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.LOGIN_KEEP_SIGNED_IN_SERVER_LOGS === "1") {
@@ -108,7 +115,12 @@ async function ensureLocalAppServer() {
     }
   });
 
-  await waitForManagedAppServer();
+  try {
+    await waitForManagedAppServer();
+  } catch (error) {
+    await stopManagedAppServer();
+    throw error;
+  }
 }
 
 async function stopManagedAppServer() {
@@ -189,7 +201,7 @@ function assertApproximateLifetime(actualSeconds, expectedSeconds, label) {
   );
 }
 
-async function performLogin(browser, { keepSignedIn, screenshotPath, accountSwitchScreenshotPath }) {
+async function performLogin(browser, { keepSignedIn, password, screenshotPath, accountSwitchScreenshotPath }) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -254,8 +266,18 @@ async function performLogin(browser, { keepSignedIn, screenshotPath, accountSwit
     }
 
     await page.locator('input[type="tel"]').fill(memberPhone);
-    await page.locator('input[type="password"]').fill(defaultPassword);
+    await page.locator('input[type="password"]').fill(password);
+    const loginResponsePromise = page.waitForResponse(
+      (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/auth/login",
+    );
     await page.locator('button[type="submit"]').click();
+    const loginResponse = await loginResponsePromise;
+    const loginPayload = await loginResponse.json().catch(() => ({}));
+    assert.equal(
+      loginResponse.status(),
+      200,
+      `login API must accept the isolated fixture account; received ${loginResponse.status()} ${loginPayload?.error?.code ?? "UNKNOWN"}`,
+    );
     await page.waitForURL((url) => url.pathname === "/app/dashboard", { timeout: 15000 });
 
     const cookies = await context.cookies(baseUrl);
@@ -367,6 +389,8 @@ const chromeExecutable = findChromeExecutable();
 assert(chromeExecutable, "Chrome or Chromium executable is required for login keep-signed-in proof");
 
 await ensureLocalAppServer();
+const memberPassword = process.env.SMOKE_MEMBER_PASSWORD;
+assert(memberPassword, "login keep-signed-in check requires the helper-issued member password");
 const resetBefore = await resetDevData("before");
 const browser = await chromium.launch({
   executablePath: chromeExecutable,
@@ -377,6 +401,7 @@ try {
   const remembered = await performLogin(browser, {
     accountSwitchScreenshotPath: join(outDir, "login-account-switch-remembered-mobile.png"),
     keepSignedIn: true,
+    password: memberPassword,
     screenshotPath: join(outDir, "login-keep-signed-in-mobile.png"),
   });
   const rememberedSessionCookieValue = remembered.sessionCookieValue;
@@ -395,6 +420,7 @@ try {
   const standard = await performLogin(browser, {
     accountSwitchScreenshotPath: join(outDir, "login-account-switch-standard-mobile.png"),
     keepSignedIn: false,
+    password: memberPassword,
     screenshotPath: join(outDir, "login-standard-session-mobile.png"),
   });
   delete standard.sessionCookieValue;

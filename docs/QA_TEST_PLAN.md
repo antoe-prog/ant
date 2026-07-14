@@ -7,6 +7,10 @@
 ## 1. 통과 기준
 
 - `npm run lint` 통과
+- `npm run test:production-runtime-environment` 및 `npm run test:postgres-runtime-identity` 통과. Vercel production이 PostgreSQL driver·연결 정보·설치 식별자와 고정 상태 key `mvp`·테이블 `app_runtime_state` 없이 빌드 또는 서버 실행되지 않고, 다른 설치 식별자·빈 DB에서는 DDL/시드 생성 없이 차단되며 출력에 비밀정보가 포함되지 않는지 확인
+- `npm run test:live-production-runtime` 통과. 운영 사전 점검이 읽기 전용 트랜잭션으로 revision·설치 식별자·DB identity·최소 데이터 수·관리자 자격증명 형태를 확인하고 비밀정보를 출력하거나 상태를 변경하지 않는지 검증
+- `npm run test:production-recovery-manifest` 통과. 복구 manifest가 승인된 배포·소스·빌드·Neon·런타임·스모크 식별자만 기록하고 연결 문자열·자격증명·토큰을 포함하지 않는지 검증
+- `npm run test:admin-credential-recovery` 통과. 관리자 자격증명 복구가 기본 검증 전용이며 명시적 승인, 기대 revision, 설치 식별자, advisory lock을 갖춘 경우에만 비밀번호 변경·세션 폐기·감사 기록을 하나의 트랜잭션으로 수행하는지 검증
 - `npm run build` 통과
 - `npm run lint`와 `npm run build`가 `node_modules/.bin` shim 없이도 직접 package entrypoint로 실행 가능
 - Next production build trace에서 `.data` 런타임/증빙 산출물을 제외
@@ -27,7 +31,7 @@
 - `npm run test:api-auth-order` 통과. 보호 API route handler의 `request.json()` 본문 읽기가 `requireSession()` 이후에만 실행되고, 공개 body route allowlist가 로그인/비밀번호 재설정/초대 수락/결제 webhook으로 유지되는지 확인
 - `npm run test:login-keep-signed-in` 통과. 390px 로그인 화면에서 로그인 상태 유지 선택지가 44px 이상 터치 영역으로 보이고, 선택 시 30일/해제 시 8시간 세션 쿠키가 설정되는지 확인. 로그인된 상태 또는 HttpOnly 쿠키만 남은 앱 재시작 상태로 `/login`에 진입했을 때 `로그아웃하고 계정 전환` 액션도 44px 터치 높이를 유지해야 한다.
 - `npm run test:auth-session-security` 통과. 사용자 ID를 세션 쿠키로 직접 넣어도 인증되지 않고, 무작위 토큰 원문은 저장소에 남지 않으며 만료·로그아웃·사용자 전체 세션 폐기가 적용되는지 확인
-- `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
+- `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 초대 수락 뒤 휴대폰·동일 비밀번호 로그인과 로그아웃 후 재로그인, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
 - `npm run test:local-demo-password-rotation` 통과. 공용 데모 비밀번호의 고정/임의 salt 해시를 모두 탐지하고, 명시적 격리 JSON 확인 없이는 쓰지 않으며 원본·PostgreSQL·공개 산출물에 비밀번호를 남기지 않는지 확인
 - `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 통과. 구독별 멱등 enqueue, lease/revision 경쟁, 지수 backoff, 최대 시도, 404/410 비활성화, 수동 재발송 멱등 digest, 공지 변경/삭제 취소 경계, provider timeout·불확실 전송·stale settlement 감사, CRON_SECRET 인증과 endpoint/key 없는 시도 감사 기록을 확인
 - `npm run test:phone-signup-login-flow` 통과. 390px 휴대폰 회원가입에서 입력한 비밀번호로 가입 완료 안내 로그인 화면에 진입하고, 같은 비밀번호로 회원 대시보드까지 이동하며 잘못된 비밀번호 문구가 먼저 노출되지 않는지 확인. 브라우저 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-20260705/summary.json`, iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-ios-20260705/summary.json`에 보관

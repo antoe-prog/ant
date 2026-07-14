@@ -29,6 +29,11 @@ const serverManagedChecks = new Set([
 ]);
 const checks = [
   ["run", "lint"],
+  ["run", "test:production-runtime-environment"],
+  ["run", "test:postgres-runtime-identity"],
+  ["run", "test:live-production-runtime"],
+  ["run", "test:production-recovery-manifest"],
+  ["run", "test:admin-credential-recovery"],
   ["run", "build"],
   ["audit", "--audit-level=moderate"],
   ["run", "test:next-build-readiness"],

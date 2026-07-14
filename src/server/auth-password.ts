@@ -6,8 +6,10 @@ import {
 
 const algorithm = "pbkdf2_sha256";
 const defaultIterations = 120_000;
+const maximumSupportedIterations = 1_000_000;
 const keyLength = 32;
 const digest = "sha256";
+const encodedHashPattern = new RegExp(`^[a-f0-9]{${keyLength * 2}}$`, "i");
 
 export const defaultPilotPassword = "FinalJudoPilot!2026";
 export { defaultPilotPasswordHash, isLegacyDefaultPilotPasswordHash };
@@ -48,12 +50,19 @@ export function verifyPassword(password: string, storedHash: string | undefined)
   const [storedAlgorithm, iterationsText, salt, hash] = storedHash.split("$");
   const iterations = Number(iterationsText);
 
-  if (storedAlgorithm !== algorithm || !Number.isInteger(iterations) || iterations <= 0 || !salt || !hash) {
+  if (
+    storedAlgorithm !== algorithm ||
+    !Number.isInteger(iterations) ||
+    iterations <= 0 ||
+    iterations > maximumSupportedIterations ||
+    !salt ||
+    !encodedHashPattern.test(hash)
+  ) {
     return false;
   }
 
   const expected = Buffer.from(hash, "hex");
-  const actual = pbkdf2Sync(password, salt, iterations, expected.length, digest);
+  const actual = pbkdf2Sync(password, salt, iterations, keyLength, digest);
 
   if (actual.length !== expected.length) {
     return false;

@@ -113,6 +113,11 @@ PostgreSQL 런타임 저장소는 `app_runtime_state` JSONB 테이블에 같은 
 
 ```bash
 npm run lint
+npm run test:production-runtime-environment
+npm run test:postgres-runtime-identity
+npm run test:live-production-runtime
+npm run test:production-recovery-manifest
+npm run test:admin-credential-recovery
 npm run build
 npm audit --audit-level=moderate
 npm run test:next-build-readiness
@@ -257,6 +262,7 @@ npm run test:release
 `test:auth-production-guard`는 production 환경에서 데모 역할 로그인이 기본 차단되고 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`일 때만 명시 허용되는 정책, session cookie의 `httpOnly`/`secure`/기본 8시간/로그인 상태 유지 30일 만료 속성, production `x-user-id` 헤더 인증 우회 차단을 확인합니다. `test:auth-session-security`는 사용자 ID 쿠키 위조 차단, 불투명 세션 토큰의 해시 저장, 만료와 폐기를 검증합니다. `test:invitation-token-security`는 256-bit 초대 토큰의 해시 저장·만료·단일 사용, 비밀번호 시도 제한, 권한과 지점 범위를 확인하는 링크 재발급 및 이전 링크 무효화를 검증합니다. `test:local-demo-password-rotation`은 격리된 로컬 JSON 복사본에서 공용 데모 비밀번호를 계정별 값으로 교체하되 원본·공개 산출물·PostgreSQL을 수정하지 않는지 검사합니다.
 `test:dev-reset-guard`는 production 환경에서 `/api/v1/dev/reset`이 기본 차단되고 `FINAL_JUDO_ENABLE_DEV_RESET=1`로 열더라도 helper가 발급한 실행별 소유권 토큰, run-owned 임시 JSON 디렉터리, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야만 초기화되는 정책을 확인합니다. 공유 파일, PostgreSQL, 심볼릭 링크 대상은 초기화하지 않습니다.
 `test:env-readiness`는 `.env.example`, `.env.production.example`, `docs/ENVIRONMENT_MATRIX.md`가 개발/운영 저장소, 위험 플래그, PostgreSQL, 결제, 푸시 필수 환경 변수를 안전한 기본값과 placeholder로 안내하는지 검증합니다.
+`test:production-runtime-environment`와 `test:postgres-runtime-identity`는 Vercel production 빌드와 서버 런타임이 영속 PostgreSQL 설정 없이 JSON 시드로 시작하지 못하게 차단하고, 운영 상태 key `mvp`·테이블 `app_runtime_state`·기존 상태 행의 `FINAL_JUDO_INSTALLATION_ID`가 일치하지 않으면 DDL/시드 삽입 없이 실패하는지 검증합니다. 로컬/preview 빌드는 기존 JSON 격리 테스트를 유지하며 `FINAL_JUDO_REQUIRE_PERSISTENT_RUNTIME=1 npm run prebuild`로 운영 정책을 명시적으로 재현할 수 있습니다. 실제 운영 데이터의 revision·최소 개수·식별자·공용 기본 비밀번호 제거는 `npm run production:runtime:preflight`로 읽기 전용 확인하며, 백업·관리자 복구·배포 복구 manifest 절차는 `docs/PRODUCTION_RECOVERY_RUNBOOK.md`를 따릅니다.
 `test:deployment-handoff-draft`는 운영 env와 preflight 리포트에서 `.data/deployment-handoff.json` 초안을 만들되 PostgreSQL URL, webhook secret, VAPID private key 같은 원문 secret 값이 JSON에 남지 않는지 검증합니다.
 `test:deployment-handoff`는 `docs/deployment-handoff.template.json` 기준 운영 배포 manifest가 production origin, 배포 플랫폼 secret store, PostgreSQL runtime store, 결제 provider, VAPID push, production preflight, release gate, ISO 생성/승인 시각, 생성 이후 승인 순서, HTTPS/provider URI 증빙, 최종 signoff를 갖추고 원문 secret 값을 저장하지 않는지 검증합니다. `localhost`, `.example`, `.test`, `.local`, `TODO`, `TBD`, `<https-origin>` 같은 예시/임시 origin과 예시 mailto subject는 운영 배포 ready 값으로 인정하지 않습니다. 실제 운영 배포 직전에는 `.data/deployment-handoff.json`을 작성하고 `npm run deployment:handoff -- --file=.data/deployment-handoff.json --out=.data/deployment-handoff.report.json`로 ready/blocked 리포트를 보관합니다.
 `test:payment-provider-handoff`는 `docs/payment-provider-handoff.template.json` 기준 실 PG/VAN provider 계약, HTTPS checkout, success/failure redirect, webhook secret store, 서명 헤더/알고리즘, provider event ID idempotency, 영수증 URL, billing key/mandate 보관 정책, 정기결제 해지, 코치 금액 마스킹, 변경 기록, ISO 생성/승인 시각, 생성 이후 승인 순서, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, 원문 secret 미보관 fixture를 검증합니다. 실제 PG/VAN 파일럿 전에는 `.data/payment-provider-handoff.json`을 작성하고 `npm run payment-provider:handoff -- --file=.data/payment-provider-handoff.json --out=.data/payment-provider-handoff.report.json`로 ready/blocked 리포트를 보관합니다.

@@ -20,7 +20,7 @@ function auditCreatedAtMs(createdAt: string) {
   return Number.isFinite(value) ? value : null;
 }
 
-export function getAccountLoginThrottle(
+function getAccountLoginWindow(
   db: MockDatabase,
   userId: string,
   now = new Date(),
@@ -55,6 +55,16 @@ export function getAccountLoginThrottle(
     )
     .sort((left, right) => left - right);
 
+  return { failures, nowMs };
+}
+
+export function getAccountLoginThrottle(
+  db: MockDatabase,
+  userId: string,
+  now = new Date(),
+) {
+  const { failures, nowMs } = getAccountLoginWindow(db, userId, now);
+
   if (failures.length < loginFailureLimit) {
     return null;
   }
@@ -63,6 +73,32 @@ export function getAccountLoginThrottle(
     failureCount: failures.length,
     retryAfterSeconds: Math.max(1, Math.ceil((failures[0] + loginFailureWindowMs - nowMs) / 1000)),
   };
+}
+
+export function shouldRecordBlockedLoginAudit(
+  db: MockDatabase,
+  userId: string,
+  now = new Date(),
+) {
+  const { failures, nowMs } = getAccountLoginWindow(db, userId, now);
+
+  if (failures.length < loginFailureLimit) {
+    return false;
+  }
+
+  const failureWindowStartedAt = failures[0];
+  return !db.auditLogs.some((log) => {
+    if (
+      log.action !== "auth.login" ||
+      log.targetId !== userId ||
+      log.result !== "blocked"
+    ) {
+      return false;
+    }
+
+    const createdAt = auditCreatedAtMs(log.createdAt);
+    return createdAt !== null && createdAt >= failureWindowStartedAt && createdAt <= nowMs;
+  });
 }
 
 export function hasReachedPasswordResetRequestLimit(

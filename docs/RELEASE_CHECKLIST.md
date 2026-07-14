@@ -332,6 +332,14 @@
 - [ ] production 운영 중 `FINAL_JUDO_ENABLE_DEMO_LOGIN` 미설정 또는 파일럿 작업창 후 제거 확인
 - [ ] production 운영 중 `FINAL_JUDO_ENABLE_DEV_RESET` 미설정 확인
 - [ ] `.env.production.example`과 `docs/ENVIRONMENT_MATRIX.md` 기준으로 배포 플랫폼 secret store의 PostgreSQL, 결제, VAPID 변수가 실제 운영값으로 채워졌는지 확인
+- [x] `npm run test:production-runtime-environment`로 Vercel production 빌드와 서버 런타임이 PostgreSQL 설정 누락·JSON driver·placeholder URL·unsafe table을 차단하고 연결 문자열을 출력하지 않는지 검증
+- [x] `npm run test:postgres-runtime-identity`로 운영 상태 행·설치 식별자가 없거나 불일치할 때 DDL·시드 삽입 없이 실패하고 로컬/테스트 자동 생성만 유지되는지 검증
+- [x] `npm run test:live-production-runtime`로 운영 DB 읽기 전용 preflight의 식별자·revision·최소 데이터·관리자 자격증명·비밀정보 비노출 검증
+- [x] `npm run test:production-recovery-manifest`로 배포·소스·빌드·Neon·런타임·스모크 allowlist와 0600 원자적 산출물 검증
+- [x] `npm run test:admin-credential-recovery`로 명시적 승인·revision·설치 식별자·advisory lock 기반 관리자 자격증명 복구와 세션 폐기·감사 기록 검증
+- [ ] 기존 운영 `app_runtime_state`의 `mvp` 행에 안정적인 `FINAL_JUDO_INSTALLATION_ID`를 결속하고 Vercel production에 같은 값을 설정한 뒤 `npm run production:runtime:preflight` 통과
+- [ ] 배포 직전 암호화 PostgreSQL dump를 외부 보관 위치에 생성하고 복호화 스트림의 `pg_restore --list`·SHA-256·필수 테이블을 확인. 평문 dump와 비밀정보는 `.data`·문서·로그에 남기지 않음
+- [ ] production smoke 통과 후 `npm run production:recovery:manifest`로 배포 ID·source SHA·build ID·Neon project/branch·runtime revision/fingerprint를 기록하고 롤백 대상 배포와 DB branch를 함께 확인
 - [ ] 운영 secret 설정, production preflight, release gate 통과 후 `npm run deployment:handoff:draft -- --out=.data/deployment-handoff.json --preflight-report=.data/pilot-preflight.pre-pilot.json`로 secret 원문 없는 초안을 만들고 HTTPS/provider URI 증빙 필드, ISO 생성/승인 시각, 생성 이후 승인 순서를 채운 뒤 `npm run deployment:handoff -- --file=.data/deployment-handoff.json --out=.data/deployment-handoff.report.json` 통과 및 증빙 보관
 - [x] 파일럿 데이터 intake 템플릿에 5개 역할과 2개 지점 샘플 계정 준비
 - [x] 파일럿 종료 후 피드백 수집 양식 준비

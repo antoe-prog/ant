@@ -8,6 +8,8 @@ export type PostgresJsonStoreOptions<T> = {
   connectionString: string;
   key: string;
   createDefault: () => T;
+  expectedInstallationId?: string;
+  requireExistingState?: boolean;
   validate?: JsonValidator<T>;
   validateWrite?: JsonWriteValidator<T>;
   tableName?: string;
@@ -29,6 +31,8 @@ function assertSafeIdentifier(identifier: string) {
 function redactConnectionString(connectionString: string) {
   try {
     const url = new URL(connectionString);
+    url.search = "";
+    url.hash = "";
     if (url.password) {
       url.password = "********";
     }
@@ -41,6 +45,13 @@ function redactConnectionString(connectionString: string) {
 export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>) {
   const validate = options.validate ?? defaultValidate<T>;
   const tableName = assertSafeIdentifier(options.tableName ?? "app_runtime_state");
+  const expectedInstallationId = options.expectedInstallationId?.trim() || null;
+  const requireExistingState = options.requireExistingState === true;
+
+  if (requireExistingState && !expectedInstallationId) {
+    throw new Error("PostgreSQL required-state mode requires an expected installation identity.");
+  }
+
   const pool = new Pool({
     connectionString: options.connectionString,
     max: 5,
@@ -76,32 +87,58 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
     }
   }
 
-  async function ensureTable() {
-    initialized ??= pool
-      .query(`
-        CREATE TABLE IF NOT EXISTS ${tableName} (
-          key text PRIMARY KEY,
-          data jsonb NOT NULL,
-          revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
-          created_at timestamptz NOT NULL DEFAULT now(),
-          updated_at timestamptz NOT NULL DEFAULT now()
-        );
-      `)
-      .then(() => undefined);
+  function assertRequiredRuntimeState(row: { installation_id: string | null } | undefined) {
+    if (!requireExistingState) {
+      return;
+    }
+
+    if (!row) {
+      throw new Error("Required PostgreSQL runtime state is missing. Restore it before production starts.");
+    }
+
+    if (row.installation_id !== expectedInstallationId) {
+      throw new Error("PostgreSQL runtime installation identity mismatch.");
+    }
+  }
+
+  async function ensureStorage() {
+    initialized ??= requireExistingState
+      ? pool
+          .query(`SELECT installation_id FROM ${tableName} LIMIT 0`)
+          .then(() => undefined)
+          .catch(() => {
+            throw new Error("PostgreSQL runtime identity schema is unavailable. Apply the production runtime migration.");
+          })
+      : pool
+          .query(`
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+              key text PRIMARY KEY,
+              data jsonb NOT NULL,
+              revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
+              installation_id text,
+              created_at timestamptz NOT NULL DEFAULT now(),
+              updated_at timestamptz NOT NULL DEFAULT now()
+            );
+            ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS installation_id text;
+          `)
+          .then(() => undefined);
 
     return initialized;
   }
 
   async function read() {
-    await ensureTable();
+    await ensureStorage();
 
-    const result = await query<{ data: unknown; revision: string }>(
-      `SELECT data, revision FROM ${tableName} WHERE key = $1`,
+    const result = await query<{ data: unknown; revision: string; installation_id: string | null }>(
+      `SELECT data, revision, installation_id FROM ${tableName} WHERE key = $1`,
       [options.key],
     );
+    const row = result.rows[0];
 
-    if (result.rowCount && result.rows[0]) {
-      return attachStoreVersion(validate(result.rows[0].data), Number(result.rows[0].revision));
+    assertRequiredRuntimeState(row);
+
+    if (row) {
+      return attachStoreVersion(validate(row.data), Number(row.revision));
     }
 
     return write(options.createDefault());
@@ -111,15 +148,17 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
     const version = getStoreVersion(value);
     const requested = validate(value);
 
-    await ensureTable();
+    await ensureStorage();
 
     if (version) {
       return inTransaction(async () => {
-        const currentResult = await query<{ data: unknown; revision: string }>(
-          `SELECT data, revision FROM ${tableName} WHERE key = $1 FOR UPDATE`,
+        const currentResult = await query<{ data: unknown; revision: string; installation_id: string | null }>(
+          `SELECT data, revision, installation_id FROM ${tableName} WHERE key = $1 FOR UPDATE`,
           [options.key],
         );
         const currentRow = currentResult.rows[0];
+
+        assertRequiredRuntimeState(currentRow);
 
         if (!currentRow) {
           throw new Error(`PostgreSQL runtime state ${options.key} was removed during an update.`);
@@ -153,11 +192,14 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
       await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
         `${tableName}:${options.key}:write`,
       ]);
-      const currentResult = await query<{ data: unknown; revision: string }>(
-        `SELECT data, revision FROM ${tableName} WHERE key = $1 FOR UPDATE`,
+      const currentResult = await query<{ data: unknown; revision: string; installation_id: string | null }>(
+        `SELECT data, revision, installation_id FROM ${tableName} WHERE key = $1 FOR UPDATE`,
         [options.key],
       );
       const currentRow = currentResult.rows[0];
+
+      assertRequiredRuntimeState(currentRow);
+
       const latest = currentRow ? validate(currentRow.data) : null;
       const next = options.validateWrite ? options.validateWrite(requested, latest) : requested;
 
@@ -177,11 +219,11 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
 
       const result = await query<{ data: unknown; revision: string }>(
         `
-          INSERT INTO ${tableName} (key, data, revision)
-          VALUES ($1, $2::jsonb, 1)
+          INSERT INTO ${tableName} (key, data, revision, installation_id)
+          VALUES ($1, $2::jsonb, 1, $3)
           RETURNING data, revision;
         `,
-        [options.key, JSON.stringify(next)],
+        [options.key, JSON.stringify(next), expectedInstallationId],
       );
 
       return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
@@ -189,17 +231,33 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
   }
 
   async function reset() {
+    if (requireExistingState) {
+      await ensureStorage();
+
+      return inTransaction(async () => {
+        const result = await query<{ installation_id: string | null }>(
+          `SELECT installation_id FROM ${tableName} WHERE key = $1 FOR UPDATE`,
+          [options.key],
+        );
+
+        assertRequiredRuntimeState(result.rows[0]);
+        return write(options.createDefault());
+      });
+    }
+
     return write(options.createDefault());
   }
 
   async function status() {
-    await ensureTable();
+    await ensureStorage();
 
-    const result = await query<{ revision: string; updated_at: Date }>(
-      `SELECT revision, updated_at FROM ${tableName} WHERE key = $1`,
+    const result = await query<{ revision: string; updated_at: Date; installation_id: string | null }>(
+      `SELECT revision, updated_at, installation_id FROM ${tableName} WHERE key = $1`,
       [options.key],
     );
     const row = result.rows[0];
+
+    assertRequiredRuntimeState(row);
 
     return {
       tableName,
@@ -215,7 +273,7 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
   }
 
   async function withLock<Result>(key: string, operation: () => Promise<Result>) {
-    await ensureTable();
+    await ensureStorage();
 
     if (transactionClient.getStore()) {
       throw new Error("Nested PostgreSQL runtime locks are not supported.");
@@ -225,6 +283,12 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
 
     return inTransaction(async () => {
       await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [scopedKey]);
+      const result = await query<{ installation_id: string | null }>(
+        `SELECT installation_id FROM ${tableName} WHERE key = $1`,
+        [options.key],
+      );
+
+      assertRequiredRuntimeState(result.rows[0]);
       return operation();
     });
   }

@@ -292,7 +292,8 @@ async function runApiAssertions(baseUrl, dbFile) {
   assert(!failureAudits.some((log) => "ip" in (log.after ?? {})), "failure audit records must not persist client IP addresses");
 
   const concurrentInvite = await createInvite(admin, "concurrent");
-  const acceptBody = JSON.stringify({ password: `Concurrent-Accept-${stamp}!` });
+  const acceptedPassword = `Concurrent-Accept-${stamp}!`;
+  const acceptBody = JSON.stringify({ password: acceptedPassword });
   const concurrentResults = await Promise.all([
     createClient(baseUrl).request(`/api/v1/auth/invitations/${concurrentInvite.token}/accept`, { method: "POST", body: acceptBody }),
     createClient(baseUrl).request(`/api/v1/auth/invitations/${concurrentInvite.token}/accept`, { method: "POST", body: acceptBody }),
@@ -313,7 +314,33 @@ async function runApiAssertions(baseUrl, dbFile) {
   assert.equal(successAudits.length, 1, "single-use acceptance must persist one success audit");
   assert.equal(finalDb.authSessions.filter((session) => session.userId === concurrentInvite.userId && !session.revokedAt).length, 1);
   assert(!JSON.stringify(finalDb).includes(concurrentInvite.token), "accepted token plaintext must not persist anywhere");
-  assert(!JSON.stringify(finalDb).includes(`Concurrent-Accept-${stamp}!`), "accepted password plaintext must not persist anywhere");
+  assert(!JSON.stringify(finalDb).includes(acceptedPassword), "accepted password plaintext must not persist anywhere");
+
+  const formattedPhone = `+82 ${acceptedUser.phone.slice(1, 3)}-${acceptedUser.phone.slice(3, 7)}-${acceptedUser.phone.slice(7)}`;
+  const credentialClient = createClient(baseUrl);
+  const credentialLogin = await credentialClient.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ phone: formattedPhone, password: acceptedPassword, keepSignedIn: true }),
+  });
+  assert.equal(credentialLogin.response.status, 200, "an accepted invitation password must support a fresh phone login");
+  assert.equal(credentialLogin.payload.data.user.id, concurrentInvite.userId, "phone login must restore the accepted invitee");
+  assert.match(credentialLogin.response.headers.get("set-cookie") ?? "", /final-judo-session=.*HttpOnly/i);
+
+  const logout = await credentialClient.request("/api/v1/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(logout.response.status, 200, "the accepted invitee must be able to log out");
+
+  const revokedBootstrap = await credentialClient.request("/api/v1/me/bootstrap");
+  assert.equal(revokedBootstrap.response.status, 401, "logout must revoke the accepted invitee session");
+
+  const relogin = await createClient(baseUrl).request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ phone: acceptedUser.phone, password: acceptedPassword }),
+  });
+  assert.equal(relogin.response.status, 200, "the same phone and password must work again after logout");
+  assert.equal(relogin.payload.data.user.id, concurrentInvite.userId);
 }
 
 async function main() {
@@ -352,6 +379,7 @@ async function main() {
         "target audit-based password failure throttling with Retry-After",
         "future-dated audit rows excluded from password throttling",
         "atomic single-use acceptance and opaque session issuance",
+        "accepted invitation phone/password logout and relogin",
         "authorized one-time invitation link reissue with scope checks and prior-link invalidation",
         "raw token, password, and IP audit redaction",
       ],

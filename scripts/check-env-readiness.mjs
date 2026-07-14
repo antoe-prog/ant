@@ -9,6 +9,8 @@ const files = {
   environmentMatrix: "docs/ENVIRONMENT_MATRIX.md",
   gitignore: ".gitignore",
   packageJson: "package.json",
+  productionRuntimePolicy: "src/lib/production-runtime-policy.ts",
+  productionRuntimeTest: "scripts/check-production-runtime-environment-test.mjs",
   qaPlan: "docs/QA_TEST_PLAN.md",
   readme: "README.md",
   releaseChecklist: "docs/RELEASE_CHECKLIST.md",
@@ -57,6 +59,7 @@ const runtimeEnvKeys = [
   "FINAL_JUDO_DATA_DIR",
   "PILOT_DB_FILE",
   "FINAL_JUDO_POSTGRES_URL",
+  "FINAL_JUDO_INSTALLATION_ID",
   "FINAL_JUDO_POSTGRES_STATE_KEY",
   "FINAL_JUDO_POSTGRES_TABLE",
   "FINAL_JUDO_ENABLE_DEMO_LOGIN",
@@ -99,6 +102,7 @@ for (const forbidden of ["FINAL_JUDO_ENABLE_DEMO_LOGIN=1", "FINAL_JUDO_ENABLE_DE
 
 for (const placeholder of [
   "postgresql://USER:PASSWORD@HOST:5432/final_judo",
+  "replace-with-stable-installation-id",
   "replace-with-provider-webhook-secret",
   "replace-with-vapid-public-key",
   "replace-with-vapid-private-key",
@@ -111,6 +115,44 @@ assert.equal(
   packageJson.scripts["test:env-readiness"],
   "node scripts/check-env-readiness.mjs",
   "package.json must expose test:env-readiness",
+);
+assert(
+  packageJson.scripts.prebuild?.includes("check-production-runtime-environment.mjs"),
+  "production runtime guard must run before every build",
+);
+assert.equal(
+  packageJson.scripts["test:production-runtime-environment"],
+  "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-production-runtime-environment-test.mjs",
+  "package.json must expose test:production-runtime-environment",
+);
+assert.equal(
+  packageJson.scripts["test:postgres-runtime-identity"],
+  "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-postgres-runtime-identity-test.mjs",
+  "package.json must expose test:postgres-runtime-identity",
+);
+for (const scriptName of [
+  "test:live-production-runtime",
+  "test:production-recovery-manifest",
+  "test:admin-credential-recovery",
+]) {
+  assert(packageJson.scripts[scriptName], `package.json must expose ${scriptName}`);
+  assert(
+    sources.releaseRunner.includes(`["run", "${scriptName}"]`),
+    `test:release must run ${scriptName}`,
+  );
+}
+assert(
+  sources.releaseRunner.includes('["run", "test:production-runtime-environment"]'),
+  "test:release must run the production runtime environment gate",
+);
+assert(
+  sources.productionRuntimePolicy.includes("PRODUCTION_RUNTIME_DRIVER_NOT_POSTGRES") &&
+    sources.productionRuntimePolicy.includes("PRODUCTION_RUNTIME_POSTGRES_URL_INVALID"),
+  "production runtime policy must fail closed without PostgreSQL",
+);
+assert(
+  sources.productionRuntimeTest.includes("runtime guard output must not expose database credentials"),
+  "production runtime test must verify secret redaction",
 );
 assert(sources.releaseRunner.includes('["run", "test:env-readiness"]'), "test:release must run env readiness");
 // 자동 게이트 명령은 앱 UI가 아니라 docs/release runner에만 남긴다 (check-admin-settings-gates 정책과 일치).
@@ -143,6 +185,7 @@ console.log(
         "committed env example files stay unignored",
         "development and production env examples use safe defaults",
         "runtime FINAL_JUDO_* variables are documented",
+        "production build and runtime fail closed without PostgreSQL",
         "production danger flags are disabled in examples",
         "release/admin/docs include test:env-readiness",
       ],

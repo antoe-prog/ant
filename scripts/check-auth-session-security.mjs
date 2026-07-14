@@ -12,6 +12,7 @@ import {
   readUnmodifiedPassword,
   revokeAuthSession,
   revokeUserAuthSessions,
+  shouldRecordBlockedLoginAudit,
 } from "../src/server/auth-session.ts";
 import { userAdministrationLockKey } from "../src/server/user-administration.ts";
 
@@ -45,6 +46,14 @@ assert.equal(findAuthSessionUser(allRevoked, second.token, new Date("2026-07-14T
 assert.equal(authSecurityLockKey, userAdministrationLockKey, "auth and user administration must share one lock key");
 assert.equal(readUnmodifiedPassword("  password with spaces  "), "  password with spaces  ");
 assert.equal(readUnmodifiedPassword(1234), "");
+for (const malformedHash of [
+  "pbkdf2_sha256$120000$salt$zz",
+  "pbkdf2_sha256$120000$salt$abcd",
+  `pbkdf2_sha256$1000001$salt$${"a".repeat(64)}`,
+]) {
+  assert.doesNotThrow(() => verifyPassword("password", malformedHash));
+  assert.equal(verifyPassword("password", malformedHash), false, "malformed password hashes must fail closed");
+}
 
 function authAudit({ id, result, action = "auth.login", targetId = user.id, createdAt }) {
   return {
@@ -78,6 +87,11 @@ const throttled = getAccountLoginThrottle(
 assert(throttled, "five recent failed logins must activate the account limit");
 assert.equal(throttled.failureCount, 5);
 assert.equal(throttled.retryAfterSeconds, 300);
+assert.equal(
+  shouldRecordBlockedLoginAudit({ ...db, auditLogs: fiveRecentFailures }, user.id, throttleNow),
+  true,
+  "the first blocked request in a failure window must be audited",
+);
 const blockedRetry = authAudit({
   id: "audit-blocked-retry",
   result: "blocked",
@@ -87,6 +101,29 @@ assert.deepEqual(
   getAccountLoginThrottle({ ...db, auditLogs: [blockedRetry, ...fiveRecentFailures] }, user.id, throttleNow),
   throttled,
   "blocked retries must be audited without extending the account lock window",
+);
+assert.equal(
+  shouldRecordBlockedLoginAudit(
+    { ...db, auditLogs: [blockedRetry, ...fiveRecentFailures] },
+    user.id,
+    throttleNow,
+  ),
+  false,
+  "blocked retries in the same failure window must not amplify database writes",
+);
+const blockedBeforeFailureWindow = authAudit({
+  id: "audit-blocked-before-window",
+  result: "blocked",
+  createdAt: "2026-07-14T00:04:00.000Z",
+});
+assert.equal(
+  shouldRecordBlockedLoginAudit(
+    { ...db, auditLogs: [blockedBeforeFailureWindow, ...fiveRecentFailures] },
+    user.id,
+    throttleNow,
+  ),
+  true,
+  "a blocked audit from an older window must not suppress the current window audit",
 );
 
 const successAfterFailures = authAudit({
@@ -215,8 +252,12 @@ const logoutRouteSource = readFileSync("src/app/api/v1/auth/logout/route.ts", "u
 assert(loginRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(loginRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < loginRouteSource.indexOf("const db = await readServerDb()"));
 assert(loginRouteSource.indexOf("const throttle = getAccountLoginThrottle") < loginRouteSource.indexOf("verifyPassword(password"));
+assert(loginRouteSource.includes("const canBypassAccountThrottle = passwordMatches && !usesBlockedSharedPassword;"));
+assert(loginRouteSource.indexOf("verifyPassword(password") < loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"));
+assert(loginRouteSource.includes("if (shouldRecordBlockedLoginAudit(db, user.id, now))"));
 assert(loginRouteSource.includes('rateLimitedResponse.headers.set("Retry-After"'));
 assert(!loginRouteSource.includes("after: { phone:"), "login audits must not persist raw identifiers");
+assert(!/x-forwarded-for|x-real-ip|request\.ip/i.test(loginRouteSource), "login throttling must not persist request-origin identifiers");
 assert(logoutRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(logoutRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < logoutRouteSource.indexOf("const db = await readServerDb()"));
 assert(passwordRouteSource.includes("withServerDbLock(authSecurityLockKey"));
@@ -240,7 +281,9 @@ console.log(JSON.stringify({
     "unknown logout tokens do not trigger storage writes",
     "auth and user administration share one security lock",
     "password input whitespace preserved",
-    "five failures activate throttling without blocked retries extending the lock window",
+    "malformed password hashes fail closed without throwing",
+    "five failures activate throttling with one blocked audit per failure window",
+    "valid active-account credentials bypass throttling and clear earlier failures on success",
     "successful login resets the failure window",
     "password reset writes stop after three account requests per hour",
     "barrier transition rejects stale password and session state",

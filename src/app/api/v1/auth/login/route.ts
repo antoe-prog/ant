@@ -9,6 +9,7 @@ import {
   createAuthSession,
   getAccountLoginThrottle,
   readUnmodifiedPassword,
+  shouldRecordBlockedLoginAudit,
 } from "@/server/auth-session";
 import { samePhoneNumber } from "@/lib/phone";
 
@@ -48,11 +49,23 @@ export async function POST(request: NextRequest) {
           ? db.users.find((candidate) => candidate.email?.toLowerCase() === emailFallback)
           : null);
 
-      if (user) {
-        const now = new Date();
-        const throttle = getAccountLoginThrottle(db, user.id, now);
+      const now = new Date();
+      const throttle = user ? getAccountLoginThrottle(db, user.id, now) : null;
+      const passwordMatches = Boolean(
+        user &&
+        user.invitationStatus !== "pending" &&
+        verifyPassword(password, user.passwordHash),
+      );
+      const usesBlockedSharedPassword = Boolean(
+        user &&
+        process.env.NODE_ENV === "production" &&
+        password === defaultPilotPassword &&
+        passwordMatches,
+      );
+      const canBypassAccountThrottle = passwordMatches && !usesBlockedSharedPassword;
 
-        if (throttle) {
+      if (user && throttle && !canBypassAccountThrottle) {
+        if (shouldRecordBlockedLoginAudit(db, user.id, now)) {
           const blockedAuditLog: AuditLog = {
             id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
             branchId: user.branchIds[0] ?? null,
@@ -71,15 +84,16 @@ export async function POST(request: NextRequest) {
             ...db,
             auditLogs: [blockedAuditLog, ...db.auditLogs],
           });
-          const rateLimitedResponse = jsonError(
-            429,
-            "TOO_MANY_REQUESTS",
-            "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
-          );
-
-          rateLimitedResponse.headers.set("Retry-After", String(throttle.retryAfterSeconds));
-          return rateLimitedResponse;
         }
+
+        const rateLimitedResponse = jsonError(
+          429,
+          "TOO_MANY_REQUESTS",
+          "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
+        );
+
+        rateLimitedResponse.headers.set("Retry-After", String(throttle.retryAfterSeconds));
+        return rateLimitedResponse;
       }
 
       if (user?.invitationStatus === "pending") {
@@ -94,7 +108,7 @@ export async function POST(request: NextRequest) {
           after: { reason: "pending_invitation" },
           result: "failed",
           message: "로그인에 실패했습니다.",
-          createdAt: new Date().toISOString(),
+          createdAt: now.toISOString(),
         };
 
         await writeServerDb({
@@ -105,14 +119,7 @@ export async function POST(request: NextRequest) {
         return jsonError(403, "ACCOUNT_PENDING", "초대 가입이 완료되지 않았습니다. 받은 초대 링크에서 비밀번호 설정을 마쳐 주세요.");
       }
 
-      const usesBlockedSharedPassword = Boolean(
-        user &&
-        process.env.NODE_ENV === "production" &&
-        password === defaultPilotPassword &&
-        verifyPassword(defaultPilotPassword, user.passwordHash),
-      );
-
-      if (!user || !verifyPassword(password, user.passwordHash) || usesBlockedSharedPassword) {
+      if (!user || !passwordMatches || usesBlockedSharedPassword) {
         const failedAuditLog: AuditLog | null = user
           ? {
               id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
@@ -127,7 +134,7 @@ export async function POST(request: NextRequest) {
               },
               result: "failed" as const,
               message: "로그인에 실패했습니다.",
-              createdAt: new Date().toISOString(),
+              createdAt: now.toISOString(),
             }
           : null;
 

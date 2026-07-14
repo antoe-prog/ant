@@ -22,8 +22,11 @@
 | `PILOT_DB_FILE` | `.data/final-judo-db.json` | 비움 권장 | JSON 런타임 파일 경로. 운영 preflight에서는 JSON driver가 blocker가 된다. |
 | `FINAL_JUDO_POSTGRES_URL` | 선택 | 필수 | PostgreSQL 연결 문자열. 문서/패키지에는 실제 비밀번호를 남기지 않는다. |
 | `DATABASE_URL` | 선택 | 선택 | `FINAL_JUDO_POSTGRES_URL` fallback. 둘 중 하나는 운영에 필요하다. |
-| `FINAL_JUDO_POSTGRES_STATE_KEY` | `mvp` | 운영별 key | 같은 DB에서 여러 runtime row를 분리한다. |
-| `FINAL_JUDO_POSTGRES_TABLE` | `app_runtime_state` | `app_runtime_state` | runtime JSONB 테이블명. |
+| `FINAL_JUDO_INSTALLATION_ID` | 비움 | 필수 | 기존 운영 상태 행에 1회 결속하는 안정적인 설치 식별자. 다른 DB 또는 빈 DB로 잘못 연결되는 것을 차단하며 비밀값으로 취급하지 않되 임의 변경하지 않는다. |
+| `FINAL_JUDO_POSTGRES_STATE_KEY` | `mvp` | `mvp` | 운영 runtime row는 계정·세션 유실을 막기 위해 이 key로 고정한다. |
+| `FINAL_JUDO_POSTGRES_TABLE` | `app_runtime_state` | `app_runtime_state` | 운영 runtime JSONB 테이블은 이 이름으로 고정한다. |
+
+Vercel production은 `prebuild`와 서버 런타임에서 `FINAL_JUDO_DB_DRIVER=postgres`, 유효한 `FINAL_JUDO_POSTGRES_URL`, `FINAL_JUDO_INSTALLATION_ID`, 고정 state key/table 설정을 강제한다. 설정이 없거나 placeholder이거나 기존 `mvp` 행의 설치 식별자가 다르면 시작을 중단하고 테이블·행을 만들거나 JSON 시드로 전환하지 않는다. 로컬에서 같은 정책을 확인하려면 `FINAL_JUDO_REQUIRE_PERSISTENT_RUNTIME=1 npm run prebuild`를 실행하며, `npm run test:production-runtime-environment`와 `npm run test:postgres-runtime-identity`가 성공·실패·비밀값 비노출 경로를 검증한다.
 
 ## Production Safety Flags
 

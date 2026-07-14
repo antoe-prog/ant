@@ -3,6 +3,7 @@ import type { MockDatabase, PilotOperationLog, PilotReadinessStatus } from "@/li
 import { sanitizeAuditLog } from "@/lib/audit-log-security";
 import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-data";
 import { defaultPilotPasswordHash } from "@/server/auth-password";
+import { assertProductionRuntimeEnvironment } from "@/lib/production-runtime-policy";
 import { rollSeededDemoDates } from "@/server/demo-date-roll";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
@@ -14,6 +15,7 @@ import {
 
 const defaultJsonDataDirectory = `${"."}data`;
 const defaultJsonDataFileName = "final-judo-db.json";
+const runtimeEnvironment = assertProductionRuntimeEnvironment(process.env);
 const dbDriver = process.env.FINAL_JUDO_DB_DRIVER === "postgres" ? "postgres" : "json";
 const pilotReadinessStatuses = new Set<PilotReadinessStatus>(["pending", "verified", "blocked"]);
 const legacyAdminSeedPasswordHash =
@@ -195,8 +197,10 @@ function createServerDbStore() {
 
     return createPostgresJsonStore<MockDatabase>({
       connectionString,
-      key: process.env.FINAL_JUDO_POSTGRES_STATE_KEY ?? "mvp",
-      tableName: process.env.FINAL_JUDO_POSTGRES_TABLE ?? "app_runtime_state",
+      key: runtimeEnvironment.stateKey,
+      tableName: runtimeEnvironment.tableName,
+      expectedInstallationId: runtimeEnvironment.expectedInstallationId ?? undefined,
+      requireExistingState: runtimeEnvironment.enforced,
       createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
       validate: validateMockDatabase,
       validateWrite: (next, previous) => assertNoNewRuntimeStateIntegrityIssues(previous, next),
