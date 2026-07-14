@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.ADMIN_ROLE_SEARCH_OUT_DIR ?? ".data/mobile-builds/ios/admin-role-search-20260704";
@@ -71,6 +75,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "admin role search check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "admin role search check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -119,7 +128,11 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `admin role search ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `admin role search ${label} reset failed with ${response.status}`);
@@ -225,7 +238,10 @@ function assertStaticContracts() {
   assert(adminRolesScreen.includes('useUrlSyncedTextParam("q")'), "admin role search must use the shared URL-synced text state");
   assert(syncedTextParamHook.includes("useSearchParams()"), "shared text state must initialize from Next search params");
   assert(syncedTextParamHook.includes("previousParamValueRef"), "shared text state must guard stale q params after clearing");
-  assert(syncedTextParamHook.includes("router.replace(nextUrl, { scroll: false })"), "shared text state must update q through the Next router");
+  assert(
+    syncedTextParamHook.includes('window.history.replaceState(null, "", nextUrl)'),
+    "shared text state must update q through the Next-compatible native history API",
+  );
   assert(adminRolesScreen.includes('roleSearchActive ? "hidden xl:grid" : "grid"'), "admin role search must hide supporting panels on mobile while filtering");
 }
 

@@ -15,6 +15,10 @@
 
 # next.js
 /.next/
+/.next-postgres-runtime-*/
+/.next-release-*/
+/.tsconfig-postgres-runtime-*.json
+/.tsconfig-release-*.json
 /out/
 
 # production
@@ -38,6 +42,10 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# local agent state
+/.claude/settings.local.json
+/.claude/worktrees/
 
 # typescript
 *.tsbuildinfo

@@ -1632,7 +1632,11 @@ assertIncludes(sources.visibleAppCopyScript, "notificationReadInteractionReadNot
 assertIncludes(sources.visibleAppCopyScript, "notificationReadInteractionBulkReadButtonText", "visible copy report records post-click bulk read button copy");
 assertIncludes(sources.visibleAppCopyScript, "notificationReadInteractionBulkReadButtonDisabled", "visible copy report records post-click bulk read disabled state");
 assertIncludes(sources.visibleAppCopyScript, "resetVisibleCopyDevData", "visible copy scan resets local dev data around notification read clicks");
-assertIncludes(sources.visibleAppCopyScript, "/api/v1/dev/reset", "visible copy scan uses the dev reset endpoint for local DB cleanup");
+assertIncludes(
+  sources.visibleAppCopyScript,
+  "resetOwnedSmokeServer",
+  "visible copy scan uses the centralized owned reset helper for isolated DB cleanup",
+);
 assertIncludes(sources.visibleAppCopyScript, "assertNoticeMutationSnapshotRestored", "visible copy scan verifies notification read clicks do not persist test state");
 assertIncludes(sources.visibleAppCopyScript, "shouldRunVisibleCopyScan", "visible copy scan validates CLI arguments before running browser interactions");
 assertIncludes(sources.visibleAppCopyScript, "The scan accepts no positional arguments", "visible copy scan help exits without starting browser interactions");
@@ -1835,14 +1839,13 @@ for (const [label, source] of [
     assertExcludes(source, snippet, `${label} deleted request copy`);
   }
 }
-for (const snippet of [
-  'data-testid="admin-user-summary-grid"',
-  "useRouter",
-  "useSearchParams",
-  "function getUserQueryFromParams",
-  "function getRoleFilterFromParams",
-  "previousListFilterParamRef",
-  "router.replace(nextUrl, { scroll: false })",
+	for (const snippet of [
+	  'data-testid="admin-user-summary-grid"',
+	  "useSearchParams",
+	  "function getUserQueryFromParams",
+	  "function getRoleFilterFromParams",
+	  "previousListFilterParamRef",
+	  'window.history.replaceState(null, "", nextUrl)',
 	  'id="admin-user-search"',
 	  'data-testid="admin-user-search-input"',
 	  'data-testid="admin-user-search-clear"',
@@ -1933,7 +1936,6 @@ for (const snippet of [
   "function getInitialUserQuery",
   "function getInitialRoleFilter",
   "window.addEventListener(\"popstate\"",
-  "window.history.replaceState(null, \"\", nextUrl)",
 ]) {
   assertExcludes(sources.adminUsersScreen, snippet, "admin users search must use Next search params instead of stale window-only filters");
 }
@@ -2907,7 +2909,7 @@ for (const snippet of ["{log.action}", "{log.result}", "context.db.auditLogs.sli
 for (const snippet of [
   "메시지, 처리 항목, 담당자, 대상 검색",
   "useSearchParams",
-  "router.replace(nextUrl, { scroll: false })",
+  'window.history.replaceState(null, "", nextUrl)',
   "function getAuditFiltersFromParams",
   "function resetFilters",
   "처리 항목 필터",
@@ -6985,20 +6987,37 @@ assert.equal(
   "phone signup submit copy must not be miscounted as a role shortcut",
 );
 assert(authSelectRoleVisibleCopy, "visible app copy stability must cover select-role");
-assert.equal(
-  authSelectRoleVisibleCopy.authRoleShortcutButtonCount,
-  5,
-  "select-role visible app copy scan must count the five role shortcut buttons",
-);
 assert(
-  authSelectRoleVisibleCopy.authRoleShortcutButtonMinHeight >= 44,
-  "select-role visible app copy scan must keep role shortcut buttons at a 44px touch height",
+  [0, 5].includes(authSelectRoleVisibleCopy.authRoleShortcutButtonCount),
+  "select-role visible app copy scan must expose either no production shortcuts or all five development shortcuts",
 );
-assert.equal(
-  authSelectRoleVisibleCopy.authRoleShortcutButtonText,
-  "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
-  "select-role visible app copy scan must measure only role selection buttons",
-);
+if (authSelectRoleVisibleCopy.authRoleShortcutButtonCount === 5) {
+  assert(
+    authSelectRoleVisibleCopy.authRoleShortcutButtonMinHeight >= 44,
+    "development select-role shortcuts must keep a 44px touch height",
+  );
+  assert.equal(
+    authSelectRoleVisibleCopy.authRoleShortcutButtonText,
+    "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
+    "development select-role scan must measure all role selection buttons",
+  );
+  assert.equal(
+    authSelectRoleVisibleCopy.authSelectRoleProductionCopyVisible,
+    false,
+    "development select-role must not show production-only login guidance",
+  );
+} else {
+  assert.equal(
+    authSelectRoleVisibleCopy.authRoleShortcutButtonText,
+    "",
+    "production select-role must not expose role shortcut text",
+  );
+  assert.equal(
+    authSelectRoleVisibleCopy.authSelectRoleProductionCopyVisible,
+    true,
+    "production select-role must explain phone-number account switching",
+  );
+}
 assert(
   authSelectRoleVisibleCopy.authSelectRoleLoginLinkHeight >= 44,
   "select-role visible app copy scan must keep the login link at a 44px touch height",

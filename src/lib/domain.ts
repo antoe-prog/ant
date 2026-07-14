@@ -370,6 +370,7 @@ export type AuditAction =
   | "pilot_incident.create"
   | "pilot_incident.update"
   | "pilot_operation.update"
+  | "system.integrity.repair"
   | "auth.invite.accept"
   | "auth.password_reset.request"
   | "auth.password_reset.complete"

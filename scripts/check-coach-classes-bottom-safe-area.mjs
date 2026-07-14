@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.COACH_CLASSES_BOTTOM_SAFE_AREA_OUT_DIR ?? ".data/mobile-builds/ios/coach-classes-bottom-safe-area-20260701";
@@ -74,6 +78,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "coach classes bottom safe-area check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "coach classes bottom safe-area check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -123,8 +132,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData() {
   assert(canMutateLocalDevData(), "coach classes bottom safe-area check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" }).catch((error) => {
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: "coach classes bottom safe-area dev reset",
+  }).catch((error) => {
     throw new Error(`Cannot reach ${baseUrl} for coach classes bottom safe-area checks. ${error.message}`);
   });
   const payload = await response.json().catch(() => ({}));
@@ -155,10 +167,12 @@ function collectConsoleMessages(page) {
 }
 
 async function loginTo(page, role, nextPath) {
-  await page.goto(
-    new URL(`/api/v1/dev/auto-login?role=${role}&next=${encodeURIComponent(nextPath)}`, baseUrl).toString(),
-    { waitUntil: "load" },
-  );
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
+  loginUrl.searchParams.set("next", nextPath);
+
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
 }
 
 async function clickExistingAttendanceChange(page) {
@@ -348,7 +362,7 @@ async function main() {
       baseUrl,
       browserExecutable: chromeExecutable,
       devReset: await resetDevData(),
-      flow: "/api/v1/dev/auto-login?role=coach -> /app/classes -> mobile save status panel and bottom navigation clearance",
+      flow: "/login?autoLogin=1&role=coach -> /app/classes -> mobile save status panel and bottom navigation clearance",
       result: await captureCoachClassesBottomSafeArea(browser),
     };
     const summaryPath = join(outDir, "summary.json");

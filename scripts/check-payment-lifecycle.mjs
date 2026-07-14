@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const { appendPaymentStatusHistory, createPaymentStatusHistoryEntry, getLatestPaymentStatusChange } = await import("../src/lib/payment-lifecycle.ts");
+const { appendPaymentStatusHistory, createPaymentStatusHistoryEntry, getCurrentMemberPayment, getLatestPaymentStatusChange } = await import("../src/lib/payment-lifecycle.ts");
 const {
   createPaymentCreateIdempotencyKey,
   createPaymentCreateFingerprint,
@@ -169,6 +169,61 @@ assert.equal(
   "a deleted payment must not be silently recreated by an old retry",
 );
 assert.equal(getLatestPaymentStatusChange(paymentWithHistory)?.reason, "부분 환불", "payment lifecycle helper must return latest change");
+const membershipPeriodPayments = [
+  { ...basePayment, id: "pay-older", dueDate: "2026-05-15", expiresAt: "2026-06-15" },
+  { ...basePayment, id: "pay-current", dueDate: "2026-06-15", expiresAt: "2026-07-15" },
+];
+const membershipPeriodPaymentIds = membershipPeriodPayments.map((payment) => payment.id);
+assert.equal(
+  getCurrentMemberPayment(membershipPeriodPayments)?.id,
+  "pay-current",
+  "member payment summary must select the latest membership period",
+);
+assert.deepEqual(
+  membershipPeriodPayments.map((payment) => payment.id),
+  membershipPeriodPaymentIds,
+  "member payment summary selection must not mutate source order",
+);
+assert.equal(
+  getCurrentMemberPayment([
+    { ...basePayment, id: "pay-refunded", status: "refunded", expiresAt: "2026-07-15" },
+    { ...basePayment, id: "pay-active", status: "paid", expiresAt: "2026-07-15" },
+  ])?.id,
+  "pay-active",
+  "member payment summary must prefer a non-terminal record within the same membership period",
+);
+assert.equal(
+  getCurrentMemberPayment([
+    {
+      ...basePayment,
+      id: "pay-z-older-paid",
+      statusHistory: [
+        {
+          ...createdEntry,
+          id: "history-older-paid",
+          changedAt: "2026-06-15T10:00:00.000Z",
+          status: "paid",
+        },
+      ],
+    },
+    {
+      ...basePayment,
+      id: "pay-a-newer-overdue",
+      status: "overdue",
+      statusHistory: [
+        {
+          ...createdEntry,
+          id: "history-newer-overdue",
+          changedAt: "2026-06-20T10:00:00.000Z",
+          status: "overdue",
+        },
+      ],
+    },
+  ])?.id,
+  "pay-a-newer-overdue",
+  "same-period duplicates must select the record with the latest status history instead of UUID order",
+);
+assert.equal(getCurrentMemberPayment([]), null, "member payment summary must handle members without payment history");
 assert.equal(canManageManualPayment(basePayment), true, "plain manual payments must be manageable");
 assert.equal(
   manualPaymentCreatableStatuses.includes("partially_refunded"),
@@ -192,6 +247,16 @@ assert.equal(
   canManageManualPayment({ ...basePayment, refundedAmount: 1000 }),
   false,
   "refunded manual payments must not be directly edited or deleted",
+);
+assert.equal(
+  canManageManualPayment({ ...basePayment, amount: 0, refundedAmount: 0, status: "refunded" }),
+  false,
+  "refunded and partial-refund states remain immutable even without a positive refund amount",
+);
+assert.equal(
+  canManageManualPayment({ ...basePayment, amount: 0, refundedAmount: 0, status: "partially_refunded" }),
+  false,
+  "partial-refund status must remain immutable even when legacy data has no refund amount",
 );
 assert.match(
   getManualPaymentManagementBlockReason({
@@ -401,6 +466,13 @@ assert(paymentsScreenSource.includes("matchesMemberSearch"), "payment create mem
 assert(paymentsScreenSource.includes("handlePaymentMemberSearchChange"), "payment create form must clear stale selected members when search text changes");
 assert(paymentsScreenSource.includes("showPaymentMemberSearchResults"), "payment create form must collapse search results after a member is selected");
 assert(
+  paymentsScreenSource.includes('const requestedMemberId = searchParams.get("memberId")') &&
+    paymentsScreenSource.includes("appliedRequestedMemberIdRef.current === requestedMemberId") &&
+    paymentsScreenSource.includes("guardianPaymentChildren.some((child) => child.id === requestedMemberId)") &&
+    paymentsScreenSource.includes("setSelectedChildId(requestedMemberId)"),
+  "guardian payment deep links must select an accessible active child once without pinning later choices",
+);
+assert(
   paymentsScreenSource.includes('setPaymentMemberSearch(renewalMember?.name ?? "")'),
   "renewal prefill must keep the searched member visible after loading an existing payment",
 );
@@ -465,6 +537,7 @@ console.log(
         "same-payment manual and online mutations are serialized",
         "payment and audit IDs use UUID entropy",
         "cancelled manual payments remain correctable and deletable when no refund amount exists",
+        "refunded and partial-refund states remain immutable even without a positive refund amount",
         "manual payment detail corrections do not append false status changes",
         "payment create/refund routes persist status history",
         "manual payment update/delete routes enforce role, branch, and transaction history boundaries",

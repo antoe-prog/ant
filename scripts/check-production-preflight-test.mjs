@@ -252,6 +252,8 @@ try {
   });
 
   brokenReferencesDb.users[1].branchIds = ["branch-missing"];
+  brokenReferencesDb.users.find((user) => user.id === "user-coach").invitationStatus = "pending";
+  brokenReferencesDb.members.find((member) => member.id === "member-min").primaryCoachId = "";
   brokenReferencesDb.users[3].childMemberIds = ["member-min"];
   brokenReferencesDb.classes[0].enrolledMemberIds = ["member-jun", "member-missing"];
   brokenReferencesDb.notices.push({
@@ -364,6 +366,9 @@ try {
   assert(brokenReferenceCodes.has("USER_BRANCH_MISSING"), "preflight must catch missing user branch scopes");
   assert(brokenReferenceCodes.has("GUARDIAN_LINK_NOT_RECIPROCAL"), "preflight must catch one-way guardian links");
   assert(brokenReferenceCodes.has("CLASS_MEMBER_MISSING"), "preflight must catch missing class members");
+  assert(brokenReferenceCodes.has("MEMBER_COACH_INVITATION_PENDING"), "preflight must reject pending member assignees");
+  assert(brokenReferenceCodes.has("MEMBER_COACH_REQUIRED"), "preflight must reject empty member assignees");
+  assert(brokenReferenceCodes.has("CLASS_COACH_INVITATION_PENDING"), "preflight must reject pending class assignees");
   assert(brokenReferenceCodes.has("NOTICE_MEMBER_MISSING"), "preflight must catch missing notice member targets");
   assert(brokenReferenceCodes.has("COUNSELING_NOTE_AUTHOR_MISSING"), "preflight must catch missing counseling note authors");
 

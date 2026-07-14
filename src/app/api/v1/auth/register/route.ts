@@ -5,6 +5,7 @@ import { createRandomPasswordHash } from "@/server/auth-password";
 import { createBootstrapPayload, jsonError, jsonOk } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createRuntimeId } from "@/server/runtime-id";
+import { findAcceptedBranchOperatorId } from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,12 @@ export async function POST(request: NextRequest) {
       return jsonError(503, "SERVICE_UNAVAILABLE", "가입 가능한 지점을 찾지 못했습니다.");
     }
 
+    const branchOperatorId = findAcceptedBranchOperatorId(db, branch.id);
+
+    if (!branchOperatorId) {
+      return jsonError(503, "SERVICE_UNAVAILABLE", "가입 지점의 담당 운영자가 준비되지 않았습니다.");
+    }
+
     const now = new Date().toISOString();
     const userId = createRuntimeId("user-member");
     const memberId = createRuntimeId("member");
@@ -69,7 +76,7 @@ export async function POST(request: NextRequest) {
       emergencyContact: phone,
       guardianIds: [],
       level: "입문",
-      primaryCoachId: db.users.find((candidate) => candidate.role === "coach" && candidate.branchIds.includes(branch.id))?.id ?? "",
+      primaryCoachId: branchOperatorId,
       status: "trial",
       statusChangedAt: now,
       name,

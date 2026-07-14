@@ -1,77 +1,144 @@
 import type { AppUser, MockDatabase, UserRole } from "../lib/domain.ts";
 
 const operationalRoles = new Set<UserRole>(["coach", "owner", "admin"]);
+const reassignmentRolePriority: UserRole[] = ["coach", "owner", "admin"];
 
-function findReassignmentUserId(
-  branchId: string,
-  targetUserId: string,
-  actorUserId: string,
+export function findAcceptedBranchOperatorId(
   db: MockDatabase,
+  branchId: string,
+  excludedUserId: string | null = null,
 ) {
-  const fallbackCoach = db.users.find(
-    (candidate) => candidate.id !== targetUserId && candidate.role === "coach" && candidate.branchIds.includes(branchId),
-  );
+  for (const role of reassignmentRolePriority) {
+    const candidate = db.users.find(
+      (user) =>
+        user.id !== excludedUserId &&
+        user.role === role &&
+        user.invitationStatus !== "pending" &&
+        user.branchIds.includes(branchId),
+    );
 
-  if (fallbackCoach) {
-    return fallbackCoach.id;
+    if (candidate) {
+      return candidate.id;
+    }
   }
 
-  const branchOwner = db.users.find(
-    (candidate) => candidate.id !== targetUserId && candidate.role === "owner" && candidate.branchIds.includes(branchId),
-  );
-
-  return branchOwner?.id ?? actorUserId;
+  return null;
 }
 
-function canKeepOperationalAssignment(role: UserRole | null, branchIds: string[], branchId: string) {
-  return Boolean(role && operationalRoles.has(role) && branchIds.includes(branchId));
+function canKeepOperationalAssignment(
+  role: UserRole | null,
+  branchIds: string[],
+  branchId: string,
+  invitationStatus: AppUser["invitationStatus"],
+) {
+  return Boolean(
+    invitationStatus !== "pending" &&
+    role &&
+    operationalRoles.has(role) &&
+    branchIds.includes(branchId),
+  );
 }
 
 export function reassignUserOperationalLinks({
-  actorUserId,
   db,
   nextBranchIds,
   nextRole,
   targetUserId,
 }: {
-  actorUserId: string;
   db: MockDatabase;
   nextBranchIds: string[];
   nextRole: UserRole | null;
   targetUserId: string;
 }) {
-  let reassignedClassCount = 0;
-  let reassignedMemberCount = 0;
+  const targetInvitationStatus = db.users.find((user) => user.id === targetUserId)?.invitationStatus;
+  const linkedClasses = db.classes.filter(
+    (session) =>
+      session.coachId === targetUserId &&
+      !canKeepOperationalAssignment(nextRole, nextBranchIds, session.branchId, targetInvitationStatus),
+  );
+  const linkedMembers = db.members.filter(
+    (member) =>
+      member.primaryCoachId === targetUserId &&
+      !canKeepOperationalAssignment(nextRole, nextBranchIds, member.branchId, targetInvitationStatus),
+  );
+  const affectedBranchIds = [...new Set([
+    ...linkedClasses.map((session) => session.branchId),
+    ...linkedMembers.map((member) => member.branchId),
+  ])];
+  const reassignmentUserIds = new Map(
+    affectedBranchIds.map((branchId) => [
+      branchId,
+      findAcceptedBranchOperatorId(db, branchId, targetUserId),
+    ]),
+  );
+  const blockers = affectedBranchIds
+    .filter((branchId) => !reassignmentUserIds.get(branchId))
+    .map((branchId) => ({
+      branchId,
+      classIds: linkedClasses.filter((session) => session.branchId === branchId).map((session) => session.id),
+      memberIds: linkedMembers.filter((member) => member.branchId === branchId).map((member) => member.id),
+    }));
+
+  if (blockers.length > 0) {
+    return {
+      blockers,
+      classes: db.classes,
+      members: db.members,
+      reassignedClassCount: 0,
+      reassignedMemberCount: 0,
+    };
+  }
+
   const classes = db.classes.map((session) => {
     if (
       session.coachId !== targetUserId ||
-      canKeepOperationalAssignment(nextRole, nextBranchIds, session.branchId)
+      canKeepOperationalAssignment(nextRole, nextBranchIds, session.branchId, targetInvitationStatus)
     ) {
       return session;
     }
 
-    reassignedClassCount += 1;
     return {
       ...session,
-      coachId: findReassignmentUserId(session.branchId, targetUserId, actorUserId, db),
+      coachId: reassignmentUserIds.get(session.branchId)!,
     };
   });
   const members = db.members.map((member) => {
     if (
       member.primaryCoachId !== targetUserId ||
-      canKeepOperationalAssignment(nextRole, nextBranchIds, member.branchId)
+      canKeepOperationalAssignment(nextRole, nextBranchIds, member.branchId, targetInvitationStatus)
     ) {
       return member;
     }
 
-    reassignedMemberCount += 1;
     return {
       ...member,
-      primaryCoachId: findReassignmentUserId(member.branchId, targetUserId, actorUserId, db),
+      primaryCoachId: reassignmentUserIds.get(member.branchId)!,
     };
   });
 
-  return { classes, members, reassignedClassCount, reassignedMemberCount };
+  return {
+    blockers,
+    classes,
+    members,
+    reassignedClassCount: linkedClasses.length,
+    reassignedMemberCount: linkedMembers.length,
+  };
+}
+
+export function summarizeOperationalReassignmentBlockers(
+  blockers: ReturnType<typeof reassignUserOperationalLinks>["blockers"],
+  db: MockDatabase,
+) {
+  return {
+    blockedBranchCount: blockers.length,
+    blockedClassCount: blockers.reduce((count, blocker) => count + blocker.classIds.length, 0),
+    blockedMemberCount: blockers.reduce((count, blocker) => count + blocker.memberIds.length, 0),
+    branches: blockers.map((blocker) => ({
+      branchName: db.branches.find((branch) => branch.id === blocker.branchId)?.name ?? "알 수 없는 지점",
+      classCount: blocker.classIds.length,
+      memberCount: blocker.memberIds.length,
+    })),
+  };
 }
 
 export function findOwnerCoverageBlockers(
@@ -92,6 +159,7 @@ export function findOwnerCoverageBlockers(
           (candidate) =>
             candidate.id !== targetUser.id &&
             candidate.role === "owner" &&
+            candidate.invitationStatus !== "pending" &&
             candidate.branchIds.includes(branchId),
         ),
     )

@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Copy, ExternalLink, KeyRound, Pencil, Save, Search, Trash2, UserCheck, UserCog, UserPlus, X } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { userRoles, type AppUser, type Member, type MockDatabase, type UserRole } from "@/lib/domain";
@@ -154,7 +154,6 @@ function clearUserPanelHash(userId: string) {
 }
 
 export function AdminUsersScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const context = useApiContext();
   const { approveInvitation, createInvitation, deleteUser, resetUserPassword, updateUser } = useAppStore();
@@ -366,9 +365,9 @@ export function AdminUsersScreen() {
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {
-      router.replace(nextUrl, { scroll: false });
+      window.history.replaceState(null, "", nextUrl);
     }
-  }, [query, router, selectedRoleFilter]);
+  }, [query, selectedRoleFilter]);
 
   function getUserEditDraft(user: AppUser) {
     return userEditDrafts[user.id] ?? createUserEditDraft(user);

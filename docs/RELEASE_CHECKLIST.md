@@ -14,6 +14,7 @@
 - [x] `npm run test:role-csv-export-gates` 회원/학부모 CSV 내보내기 비노출, 대표/총괄 export API/UI 전용 가드, 회원/학부모 CSV export API 403 smoke 증거 통과
 - [x] `npm run test:deleted-request-surface` 삭제된 `/app/requests`, `/requests`, 요청 생성/승인/반려 API, 보강 메뉴/카드/알림 링크 재유입 차단과 release runner/문서 등록 검증 통과
 - [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과
+- [x] `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. 읽기 검증은 기존 데이터를 자동 변경하지 않고, 쓰기는 기존 스냅샷과 비교해 새 무결성 결함만 차단하며, 명시적 복구는 변경마다 `system.integrity.repair` 감사 기록을 남긴다. 출석·결제 이력은 자동 삭제하지 않고 운영 복제본 검사는 레코드 식별자·개인정보를 출력하지 않는다.
 - [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책 통과
 - [x] `npm run test:dev-reset-guard` production reset API 기본 차단 정책 통과
 - [x] `npm run test:env-readiness` 개발/운영 env 예시, 환경 변수 매트릭스, 위험 플래그, PostgreSQL/결제/푸시 필수 변수 문서 정합성 통과
@@ -73,13 +74,13 @@
 - [x] `npm run test:owner-decision-register` `owner:decision-register -- --workspace=.data --out=.data/p1-owner-decision-register.json --markdown=.data/p1-owner-decision-register.md --csv=.data/p1-owner-decision-register.csv --guide=.data/p1-owner-decision-register.guide.md`가 대표 결정 문항, 담당 lane, 필수 증빙, 검증 명령, 담당자/기한/증빙 입력 열과 CSV 작성 안내 guide를 생성하고 missing/secret-like fixture를 차단
 - [x] `npm run test:owner-decision-register-apply-csv` `owner:decision-register:apply-csv -- --workspace=.data --csv=.data/p1-owner-decision-register.csv --json=.data/p1-owner-decision-register.json --out=.data/p1-owner-decision-register.completed.json --markdown=.data/p1-owner-decision-register.completed.md`가 대표가 채운 담당자/기한/증빙 책임자 입력을 별도 completed JSON/Markdown으로 적용하고 고정 열 변조, placeholder, 잘못된 날짜, HTTP 증빙 URL, secret-like fixture를 차단
 - [x] `npm run test:owner-briefing-package` `owner:briefing-package -- --workspace=.data --out=.data/p1-owner-briefing-package.json --markdown=.data/p1-owner-briefing-package.md --package-dir=.data/p1-owner-briefing-package`가 대표 보고서, [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md) P1 6인 팀 목표 프롬프트, 현재 초안, 대표 의사결정 등록표와 `.data/p1-owner-decision-register.guide.md`, optional `.data/p1-owner-decision-register.completed.*`, 운영자 상태판, 완료 기준 매트릭스, 외부 blocker CSV, 패키지 README와 한국어 대표 요약 Markdown을 SHA-256/byte size manifest로 묶고 누락/secret-like fixture를 차단
-- [x] `npm run test:payment-lifecycle` 결제 생성 `Idempotency-Key`의 처리자·지점 범위 재시도/충돌/삭제 원본 보호, 일반 상태 확인값 하위 호환, 취소·환불 완료 등록 사유 필수와 상태 이력·감사 스냅샷 반영, UUID 식별자, 수기 부분 환불 직접 생성 차단, 실제 달력 날짜·납부일/만료일 순서 검증, 동일 결제 수기 변경·온라인 요청 직렬화, 삭제 전 취소·상태 이력 감사 스냅샷, 수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
+- [x] `npm run test:payment-lifecycle` 결제 생성 `Idempotency-Key`의 처리자·지점 범위 재시도/충돌/삭제 원본 보호, 일반 상태 확인값 하위 호환, 취소·환불 완료 등록 사유 필수와 상태 이력·감사 스냅샷 반영, Payment 루트 감사 사유 중복 방지, 0원 환불 완료/환불액 누락 부분 환불 수정·삭제 차단, UUID 식별자, 수기 부분 환불 직접 생성 차단, 실제 달력 날짜·납부일/만료일 순서 검증, 동일 결제 수기 변경·온라인 요청 직렬화, 삭제 전 취소·상태 이력 감사 스냅샷, 수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
 - [x] `npm run test:online-payments` provider-neutral 온라인 결제 요청, webhook secret, provider event ID 중복 처리, 영수증 메타, 결제 CSV provider 컬럼, 코치 금액/링크 마스킹, production provider/checkout/webhook secret 누락 차단 검증 통과
 - [x] `npm run test:family-payment-checkout` 회원/학부모 결제 카드에서 내부 결제 준비 화면 이동, 성인 회원 직접 결제 허용, 유소년/청소년 회원 직접 결제 차단과 학부모 자녀 결제 허용, 실 PG/API 미연결 상태 및 iOS Simulator 증빙 검증 통과
 - [x] `npm run test:payment-checkout-method-flow` 성인 회원/학부모 결제 상세의 compact 납부 요약, 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 그리드, 우리WON페이 모달, 학부모 자녀 결제 화면이 390px 모바일에서 overflow/콘솔 오류 없이 동작하고 `납부 정보 확인` 버튼/`온라인 결제 준비` 안내가 하단 고정 내비게이션에 가리지 않으며 실제 PG/API 호출이 없는지 검증 통과
 - [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 취소·환불 완료 상태의 44px 사유 입력과 빈 사유 제출 차단, 등록 중 중복 제출 차단, 저장 후 응답 유실 시 동일 `Idempotency-Key` 재시도와 정확히 1건 목록 반영, 수정 사유·날짜 검증, 삭제 사유·완료 안내 교체, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과. iPhone 16e 네이티브 등록·정정·삭제 증빙은 `.data/mobile-builds/ios/manual-payment-management-20260713/simulator-summary.json`, 취소 상태 조건부 사유 증빙은 `.data/mobile-builds/ios/manual-payment-create-audit-reason-20260713/simulator-summary.json`에 보관하며 실 PG·운영 데이터·IPA 준비 완료를 의미하지 않음
 - [x] `npm run test:class-management-touch-targets` 대표/총괄 수업 생성/수정 입력과 코치 출석 메모 토글/입력/빠른 메모/사유 저장 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
-- [x] `npm run test:member-management-touch-targets` 대표 회원 관리의 계정 초대/회원 등록 기본 접힘, 초대/등록/상태/기본정보/보호자 검색/상담 메모 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
+- [x] `npm run test:member-management-touch-targets` 대표 회원 관리 컨트롤 44px, 회원 상세 결제·회원권 요약의 가족 금액 비노출·코치 비노출, 학부모 자녀·결제 딥링크와 이후 수동 자녀 선택 유지, overflow 0, 콘솔 오류 없음, iPhone 16e 네이티브 셸 검증 통과
 - [x] `npm run test:admin-user-management-touch-targets` 총괄 사용자 관리의 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙 검증 통과
 - [x] `npm run test:operator-list-search` 운영자 결제 목록과 공지함 `q` 검색 딥링크/검색어 지우기, 0건 검색 빈 상태, 공지 0건 상태의 읽음 처리 액션 숨김, 검색 입력/인라인 지우기/빈 상태 지우기 44px 터치 목표와 하단 내비 clearance가 390px 모바일에서 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태를 유지하는지 검증 통과
 - [x] `npm run test:global-search` 대표/총괄 상단 통합 검색의 메뉴·회원·결제·공지·사용자 권한 범위, 코치 민감 결제/사용자 결과 차단, 실제 목록 검색 딥링크 연결 검증 통과
@@ -91,7 +92,9 @@
 - [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과
 - [x] `npm run test:payment-provider-handoff` 실 PG/VAN provider handoff manifest, webhook 서명/idempotency, checkout/영수증/정기결제 보관 정책, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, ISO 생성/승인 시각과 생성 이후 승인 순서, 원문 secret 미보관 fixture 검증 통과
-- [x] `npm run test:admin-user-management-api` 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경 API, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete`/`user.role.update` 변경 기록 검증 통과
+- [x] `npm run test:next-build-readiness` 현재 Next dist의 `BUILD_ID`·빌드 입력 SHA-256 지문 누락/불일치와 빌드 후 수정·삭제·이름 변경, 격리 dist의 기본 `.next` manifest 덮어쓰기를 차단하고, 검증 시작·종료에 같은 최신 빌드만 `next start` 기반 개별 게이트에 허용
+- [x] `npm run test:release-smoke-isolation` 빈 로컬 포트·run-owned 임시 JSON 디렉터리/실제 `PILOT_DB_FILE`/마커 강제, 상속 토큰 교체, 공유/심볼릭 링크 경로·원격/기존 서버 재사용 차단, 임시 데이터 정리를 행동 검증
+- [x] `npm run test:admin-user-management-api` 최신 production build 확인 후 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경 API, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete`/`user.role.update` 변경 기록 검증 통과
 - [x] iPhone 16e Simulator에서 사용자 삭제 API 실패 시 폼을 유지하고 현재 계정·총괄 유지·지점 대표 배정 상태 확인 안내가 하단 내비게이션 위에 완전히 표시됨 (`.data/mobile-builds/ios/admin-user-policy-feedback-20260713/summary.json`, 내부 QA 전용)
 - [x] `npm run test:dashboard-priority-kpi` 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시하는지 검증 통과
 - [x] `npm run test:member-profile-guardian-edit` 운영자 회원 상세 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위 검증 통과
@@ -105,7 +108,7 @@
 - [x] `npm run test:admin-settings-gates` 관리자 자동 검증 게이트와 release runner 정합성 통과
 - [x] `npm run test:p4-simulator-rehearsal` P4 실제 사용 환경 검증 통과. 앱 UI에는 P4 내부 상태판을 노출하지 않고, `.data/mobile-builds/ios/p4-simulator-screenshots` 관리자 대시보드/관리자 설정 운영 확인 화면/코치/회원/학부모 캡처 5개를 확인하고, P1 readiness blocked 7/7과 iOS IPA origin/provisioningProfile blocker를 유지해 iOS Simulator 성공을 IPA ready로 보지 않음
 - [x] `npm run test:p5-p10-internal-readiness` P5~P10 내부 readiness audit 통과 대상: 앱 UI 내부 release/audit 카드 비노출, `.data/p5-p10-internal-audit.json`, `.data/p5-p10-internal-audit.md`, `.data/mobile-builds/ios/p5-p10-simulator-screenshots` 관리자 설정/코치/회원/학부모 캡처 4개, `.data/mobile-builds/ios/visible-text-audit-20260621-recheck` 관리자 변경 기록/코치 회원 화면 recheck 캡처, P1 외부 blocker blocked 7/7, Android/iOS release blocker, 코치 모바일 저장 상태 패널 safe area 배치와 기본 상태 한 줄 요약, 코치 회원 화면 최근 상담/주의 메모 1건 요약과 빈 주의사항/빈 메모 문구 비노출, 관리자/대표/코치/회원/학부모 회원 상세의 빈 주의사항/상담/코치 피드백 문구 반복 비노출, Next 개발 표시 배지 비활성화, 역할별 `autoLogin` deep link 실제 서비스 화면 진입, 로그인 `quickLogin=1` hydration mismatch/빈 화면 방지, 예시 이메일 placeholder와 `010-0000-0000` 같은 더미 연락처 placeholder, 로그인 클라이언트의 `.test` seed 이메일/공통 비밀번호/계정 채우기 UI 및 직접 접근 차단/사용자 목록/초대/공지 작성 화면의 내부 권한·지점 범위 표현 비노출, README/QA/릴리즈/백로그 문서 정합성. `npm run p5-p10:internal-audit`는 감사 산출물만 재생성한다. 이 내부 audit는 출시 완료, IPA ready, 운영 ready가 아니며 iOS Simulator 성공을 IPA ready로 보지 않음
-- [x] `npm run test:notice-delete-ui` 공지 삭제 권한, 공지 단일 읽음 피드백/저장 중 상태, 삭제 후 목록/알림 상태 회귀 검증 통과
+- [x] `npm run test:notice-delete-ui` 공지 삭제 권한, 공지 단일 읽음 피드백/저장 중 상태, 삭제 후 목록/알림 상태, 실제 수정 후 읽음 초기화, 동일 내용 재저장 읽음 유지, 코치 audience 변경 차단, 반·개인 대상 변경/잘못된 타입 거부, 읽음·수정 직렬화, 감사 로그 본문 미저장 회귀 검증 통과
 - [x] `npm run test:visible-app-copy-stability` 390px 모바일 실제 화면에서 로그인/회원가입/비밀번호 재설정/초대 수락/계정 전환 진입 화면과 역할별 앱 화면이 FINAL 벡터 로고, 필수 폼/계정 전환 버튼, 콘솔 에러 없음, 더미/샘플/테스트 계정/릴리즈 내부 문구 비노출, 가로 overflow 없음, runtime error 없음 상태를 유지하고 로그인/회원가입/초대 수락 비밀번호 표시 토글 44px 터치 목표와 입력 우측 여백을 검증 통과. 회원/학부모 계정 화면은 불필요한 활성 상태 카드 없이 계정 전환/로그아웃 44px 액션을 검증한다. 관리자 사용자 목록 수정/삭제/비밀번호 재발급 액션은 compact 세로 스택으로 보이며 수정 폼의 선택 비밀번호 입력 2개와 수정/삭제/재발급 폼 접힘/토글 상태를 검증하고, 관리자 지점 생성 폼 열림 상태는 패널 160px 이하, 폼 112px 이하, 생성 버튼 44px 이상을 유지한다. 대표/총괄 `/app/notices`는 공지 목록과 읽음 처리가 먼저 보이고 `공지 작성` 폼은 44px `작성 열기` 토글 뒤에 접힌 상태로 유지한다. 관리자/대표/코치/회원/학부모 회원 상세는 빈 주의사항/상담/코치 피드백 문구를 반복하지 않고, 코치 회원 화면은 최근 메모 1건만 기본 노출하고 44px 더보기로 확장되며 상태 필터·개인 공지 액션·비상 연락처 전화 액션이 44px 터치 높이를 유지한다. 회원/학부모 회원 화면의 비상 연락처 전화 액션도 44px 터치 목표를 유지한다. 대표 대시보드 `오늘/7일/30일` 기간 필터, 관리자 대시보드 `오늘 수업 보기`, 사용자 관리 `회원 등록`/`초대`, 변경 기록 `새로고침`도 44px 터치 높이를 유지한다. 코치 수업 화면은 내부 P3 운영 패널과 코드형 마감 문구가 실제 앱 DOM에 노출되지 않음을 확인한다. 대표 리포트는 지점별 회원/출석/위험/매출 그래프와 내부 P3 운영 패널/코드형 운영 확인 문구 비노출을 확인하고, 대표 내 지점은 지점별 회원 유지/수업 채움/결제 위험 그래프와 44px 액션 버튼을 확인하며, 회원 `/app/notifications` alias는 공지 필터/읽음 액션을 함께 확인
 - [x] 대표 대시보드 지점 비교 카드는 390px 모바일에서 위험 알림보다 먼저 보이고 하단 내비게이션과 24px 이상 여백을 유지하며, compact 위험 알림 요약도 하단 내비게이션에 가리지 않는다. `test:visible-app-copy-stability`의 `ownerBranchComparison*BottomNavClearance`와 `ownerDashboardRiskSummaryBottomNavOverlap` 측정으로 회귀를 차단한다.
 - [x] `npm run preflight:pilot -- --allow-incomplete` 운영 직전 차단 조건 감사 명령 준비
@@ -202,7 +205,7 @@
 - [x] 스모크 테스트 실행 전후 JSON 데모 데이터 기준 상태 복구
 - [x] 데모 역할 로그인 production 기본 비활성화와 명시 플래그 허용 검증
 - [x] 이메일/임시 비밀번호 운영 로그인과 `passwordHash` 응답 마스킹 smoke 검증
-- [x] `/api/v1/dev/reset` production 기본 비활성화와 명시 플래그 허용 검증
+- [x] `/api/v1/dev/reset` production 기본 비활성화, 명시 플래그·helper 발급 실행별 소유권 토큰·run-owned 임시 JSON 마커·실제 `PILOT_DB_FILE` 일치 조건, 기존 서버/공유·심볼릭 링크 저장소/PostgreSQL reset 거부 검증
 - [x] `/app/classes` 모바일 출석 smoke 통과
 - [x] 모바일 출석 E2E와 출석 속도 smoke가 코치 운영 계정 로그인 경로 사용
 - [x] 모바일 전체 출석 일괄 저장과 회원별 변경 기록 E2E 통과
@@ -304,6 +307,7 @@
 - [ ] `npm run pilot:launch-package -- --csv=docs/pilot-templates/pilot-data-intake.csv --readiness-evidence=.data/pilot-readiness-evidence.csv --password-rotation=.data/pilot-password-rotation.csv --out=.data/pilot-launch-package.json` strict 실행으로 CSV 검증, import dry-run, 파일럿 준비 증빙, 계정별 비밀번호 교체 증빙, pre-pilot evidence JSON/Markdown, production preflight JSON, launch package JSON 생성 및 통과. PostgreSQL 운영 DB에서는 `--driver=postgres --state-key=<key> --postgres-url=<url>`을 함께 사용하고, 보관되는 패키지에 DB URL 비밀번호가 `REDACTED`로만 기록되는지 확인. 준비 중 리허설은 `--allow-incomplete` 사용
 - [ ] 준비 중 차단 상태를 기록해야 할 때는 `npm run pilot:launch-package -- --allow-incomplete --out=.data/pilot-launch-package.json`로 blocked launch package를 보관
 - [ ] 실제 데이터 반영 후 `NODE_ENV=production npm run preflight:pilot -- --out=.data/pilot-preflight.pre-pilot.json` 통과 및 결과 파일 보관
+- [ ] 운영 배포 전 승인된 운영 데이터 복제본을 별도 격리 경로에 준비하고 `npm run preflight:runtime-snapshot -- --file=<snapshot> --out=.data/runtime-snapshot-preflight.json` 통과. 원본 운영 DB에 직접 실행하지 않으며, 정정이 필요하면 먼저 `npm run runtime:integrity:reconcile -- --file=<snapshot> --actor-user-id=<admin-user-id>` dry-run 결과와 백업·롤백 계획을 검토한 뒤 별도 승인된 반영 절차를 사용한다. 감사 actor는 복제본에 존재하는 승인 완료 총괄 어드민이어야 한다.
 - [ ] 현장 코치 모바일 기기 테스트
 - [ ] 개인정보/결제 데이터 마스킹 정책 확인
 - [ ] 운영 중 장애 보고 채널 확정 및 `/app/admin/settings` 파일럿 이슈 로그 운영 담당자 지정
@@ -349,7 +353,7 @@ npm run test:pilot-launch-command
 npm run test:release
 ```
 
-`test:release`는 기본 `SMOKE_BASE_URL=http://localhost:3000` 서버가 없으면 smoke/E2E 구간에서 로컬 Next dev server를 `next dev --webpack` 모드로 자동 실행하고 종료한다. Docker Desktop은 DB smoke를 위해 별도로 실행 중이어야 한다.
+`test:release`는 smoke/E2E 구간에서 빈 로컬 포트와 임시 JSON 저장소를 할당해 직전에 지문을 확인한 production build를 `next start`로 직접 실행하고 종료 후 데이터를 정리한다. 데모 로그인·reset 허용 플래그는 이 격리 자식 프로세스에만 적용한다. `SMOKE_BASE_URL`을 지정한 경우에도 서버가 없는 로컬 HTTP origin만 허용하며, 이미 응답하는 소유 불명 서버·원격 origin·실행 중인 개발 서버는 재사용하거나 종료하지 않는다. Docker Desktop은 DB smoke를 위해 별도로 실행 중이어야 한다.
 
 ## 7. 현재 남은 주요 리스크
 

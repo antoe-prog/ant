@@ -132,7 +132,12 @@ export async function POST(
     return jsonError(404, "NOT_FOUND", "지점을 찾을 수 없습니다.");
   }
 
-  if (!coach || !["coach", "admin"].includes(coach.role) || !coach.branchIds.includes(branchId)) {
+  if (
+    !coach ||
+    !["coach", "owner", "admin"].includes(coach.role) ||
+    coach.invitationStatus === "pending" ||
+    !coach.branchIds.includes(branchId)
+  ) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "선택한 지점에 배정된 코치를 선택해야 합니다.");
   }
 

@@ -8,19 +8,31 @@ const lines = qaPlan.split(/\r?\n/);
 const scenarios = [];
 
 for (const [index, line] of lines.entries()) {
-  const rowMatch = line.match(/^\| (QA-[A-Z]+-[A-Z0-9]+) \| ([^|]+) \| ([^|]+) \|$/);
-
-  if (!rowMatch) {
+  if (!/^\|\s*QA-[A-Z]+-[A-Z0-9]+\s*\|/.test(line)) {
     continue;
   }
 
-  const [, id, action, expected] = rowMatch;
+  const cells = line
+    .split("|")
+    .slice(1, -1)
+    .map((cell) => cell.trim());
+  const [id, ...details] = cells;
+
+  assert(
+    cells.length >= 3 && cells.length <= 5,
+    `${qaPlanPath} QA row at line ${index + 1} must have 3 to 5 columns`,
+  );
+  assert(/^QA-[A-Z]+-[A-Z0-9]+$/.test(id), `${qaPlanPath} has an invalid QA ID at line ${index + 1}`);
+
+  const expected = details.at(-1) ?? "";
+  const action = details.slice(0, -1).join(" / ");
 
   scenarios.push({
     id,
-    action: action.trim(),
-    expected: expected.trim(),
+    action,
+    expected,
     lineNumber: index + 1,
+    columnCount: cells.length,
   });
 }
 
@@ -47,6 +59,12 @@ for (const scenario of scenarios) {
   assert(scenario.expected.length > 0, `${scenario.id} at line ${scenario.lineNumber} must have an expected result`);
 }
 
+assert.deepEqual(
+  [...new Set(scenarios.map((scenario) => scenario.columnCount))].sort((a, b) => a - b),
+  [3, 4, 5],
+  `${qaPlanPath} must keep covered 3-, 4-, and 5-column QA scenario tables`,
+);
+
 const npmRunReferences = [...qaPlan.matchAll(/npm run\s+([^\s`,)]+)/g)]
   .map((match) => match[1].replace(/[.,;:]+$/, ""))
   .filter((scriptName) => scriptName.length > 0)
@@ -62,6 +80,8 @@ assert.equal(
 );
 
 const requiredScenarioIds = [
+  "QA-ROLE-01",
+  "QA-PAY-24",
   "QA-ADMIN-35B5",
   "QA-ADMIN-36",
   "QA-ADMIN-40",
@@ -76,7 +96,8 @@ console.log(
     {
       ok: true,
       checked: [
-        "unique QA scenario IDs",
+        "3- to 5-column QA scenario tables",
+        "unique QA scenario IDs across every table shape",
         "non-empty QA actions and expected results",
         "npm run references exist in package.json",
       ],

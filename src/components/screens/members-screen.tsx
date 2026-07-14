@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, ChevronDown, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
-import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, UserRole } from "@/lib/domain";
+import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, Payment, UserRole } from "@/lib/domain";
 import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -11,15 +11,16 @@ import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection"
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
-import { formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
+import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { memberStatusLabels, roleLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
-import { Button, SectionHeader } from "@/components/ui/primitives";
+import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
 const statusClasses: Record<MemberStatus, string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -356,6 +357,28 @@ export function MembersScreen() {
 
     return grouped;
   }, [context.db.counselingNotes]);
+  const currentPaymentByMemberId = useMemo(() => {
+    const grouped = new Map<string, Payment[]>();
+
+    if (context.user.role === "coach") {
+      return new Map<string, Payment>();
+    }
+
+    for (const payment of context.db.payments) {
+      const memberPayments = grouped.get(payment.memberId) ?? [];
+
+      memberPayments.push(payment);
+      grouped.set(payment.memberId, memberPayments);
+    }
+
+    return new Map(
+      [...grouped.entries()].flatMap(([memberId, payments]) => {
+        const currentPayment = getCurrentMemberPayment(payments);
+
+        return currentPayment ? [[memberId, currentPayment] as const] : [];
+      }),
+    );
+  }, [context.db.payments, context.user.role]);
 
   const filteredMembers = useMemo(() => {
     const keyword = query.trim();
@@ -1187,6 +1210,9 @@ export function MembersScreen() {
             const memberDetailExpanded = !canManageMembers || expandedMemberIds.has(member.id);
             const selectedGuardian =
               guardianUsers.find((guardian) => guardian.id === guardianLinkDraft.guardianUserId) ?? null;
+            const currentPayment = currentPaymentByMemberId.get(member.id) ?? null;
+            const canOpenPaymentHistory =
+              Boolean(currentPayment) && (context.user.role !== "guardian" || member.status !== "withdrawn");
 
             return (
             <article
@@ -1367,6 +1393,56 @@ export function MembersScreen() {
                     </Link>
                   ) : null}
                 </div>
+              ) : null}
+
+              {context.user.role !== "coach" ? (
+                <section
+                  className="mt-4 border-t border-zinc-100 pt-4"
+                  data-testid={`member-payment-summary-${member.id}`}
+                >
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <h3 className="text-xs font-medium text-zinc-500">결제·회원권</h3>
+                    {currentPayment ? <PaymentStatusBadge status={currentPayment.status} /> : null}
+                  </div>
+                  {currentPayment ? (
+                    <>
+                      <div className="mt-2 flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-zinc-950">{currentPayment.planName}</p>
+                          <p className="mt-1 break-words text-xs leading-5 text-zinc-600">
+                            납부 {formatDate(currentPayment.dueDate)} · 만료 {formatDate(currentPayment.expiresAt)}
+                          </p>
+                        </div>
+                        {canManageMembers ? (
+                          <p className="shrink-0 text-sm font-semibold tabular-nums text-zinc-950">
+                            {formatCurrency(
+                              Math.max(
+                                currentPayment.amount -
+                                  (currentPayment.discountAmount ?? 0) -
+                                  (currentPayment.refundedAmount ?? 0),
+                                0,
+                              ),
+                            )}
+                          </p>
+                        ) : null}
+                      </div>
+                      {canOpenPaymentHistory ? (
+                        <Link
+                          className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                          data-testid={`member-payment-summary-link-${member.id}`}
+                          href={`/app/payments?memberId=${encodeURIComponent(member.id)}&q=${encodeURIComponent(member.name)}&focusPayment=${encodeURIComponent(currentPayment.id)}`}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                          결제 내역 보기
+                        </Link>
+                      ) : context.user.role === "guardian" && member.status === "withdrawn" ? (
+                        <p className="mt-2 text-xs leading-5 text-zinc-500">퇴회 회원의 결제 내역은 도장에 문의해 주세요.</p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-zinc-500">등록된 결제 내역이 없습니다.</p>
+                  )}
+                </section>
               ) : null}
 
               {canEditOwnContact && !canManageMembers && !showProfileForm ? (

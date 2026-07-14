@@ -227,7 +227,11 @@ export function ClassesScreen() {
   const branchCoaches = useMemo(
     () =>
       context.db.users.filter(
-        (user) => ["coach", "admin"].includes(user.role) && selectedCreateBranchId && user.branchIds.includes(selectedCreateBranchId),
+        (user) =>
+          ["coach", "owner", "admin"].includes(user.role) &&
+          user.invitationStatus !== "pending" &&
+          selectedCreateBranchId &&
+          user.branchIds.includes(selectedCreateBranchId),
       ),
     [context.db.users, selectedCreateBranchId],
   );

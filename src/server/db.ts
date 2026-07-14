@@ -7,7 +7,10 @@ import { rollSeededDemoDates } from "@/server/demo-date-roll";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
 import { mergeRuntimeState } from "@/server/runtime-state-merge";
-import { validateRuntimeStateIntegrity } from "@/server/runtime-state-integrity";
+import {
+  assertNoNewRuntimeStateIntegrityIssues,
+  validateRuntimeStateIntegrity,
+} from "@/server/runtime-state-integrity";
 
 const defaultJsonDataDirectory = `${"."}data`;
 const defaultJsonDataFileName = "final-judo-db.json";
@@ -192,6 +195,7 @@ function createServerDbStore() {
       tableName: process.env.FINAL_JUDO_POSTGRES_TABLE ?? "app_runtime_state",
       createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
       validate: validateMockDatabase,
+      validateWrite: (next, previous) => assertNoNewRuntimeStateIntegrityIssues(previous, next),
       merge: mergeRuntimeState,
     });
   }
@@ -212,6 +216,7 @@ function createServerDbStore() {
     fileName: jsonStoreTarget.fileName,
     createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
     validate: validateMockDatabase,
+    validateWrite: (next, previous) => assertNoNewRuntimeStateIntegrityIssues(previous, next),
     backupLimit: 20,
     merge: mergeRuntimeState,
   });

@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.ADMIN_USER_SEARCH_OUT_DIR ?? ".data/mobile-builds/ios/admin-user-search-20260704";
@@ -71,6 +75,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "admin user search check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "admin user search check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -119,7 +128,11 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `admin user search ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `admin user search ${label} reset failed with ${response.status}`);
@@ -211,7 +224,10 @@ function assertStaticContracts() {
   assert(releaseRunner.includes('["run", "test:admin-user-search"]'), "test:release must include admin user search");
   assert(adminUsersScreen.includes("useSearchParams"), "admin users screen must read initial filters from Next search params");
   assert(adminUsersScreen.includes("previousListFilterParamRef"), "admin user search must guard stale q/role params after clearing");
-  assert(adminUsersScreen.includes("router.replace(nextUrl, { scroll: false })"), "admin user search must update q/role through the Next router");
+  assert(
+    adminUsersScreen.includes('window.history.replaceState(null, "", nextUrl)'),
+    "admin user search must update q/role through the Next-compatible native history API",
+  );
   assert(!adminUsersScreen.includes("window.addEventListener(\"popstate\""), "admin user search must not depend on raw popstate listeners");
   assert(!adminUsersScreen.includes("getInitialUserQuery"), "admin user search must not restore q from a window-only initializer");
   assert(adminUsersScreen.includes('data-testid="admin-user-search-input"'), "admin users screen must expose a stable search input hook");

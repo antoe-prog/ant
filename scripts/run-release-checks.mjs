@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
 
+import {
+  canReachHttpOrigin,
+  cleanupReleaseSmokeEnvironment,
+  createReleaseSmokeEnvironment,
+} from "./lib/release-smoke-environment.mjs";
+
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const smokeBaseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+let smokeBaseUrl = process.env.SMOKE_BASE_URL?.trim() || null;
 const serverManagedChecks = new Set([
   "npm run test:routes",
   "npm run test:e2e",
@@ -25,10 +31,15 @@ const checks = [
   ["run", "lint"],
   ["run", "build"],
   ["audit", "--audit-level=moderate"],
+  ["run", "test:next-build-readiness"],
+  ["run", "test:release-smoke-isolation"],
   ["run", "test:unit"],
   ["run", "test:role-csv-export-gates"],
   ["run", "test:deleted-request-surface"],
   ["run", "test:store"],
+  ["run", "test:store-write-validation"],
+  ["run", "test:runtime-state-integrity"],
+  ["run", "test:runtime-state-tools"],
   ["run", "test:admin-user-management-api"],
   ["run", "test:dashboard-priority-kpi"],
   ["run", "test:member-profile-guardian-edit"],
@@ -139,7 +150,8 @@ const checks = [
 
 let managedServer = null;
 let serverReady = false;
-let usingExistingServer = false;
+let smokePlan = null;
+let smokeEnvironment = null;
 
 function labelFor(args) {
   return `npm ${args.join(" ")}`;
@@ -152,22 +164,14 @@ function sleep(ms) {
 }
 
 async function canReachServer() {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1000);
+  return smokeBaseUrl ? canReachHttpOrigin(smokeBaseUrl) : false;
+}
 
-  try {
-    const response = await fetch(smokeBaseUrl, {
-      method: "GET",
-      signal: controller.signal,
-      redirect: "manual",
-    });
-
-    return response.status >= 200 && response.status < 500;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+async function prepareManagedSmokeEnvironment() {
+  smokePlan = await createReleaseSmokeEnvironment({ baseUrl: smokeBaseUrl, env: process.env });
+  smokeBaseUrl = smokePlan.baseUrl;
+  smokeEnvironment = smokePlan.env;
+  return smokePlan;
 }
 
 async function waitForServer(timeoutMs = 30000) {
@@ -193,19 +197,20 @@ async function ensureServerForSmokeChecks() {
     return;
   }
 
-  if (await canReachServer()) {
-    serverReady = true;
-    usingExistingServer = true;
-    console.log(`\nUsing existing app server at ${smokeBaseUrl} for smoke/E2E checks.`);
-    return;
-  }
+  const target = await prepareManagedSmokeEnvironment();
 
-  console.log(`\nStarting managed app server at ${smokeBaseUrl} for smoke/E2E checks with next dev --webpack.`);
+  console.log(
+    `\nStarting isolated production server at ${smokeBaseUrl} for smoke/E2E checks with next start.`,
+  );
 
-  managedServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  managedServer = spawn(
+    npmCommand,
+    ["run", "start", "--", "--hostname", target.hostname, "--port", String(target.port)],
+    {
+      env: smokeEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedServer.stdout.on("data", (chunk) => {
     process.stdout.write(`[app-server] ${chunk}`);
@@ -219,7 +224,7 @@ async function ensureServerForSmokeChecks() {
 }
 
 async function stopManagedServer() {
-  if (!managedServer || usingExistingServer) {
+  if (!managedServer) {
     return;
   }
 
@@ -240,7 +245,13 @@ async function stopManagedServer() {
   });
 }
 
-function runCheck(args) {
+async function cleanupManagedSmokeEnvironment() {
+  await stopManagedServer();
+  await cleanupReleaseSmokeEnvironment(smokePlan);
+  smokePlan = null;
+}
+
+function runCheck(args, env = process.env) {
   const label = labelFor(args);
   const startedAt = Date.now();
 
@@ -248,7 +259,7 @@ function runCheck(args) {
 
   return new Promise((resolve, reject) => {
     const child = spawn(npmCommand, args, {
-      env: process.env,
+      env,
       stdio: "inherit",
     });
 
@@ -280,10 +291,10 @@ async function main() {
         await ensureServerForSmokeChecks();
       }
 
-      results.push(await runCheck(args));
+      results.push(await runCheck(args, serverManagedChecks.has(label) ? smokeEnvironment : process.env));
     }
   } finally {
-    await stopManagedServer();
+    await cleanupManagedSmokeEnvironment();
   }
 
   console.log(
@@ -292,7 +303,7 @@ async function main() {
         ok: true,
         smokeBaseUrl,
         managedSmokeServer: Boolean(managedServer),
-        usingExistingSmokeServer: usingExistingServer,
+        isolatedSmokeData: Boolean(smokeEnvironment?.FINAL_JUDO_DATA_DIR),
         checked: results.map((result) => ({
           command: result.label,
           durationMs: result.durationMs,

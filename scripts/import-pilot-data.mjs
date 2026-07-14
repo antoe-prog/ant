@@ -7,6 +7,10 @@ const { createJsonStore } = await import("../src/server/json-store.ts");
 const { createPostgresJsonStore } = await import("../src/server/postgres-store.ts");
 const { defaultPilotPasswordHash } = await import("../src/server/auth-password.ts");
 const { createDefaultPilotReadinessChecks } = await import("../src/lib/pilot-readiness.ts");
+const {
+  assertNoNewRuntimeStateIntegrityIssues,
+  validateRuntimeStateIntegrity,
+} = await import("../src/server/runtime-state-integrity.ts");
 
 const defaultBranchSettings = {
   attendanceEditRequiresReason: true,
@@ -85,6 +89,8 @@ function validateImportedDb(value) {
     "pilotIncidents",
     "pilotOperationLogs",
     "counselingNotes",
+    "promotions",
+    "tournaments",
     "auditLogs",
   ];
 
@@ -98,7 +104,11 @@ function validateImportedDb(value) {
     }
   }
 
-  return value;
+  return validateRuntimeStateIntegrity(value);
+}
+
+function validateImportedWrite(next, previous) {
+  return assertNoNewRuntimeStateIntegrityIssues(previous, next);
 }
 
 function buildPilotDb(records) {
@@ -125,7 +135,6 @@ function buildPilotDb(records) {
 
   const branchIds = branches.map((branch) => branch.id);
   const roleCounts = new Map();
-  const usersByName = new Map();
   const usersByNameAndBranch = new Map();
   const users = userRows.map((row) => {
     const roleCount = roleCounts.get(row.role) ?? 0;
@@ -143,7 +152,6 @@ function buildPilotDb(records) {
       branchIds: row.role === "admin" ? branchIds : [branchId],
     };
 
-    usersByName.set(row.name, user);
     usersByNameAndBranch.set(`${row.branch_name}:${row.name}`, user);
     return user;
   });
@@ -151,10 +159,17 @@ function buildPilotDb(records) {
   const memberUsersByName = new Map(users.filter((user) => user.role === "member").map((user) => [user.name, user]));
   const members = memberRows.map((row, index) => {
     const branchId = branchIdsByName.get(row.branch_name) ?? branchIds[0];
-    const coach = usersByNameAndBranch.get(`${row.branch_name}:${row.coach_name}`) ?? usersByName.get(row.coach_name);
+    const coach = usersByNameAndBranch.get(`${row.branch_name}:${row.coach_name}`);
     const guardian = row.guardian_name
-      ? usersByNameAndBranch.get(`${row.branch_name}:${row.guardian_name}`) ?? usersByName.get(row.guardian_name)
+      ? usersByNameAndBranch.get(`${row.branch_name}:${row.guardian_name}`)
       : null;
+
+    if (!coach || !["coach", "owner", "admin"].includes(coach.role)) {
+      throw new Error(`Pilot member ${row.member_name} requires an accepted operator in branch ${row.branch_name}.`);
+    }
+    if (row.guardian_name && (!guardian || guardian.role !== "guardian")) {
+      throw new Error(`Pilot member ${row.member_name} guardian must belong to branch ${row.branch_name}.`);
+    }
     const id = index === 0 ? "member-jun" : index === 1 ? "member-minjae" : stableId("member", `${row.branch_name}:${row.member_name}`);
 
     return {
@@ -166,7 +181,7 @@ function buildPilotDb(records) {
       level: row.level,
       belt: row.belt,
       guardianIds: guardian ? [guardian.id] : [],
-      primaryCoachId: coach?.id ?? users.find((user) => user.role === "admin")?.id ?? "user-admin",
+      primaryCoachId: coach.id,
       emergencyContact: row.phone || "연락처 등록 전",
       alerts: row.notes ? [row.notes] : [],
     };
@@ -190,7 +205,11 @@ function buildPilotDb(records) {
 
   const classes = classRows.map((row, index) => {
     const branchId = branchIdsByName.get(row.branch_name) ?? branchIds[0];
-    const coach = usersByNameAndBranch.get(`${row.branch_name}:${row.coach_name}`) ?? usersByName.get(row.coach_name);
+    const coach = usersByNameAndBranch.get(`${row.branch_name}:${row.coach_name}`);
+
+    if (!coach || !["coach", "owner", "admin"].includes(coach.role)) {
+      throw new Error(`Pilot class ${row.class_name} requires an accepted operator in branch ${row.branch_name}.`);
+    }
     const capacity = Number(row.capacity);
     const enrolledMemberIds = members
       .filter((member) => member.branchId === branchId && member.ageGroup === row.age_group && member.primaryCoachId === coach?.id)
@@ -203,7 +222,7 @@ function buildPilotDb(records) {
       name: row.class_name,
       level: row.level,
       ageGroup: row.age_group,
-      coachId: coach?.id ?? users.find((user) => user.role === "admin")?.id ?? "user-admin",
+      coachId: coach.id,
       startsAt: new Date(row.starts_at).toISOString(),
       endsAt: new Date(row.ends_at).toISOString(),
       room: "메인 매트",
@@ -320,6 +339,8 @@ function buildPilotDb(records) {
     classes,
     attendance: [],
     counselingNotes,
+    promotions: [],
+    tournaments: [],
     payments,
     notices,
     pushSubscriptions: [],
@@ -373,6 +394,7 @@ async function main() {
       fileName: path.basename(outputFile),
       createDefault: () => db,
       validate: validateImportedDb,
+      validateWrite: validateImportedWrite,
       backupLimit: 20,
     });
     await store.write(db);
@@ -389,6 +411,7 @@ async function main() {
       tableName: postgresTable,
       createDefault: () => db,
       validate: validateImportedDb,
+      validateWrite: validateImportedWrite,
     });
 
     try {

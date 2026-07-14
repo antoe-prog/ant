@@ -1,9 +1,9 @@
-import { defaultBranchSettings, type MockDatabase } from "@/lib/domain";
-import { createDefaultPilotReadinessChecks } from "@/lib/pilot-readiness";
-import { createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
-import { defaultPilotPasswordHash } from "@/lib/pilot-password-contract";
+import { defaultBranchSettings, type MockDatabase } from "./domain.ts";
+import { createDefaultPilotReadinessChecks } from "./pilot-readiness.ts";
+import { createPaymentStatusHistoryEntry } from "./payment-lifecycle.ts";
+import { defaultPilotPasswordHash } from "./pilot-password-contract.ts";
 
-export { createDefaultPilotReadinessChecks } from "@/lib/pilot-readiness";
+export { createDefaultPilotReadinessChecks } from "./pilot-readiness.ts";
 
 function at(dayOffset: number, hour: number, minute = 0) {
   const date = new Date();

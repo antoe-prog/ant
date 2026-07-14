@@ -7,12 +7,14 @@ import { isDeepStrictEqual } from "node:util";
 import { attachStoreVersion, getStoreVersion, type StoreVersion } from "./store-version.ts";
 
 export type JsonValidator<T> = (value: unknown) => T;
+export type JsonWriteValidator<T> = (next: T, previous: T | null) => T;
 
 export type JsonStoreOptions<T> = {
   directory: string;
   fileName: string;
   createDefault: () => T;
   validate?: JsonValidator<T>;
+  validateWrite?: JsonWriteValidator<T>;
   backupLimit?: number;
   merge?: (base: T, requested: T, latest: T) => T;
 };
@@ -202,10 +204,11 @@ export function createJsonStore<T>(options: JsonStoreOptions<T>) {
                   throw new Error("JSON runtime state changed before this write completed.");
                 })()
             : value;
+          const validatedNext = options.validateWrite ? options.validateWrite(next, latest) : next;
 
-          await persist(next);
+          await persist(validatedNext);
           revision += 1;
-          cache = attachStoreVersion(next, revision);
+          cache = attachStoreVersion(validatedNext, revision);
           return cache;
         }),
     );

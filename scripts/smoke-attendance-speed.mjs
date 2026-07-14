@@ -1,3 +1,5 @@
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
+
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const limitMs = Number(process.env.ATTENDANCE_SPEED_LIMIT_MS ?? 30000);
 const sessionId = process.env.ATTENDANCE_SPEED_SESSION_ID ?? "class-kids-am";
@@ -50,9 +52,10 @@ async function resetDemoData(phase) {
     return;
   }
 
-  const response = await fetch(`${baseUrl}/api/v1/dev/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `${phase} attendance speed smoke reset`,
   }).catch((error) => {
     throw new Error(`Cannot reset demo data ${phase} attendance speed smoke. ${error.message}`);
   });

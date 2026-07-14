@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { createJsonStore } from "../src/server/json-store.ts";
 import { createPostgresJsonStore } from "../src/server/postgres-store.ts";
 import {
+  assertNoNewRuntimeStateIntegrityIssues,
+  validateRuntimeStateIntegrity,
+} from "../src/server/runtime-state-integrity.ts";
+import {
   addReadinessEvidenceIssue,
   readinessDefinitionsForPhase,
   text,
@@ -22,6 +26,8 @@ const requiredCollections = [
   "pilotIncidents",
   "pilotOperationLogs",
   "counselingNotes",
+  "promotions",
+  "tournaments",
   "auditLogs",
 ];
 
@@ -56,13 +62,23 @@ function validateRuntimeDb(value) {
     throw new Error("Runtime DB must be a JSON object.");
   }
 
+  const upgraded = {
+    ...value,
+    promotions: Array.isArray(value.promotions) ? value.promotions : [],
+    tournaments: Array.isArray(value.tournaments) ? value.tournaments : [],
+  };
+
   for (const collection of requiredCollections) {
-    if (!Array.isArray(value[collection])) {
+    if (!Array.isArray(upgraded[collection])) {
       throw new Error(`Runtime DB collection "${collection}" must be an array.`);
     }
   }
 
-  return value;
+  return validateRuntimeStateIntegrity(upgraded);
+}
+
+function validateRuntimeWrite(next, previous) {
+  return assertNoNewRuntimeStateIntegrityIssues(previous, next);
 }
 
 function redactConnectionString(connectionString) {
@@ -93,6 +109,7 @@ function createRuntimeStore() {
       tableName: postgresTable,
       createDefault: createDefaultUnavailable,
       validate: validateRuntimeDb,
+      validateWrite: validateRuntimeWrite,
     });
   }
 
@@ -101,6 +118,7 @@ function createRuntimeStore() {
     fileName: path.basename(runtimePath),
     createDefault: createDefaultUnavailable,
     validate: validateRuntimeDb,
+    validateWrite: validateRuntimeWrite,
     backupLimit: 20,
   });
 }

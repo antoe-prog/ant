@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync,
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir =
@@ -74,6 +78,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "admin user management touch-target check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "admin user management touch-target check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -123,8 +132,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData(label) {
   assert(canMutateLocalDevData(), "admin user management touch-target check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `admin user management touch-target ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `admin user management touch-target ${label} reset failed with ${response.status}`);

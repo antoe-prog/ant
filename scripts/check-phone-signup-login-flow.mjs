@@ -4,6 +4,11 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  assertOwnedSmokeServer,
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.PHONE_SIGNUP_LOGIN_FLOW_OUT_DIR ?? ".data/mobile-builds/ios/phone-signup-login-flow-20260705";
@@ -76,8 +81,18 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assertLocalBaseUrl();
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "phone signup login flow check",
+  });
 
   if (await canReachAppServer()) {
+    await assertOwnedSmokeServer({
+      baseUrl,
+      env: process.env,
+      label: "phone signup login flow check",
+    });
     usingExistingAppServer = true;
     return;
   }
@@ -113,7 +128,7 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(`${baseUrl}/api/v1/dev/reset`, { method: "POST" });
+  const response = await resetOwnedSmokeServer({ baseUrl, env: process.env, label: `${label} dev reset` });
   const bodyText = await response.text();
 
   assert.equal(response.status, 200, `${label} dev reset must succeed: ${bodyText}`);

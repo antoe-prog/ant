@@ -8,7 +8,14 @@ import { pathToFileURL } from "node:url";
 const { rollSeededDemoDates } = await import("../src/server/demo-date-roll.ts");
 const { createJsonStore } = await import("../src/server/json-store.ts");
 const { mergeRuntimeState, RuntimeStateMergeConflictError } = await import("../src/server/runtime-state-merge.ts");
-const { RuntimeStateIntegrityError, validateRuntimeStateIntegrity } = await import("../src/server/runtime-state-integrity.ts");
+const {
+  RuntimeStateIntegrityError,
+  RuntimeStateWriteIntegrityError,
+  assertNoNewRuntimeStateIntegrityIssues,
+  inspectRuntimeStateIntegrity,
+  reconcileRuntimeStateIntegrity,
+  validateRuntimeStateIntegrity,
+} = await import("../src/server/runtime-state-integrity.ts");
 const { findOwnerCoverageBlockers, reassignUserOperationalLinks } = await import("../src/server/user-operational-reassignment.ts");
 
 function createDefaultStoreData() {
@@ -357,6 +364,7 @@ try {
         phone: "01033334444",
         role: "member",
       },
+      { id: "admin-global", branchIds: [], email: "admin@example.test", phone: "01044445555", role: "admin" },
     ],
     members: [{ id: "member-a", branchId: "branch-a", guardianIds: [], primaryCoachId: "coach-a" }],
     classes: [{ id: "class-a", branchId: "branch-a", coachId: "coach-a", enrolledMemberIds: ["member-a"] }],
@@ -376,30 +384,40 @@ try {
     RuntimeStateIntegrityError,
     "runtime integrity must reject normalized duplicate phone accounts",
   );
-  const healedAfterCoachDelete = validateRuntimeStateIntegrity({
+  const legacyAfterCoachDelete = validateRuntimeStateIntegrity({
     ...integrityBase,
     users: integrityBase.users.slice(1),
   });
   assert.equal(
-    healedAfterCoachDelete.members[0].primaryCoachId,
-    "owner-a",
-    "members referencing a deleted coach must be reassigned to a same-branch operator",
+    legacyAfterCoachDelete.members[0].primaryCoachId,
+    "coach-a",
+    "read validation must not silently reassign members referencing a deleted coach",
   );
   assert.equal(
-    healedAfterCoachDelete.classes[0].coachId,
-    "owner-a",
-    "classes referencing a deleted coach must be reassigned to a same-branch operator",
+    legacyAfterCoachDelete.classes[0].coachId,
+    "coach-a",
+    "read validation must not silently reassign classes referencing a deleted coach",
   );
-  assert.throws(
-    () =>
-      validateRuntimeStateIntegrity({
-        ...integrityBase,
-        users: integrityBase.users.filter((user) => user.role === "member"),
-      }),
-    RuntimeStateIntegrityError,
-    "classes referencing a deleted coach must be rejected when no same-branch operator can take over",
+  const legacyIssues = inspectRuntimeStateIntegrity(legacyAfterCoachDelete);
+  assert(
+    legacyIssues.some((issue) => issue.rule === "members.primaryCoachId" && issue.repairable),
+    "legacy member assignments must be reported as explicitly repairable",
   );
-  const healedConcurrentCoachDelete = validateRuntimeStateIntegrity(
+  assert(
+    legacyIssues.some((issue) => issue.rule === "classes.coachId" && issue.repairable),
+    "legacy class assignments must be reported as explicitly repairable",
+  );
+  const unrecoverableAssignments = {
+    ...integrityBase,
+    users: integrityBase.users.filter((user) => user.role === "member"),
+  };
+  assert(
+    inspectRuntimeStateIntegrity(unrecoverableAssignments).some(
+      (issue) => issue.rule === "classes.coachId" && !issue.repairable,
+    ),
+    "classes without a same-branch operator must remain explicit blockers",
+  );
+  const concurrentCoachDelete = validateRuntimeStateIntegrity(
     mergeRuntimeState(
       integrityBase,
       {
@@ -417,10 +435,20 @@ try {
       },
     ),
   );
+  assert.throws(
+    () => assertNoNewRuntimeStateIntegrityIssues(integrityBase, concurrentCoachDelete),
+    RuntimeStateWriteIntegrityError,
+    "a concurrent write must not introduce a class assignment to a deleted coach",
+  );
+  const reconciledConcurrentCoachDelete = reconcileRuntimeStateIntegrity(concurrentCoachDelete, {
+    actorUserId: "admin-global",
+    createId: () => "audit-concurrent-coach-repair",
+    now: "2026-07-14T00:00:00.000Z",
+  });
   assert.equal(
-    healedConcurrentCoachDelete.classes.find((session) => session.id === "class-concurrent")?.coachId,
+    reconciledConcurrentCoachDelete.db.classes.find((session) => session.id === "class-concurrent")?.coachId,
     "owner-a",
-    "a class concurrently added for a deleted coach must be reassigned to a same-branch operator",
+    "explicit reconciliation may repair a legacy concurrent assignment with an audit record",
   );
   assert.throws(
     () =>
@@ -460,6 +488,53 @@ try {
   assert.equal(demotedOperationalLinks.members[0]?.primaryCoachId, "owner-a", "coach role removal must reassign members");
   assert.equal(demotedOperationalLinks.reassignedClassCount, 1, "coach role removal must count reassigned classes");
   assert.equal(demotedOperationalLinks.reassignedMemberCount, 1, "coach role removal must count reassigned members");
+  const pendingFallbackLinks = reassignUserOperationalLinks({
+    db: {
+      ...integrityBase,
+      users: [
+        {
+          id: "coach-pending",
+          branchIds: ["branch-a"],
+          invitationStatus: "pending",
+          phone: "01055556666",
+          role: "coach",
+        },
+        ...demotedUsers,
+      ],
+    },
+    nextBranchIds: ["branch-a"],
+    nextRole: "member",
+    targetUserId: "coach-a",
+  });
+  assert.equal(
+    pendingFallbackLinks.classes[0]?.coachId,
+    "owner-a",
+    "pending invitations must not receive reassigned classes",
+  );
+  assert.equal(
+    pendingFallbackLinks.members[0]?.primaryCoachId,
+    "owner-a",
+    "pending invitations must not receive reassigned members",
+  );
+  const pendingTargetUsers = integrityBase.users.map((user) =>
+    user.id === "coach-a" ? { ...user, invitationStatus: "pending" } : user,
+  );
+  const pendingTargetLinks = reassignUserOperationalLinks({
+    db: { ...integrityBase, users: pendingTargetUsers },
+    nextBranchIds: ["branch-a"],
+    nextRole: "coach",
+    targetUserId: "coach-a",
+  });
+  assert.equal(
+    pendingTargetLinks.classes[0]?.coachId,
+    "owner-a",
+    "a pending target operator must not keep an existing class assignment",
+  );
+  assert.equal(
+    pendingTargetLinks.members[0]?.primaryCoachId,
+    "owner-a",
+    "a pending target operator must not keep an existing member assignment",
+  );
   validateRuntimeStateIntegrity({
     ...integrityBase,
     users: demotedUsers,
@@ -470,6 +545,23 @@ try {
     findOwnerCoverageBlockers(integrityBase.users.find((user) => user.id === "owner-a"), "member", ["branch-a"], integrityBase),
     ["branch-a"],
     "a sole branch owner must not be demoted before another owner is assigned",
+  );
+  const pendingOwnerCoverageDb = {
+    ...integrityBase,
+    users: [
+      ...integrityBase.users,
+      { id: "owner-pending", branchIds: ["branch-a"], invitationStatus: "pending", role: "owner" },
+    ],
+  };
+  assert.deepEqual(
+    findOwnerCoverageBlockers(
+      pendingOwnerCoverageDb.users.find((user) => user.id === "owner-a"),
+      "member",
+      ["branch-a"],
+      pendingOwnerCoverageDb,
+    ),
+    ["branch-a"],
+    "a pending owner invitation must not satisfy branch owner coverage",
   );
 
   const persisted = JSON.parse(await readFile(store.paths.dataFile, "utf8"));

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.MOBILE_NOTIFICATION_INBOX_OUT_DIR ?? ".data/mobile-builds/ios/mobile-notification-inbox-20260701";
@@ -38,7 +39,11 @@ async function resetDevData(label) {
     };
   }
 
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `mobile notification inbox ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `mobile notification inbox ${label} dev reset failed with ${response.status}`);
@@ -161,10 +166,11 @@ async function collectInboxState(page) {
 }
 
 async function seedGuardianPendingOnlinePayment(page) {
-  await page.goto(
-    new URL(`/api/v1/dev/auto-login?role=owner&next=${encodeURIComponent("/app/payments")}`, baseUrl).toString(),
-    { waitUntil: "load" },
-  );
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", "owner");
+  loginUrl.searchParams.set("next", "/app/payments");
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
 
   const result = await page.evaluate(async () => {
     const response = await fetch("/api/v1/payments/pay-yuna/online-checkout?selectedBranchId=branch-gangnam", {
@@ -209,10 +215,11 @@ async function verifyFamilyCase(browser, testCase) {
   });
 
   try {
-    await page.goto(
-      new URL(`/api/v1/dev/auto-login?role=${testCase.role}&next=${encodeURIComponent("/app/notifications")}`, baseUrl).toString(),
-      { waitUntil: "load" },
-    );
+    const loginUrl = new URL("/login", baseUrl);
+    loginUrl.searchParams.set("autoLogin", "1");
+    loginUrl.searchParams.set("role", testCase.role);
+    loginUrl.searchParams.set("next", "/app/notifications");
+    await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="notifications-screen"]', { timeout: 10000 });
     await page.screenshot({ path: beforeScreenshotPath, fullPage: true });
     const beforeState = await collectInboxState(page);

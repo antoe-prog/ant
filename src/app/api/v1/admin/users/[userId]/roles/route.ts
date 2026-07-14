@@ -4,7 +4,11 @@ import { userRoles } from "@/lib/domain";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRuntimeId } from "@/server/runtime-id";
-import { findOwnerCoverageBlockers, reassignUserOperationalLinks } from "@/server/user-operational-reassignment";
+import {
+  findOwnerCoverageBlockers,
+  reassignUserOperationalLinks,
+  summarizeOperationalReassignmentBlockers,
+} from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -100,12 +104,20 @@ export async function PUT(
         guardianIds: member.guardianIds.filter((guardianId) => guardianId !== targetUser.id),
       }));
   const operationalLinks = reassignUserOperationalLinks({
-    actorUserId: user.id,
     db: { ...db, users: nextUsers, members: membersAfterGuardianSync },
     nextBranchIds,
     nextRole,
     targetUserId: targetUser.id,
   });
+
+  if (operationalLinks.blockers.length > 0) {
+    return jsonError(
+      422,
+      "BUSINESS_RULE_FAILED",
+      "같은 지점의 인계 가능 담당자를 먼저 배정해 주세요.",
+      summarizeOperationalReassignmentBlockers(operationalLinks.blockers, db),
+    );
+  }
 
   const auditLog: AuditLog = {
     id: createRuntimeId("audit"),

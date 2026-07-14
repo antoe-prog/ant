@@ -79,12 +79,25 @@ assert(
   "release runner must start and stop a managed app server around local smoke/E2E commands",
 );
 assert(
-  releaseRunner.includes("SMOKE_BASE_URL"),
-  "release runner must honor SMOKE_BASE_URL when checking local smoke/E2E server reachability",
+  releaseRunner.includes("createReleaseSmokeEnvironment") &&
+    releaseRunner.includes('"test:release-smoke-isolation"'),
+  "release runner must allocate and behavior-test an isolated smoke environment",
 );
 assert(
-  releaseRunner.includes('"--webpack"'),
-  "release runner managed app server must use next dev --webpack for smoke/E2E stability",
+  releaseRunner.includes("cleanupReleaseSmokeEnvironment"),
+  "release runner must remove its isolated smoke data after managed checks",
+);
+assert(
+  !releaseRunner.includes("Using existing app server"),
+  "release runner must not reuse a reachable unowned smoke server",
+);
+assert(
+  releaseRunner.includes("serverManagedChecks.has(label) ? smokeEnvironment : process.env"),
+  "release runner must scope isolated smoke environment variables to server-managed checks",
+);
+assert(
+  releaseRunner.includes('["run", "start", "--", "--hostname"') && !releaseRunner.includes('["run", "dev", "--"'),
+  "release runner managed app server must use the fresh production build through next start",
 );
 
 for (const command of serverManagedCommands) {
@@ -140,7 +153,7 @@ console.log(
       checked: [
         "release runner npm scripts exist in package.json",
         "dev/lint/build/start scripts use direct Node package entrypoints",
-        "release runner manages local smoke/E2E server lifecycle with next dev --webpack",
+        "release runner manages an isolated local smoke/E2E server and JSON data lifecycle with next start",
         "Next output tracing excludes runtime-only .data artifacts",
         "README verification command order matches release runner",
         ...documents.map((document) => document.path),

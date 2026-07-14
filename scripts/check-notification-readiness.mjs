@@ -23,6 +23,7 @@ const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
 const pushConfigRoute = readFileSync("src/app/api/v1/notifications/push-config/route.ts", "utf8");
 const pushSubscriptionRoute = readFileSync("src/app/api/v1/notifications/subscriptions/route.ts", "utf8");
 const noticeCreateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/route.ts", "utf8");
+const noticeUpdateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/[noticeId]/route.ts", "utf8");
 const noticeReadRoute = readFileSync("src/app/api/v1/me/notices/[noticeId]/read/route.ts", "utf8");
 const noticeBulkReadRoute = readFileSync("src/app/api/v1/me/notices/bulk-read/route.ts", "utf8");
 const noticePushRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/[noticeId]/push/route.ts", "utf8");
@@ -31,6 +32,7 @@ const backendSchema = readFileSync("docs/BACKEND_DB_SCHEMA.md", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const releaseRunner = readFileSync("scripts/run-release-checks.mjs", "utf8");
 const smokeApi = readFileSync("scripts/smoke-api.mjs", "utf8");
+const noticeDeleteUi = readFileSync("scripts/check-notice-delete-ui.mjs", "utf8");
 
 assert(packageJson.scripts?.["test:notification-readiness"], "package.json must expose test:notification-readiness");
 assert(releaseRunner.includes('["run", "test:notification-readiness"]'), "test:release must include notification readiness");
@@ -76,6 +78,35 @@ assert(
 assert(
   smokeApi.includes("coach notice delete response must identify deleted own notice"),
   "smoke API must verify coaches can delete their own notices",
+);
+assert(
+  noticeUpdateRoute.includes('user.role === "coach" && audienceChanged') &&
+    noticeUpdateRoute.includes("visibleContentChanged ? []") &&
+    noticeUpdateRoute.includes("hasSameNoticeAudience") &&
+    noticeUpdateRoute.includes("hasNoticeVisibleContentChanged") &&
+    noticeUpdateRoute.includes("typeof rawUpdate.important !== \"boolean\"") &&
+    noticeUpdateRoute.includes('hasOwnProperty.call(rawUpdate, "targetMemberIds")') &&
+    noticeUpdateRoute.includes("bodyLength: notice.body.length") &&
+    !/before:\s*\{[\s\S]*?body:\s*notice\.body,/.test(noticeUpdateRoute) &&
+    !/after:\s*\{[\s\S]*?body:\s*noticeBody,/.test(noticeUpdateRoute),
+  "notice updates must validate input, preserve coach audience scope, reset read state on visible edits, and avoid audit body storage",
+);
+assert(
+  noticeHelpers.includes('export const noticeStateLockKey = "notice-state"') &&
+    noticeHelpers.includes("const leftSet = new Set(left)") &&
+    noticeUpdateRoute.includes("withServerDbLock(noticeStateLockKey") &&
+    noticeReadRoute.includes("withServerDbLock(noticeStateLockKey") &&
+    noticeBulkReadRoute.includes("withServerDbLock(noticeStateLockKey"),
+  "notice edit and read writes must share a lock and audience equality must normalize legacy duplicates",
+);
+assert(
+  noticeDeleteUi.includes("visible notice edits must reset prior read state") &&
+    noticeDeleteUi.includes("an idempotent notice edit must preserve the current read state") &&
+    noticeDeleteUi.includes("coach notice updates must not expand the existing audience") &&
+    noticeDeleteUi.includes("notice update audit must not retain the updated body") &&
+    noticeDeleteUi.includes("final notice read state must match the last serialized read or visible edit operation") &&
+    noticeDeleteUi.includes("notice updates must reject unsupported class/member target changes"),
+  "notice UI/API regression proof must exercise read-state, concurrency, coach audience, target immutability, and audit body contracts",
 );
 
 function assertExcludes(source, snippet, label) {

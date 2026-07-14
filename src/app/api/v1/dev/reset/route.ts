@@ -1,10 +1,15 @@
 import { createMockData } from "@/lib/mock-data";
 import { jsonError, jsonOk } from "@/server/api";
-import { resetServerDb } from "@/server/db";
+import { resetServerDb, serverDbPaths } from "@/server/db";
 import { canResetDevData } from "@/server/dev-reset-policy";
+import { hasValidSmokeDataOwnership, hasValidSmokeOwnershipToken } from "@/server/smoke-server-attestation";
 
-export async function POST() {
-  if (!canResetDevData()) {
+export async function POST(request: Request) {
+  if (
+    !canResetDevData() ||
+    !hasValidSmokeOwnershipToken(request.headers) ||
+    !(await hasValidSmokeDataOwnership(process.env, serverDbPaths?.dataFile))
+  ) {
     return jsonError(404, "NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.");
   }
 

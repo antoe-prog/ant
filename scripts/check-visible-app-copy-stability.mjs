@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const scriptArgs = process.argv.slice(2);
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
@@ -118,8 +119,11 @@ async function resetVisibleCopyDevData(label) {
     };
   }
 
-  const resetUrl = new URL("/api/v1/dev/reset", baseUrl);
-  const response = await fetch(resetUrl, { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `visible app copy ${label} reset`,
+  });
   const bodyText = await response.text();
   let body = null;
 
@@ -729,6 +733,7 @@ async function main() {
           authSignupPhoneInputCount: document.querySelectorAll('[data-testid="signup-phone-input"]').length,
           authSelectRoleLoginLinkHeight:
             Math.round(document.querySelector('[data-testid="select-role-login-link"]')?.getBoundingClientRect().height ?? 0),
+          authSelectRoleProductionCopyVisible: document.body.innerText.includes("휴대폰 번호 로그인으로 계정을 변경합니다."),
           authPasswordInputMinPaddingRight: (() => {
             const paddings = Array.from(
               document.querySelectorAll("#login-password-input, #signup-password-input, #invite-password-input"),
@@ -2234,13 +2239,21 @@ async function main() {
 
         if (testCase.id === "auth-select-role") {
           assert.equal(layout.authFormCount, 0, "select-role must not render credential or invitation forms");
-          assert.equal(layout.authRoleShortcutButtonCount, 5, "select-role must keep the five local role shortcut buttons in development checks");
-          assert(layout.authRoleShortcutButtonMinHeight >= 44, "select-role role shortcuts must keep a 44px touch height");
-          assert.equal(
-            layout.authRoleShortcutButtonText,
-            "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
-            "select-role role shortcut labels must stay scoped to role selection buttons",
+          assert(
+            layout.authRoleShortcutButtonCount === 0 || layout.authRoleShortcutButtonCount === 5,
+            "select-role must render either the production login guidance or all five development role shortcuts",
           );
+          if (layout.authRoleShortcutButtonCount === 5) {
+            assert(layout.authRoleShortcutButtonMinHeight >= 44, "select-role role shortcuts must keep a 44px touch height");
+            assert.equal(
+              layout.authRoleShortcutButtonText,
+              "대표 선택|코치 선택|학부모 선택|회원 선택|총괄 어드민 선택",
+              "select-role role shortcut labels must stay scoped to role selection buttons",
+            );
+            assert.equal(layout.authSelectRoleProductionCopyVisible, false, "development select-role must not show production-only login guidance");
+          } else {
+            assert.equal(layout.authSelectRoleProductionCopyVisible, true, "production select-role must explain phone-number account switching");
+          }
           assert(layout.authSelectRoleLoginLinkHeight >= 44, "select-role login link must keep a 44px touch height");
         }
 
@@ -4350,6 +4363,7 @@ async function main() {
       authSignupLinkCount: layout.authSignupLinkCount,
       authSignupInvitationInputCount: layout.authSignupInvitationInputCount,
       authSelectRoleLoginLinkHeight: layout.authSelectRoleLoginLinkHeight,
+      authSelectRoleProductionCopyVisible: layout.authSelectRoleProductionCopyVisible,
       authRoleShortcutButtonCount: layout.authRoleShortcutButtonCount,
       authRoleShortcutButtonMinHeight: layout.authRoleShortcutButtonMinHeight,
       authRoleShortcutButtonText: layout.authRoleShortcutButtonText,

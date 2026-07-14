@@ -8,7 +8,11 @@ import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
 import { createRuntimeId } from "@/server/runtime-id";
-import { findOwnerCoverageBlockers, reassignUserOperationalLinks } from "@/server/user-operational-reassignment";
+import {
+  findOwnerCoverageBlockers,
+  reassignUserOperationalLinks,
+  summarizeOperationalReassignmentBlockers,
+} from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -328,12 +332,21 @@ export async function PATCH(
     nextPhone,
   );
   const operationalLinks = reassignUserOperationalLinks({
-    actorUserId: user.id,
     db: { ...db, users: nextUsers, members: nextMembers },
     nextBranchIds,
     nextRole: nextRole as UserRole,
     targetUserId: targetUser.id,
   });
+
+  if (operationalLinks.blockers.length > 0) {
+    return jsonError(
+      422,
+      "BUSINESS_RULE_FAILED",
+      "같은 지점의 인계 가능 담당자를 먼저 배정해 주세요.",
+      summarizeOperationalReassignmentBlockers(operationalLinks.blockers, db),
+    );
+  }
+
   const adminCount = nextUsers.filter((candidate) => candidate.role === "admin").length;
 
   if (adminCount < 1) {
@@ -440,12 +453,20 @@ export async function DELETE(
   }
 
   const operationalLinks = reassignUserOperationalLinks({
-    actorUserId: user.id,
     db,
     nextBranchIds: [],
     nextRole: null,
     targetUserId: targetUser.id,
   });
+
+  if (operationalLinks.blockers.length > 0) {
+    return jsonError(
+      422,
+      "BUSINESS_RULE_FAILED",
+      "같은 지점의 인계 가능 담당자를 먼저 배정해 주세요.",
+      summarizeOperationalReassignmentBlockers(operationalLinks.blockers, db),
+    );
+  }
 
   const auditLog = createUserAuditLog({
     action: "user.delete",

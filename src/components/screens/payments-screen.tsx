@@ -231,6 +231,8 @@ export function PaymentsScreen() {
   }
 
   const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
+  const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
+  const appliedRequestedMemberIdRef = useRef<string | null>(null);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
   const [paymentActionQueueOpen, setPaymentActionQueueOpen] = useState(false);
   const [activeFocusedPaymentId, setActiveFocusedPaymentId] = useState<string | null>(null);
@@ -283,6 +285,24 @@ export function PaymentsScreen() {
         : [],
     [context.db.members, context.user.childMemberIds, context.user.id, context.user.role],
   );
+  useEffect(() => {
+    if (!requestedMemberId) {
+      appliedRequestedMemberIdRef.current = null;
+      return;
+    }
+
+    if (
+      context.user.role !== "guardian" ||
+      appliedRequestedMemberIdRef.current === requestedMemberId ||
+      !guardianPaymentChildren.some((child) => child.id === requestedMemberId)
+    ) {
+      return;
+    }
+
+    appliedRequestedMemberIdRef.current = requestedMemberId;
+    // URL 딥링크는 최초 진입에만 적용하고 이후 사용자의 자녀 선택은 유지한다.
+    setSelectedChildId(requestedMemberId);
+  }, [context.user.role, guardianPaymentChildren, requestedMemberId, setSelectedChildId]);
   const prioritizedGuardianPaymentChild =
     context.user.role === "guardian"
       ? guardianPaymentChildren.find((child) =>

@@ -47,6 +47,16 @@ assert(
   "member profile summary must expose stable age/contact hooks for saved-value UI regression checks",
 );
 assert(
+  membersScreenSource.includes('data-testid={`member-payment-summary-${member.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-payment-summary-link-${member.id}`}') &&
+    membersScreenSource.includes("getCurrentMemberPayment(payments)") &&
+    membersScreenSource.includes('context.user.role !== "coach"') &&
+    membersScreenSource.includes('context.user.role !== "guardian" || member.status !== "withdrawn"') &&
+    membersScreenSource.includes("canManageMembers ? (") &&
+    membersScreenSource.includes("focusPayment=${encodeURIComponent(currentPayment.id)}"),
+  "member detail must show a scoped payment summary, preserve family amount privacy, hide it from coaches, and keep withdrawn guardian history out of checkout navigation",
+);
+assert(
   membersScreenSource.includes('data-testid={`member-age-group-select-${member.id}`}') &&
     membersScreenSource.includes('ageGroup: event.target.value as Member["ageGroup"]') &&
     membersScreenSource.includes('data-testid={`member-profile-submit-${member.id}`}'),

@@ -3,6 +3,7 @@ import type { AuditLog, Member, MemberStatus } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { findAcceptedBranchOperatorId } from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
@@ -89,7 +90,11 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "주소는 100자 이내로 입력해 주세요.");
   }
 
-  const branchCoach = db.users.find((candidate) => candidate.role === "coach" && candidate.branchIds.includes(branchId));
+  const branchOperatorId = findAcceptedBranchOperatorId(db, branchId);
+
+  if (!branchOperatorId) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "같은 지점의 승인된 코치, 대표 또는 어드민을 먼저 배정해 주세요.");
+  }
   const memberId = `member-${Date.now()}`;
   const now = new Date().toISOString();
   const nextMember: Member = {
@@ -104,7 +109,7 @@ export async function POST(
     birthDate,
     address,
     guardianIds: [],
-    primaryCoachId: branchCoach?.id ?? user.id,
+    primaryCoachId: branchOperatorId,
     emergencyContact: body.emergencyContact.trim(),
     alerts: [],
     createdAt: now,

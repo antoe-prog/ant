@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.GUARDIAN_AGE_POLICY_OUT_DIR ?? ".data/mobile-builds/ios/guardian-age-policy-ui-20260701";
@@ -30,7 +31,11 @@ async function resetDevData(label) {
     return { attempted: false, label, reason: "non-local-base-url" };
   }
 
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `guardian age policy ${label} reset`,
+  });
   const bodyText = await response.text();
   const body = JSON.parse(bodyText);
   const resetData = body?.data ?? body;
@@ -57,7 +62,7 @@ async function gotoApp(page, role, next) {
   loginUrl.searchParams.set("autoLogin", "1");
   loginUrl.searchParams.set("role", role);
 
-  await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
 }
 

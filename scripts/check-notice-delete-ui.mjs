@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.NOTICE_DELETE_UI_OUT_DIR ?? ".data/mobile-builds/ios/notice-delete-ui-20260701";
@@ -19,6 +23,7 @@ const chromeCandidates = [
 ].filter(Boolean);
 let managedAppServer = null;
 let usingExistingAppServer = false;
+let managedAppServerMode = null;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
@@ -74,13 +79,26 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "notice delete UI check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "notice delete UI check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
+  const appUrl = new URL(baseUrl);
+  const appPort = appUrl.port || "3000";
+  managedAppServerMode = process.env.NOTICE_DELETE_UI_SERVER_MODE === "start" ? "start" : "dev";
+  const serverArgs =
+    managedAppServerMode === "start"
+      ? ["run", "start", "--", "--hostname", appUrl.hostname, "--port", appPort]
+      : ["run", "dev", "--", "--webpack", "--hostname", appUrl.hostname, "--port", appPort];
+
+  managedAppServer = spawn(npmCommand, serverArgs, {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -123,8 +141,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData(label) {
   assert(canMutateLocalDevData(), "notice delete UI check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" }).catch((error) => {
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `notice delete UI ${label} dev reset`,
+  }).catch((error) => {
     throw new Error(`Cannot reach ${baseUrl} for notice delete UI checks. ${error.message}`);
   });
   const payload = await response.json().catch(() => ({}));
@@ -177,10 +198,12 @@ async function collectScreenState(page, screenTestId) {
 }
 
 async function loginTo(page, role, nextPath) {
-  await page.goto(
-    new URL(`/api/v1/dev/auto-login?role=${role}&next=${encodeURIComponent(nextPath)}`, baseUrl).toString(),
-    { waitUntil: "load" },
-  );
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
+  loginUrl.searchParams.set("next", nextPath);
+
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
 }
 
 async function createNoticeFromCurrentSession(page, title, body) {
@@ -214,6 +237,347 @@ async function createNoticeFromCurrentSession(page, title, body) {
   assert(result.payload?.data?.notice?.id, "notice API seed must return the created notice id");
 
   return result.payload.data.notice.id;
+}
+
+async function requestFromCurrentSession(page, path, { body, method = "GET" } = {}) {
+  return page.evaluate(
+    async ({ requestBody, requestMethod, requestPath }) => {
+      const response = await fetch(requestPath, {
+        method: requestMethod,
+        ...(requestBody === undefined
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      return {
+        ok: response.ok,
+        payload,
+        status: response.status,
+      };
+    },
+    {
+      requestBody: body,
+      requestMethod: method,
+      requestPath: path,
+    },
+  );
+}
+
+async function verifyNoticeUpdateContract(browser) {
+  const adminContext = await browser.newContext();
+  const guardianContext = await browser.newContext();
+  const coachContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  const guardianPage = await guardianContext.newPage();
+  const coachPage = await coachContext.newPage();
+  const stamp = Date.now();
+
+  try {
+    await loginTo(adminPage, "admin", "/app/notices");
+    await adminPage.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
+
+    const originalTitle = `공지 수정 계약 ${stamp}`;
+    const originalBody = "공지 수정 전 본문입니다.";
+    const createResult = await requestFromCurrentSession(
+      adminPage,
+      "/api/v1/branches/branch-gangnam/notices?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: {
+          audience: ["guardian"],
+          body: originalBody,
+          important: false,
+          targetMemberIds: ["member-jun"],
+          title: originalTitle,
+        },
+      },
+    );
+    const noticeId = createResult.payload?.data?.notice?.id;
+    const dispatchAuditCountBeforeUpdate = createResult.payload?.data?.db?.auditLogs?.filter(
+      (log) => log.action === "notification.dispatch" && log.targetId === noticeId,
+    ).length;
+
+    assert.equal(createResult.status, 200, "admin notice update fixture must be created");
+    assert(noticeId, "admin notice update fixture must return a notice id");
+
+    await loginTo(guardianPage, "guardian", "/app/notifications");
+    await guardianPage.waitForSelector('[data-testid="notifications-screen"]', { timeout: 15000 });
+
+    const readResult = await requestFromCurrentSession(
+      guardianPage,
+      "/api/v1/me/notices/bulk-read?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: { noticeIds: [noticeId] },
+      },
+    );
+    const readNotice = readResult.payload?.data?.db?.notices?.find((notice) => notice.id === noticeId);
+
+    assert.equal(readResult.status, 200, "guardian must be able to mark the notice read before an edit");
+    assert(readNotice?.readByUserIds?.includes("user-guardian"), "guardian read state must persist before an edit");
+
+    const updatedTitle = `${originalTitle} 수정`;
+    const updatedBody = "공지 수정 후 본문입니다.";
+    const updateResult = await requestFromCurrentSession(
+      adminPage,
+      `/api/v1/branches/branch-gangnam/notices/${noticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: {
+          body: updatedBody,
+          important: true,
+          title: updatedTitle,
+        },
+      },
+    );
+    const updatedNotice = updateResult.payload?.data?.db?.notices?.find((notice) => notice.id === noticeId);
+    const resetAudit = updateResult.payload?.data?.db?.auditLogs?.find(
+      (log) => log.action === "notice.update" && log.targetId === noticeId && log.after?.readStateReset === true,
+    );
+
+    assert.equal(updateResult.status, 200, "admin must be able to edit a notice");
+    assert.deepEqual(updatedNotice?.readByUserIds, [], "visible notice edits must reset prior read state");
+    assert(resetAudit, "visible notice edits must record the read-state reset in audit history");
+    assert.equal(resetAudit.before?.body, undefined, "notice update audit must not retain the previous body");
+    assert.equal(resetAudit.after?.body, undefined, "notice update audit must not retain the updated body");
+    assert.equal(resetAudit.before?.bodyLength, originalBody.length, "notice update audit must retain the previous body length");
+    assert.equal(resetAudit.after?.bodyLength, updatedBody.length, "notice update audit must retain the updated body length");
+    assert.equal(resetAudit.after?.bodyChanged, true, "notice update audit must identify a body change");
+    assert.equal(
+      updateResult.payload?.data?.db?.auditLogs?.filter(
+        (log) => log.action === "notification.dispatch" && log.targetId === noticeId,
+      ).length,
+      dispatchAuditCountBeforeUpdate,
+      "notice updates must not automatically dispatch another push notification",
+    );
+
+    const guardianBootstrap = await requestFromCurrentSession(
+      guardianPage,
+      "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+    );
+    const guardianUpdatedNotice = guardianBootstrap.payload?.data?.db?.notices?.find((notice) => notice.id === noticeId);
+
+    assert.equal(guardianBootstrap.status, 200, "guardian bootstrap must remain available after a notice edit");
+    assert(
+      guardianUpdatedNotice && !guardianUpdatedNotice.readByUserIds.includes("user-guardian"),
+      "edited notice must return to unread for the guardian",
+    );
+
+    const rereadResult = await requestFromCurrentSession(
+      guardianPage,
+      "/api/v1/me/notices/bulk-read?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: { noticeIds: [noticeId] },
+      },
+    );
+
+    assert.equal(rereadResult.status, 200, "guardian must be able to read the edited notice again");
+
+    const noChangeResult = await requestFromCurrentSession(
+      adminPage,
+      `/api/v1/branches/branch-gangnam/notices/${noticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: {
+          body: updatedBody,
+          important: true,
+          title: updatedTitle,
+        },
+      },
+    );
+    const unchangedNotice = noChangeResult.payload?.data?.db?.notices?.find((notice) => notice.id === noticeId);
+    const preserveAudit = noChangeResult.payload?.data?.db?.auditLogs?.find(
+      (log) => log.action === "notice.update" && log.targetId === noticeId && log.after?.readStateReset === false,
+    );
+
+    assert.equal(noChangeResult.status, 200, "an idempotent notice edit must remain valid");
+    assert(
+      unchangedNotice?.readByUserIds?.includes("user-guardian"),
+      "an idempotent notice edit must preserve the current read state",
+    );
+    assert(preserveAudit, "an idempotent notice edit must record that read state was preserved");
+
+    for (const [label, invalidBody] of [
+      ["null title", { title: null }],
+      ["object audience", { audience: {} }],
+      ["string important flag", { important: "true" }],
+    ]) {
+      const invalidUpdate = await requestFromCurrentSession(
+        adminPage,
+        `/api/v1/branches/branch-gangnam/notices/${noticeId}?selectedBranchId=branch-gangnam`,
+        {
+          method: "PATCH",
+          body: invalidBody,
+        },
+      );
+
+      assert.equal(invalidUpdate.status, 400, `notice updates must reject ${label} with a validation response`);
+    }
+
+    const immutableTargetUpdate = await requestFromCurrentSession(
+      adminPage,
+      `/api/v1/branches/branch-gangnam/notices/${noticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: { targetMemberIds: ["member-seo"] },
+      },
+    );
+
+    assert.equal(immutableTargetUpdate.status, 400, "notice updates must reject unsupported class/member target changes");
+
+    await loginTo(coachPage, "coach", "/app/notices");
+    await coachPage.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
+
+    const coachCreateResult = await requestFromCurrentSession(
+      coachPage,
+      "/api/v1/branches/branch-gangnam/notices?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: {
+          audience: ["member", "guardian"],
+          body: "코치 공지 수정 전 본문입니다.",
+          targetMemberIds: ["member-jun"],
+          title: `코치 공지 수정 계약 ${stamp}`,
+        },
+      },
+    );
+    const coachNoticeId = coachCreateResult.payload?.data?.notice?.id;
+
+    assert.equal(coachCreateResult.status, 200, "coach notice update fixture must be created");
+    assert(coachNoticeId, "coach notice update fixture must return a notice id");
+
+    const coachEquivalentAudience = await requestFromCurrentSession(
+      coachPage,
+      `/api/v1/branches/branch-gangnam/notices/${coachNoticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: { audience: ["guardian", "member", "member"] },
+      },
+    );
+
+    assert.equal(coachEquivalentAudience.status, 200, "coach updates must accept an equivalent reordered audience set");
+
+    const coachAudienceChange = await requestFromCurrentSession(
+      coachPage,
+      `/api/v1/branches/branch-gangnam/notices/${coachNoticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: { audience: ["all"] },
+      },
+    );
+
+    assert.equal(coachAudienceChange.status, 403, "coach notice updates must not expand the existing audience");
+
+    const coachTargetChange = await requestFromCurrentSession(
+      coachPage,
+      `/api/v1/branches/branch-gangnam/notices/${coachNoticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: { targetMemberIds: ["member-seo"] },
+      },
+    );
+
+    assert.equal(coachTargetChange.status, 400, "coach notice updates must not silently accept member target changes");
+
+    const coachBodyChange = await requestFromCurrentSession(
+      coachPage,
+      `/api/v1/branches/branch-gangnam/notices/${coachNoticeId}?selectedBranchId=branch-gangnam`,
+      {
+        method: "PATCH",
+        body: { body: "코치 공지 수정 후 본문입니다." },
+      },
+    );
+    const coachUpdatedNotice = coachBodyChange.payload?.data?.db?.notices?.find((notice) => notice.id === coachNoticeId);
+
+    assert.equal(coachBodyChange.status, 200, "coach must still be able to edit the body of an own notice");
+    assert.deepEqual(
+      coachUpdatedNotice?.audience,
+      ["member", "guardian"],
+      "coach body edits must preserve the original audience",
+    );
+
+    const concurrentCreate = await requestFromCurrentSession(
+      adminPage,
+      "/api/v1/branches/branch-gangnam/notices?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: {
+          audience: ["guardian"],
+          body: "동시 읽음 검증 전 본문입니다.",
+          targetMemberIds: ["member-jun"],
+          title: `공지 동시성 계약 ${stamp}`,
+        },
+      },
+    );
+    const concurrentNoticeId = concurrentCreate.payload?.data?.notice?.id;
+
+    assert.equal(concurrentCreate.status, 200, "notice concurrency fixture must be created");
+    assert(concurrentNoticeId, "notice concurrency fixture must return a notice id");
+
+    const [concurrentUpdate, concurrentRead] = await Promise.all([
+      requestFromCurrentSession(
+        adminPage,
+        `/api/v1/branches/branch-gangnam/notices/${concurrentNoticeId}?selectedBranchId=branch-gangnam`,
+        {
+          method: "PATCH",
+          body: { body: "동시 읽음 검증 후 본문입니다." },
+        },
+      ),
+      requestFromCurrentSession(
+        guardianPage,
+        "/api/v1/me/notices/bulk-read?selectedBranchId=branch-gangnam",
+        {
+          method: "POST",
+          body: { noticeIds: [concurrentNoticeId] },
+        },
+      ),
+    ]);
+
+    assert.equal(concurrentUpdate.status, 200, "concurrent notice edit must complete without a lost-update error");
+    assert.equal(concurrentRead.status, 200, "concurrent notice read must complete without a lost-update error");
+
+    const concurrentBootstrap = await requestFromCurrentSession(
+      adminPage,
+      "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+    );
+    const concurrentNotice = concurrentBootstrap.payload?.data?.db?.notices?.find(
+      (notice) => notice.id === concurrentNoticeId,
+    );
+    const latestConcurrentAction = concurrentBootstrap.payload?.data?.db?.auditLogs?.find(
+      (log) =>
+        log.targetId === concurrentNoticeId && (log.action === "notice.read" || log.action === "notice.update"),
+    )?.action;
+
+    assert(
+      latestConcurrentAction === "notice.read" || latestConcurrentAction === "notice.update",
+      "concurrent notice operations must leave an ordered audit result",
+    );
+    assert.equal(
+      concurrentNotice?.readByUserIds?.includes("user-guardian") ?? false,
+      latestConcurrentAction === "notice.read",
+      "final notice read state must match the last serialized read or visible edit operation",
+    );
+
+    return {
+      auditBodyStored: false,
+      coachAudienceChangeStatus: coachAudienceChange.status,
+      coachBodyChangeStatus: coachBodyChange.status,
+      concurrentReadEditSerialized: true,
+      idempotentEditPreservedReadState: true,
+      invalidUpdateStatus: 400,
+      targetChangeStatus: immutableTargetUpdate.status,
+      visibleEditResetReadState: true,
+    };
+  } finally {
+    await adminContext.close();
+    await guardianContext.close();
+    await coachContext.close();
+  }
 }
 
 async function verifyNoticesScreenDelete(browser) {
@@ -561,6 +925,7 @@ async function main() {
     const noticesScreen = await verifyNoticesScreenDelete(browser);
     const mobileNoticesActionLayout = await verifyMobileNoticesScreenActionLayout(browser);
     const notificationInbox = await verifyNotificationInboxDelete(browser);
+    const noticeUpdateContract = await verifyNoticeUpdateContract(browser);
 
     resetAfter = await resetDevData("after");
 
@@ -571,7 +936,7 @@ async function main() {
     const summary = {
       ok: true,
       baseUrl,
-      appServer: usingExistingAppServer ? "existing" : "managed-next-dev-webpack",
+      appServer: usingExistingAppServer ? "existing" : `managed-next-${managedAppServerMode}`,
       browserAvailability: "Browser skill present but node_repl js tool unavailable; Playwright fallback used",
       checked: [
         "admin notices screen delete button opens a confirm step",
@@ -583,10 +948,16 @@ async function main() {
         "admin mobile notification inbox delete button opens a confirm step",
         "admin mobile notification inbox delete action stays compact on 390px screens",
         "admin mobile notification inbox confirmed delete removes the notice and shows feedback",
+        "visible notice edits reset recipient read state while idempotent edits preserve it",
+        "coach notice edits cannot expand the existing audience",
+        "notice edit and read writes serialize without stale read-state merges",
+        "notice updates reject malformed values and unsupported class/member target changes",
+        "notice update audit history stores body length and change flags without body content",
         "delete UI screens stay nonblank, overlay-free, console-clean, and horizontally contained",
       ],
       iosSimulator: previousSummary.iosSimulator ?? null,
       mobileNoticesActionLayout,
+      noticeUpdateContract,
       notificationInbox,
       noticesScreen,
       resetAfter,

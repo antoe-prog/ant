@@ -15,8 +15,11 @@
 - `npm run test:role-csv-export-gates` 통과
 - `npm run test:deleted-request-surface` 통과
 - `npm run test:store` 통과. JSON runtime store의 동일 키 작업이 FIFO 순서로 직렬화되고 같은 base revision의 추가·서로 다른 필드 수정은 병합되며 동일 필드 충돌은 차단되고 revision/base 메타가 파일에 직렬화되지 않는지 확인
-- `npm run test:store`에서 서로 다른 JSON store 인스턴스와 독립 Node 프로세스가 같은 stale 파일을 동시에 써도 두 변경이 보존되고, 쓰지 않은 캐시 보유 인스턴스도 다음 조회에서 최신 파일을 읽는지 확인한다. 정규화 휴대폰·이메일 중복, 삭제된 코치를 참조하는 동시 수업 생성, 고아 회원·수업·출석·결제 참조는 저장 경계에서 차단되어야 한다.
-- `npm run test:admin-user-management-api` 통과. 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경/초대 API와 지점 생성/수정/대표 배정 API, 인증/권한 선확인, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 전용 비밀번호 재발급, 원문 비밀번호/password hash 미노출과 변경 기록을 확인
+- `npm run test:store`에서 서로 다른 JSON store 인스턴스와 독립 Node 프로세스가 같은 stale 파일을 동시에 써도 두 변경이 보존되고, 쓰지 않은 캐시 보유 인스턴스도 다음 조회에서 최신 파일을 읽는지 확인한다. 정규화 휴대폰·이메일 중복과 새로 생성되는 고아 참조는 저장 경계에서 차단하되, 기존 고아 참조는 읽기 중 자동 변경하지 않고 명시적 복구 대상으로 진단해야 한다.
+- `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. JSON/PostgreSQL 쓰기 전후 검증 훅, 비파괴 진단, 기존 결함 호환·새 결함 차단, `system.integrity.repair` 감사 기록을 남기는 명시적 복구, 출석·결제 원본 보존, 운영 복제본 리포트 비식별화를 확인한다.
+- `npm run test:next-build-readiness` 통과. 현재 Next dist의 `BUILD_ID`·빌드 입력 SHA-256 지문 누락, mtime 보존 수정, 소스 삭제·이름 변경, public 추가, 검증 중 빌드 변경 차단과 최신 빌드 허용을 확인하고, `FINAL_JUDO_NEXT_DIST_DIR` 격리 빌드가 기본 `.next` manifest를 덮어쓰지 않는지 검증
+- `npm run test:release-smoke-isolation` 통과. 빈 로컬 포트, run-owned 임시 JSON 디렉터리·실제 `PILOT_DB_FILE`·마커 강제, 상속 토큰 교체, 공유 경로·심볼릭 링크·원격/기존 서버 재사용 차단, 종료 후 임시 데이터 제거를 확인
+- `npm run test:admin-user-management-api` 통과. 최신 production build를 확인한 뒤 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경/초대 API와 지점 생성/수정/대표 배정 API, 인증/권한 선확인, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 전용 비밀번호 재발급, 원문 비밀번호/password hash 미노출과 변경 기록을 확인
 - `npm run test:dashboard-priority-kpi` 통과. 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시하는지 확인
 - `npm run test:member-profile-guardian-edit` 통과. `/app/members` 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위를 확인
 - `npm run test:guardian-age-policy-ui` 통과. 운영자 회원 상세의 연령 정책과 보호자 연결 후보가 성인/유소년/청소년 기준으로 렌더링되고, 회원 검색 지우기 컨트롤이 44px 터치 목표를 유지하는지 확인
@@ -63,7 +66,7 @@
 - `npm run test:p3-operations` 통과. P3 운영 고도화 화면은 확인하되 P1 release blocked 상태는 유지
 - `npm run test:p4-simulator-rehearsal` 통과. P4 실제 사용 환경 검증은 앱 UI에는 P4 내부 상태판을 노출하지 않고 iOS Simulator 역할별/상태별 캡처 5개를 확인하되 iOS Simulator 성공을 IPA ready로 보지 않음 상태를 유지
 - `npm run p5-p10:internal-audit`와 `npm run test:p5-p10-internal-readiness` 통과. P5~P10 내부 readiness audit는 상단 safe area header 강화, 하단 모바일 내비게이션 active 메뉴 자동 정렬, 코치 모바일 저장 상태 패널 safe-area bottom inset과 하단 스크롤 여백, Next 개발 표시 배지 비활성화, 역할별 `autoLogin` deep link 실제 서비스 화면 진입, 앱 UI 내부 release/audit 카드 비노출, `.data/mobile-builds/ios/p5-p10-simulator-screenshots` 캡처 4개, `.data/mobile-builds/ios/visible-copy-expanded`의 41개 역할/경로 캡처, `.data/mobile-builds/ios/visible-text-audit-20260621-recheck`의 관리자 변경 기록/코치 회원 화면 recheck 캡처, `.data/p5-p10-internal-audit.json`, `.data/p5-p10-internal-audit.md`, P1 외부 blocker blocked 7/7을 확인하되 출시 완료, IPA ready, 운영 ready로 보지 않음 상태를 유지
-- `npm run test:notice-delete-ui` 통과. 대표/총괄/코치 공지 목록에서 삭제 권한, 삭제 후 목록/알림 상태, 읽음 뒤 알림 발송 시 오래된 피드백 정리 회귀를 확인
+- `npm run test:notice-delete-ui` 통과. 대표/총괄/코치 공지 목록의 삭제 권한과 삭제 후 목록/알림 상태, 읽음 뒤 알림 발송 시 오래된 피드백 정리, 관리자 공지 수정 뒤 읽음 초기화, 동일 내용 재저장 시 읽음 유지, 코치 대상 변경 차단, 감사 로그 본문 미저장을 확인
 - `npm run test:visible-app-copy-stability` 통과. 390px 모바일 실제 화면에서 로그인/회원가입/비밀번호 재설정/초대 수락/계정 전환 진입 화면과 역할별 앱 화면이 FINAL 벡터 로고, 필수 폼/계정 전환 버튼, 콘솔 에러 없음, 더미/샘플/테스트 계정/릴리즈 내부 문구 비노출, 가로 overflow 없음, runtime error 없음 상태를 유지하고 로그인/회원가입/초대 수락 비밀번호 표시 토글이 44px 터치 목표와 입력 우측 여백을 유지하는지 검증. 회원/학부모 계정 화면은 불필요한 활성 상태 카드 없이 계정 전환/로그아웃 44px 액션을 검증. 회원/학부모 결제 필터는 visible `보기` 제목 없이 44px 한 줄 필터로 유지하고 금액/CSV를 노출하지 않는다. 코치 회원 화면은 상태 필터와 개인 공지 액션이 44px 터치 높이를 유지하고 하단 내비게이션에 가리지 않는지 검증한다. 대표 대시보드 `오늘/7일/30일` 기간 필터, 관리자 대시보드 `오늘 수업 보기`, 사용자 관리 `회원 등록`/`초대`, 변경 기록 `새로고침`은 44px 터치 높이를 유지한다. 요청 작성 카드, 요청 목록 카드, 요청 하단 메뉴, `/app/requests?compose=1` 직행 링크는 노출하지 않는다. 관리자 사용자 목록 수정/삭제/비밀번호 재발급 액션은 compact 세로 스택으로 보이며 수정 폼의 선택 비밀번호 입력 2개와 수정/삭제/재발급 폼 접힘/토글 상태를 검증. 코치 수업 화면은 내부 P3 운영 패널과 코드형 마감 문구가 실제 앱 DOM에 노출되지 않는지 확인. 대표 리포트도 내부 P3 운영 패널과 코드형 운영 확인 문구 없이 지점별 회원/출석/위험/매출 그래프를 유지하는지 확인. 대표 내 지점 화면은 회원 유지/수업 채움/결제 위험 그래프와 44px 액션 버튼, 목록 끝 112px 하단 safe-area와 scroll-end 액션 clearance 24px 이상을 확인하고, 회원 `/app/notifications` 공지 alias는 compact 공지 필터와 읽음 액션을 확인
 - 관리자 지점 운영 설정 폼을 열었을 때 지점명/지역/상태/시간대 입력과 출석 수정 정책 토글, `설정 저장` 액션은 모두 44px 터치 높이를 유지해야 한다. `npm run test:visible-app-copy-stability`가 `adminBranchSettingsOpenFieldGridMinControlHeight=44`, `adminBranchSettingsOpenPolicyControlHeight=44`, `adminBranchSettingsOpenSaveHeight=44`를 기록하고, iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/admin-branch-settings-touch-20260705/summary.json`에 보관한다.
 - `/select-role` 하단의 `로그인 화면` 링크와 로그인된 `/login`의 `로그아웃하고 계정 전환` 액션은 모바일에서 44px 터치 높이를 유지해야 한다. `npm run test:visible-app-copy-stability`는 `authSelectRoleLoginLinkHeight=44` 이상을, `npm run test:login-keep-signed-in`은 같은 클라이언트 상태와 쿠키만 남은 앱 재시작 상태의 계정 전환 버튼 높이 44px 이상, 390px overflow 0을 기록한다.
@@ -74,7 +77,7 @@
 - `npm run test:payment-checkout-method-flow` 통과. 390px 모바일 결제 상세에서 성인 회원/학부모 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, compact 납부 요약, 자연스러운 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 선택, 카드 안내 버튼 44px 터치 목표, 우리WON페이 모달, 저장/1회성 납부 정보 확인 피드백과 polite status live region, 학부모 자녀 결제 화면이 overflow/콘솔 오류 없이 동작하고 하단 고정 내비게이션에 `납부 정보 확인` 버튼과 `납부 정보 접수` 안내가 가리지 않는지 검증
 - `npm run test:payment-create-touch-targets` 통과. 390px 모바일 대표 결제 화면에서 상단 결제 내보내기/상태 필터/표시 건수, 결제 행 재등록/온라인 요청/정기결제 약정/환불/취소 액션, 수기 결제 등록 폼의 접힘/열림, 회원 검색 결과 선택, 취소·환불 완료 상태의 44px 조건부 사유 입력과 빈 사유 제출 차단, 등록 중 중복 제출 차단, 서버 저장 뒤 응답 유실 시 동일 `Idempotency-Key` 재시도와 정확히 1건의 목록 반영, 성공 안내, overflow 0, 콘솔 오류 없음 상태를 검증. iPhone 16e 조건부 사유 입력 증빙은 `.data/mobile-builds/ios/manual-payment-create-audit-reason-20260713/simulator-summary.json`에 보관
 - `npm run test:class-management-touch-targets` 통과. 390px 모바일 대표 수업 화면에서 수업 생성 폼 기본 접힘, 생성 입력/등록 버튼, 수업 장소/정원 수정 입력/저장 버튼이 44px 이상이고, 코치 수업 화면의 출석 메모 토글/입력/빠른 메모/사유 저장도 44px 이상이며 overflow 0, 콘솔 오류 없음 상태를 검증
-- `npm run test:member-management-touch-targets` 통과. 390px 모바일 대표 회원 관리 화면에서 계정 초대/회원 등록 폼 기본 접힘, 초대/등록/상태/기본정보/보호자 검색/상담 메모 입력과 저장 버튼이 44px 이상이고 overflow 0, 콘솔 오류 없음 상태를 검증
+- `npm run test:member-management-touch-targets` 통과. 390px 모바일 대표 회원 관리 컨트롤 44px, 회원 상세 결제·회원권 요약의 가족 금액 비노출·코치 전체 비노출, 학부모 자녀·결제 딥링크와 이후 수동 자녀 선택 유지, overflow 0, 콘솔 오류 없음, iPhone 16e 네이티브 셸을 검증
 - `npm run test:admin-user-management-touch-targets` 통과. 390px 모바일 총괄 사용자 관리 화면에서 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼이 44px 이상이고 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙을 검증
 - `npm run test:operator-list-search` 통과. 390px 모바일 운영자 결제 목록과 공지함 `q` 검색 딥링크/검색어 지우기, 0건 검색 빈 상태, 공지 0건 상태의 읽음 처리 액션 숨김과 하단 내비 clearance, 검색 입력/인라인 지우기/빈 상태 지우기 44px 터치 목표가 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태를 유지하는지 검증
 - `npm run test:global-search` 통과. 대표/총괄 상단 검색이 권한 범위 안의 메뉴·회원·결제·공지·사용자를 통합 검색하고, 코치에게 결제·사용자 민감 결과를 반환하지 않으며 실제 목록 검색 딥링크로 연결되는지 검증
@@ -115,7 +118,7 @@
 - `npm run test:pilot-password-rotation` 통과
 - `npm run test:a11y-static` 통과
 - `npm run test:release` 통과
-- `npm run test:release`는 기본 `SMOKE_BASE_URL=http://localhost:3000` 서버가 없으면 route/mobile E2E/API smoke/attendance-speed 구간에서 로컬 Next dev server를 `next dev --webpack` 모드로 자동 실행하고 종료한다. 단독 smoke 명령은 로컬 서버를 먼저 실행해야 한다.
+- `npm run test:release`는 route/mobile E2E/API smoke/attendance-speed 구간에서 빈 로컬 포트와 임시 JSON 저장소를 할당해 직전 production build를 `next start`로 직접 실행하고 종료 후 데이터를 정리한다. 데모 로그인·reset 허용은 이 격리 자식 프로세스에만 한정하고 이미 응답하는 서버·원격 `SMOKE_BASE_URL`·실행 중인 개발 서버는 재사용하거나 종료하지 않는다. 단독 smoke 명령은 로컬 서버를 먼저 실행해야 한다.
 - 5개 역할이 각자 허용된 메뉴만 본다.
 - 직접 URL 접근이 허용되지 않은 화면은 403을 보여준다.
 - 코치는 결제 금액과 다른 지점 데이터를 보지 않는다.
@@ -181,7 +184,7 @@
    - `final-judo-force-error`
    - `final-judo-force-offline`
    - `final-judo-force-conflict`
-5. 자동 smoke는 실행 전후 `/api/v1/dev/reset`으로 JSON 데모 데이터를 기준 상태로 복구한다.
+5. 자동 smoke와 reset 가능한 단독 UI 검사는 고유 포트·run-owned 임시 JSON 데이터 디렉터리·실제 `PILOT_DB_FILE`·소유권 마커·helper 발급 256비트 실행별 토큰을 공유한 서버에서만 중앙 reset helper를 호출한다. 단독 실행은 상속 토큰을 새 토큰으로 교체하며 공유/심볼릭 링크 경로, PostgreSQL, 다른 기존 서버에는 reset 요청을 적용하지 않는다.
 
 ## 3. 역할별 핵심 시나리오
 
@@ -295,7 +298,7 @@
 | QA-REQ-00 | 전체 | `npm run test:deleted-request-surface` 실행 | `/app/requests`, `/requests`, 요청 생성/승인/반려 API, 하단 보강 메뉴, 요청 카드/작성 폼/알림 링크가 앱 소스에 재유입되지 않고 README/QA/릴리즈 문서와 release runner가 삭제 기준을 함께 검증 |
 | QA-PAY-01 | 코치 | 대시보드와 수업 화면 확인 | 회원권 상태는 보이되 원화 금액 미노출 |
 | QA-PAY-02 | 대표 | `/app/payments` 접속 | 금액, 미납, 만료 예정 표시 |
-| QA-PAY-03 | 대표 | `/app/payments`에서 회원 검색 후 일반 상태와 취소·환불 완료 상태로 수기 결제 등록 | 일반 상태는 결제 목록에 UUID 기반 새 회원권이 추가되고 동일 `Idempotency-Key` 재시도는 한 건만 유지. 취소·환불 완료 상태는 사유 입력 전 제출할 수 없고, 정규화한 사유·처리 시각이 최초 상태 이력과 `payment.create` 변경 기록에 저장됨 |
+| QA-PAY-03 | 대표 | `/app/payments`에서 회원 검색 후 일반 상태와 취소·환불 완료 상태로 수기 결제 등록 | 일반 상태는 결제 목록에 UUID 기반 새 회원권이 추가되고 동일 `Idempotency-Key` 재시도는 한 건만 유지. 취소·환불 완료 상태는 사유 입력 전 제출할 수 없고, 정규화한 사유·처리 시각이 `refundReason`/`refundedAt`, 최초 상태 이력과 `payment.create` 변경 기록에 저장되며 Payment 루트에는 감사용 `reason`이 중복되지 않음 |
 | QA-PAY-04 | 대표 | `/app/payments`에서 결제 내보내기 | CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-PAY-05 | 대표 | `/app/payments`에서 환불 금액과 사유 입력 후 처리 | 상태가 부분/전액 환불로 변경되고 `payment.refund` 변경 기록 생성 |
 | QA-PAY-06 | 대표 | `/app/payments`에서 예정/미납 결제를 사유와 함께 취소 | 상태가 취소로 변경되고 `payment.refund` 변경 기록 생성 |
@@ -317,7 +320,8 @@
 | QA-PAY-21 | 대표/총괄 | `/app/payments`에서 `P2 결제/회원권 운영 보드` 확인 | 현재 필터 기준 미납 회수, 만료/재등록, 환불/할인 점검, 상태 이력, 실 결제 연동 증빙 전 준비 상태가 표시되고 외부 증빙 전 결제 기능은 출시 가능 상태로 분리하지 않음 |
 | QA-PAY-22 | 대표/총괄 | 수기 결제 생성·수정에서 만료일을 납부일보다 앞선 날짜로 제출하고, 상태는 유지한 채 금액·날짜만 정상 정정 | 역전된 날짜는 `400 VALIDATION_ERROR`로 차단되고 정상 정정은 감사 기록만 남기며 `statusHistory` 건수는 증가하지 않음 |
 | QA-PAY-23 | 대표/총괄 | 수기 결제 등록 API에 `partially_refunded`를 제출하고, 같은 결제의 수기 수정과 온라인 요청을 동시에 시도 | 부분 환불 직접 등록은 `400`으로 차단되고 두 변경은 순차 처리되어 온라인 요청 금액과 저장 금액이 어긋나지 않음 |
-| QA-AUTH-09 | 비로그인 사용자 | 같은 휴대폰 번호와 비밀번호로 회원가입 요청 2건을 동시에 제출 | 정확히 한 건만 `200`, 다른 한 건은 `409 CONFLICT`이며 사용자와 연결 회원 프로필이 각각 1건만 저장됨 |
+| QA-PAY-24 | 대표 | 0원 환불 완료 또는 환불액 누락 부분 환불 레코드의 수정·삭제 API 호출 | 환불 상태 자체를 이력으로 인식해 두 요청 모두 `422 BUSINESS_RULE_FAILED`로 차단되고 원본 결제와 상태 이력이 유지됨 |
+| QA-AUTH-11 | 비로그인 사용자 | 같은 휴대폰 번호와 비밀번호로 회원가입 요청 2건을 동시에 제출 | 정확히 한 건만 `200`, 다른 한 건은 `409 CONFLICT`이며 사용자와 연결 회원 프로필이 각각 1건만 저장됨 |
 | QA-REPORT-01 | 대표 | `/app/owner/reports`에서 운영 리포트 내보내기 | 지점별 회원/수업/출석/매출/결제위험/출석 미처리/점검 점수 CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-REPORT-02 | 대표 | `/app/owner/reports` 우선 점검 지점 확인 | 출석 미처리, 결제 위험, 휴면 회원 배지가 지점별 점검 점수와 함께 표시 |
 | QA-REPORT-03 | 대표 | `/app/owner/reports` 오늘 우선순위 확인 | 출석 미처리 정리, 결제 위험 확인, 휴면 회원 케어가 우선순위와 담당 역할로 표시되고 요청 승인 카드는 표시되지 않음 |
@@ -336,7 +340,7 @@
 | QA-DASH-01A | `npm run test:dashboard-priority-kpi` 실행 | 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시한다 |
 | QA-MEMBER-01A | `npm run test:smoke` 실행 | 회원 수정, 보호자 연결, 상담/주의 메모 작성 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단 |
 | QA-MEMBER-01A1 | `npm run test:member-profile-guardian-edit` 실행 | 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위가 유지된다 |
-| QA-MEMBER-01A2 | `npm run test:member-management-touch-targets` 실행 | 390px 모바일 대표 회원 관리 화면에서 계정 초대/회원 등록 폼은 기본 접힘으로 시작하고, 열기 후 초대/등록/상태/기본정보/보호자 검색/상담 메모 입력과 저장 버튼이 모두 44px 이상이며 overflow 0, 콘솔 오류 없음, 증빙 스크린샷이 유지되면 통과 |
+| QA-MEMBER-01A2 | `npm run test:member-management-touch-targets` 실행 | 390px 모바일 대표 회원 관리 컨트롤이 44px 이상이고, 회원 상세 결제·회원권 요약은 대표만 금액을 확인하며 회원·학부모는 상태·납부일·만료일만 보고 코치는 요약을 받지 않는다. 학부모가 정확한 자녀·결제 딥링크 진입 후 다른 자녀를 선택해도 선택이 유지되고 overflow 0, 콘솔 오류 없음, iPhone 16e 증빙이 있으면 통과 |
 | QA-MEMBER-01B | `npm run test:smoke` 실행 | 회원 등록 API에서 익명 요청은 401, 코치 요청은 403으로 본문 검증보다 먼저 차단 |
 | QA-CLASS-01A | `npm run test:smoke` 실행 | 출석 저장/사유 기록과 수업 생성/수정 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단 |
 | QA-CLASS-01B | `npm run test:class-management-touch-targets` 실행 | 390px 모바일 대표 수업 화면에서 수업 생성 폼은 기본 접힘으로 시작하고, `열기` 후 수업명/연령/레벨/코치/정원/시작/종료/장소 입력과 생성 버튼, 각 수업 카드의 장소/정원 수정 입력과 저장 버튼이 44px 이상이다. 코치 수업 화면에서는 명단을 연 뒤 출석 메모 토글, 현장 메모 입력, 빠른 메모, 사유 저장 버튼이 44px 이상이고 overflow 0, 콘솔 오류 없음, 증빙 스크린샷이 유지되면 통과 |
@@ -360,6 +364,8 @@
 | QA-NOTICE-07 | 전체 | `/app/notices` 알림 설정 확인 | 알림 꺼짐/허용됨/차단됨/미지원 상태가 표시되고 허용 상태에서는 알림 확인 버튼이 활성화 |
 | QA-NOTICE-08 | 전체 | 미읽음 공지가 있는 계정으로 모바일 진입 | 상단 공지 버튼에 현재 사용자/지점 스코프의 미읽음 공지 수가 표시되고 접근성 이름에 미읽음 건수가 포함된다. 요청 메뉴는 하단 내비에 표시되지 않는다 |
 | QA-NOTICE-09 | 대표/총괄 | `/app/notices`에서 `중요 공지` 체크 후 발행 | 공지 목록 상단에 중요 배지가 표시되고, API 응답과 `notice.create` 변경 기록에 `important: true`, 푸시 제목에 `[중요]` prefix가 반영 |
+| QA-NOTICE-14 | 대표/총괄 | 읽은 공지의 제목·본문·중요 여부·역할 audience를 실제 변경 | 기존 `readByUserIds`가 초기화되어 대상 회원/학부모 알림함에 다시 미확인으로 보이고 `notice.update` 감사 로그에는 본문 원문 없이 길이·변경 여부·읽음 초기화 여부가 기록됨. 수정만으로 휴대폰 푸시는 재발송하지 않음 |
+| QA-NOTICE-15 | 대표/총괄/코치 | 동일 내용 재저장, 코치 audience 변경, 반·개인 대상 PATCH, 읽음·수정 동시 요청 | 동일 내용과 순서·중복만 다른 같은 audience 재저장은 읽음 상태를 유지하고, 코치의 audience 변경은 `403 FORBIDDEN`, 생성 후 반·개인 대상 변경과 잘못된 타입은 `400 VALIDATION_ERROR`. 읽음·수정은 직렬화되어 마지막 작업과 최종 읽음 상태가 일치 |
 | QA-NOTICE-10 | 전체 | `/app/notices`에서 전체/미읽음/중요 보기 전환 | 현재 사용자/지점 스코프 안에서 표시 건수와 목록이 바뀌고, 결과가 없으면 선택한 보기의 빈 상태가 표시 |
 | QA-NOTICE-11 | 전체 | `/app/notices`에서 필터 적용 후 보이는 공지 읽음 처리 | 화면에 보이는 미읽음 공지만 읽음 처리되고, 스코프 밖 공지 ID는 bulk-read API에서 403으로 차단되며 `notice.read` 변경 기록이 남음 |
 | QA-NOTICE-12 | 전체/운영자 | `/app/notices` 확인할 공지 확인 | 현재 필터 기준 중요 미읽음 확인, 미읽음 공지 읽음 처리, 중요 공지 푸시 점검, 읽음 반응 점검이 우선순위로 표시 |
@@ -588,6 +594,7 @@
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 우리WON페이 모달 결제 오인 문구 정리 | `/app/payments/checkout` 우리카드 모달이 실제 결제 완료처럼 보이지 않고 선택 확인/도장 안내 후 진행 문구로 표시됨 | `npm run test:payment-checkout-method-flow`, `npm run test:p5-p10-internal-readiness`, Browser modal copy, iPhone 16e 증빙 `.data/mobile-builds/ios/payment-checkout-woori-copy-ios-20260705/payment-checkout-woori-copy-ios-sim.png` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 결제 확인 피드백 live region | `/app/payments/checkout`에서 `납부 정보 확인` 후 나타나는 피드백을 `role=status`와 `aria-live=polite`로 전달해 보조기술도 확인 상태를 받을 수 있게 함 | `npm run test:payment-checkout-method-flow`, Browser `confirmationFeedbackA11y.role=status`, `ariaLive=polite`, iPhone 16e `.data/mobile-builds/ios/payment-checkout-feedback-a11y-20260705/payment-checkout-feedback-a11y-ios-sim.png`, summary `.data/mobile-builds/ios/payment-checkout-feedback-a11y-20260705/summary.json` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 공지 액션 피드백 잔상 정리 | `/app/notices`에서 읽음, 알림 발송, 삭제, 작성 피드백이 동시에 남지 않도록 액션 시작 시 이전 피드백을 정리 | `npm run test:notice-delete-ui`, Browser `feedbackResetState.readFeedbackCount=0`, iPhone 16e `.data/mobile-builds/ios/notice-feedback-reset-20260705/notice-feedback-reset-ios-sim.png`, summary `.data/mobile-builds/ios/notice-feedback-reset-20260705/summary.json` |
+| 2026-07-14 | Codex | Browser API/390px, isolated `next start` | 공지 수정 읽음·권한·감사 계약 | 실제 내용 변경은 읽음 초기화, 동일 내용 재저장은 읽음 유지, 코치 audience 변경은 403, 반·개인 대상 변경/잘못된 타입은 400, 읽음·수정 동시 요청 직렬화, 감사 로그 본문 원문은 미저장 | `npm run test:notice-delete-ui`, `npm run test:notification-readiness`, `.data/mobile-builds/ios/notice-update-contract-20260714/summary.json`, overflow 0, console/runtime 오류 없음 |
 | 2026-06-16 | Codex | local | Android TWA doctor Markdown 리포트 추가 | 실제 Java Runtime/Android SDK/운영 HTTPS 웹앱 도메인 준비 전 APK/AAB 미생성 | `npm run test:android-packaging`, `npm run android:twa:doctor -- --origin=<확정 운영 HTTPS 웹앱 origin> --sha256=<fingerprint> --out=.data/android-twa-doctor.json --markdown=.data/android-twa-doctor.md`, JSON/Markdown doctor 리포트와 다음 액션 검증 |
 | 2026-06-16 | Codex | local | Android 예시 origin 차단 가드 추가 | `localhost`, `.example`, `.test`, `.local`, TODO origin은 실제 운영 origin으로 인정하지 않음 | `npm run test:android-packaging`, `npm run test:android-release-handoff`, doctor/prepare/build/handoff가 placeholder origin을 blocked로 판정하는 fixture 검증 |
 | 2026-06-18 | Codex | local | 모바일 앱 API origin 혼동 차단 가드 추가 | `https://api.finaljudo.co.kr` 같은 API-only 후보는 `/login`과 `/app/dashboard`를 서빙하는 웹앱 origin 확인 전 Android/iOS 앱 origin으로 인정하지 않음 | `npm run test:android-packaging`, `npm run test:ios-capacitor-connection`, `npm run test:ios-ipa-doctor`, Android TWA doctor/prepare와 iOS Capacitor/IPA doctor가 `api.*` origin을 blocked로 판정하고 `--allow-api-origin-webapp` 예외는 운영자 확인 후에만 사용 |
@@ -756,6 +763,7 @@
 | 2026-06-29 | Codex | local | visible-copy CLI 실행 안전장치 | `test:visible-app-copy-stability -- --help`가 브라우저 스캔이나 개발 DB reset 없이 도움말만 출력하고, 지원하지 않는 인자는 즉시 실패해 긴 상태 변경 테스트가 실수로 시작되지 않음 | `npm run test:visible-app-copy-stability -- --help`, unknown-arg smoke, `npm run test:p5-p10-internal-readiness`, `git diff --check` |
 | 2026-06-14 | Codex | local | 릴리즈 문서 정합성 통과 | 없음 | `npm run test:release-docs`, `package.json` scripts와 README/QA 계획/릴리즈 체크리스트가 `test:release` 실행 목록을 누락 없이 반영하고 README `검증` 명령 블록 순서가 release runner와 일치하는지 확인 |
 | 2026-06-14 | Codex | local | 관리자 자동 검증 게이트 정합성 통과 | 없음 | `npm run test:admin-settings-gates`, `/app/admin/settings` 자동 검증 명령과 `test:release` 실행 목록 정합성 확인 |
+| 2026-07-14 | Codex | Playwright 390px + iOS Simulator | 회원 상세 결제 도메인 연결 | `/app/members` 상세에서 현재 회원권 상태·납부일·만료일을 결제 도메인에서 표시하고 대표만 금액을 확인한다. 회원·학부모 금액 비노출, 코치 요약 비노출, 퇴회 자녀 결제 이동 차단, 정확한 학부모 자녀·결제 딥링크와 이후 수동 자녀 선택 유지를 확인 | `npm run test:payment-lifecycle`, `npm run test:member-profile-guardian-edit`, `npm run test:member-management-touch-targets`, `.data/mobile-builds/ios/member-payment-summary-20260714/summary.json`, iPhone 16e `member-payment-summary-ios-sim.png` |
 
 ## 10. 자동화 후보
 

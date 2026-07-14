@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 
+import { assertFreshNextBuild } from "./lib/next-build-readiness.mjs";
+
 const nextBin = "node_modules/next/dist/bin/next";
 const defaultPilotPassword = "FinalJudoPilot!2026";
 const stamp = Date.now();
@@ -749,6 +751,254 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(selfDelete.response.status, 422, "admin self-delete must be blocked");
 
+  const isolatedBranchName = `인계 차단 지점 ${stamp}`;
+  const isolatedBranchCreate = await admin.request("/api/v1/admin/branches", {
+    method: "POST",
+    body: JSON.stringify({
+      district: "서울 인계 테스트",
+      name: isolatedBranchName,
+    }),
+  });
+  const isolatedBranchId = isolatedBranchCreate.payload.data.db.branches.find(
+    (branch) => branch.name === isolatedBranchName,
+  )?.id;
+  assert(isolatedBranchId, "reassignment blocker test must create an isolated branch");
+  assert(
+    !isolatedBranchCreate.payload.data.db.users
+      .find((candidate) => candidate.id === "user-admin")
+      ?.branchIds.includes(isolatedBranchId),
+    "creating a branch must not implicitly make the acting admin an assigned fallback",
+  );
+
+  const isolatedCoachPhone = `010${String((Number(stampPhoneSuffix) + 4) % 100000000).padStart(8, "0")}`;
+  const isolatedCoachEmail = `isolated-coach-${stamp}@example.com`;
+  const isolatedCoachInvite = await admin.request("/api/v1/admin/users/invitations", {
+    method: "POST",
+    body: JSON.stringify({
+      branchIds: [isolatedBranchId],
+      email: isolatedCoachEmail,
+      name: `고립 코치 ${stamp}`,
+      phone: isolatedCoachPhone,
+      role: "coach",
+    }),
+  });
+  const isolatedCoachId = isolatedCoachInvite.payload.data.invitation.userId;
+  assert(isolatedCoachId, "reassignment blocker test must create an isolated coach");
+  const pendingOperatorMemberCreate = await admin.request(
+    `/api/v1/branches/${isolatedBranchId}/members`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ageGroup: "adult",
+        belt: "흰띠",
+        emergencyContact: isolatedCoachPhone,
+        level: "입문",
+        name: `승인 전 차단 회원 ${stamp}`,
+        status: "active",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    pendingOperatorMemberCreate.response.status,
+    422,
+    "member creation must fail when the branch has no accepted operator",
+  );
+  const afterPendingOperatorBlock = await admin.request("/api/v1/me/bootstrap");
+  assert(
+    !afterPendingOperatorBlock.payload.data.db.members.some(
+      (member) => member.name === `승인 전 차단 회원 ${stamp}`,
+    ),
+    "blocked member creation must not persist an empty operator assignment",
+  );
+  await admin.request(
+    `/api/v1/admin/users/${isolatedCoachId}/approve-invitation?selectedBranchId=${isolatedBranchId}`,
+    { method: "POST" },
+  );
+
+  const isolatedMemberCreate = await admin.request(`/api/v1/branches/${isolatedBranchId}/members`, {
+    method: "POST",
+    body: JSON.stringify({
+      ageGroup: "adult",
+      belt: "흰띠",
+      emergencyContact: isolatedCoachPhone,
+      level: "입문",
+      name: `인계 차단 회원 ${stamp}`,
+      status: "active",
+    }),
+  });
+  const isolatedMemberId = isolatedMemberCreate.payload.data.db.members.find(
+    (member) => member.name === `인계 차단 회원 ${stamp}`,
+  )?.id;
+  assert(isolatedMemberId, "reassignment blocker test must create an assigned member");
+  assert.equal(
+    isolatedMemberCreate.payload.data.db.members.find((member) => member.id === isolatedMemberId)?.primaryCoachId,
+    isolatedCoachId,
+    "isolated member must start assigned to the target coach",
+  );
+
+  const isolatedClassStart = new Date(Date.now() + 48 * 60 * 60 * 1000);
+  const isolatedClassEnd = new Date(isolatedClassStart.getTime() + 60 * 60 * 1000);
+  const isolatedClassCreate = await admin.request(`/api/v1/branches/${isolatedBranchId}/classes`, {
+    method: "POST",
+    body: JSON.stringify({
+      ageGroup: "adult",
+      capacity: 10,
+      coachId: isolatedCoachId,
+      endsAt: isolatedClassEnd.toISOString(),
+      enrolledMemberIds: [isolatedMemberId],
+      level: "입문",
+      name: `인계 차단 수업 ${stamp}`,
+      room: "테스트관",
+      startsAt: isolatedClassStart.toISOString(),
+    }),
+  });
+  const isolatedClassId = isolatedClassCreate.payload.data.db.classes.find(
+    (session) => session.name === `인계 차단 수업 ${stamp}`,
+  )?.id;
+  assert(isolatedClassId, "reassignment blocker test must create an assigned class");
+
+  const auditCountBeforeBlockedRequests = isolatedClassCreate.payload.data.db.auditLogs.length;
+  const blockedProfileUpdate = await admin.request(
+    `/api/v1/admin/users/${isolatedCoachId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: [isolatedBranchId],
+        email: isolatedCoachEmail,
+        name: `차단 후 변경 이름 ${stamp}`,
+        phone: isolatedCoachPhone,
+        reason: `no fallback profile block ${stamp}`,
+        role: "member",
+        title: "차단되어야 하는 변경",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedProfileUpdate.response.status, 422, "profile update must fail when any operational link lacks a fallback");
+  assert.deepEqual(
+    blockedProfileUpdate.payload.error?.details?.branches,
+    [{ branchName: isolatedBranchName, classCount: 1, memberCount: 1 }],
+    "profile update blocker response must expose only branch names and link counts",
+  );
+  assert.equal(blockedProfileUpdate.payload.error?.details?.blockedClassCount, 1, "profile update must count blocked classes");
+  assert.equal(blockedProfileUpdate.payload.error?.details?.blockedMemberCount, 1, "profile update must count blocked members");
+  assert(
+    !JSON.stringify(blockedProfileUpdate.payload.error?.details).includes(isolatedCoachId),
+    "profile update blocker details must not expose internal user ids",
+  );
+  assert(
+    !JSON.stringify(blockedProfileUpdate.payload.error?.details).includes(isolatedClassId),
+    "profile update blocker details must not expose internal class ids",
+  );
+  assert(
+    !JSON.stringify(blockedProfileUpdate.payload.error?.details).includes(isolatedMemberId),
+    "profile update blocker details must not expose internal member ids",
+  );
+
+  const blockedRoleUpdate = await admin.request(
+    `/api/v1/admin/users/${isolatedCoachId}/roles`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ role: "member", reason: `no fallback role block ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedRoleUpdate.response.status, 422, "role update must fail when any operational link lacks a fallback");
+
+  const blockedDelete = await admin.request(
+    `/api/v1/admin/users/${isolatedCoachId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `no fallback delete block ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedDelete.response.status, 422, "delete must fail when any operational link lacks a fallback");
+
+  const afterBlockedBootstrap = await admin.request("/api/v1/me/bootstrap");
+  const afterBlockedDb = afterBlockedBootstrap.payload.data.db;
+  assert.equal(
+    afterBlockedDb.users.find((candidate) => candidate.id === isolatedCoachId)?.role,
+    "coach",
+    "blocked user requests must preserve the target role",
+  );
+  assert.equal(
+    afterBlockedDb.users.find((candidate) => candidate.id === isolatedCoachId)?.name,
+    `고립 코치 ${stamp}`,
+    "blocked profile update must preserve the target profile",
+  );
+  assert.equal(
+    afterBlockedDb.classes.find((session) => session.id === isolatedClassId)?.coachId,
+    isolatedCoachId,
+    "blocked user requests must preserve class assignment",
+  );
+  assert.equal(
+    afterBlockedDb.members.find((member) => member.id === isolatedMemberId)?.primaryCoachId,
+    isolatedCoachId,
+    "blocked user requests must preserve member assignment",
+  );
+  assert.equal(
+    afterBlockedDb.auditLogs.length,
+    auditCountBeforeBlockedRequests,
+    "blocked user requests must not persist audit or domain writes",
+  );
+
+  const adminBranchAssignment = await admin.request("/api/v1/admin/users/user-admin", {
+    method: "PATCH",
+    body: JSON.stringify({
+      branchIds: ["branch-gangnam", "branch-songpa", isolatedBranchId],
+      email: "admin@finaljudo.kr",
+      name: "정유진",
+      phone: "01028476013",
+      reason: `same branch admin fallback ${stamp}`,
+      role: "admin",
+      title: "총괄 운영 관리자",
+    }),
+  });
+  assert(
+    adminBranchAssignment.payload.data.db.users
+      .find((candidate) => candidate.id === "user-admin")
+      ?.branchIds.includes(isolatedBranchId),
+    "admin fallback test must explicitly assign the admin to the isolated branch",
+  );
+
+  const adminFallbackDelete = await admin.request(`/api/v1/admin/users/${isolatedCoachId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ reason: `same branch admin fallback delete ${stamp}` }),
+  });
+  assert.equal(
+    adminFallbackDelete.payload.data.db.classes.find((session) => session.id === isolatedClassId)?.coachId,
+    "user-admin",
+    "same-branch admin must receive linked classes when no coach or owner is available",
+  );
+  assert.equal(
+    adminFallbackDelete.payload.data.db.members.find((member) => member.id === isolatedMemberId)?.primaryCoachId,
+    "user-admin",
+    "same-branch admin must receive linked members when no coach or owner is available",
+  );
+  const adminFallbackAudit = adminFallbackDelete.payload.data.db.auditLogs.find(
+    (log) => log.action === "user.delete" && log.targetId === isolatedCoachId,
+  );
+  assert.equal(
+    adminFallbackAudit?.after?.reassignedClassCount,
+    1,
+    "same-branch admin fallback audit must record the reassigned class count",
+  );
+  assert.equal(
+    adminFallbackAudit?.after?.reassignedMemberCount,
+    1,
+    "same-branch admin fallback audit must record the reassigned member count",
+  );
+  assert(
+    adminFallbackDelete.payload.data.db.classes.every((session) => session.coachId !== ""),
+    "admin fallback must never persist an empty class coach id",
+  );
+  assert(
+    adminFallbackDelete.payload.data.db.members.every((member) => member.primaryCoachId !== ""),
+    "admin fallback must never persist an empty member coach id",
+  );
+
   // 담당 수업·회원이 남은 코치도 삭제 가능해야 하며, 연결은 같은 지점의 다른 코치/대표에게 자동 인계된다.
   const linkedCoachDelete = await admin.request("/api/v1/admin/users/user-coach", {
     method: "DELETE",
@@ -815,6 +1065,9 @@ async function runAssertions(baseUrl) {
     "audit phone and email masking",
     "short/default password rejection",
     "self-demotion and self-delete protection",
+    "same-branch admin operational reassignment",
+    "member creation requires an accepted same-branch operator",
+    "cross-branch actor fallback rejection and atomic 422 blocking",
     "role change operational reassignment and sole owner protection",
     "linked coach delete protection",
     "user.update and user.delete audit logs",
@@ -835,6 +1088,7 @@ async function inviteeLoginBeforeAccept(baseUrl, phone, password) {
 }
 
 async function main() {
+  const initialBuild = await assertFreshNextBuild();
   const tempDir = await mkdtemp(path.join(tmpdir(), "final-judo-admin-user-api-"));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -859,6 +1113,7 @@ async function main() {
   try {
     await waitForServer(baseUrl, child);
     const checked = await runAssertions(baseUrl);
+    await assertFreshNextBuild(process.cwd(), initialBuild);
 
     console.log(
       JSON.stringify(

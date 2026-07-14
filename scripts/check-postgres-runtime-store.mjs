@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +30,14 @@ async function getAvailablePort() {
   return address.port;
 }
 
-async function startPostgresAppServer(connectionString) {
+async function removeNextRuntimeArtifacts(distDir, tsconfigPath) {
+  await Promise.all([
+    rm(distDir, { recursive: true, force: true }),
+    rm(tsconfigPath, { force: true }),
+  ]);
+}
+
+async function startPostgresAppServer(connectionString, distDir, tsconfigPath) {
   const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const output = [];
@@ -42,6 +49,8 @@ async function startPostgresAppServer(connectionString) {
       env: {
         ...process.env,
         FINAL_JUDO_DB_DRIVER: "postgres",
+        FINAL_JUDO_NEXT_DIST_DIR: distDir,
+        FINAL_JUDO_NEXT_TSCONFIG_PATH: tsconfigPath,
         FINAL_JUDO_POSTGRES_STATE_KEY: "postgres-payment-route-smoke",
         FINAL_JUDO_POSTGRES_URL: connectionString,
       },
@@ -54,6 +63,7 @@ async function startPostgresAppServer(connectionString) {
 
   for (let attempt = 1; attempt <= 60; attempt += 1) {
     if (appServer.exitCode !== null) {
+      await removeNextRuntimeArtifacts(distDir, tsconfigPath);
       throw new Error(`PostgreSQL payment route server exited before ready.\n${output.join("").slice(-4000)}`);
     }
 
@@ -67,6 +77,7 @@ async function startPostgresAppServer(connectionString) {
   }
 
   appServer.kill("SIGTERM");
+  await removeNextRuntimeArtifacts(distDir, tsconfigPath);
   throw new Error(`PostgreSQL payment route server did not become ready.\n${output.join("").slice(-4000)}`);
 }
 
@@ -92,14 +103,40 @@ async function stopAppServer(appServer) {
 }
 
 async function verifyPostgresPaymentRouteIdempotency(connectionString) {
-  const { appServer, baseUrl, output } = await startPostgresAppServer(connectionString);
+  const runtimeStamp = `${process.pid}-${Date.now()}`;
+  const distDir = `.next-postgres-runtime-${runtimeStamp}`;
+  const tsconfigPath = `.tsconfig-postgres-runtime-${runtimeStamp}.json`;
+
+  await writeFile(
+    tsconfigPath,
+    `${JSON.stringify(
+      {
+        extends: "./tsconfig.json",
+        include: [
+          "next-env.d.ts",
+          "**/*.ts",
+          "**/*.tsx",
+          ".next/types/**/*.ts",
+          ".next/dev/types/**/*.ts",
+          "**/*.mts",
+          `${distDir}/types/**/*.ts`,
+          `${distDir}/dev/types/**/*.ts`,
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const { appServer, baseUrl, output } = await startPostgresAppServer(
+    connectionString,
+    distDir,
+    tsconfigPath,
+  );
   const { Pool } = await import("pg");
 
   try {
-    const resetResponse = await fetch(`${baseUrl}/api/v1/dev/reset`, { method: "POST" });
-
-    assert(resetResponse.ok, `PostgreSQL payment route reset failed with ${resetResponse.status}`);
-
     const loginResponse = await fetch(`${baseUrl}/api/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -294,6 +331,7 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
     throw new Error(`${message}\n${output.join("").slice(-4000)}`);
   } finally {
     await stopAppServer(appServer);
+    await removeNextRuntimeArtifacts(distDir, tsconfigPath);
   }
 }
 
@@ -403,12 +441,17 @@ async function main() {
   const connectionString = `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;
 
   await waitForHostConnection(connectionString);
+  await runNodeScript("scripts/check-store-write-validation.mjs", [], {
+    ...process.env,
+    STORE_WRITE_VALIDATION_POSTGRES_URL: connectionString,
+  });
 
   process.env.FINAL_JUDO_DB_DRIVER = "postgres";
   process.env.FINAL_JUDO_POSTGRES_URL = connectionString;
   process.env.FINAL_JUDO_POSTGRES_STATE_KEY = "runtime-smoke";
 
   const { Pool } = await import("pg");
+  const { createMockData } = await import("../src/lib/mock-data.ts");
   const { createPostgresJsonStore } = await import("../src/server/postgres-store.ts");
   const { createPasswordHash } = await import("../src/server/auth-password.ts");
   const store = createPostgresJsonStore({
@@ -611,6 +654,7 @@ async function main() {
     "runtime JSONB row must preserve the committed lock proof and smoke audit logs",
   );
 
+  await store.reset(createMockData());
   await verifyPostgresPaymentRouteIdempotency(connectionString);
 
   await runNodeScript(
@@ -991,6 +1035,7 @@ async function main() {
           "runtime store reset on PostgreSQL",
           "runtime store write/read persistence",
           "cross-instance PostgreSQL advisory lock",
+          "PostgreSQL validateWrite previous-state and stale-merge enforcement",
           "locked PostgreSQL read/write commit and rollback",
           "cross-instance stale snapshot merge",
           "concurrent phone registration uniqueness on PostgreSQL runtime",

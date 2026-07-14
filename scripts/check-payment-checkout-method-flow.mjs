@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.PAYMENT_CHECKOUT_METHOD_FLOW_OUT_DIR ?? ".data/mobile-builds/ios/payment-checkout-payer-compact-20260704";
@@ -71,6 +75,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "payment checkout method flow check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "payment checkout method flow check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -120,8 +129,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData(label) {
   assert(canMutateLocalDevData(), "payment checkout method flow check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `payment checkout method flow ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `payment checkout method flow ${label} reset failed with ${response.status}`);

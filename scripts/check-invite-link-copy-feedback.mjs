@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.INVITE_LINK_COPY_OUT_DIR ?? ".data/mobile-builds/ios/invite-link-copy-feedback-20260705";
@@ -73,6 +77,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assertLocalBaseUrl();
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "invite link copy feedback check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -110,7 +119,7 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(`${baseUrl}/api/v1/dev/reset`, { method: "POST" });
+  const response = await resetOwnedSmokeServer({ baseUrl, env: process.env, label: `${label} dev reset` });
 
   assert.equal(response.status, 200, `${label} dev reset must succeed`);
 }
@@ -136,9 +145,11 @@ async function main() {
     });
   });
 
-  await page.goto(`${baseUrl}/api/v1/dev/auto-login?role=admin&next=%2Fapp%2Fadmin%2Froles%3Finvite%3D1`, {
-    waitUntil: "networkidle",
-  });
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", "admin");
+  loginUrl.searchParams.set("next", "/app/admin/roles?invite=1");
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="admin-role-invite-toggle"]', { timeout: 15000 });
   await page.waitForSelector("#admin-role-invite-form", { timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('[data-testid="admin-role-invite-toggle"]')?.getAttribute("aria-expanded") === "true");

@@ -83,22 +83,23 @@ async function persistPayment({
 
   const paymentId = createRuntimeId("pay");
   const now = new Date().toISOString();
+  const { reason: terminalReason, ...paymentSnapshot } = snapshot;
   const isCancelled = snapshot.status === "cancelled";
   const isRefunded = snapshot.status === "refunded";
   const historyReason = isRefunded
-    ? `수기 환불 완료 등록: ${snapshot.reason}`
+    ? `수기 환불 완료 등록: ${terminalReason}`
     : isCancelled
-      ? `수기 취소 등록: ${snapshot.reason}`
+      ? `수기 취소 등록: ${terminalReason}`
       : "수기 결제 등록";
   const nextPayment: Payment = {
     id: paymentId,
     branchId,
-    ...snapshot,
+    ...paymentSnapshot,
     refundedAmount: isRefunded ? snapshot.amount : 0,
     ...(isCancelled || isRefunded
       ? {
           refundedAt: now,
-          refundReason: snapshot.reason,
+          refundReason: terminalReason,
         }
       : {}),
     statusHistory: [

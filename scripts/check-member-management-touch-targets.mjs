@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync,
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir =
@@ -74,17 +78,33 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "member management touch-target check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "member management touch-target check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const appUrl = new URL(baseUrl);
+  const appPort = appUrl.port || "3000";
+  const serverMode = process.env.MEMBER_MANAGEMENT_TOUCH_TARGETS_SERVER_MODE === "start" ? "start" : "dev";
+  const serverArgs =
+    serverMode === "start"
+      ? ["run", "start", "--", "--hostname", appUrl.hostname, "--port", appPort]
+      : ["run", "dev", "--", "--webpack", "--hostname", appUrl.hostname, "--port", appPort];
+  managedAppServer = spawn(
+    npmCommand,
+    serverArgs,
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.MEMBER_MANAGEMENT_TOUCH_TARGETS_SERVER_LOGS === "1") {
@@ -123,8 +143,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData(label) {
   assert(canMutateLocalDevData(), "member management touch-target check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `member management touch-target ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `member management touch-target ${label} reset failed with ${response.status}`);
@@ -210,6 +233,8 @@ function assertStaticContracts() {
     'data-testid="member-note-submit"',
     'data-testid={`member-guardian-search-input-${member.id}`}',
     'data-testid={`member-guardian-submit-${member.id}`}',
+    'data-testid={`member-payment-summary-${member.id}`}',
+    'data-testid={`member-payment-summary-link-${member.id}`}',
   ]) {
     assert(membersScreen.includes(snippet), `members screen must include ${snippet}`);
   }
@@ -233,6 +258,18 @@ async function gotoOwnerMembers(page) {
   await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
   await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
   await page.waitForSelector('[data-testid="member-create-toggle"]', { timeout: 15000 });
+}
+
+async function gotoMembersAsRole(page, role) {
+  const next = "/app/members";
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
+  loginUrl.searchParams.set("next", next);
+
+  await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
+  await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
+  await page.waitForSelector("[data-member-id]", { timeout: 15000 });
 }
 
 async function readHeights(page, selector) {
@@ -390,6 +427,154 @@ async function captureOwnerMembers(context) {
   }
 }
 
+async function openOwnerPaymentSummary(page) {
+  const detailToggles = page.locator('[data-testid^="member-detail-toggle-"]');
+  const detailToggleCount = await detailToggles.count();
+
+  for (let index = 0; index < detailToggleCount; index += 1) {
+    await detailToggles.nth(index).click();
+    await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+
+    if ((await page.locator('[data-testid^="member-payment-summary-link-"]').count()) > 0) {
+      return;
+    }
+
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 0, { timeout: 15000 });
+  }
+
+  assert.fail("owner members must expose at least one member detail with payment history");
+}
+
+async function captureMemberPaymentSummaryRoles(context) {
+  const roleResults = {};
+  const screenshots = [];
+
+  for (const role of ["owner", "member", "guardian", "coach"]) {
+    const page = await context.newPage();
+    const messages = collectConsoleMessages(page);
+
+    try {
+      await gotoMembersAsRole(page, role);
+
+      if (role === "owner") {
+        await openOwnerPaymentSummary(page);
+      }
+
+      const summaries = page.locator('[data-testid^="member-payment-summary-"]:not([data-testid*="-link-"])');
+      const links = page.locator('[data-testid^="member-payment-summary-link-"]');
+      const summaryCount = await summaries.count();
+      const linkCount = await links.count();
+      const health = await collectPageHealth(page);
+
+      assert.equal(health.frameworkOverlayCount, 0, `${role} member payment summary must not show a framework overlay`);
+      assert(health.bodyTextLength > 100, `${role} member payment summary must not render a blank page`);
+      assert.equal(health.horizontalOverflow, 0, `${role} member payment summary must not overflow horizontally`);
+
+      if (role === "coach") {
+        assert.equal(summaryCount, 0, "coach members must not render payment summaries");
+        assert.equal(linkCount, 0, "coach members must not render payment detail links");
+        roleResults[role] = { health, linkCount, messages, summaryCount };
+        assert.deepEqual(messages, [], "coach member payment privacy flow must not emit console warnings/errors");
+        continue;
+      }
+
+      assert(summaryCount > 0, `${role} members must render a payment summary`);
+      assert(linkCount > 0, `${role} members must render a payment detail link`);
+
+      const firstSummary = summaries.first();
+      const firstLink = links.first();
+      await firstSummary.scrollIntoViewIfNeeded();
+      const summaryText = (await firstSummary.innerText()).trim();
+      const linkLayout = await firstLink.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+
+        return {
+          height: Math.round(rect.height),
+          width: Math.round(rect.width),
+        };
+      });
+
+      assert(summaryText.includes("결제·회원권"), `${role} summary must identify the payment membership section`);
+      assert(summaryText.includes("납부") && summaryText.includes("만료"), `${role} summary must show due and expiry dates`);
+      if (role === "owner") {
+        assert(/₩[\d,]+/.test(summaryText), "owner summary must show the scoped effective amount");
+      } else {
+        assert(!/₩[\d,]+/.test(summaryText), `${role} summary must not reintroduce amount-centered family cards`);
+      }
+      assert(linkLayout.height >= 44, `${role} payment detail link must stay 44px tall; got ${linkLayout.height}px`);
+
+      if (role === "owner" || role === "guardian") {
+        const screenshotPath = join(outDir, `${role}-member-payment-summary-mobile.png`);
+        await page.screenshot({ fullPage: false, path: screenshotPath });
+        screenshots.push({ label: `${role} member payment summary`, path: screenshotPath, sizeBytes: statSync(screenshotPath).size });
+      }
+
+      let deepLink = null;
+      if (role === "guardian") {
+        const href = await firstLink.getAttribute("href");
+        assert(href, "guardian member payment summary link must have an href");
+        const targetUrl = new URL(href, baseUrl);
+        const requestedMemberId = targetUrl.searchParams.get("memberId");
+        const focusedPaymentId = targetUrl.searchParams.get("focusPayment");
+
+        assert(requestedMemberId, "guardian member payment summary link must identify the child");
+        assert(focusedPaymentId, "guardian member payment summary link must identify the payment");
+
+        await firstLink.click();
+        await page.waitForURL((url) => url.pathname === "/app/payments", { timeout: 15000 });
+        await page.waitForSelector(`[data-payment-id="${focusedPaymentId}"]`, { timeout: 15000 });
+        const renderedFocusedPaymentCount = await page.locator(`[data-payment-id="${focusedPaymentId}"]`).count();
+
+        assert.equal(renderedFocusedPaymentCount, 1, "guardian payment deep link must render the exact payment card");
+
+        const unselectedChildChip = page.locator('[data-testid="guardian-child-chip"][aria-pressed="false"]').first();
+        const hasAlternativeChild = (await unselectedChildChip.count()) > 0;
+        let manualSelectionAfterDeepLink = null;
+
+        if (hasAlternativeChild) {
+          const alternativeChildName = (await unselectedChildChip.locator("span").first().innerText()).trim();
+
+          await unselectedChildChip.click();
+          await page.waitForTimeout(250);
+          const selectedAlternativeChildChip = page
+            .locator('[data-testid="guardian-child-chip"]')
+            .filter({ hasText: alternativeChildName })
+            .first();
+
+          manualSelectionAfterDeepLink = {
+            alternativeChildName,
+            remainedSelected: await selectedAlternativeChildChip.getAttribute("aria-pressed"),
+          };
+          assert.equal(
+            manualSelectionAfterDeepLink.remainedSelected,
+            "true",
+            "guardian deep link must not pin the requested child after a manual selection",
+          );
+        }
+
+        deepLink = {
+          focusedPaymentId,
+          manualSelectionAfterDeepLink,
+          renderedFocusedPaymentCount,
+          requestedMemberId,
+          selectedChildChipCount: await page.locator('[data-testid="guardian-child-chip"][aria-pressed="true"]').count(),
+          url: page.url(),
+        };
+
+        assert.equal(deepLink.selectedChildChipCount, 1, "guardian payment deep link must select exactly one child");
+      }
+
+      assert.deepEqual(messages, [], `${role} member payment summary flow must not emit console warnings/errors`);
+      roleResults[role] = { deepLink, health, linkCount, linkLayout, messages, summaryCount, summaryText };
+    } finally {
+      await page.close();
+    }
+  }
+
+  return { roles: roleResults, screenshots };
+}
+
 async function main() {
   assertStaticContracts();
   mkdirSync(outDir, { recursive: true });
@@ -407,6 +592,7 @@ async function main() {
 
   try {
     const ownerMembers = await captureOwnerMembers(context);
+    const memberPaymentSummary = await captureMemberPaymentSummaryRoles(context);
     const iosSimulator = readIosSimulatorProof();
     const toggleTouchHeight = minMeasuredHeight({
       ...(ownerMembers.collapsedLayout.inviteToggleHeights.length ? { inviteToggle: ownerMembers.collapsedLayout.inviteToggleHeights } : {}),
@@ -425,6 +611,9 @@ async function main() {
         horizontalOverflow: ownerMembers.openHealth.horizontalOverflow,
         inviteFormCollapsedByDefault: ownerMembers.collapsedLayout.inviteFormCount === 0,
         iosSimulatorNoBrowserChrome: iosSimulator.ok === true,
+        memberPaymentSummaryRoles: Object.keys(memberPaymentSummary.roles).length,
+        coachPaymentSummaryCount: memberPaymentSummary.roles.coach.summaryCount,
+        guardianFocusedPaymentCount: memberPaymentSummary.roles.guardian.deepLink?.renderedFocusedPaymentCount ?? 0,
         minOpenTouchHeight,
         openFormsStillRenderInputs:
           ownerMembers.openControlHeights.inviteFields.length > 0 &&
@@ -432,8 +621,9 @@ async function main() {
           ownerMembers.openControlHeights.profileFields.length > 0,
         toggleTouchHeight,
       },
+      memberPaymentSummary,
       ownerMembers,
-      screenshots: ownerMembers.screenshots,
+      screenshots: [...ownerMembers.screenshots, ...memberPaymentSummary.screenshots],
       iosSimulator,
       resetBefore,
       resetAfter: await resetDevData("after"),

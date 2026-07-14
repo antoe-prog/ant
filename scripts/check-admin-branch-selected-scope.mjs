@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.ADMIN_BRANCH_SELECTED_SCOPE_OUT_DIR ?? ".data/mobile-builds/ios/admin-branch-selected-scope-20260701";
@@ -34,7 +35,11 @@ async function resetDevData() {
     };
   }
 
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: "admin branch selected-scope dev reset",
+  });
   const payload = await response.json().catch(() => ({}));
 
   return {
@@ -83,10 +88,11 @@ async function main() {
   });
 
   try {
-    await page.goto(
-      new URL(`/api/v1/dev/auto-login?role=admin&next=${encodeURIComponent("/app/admin/branches")}`, baseUrl).toString(),
-      { waitUntil: "load" },
-    );
+    const loginUrl = new URL("/login", baseUrl);
+    loginUrl.searchParams.set("autoLogin", "1");
+    loginUrl.searchParams.set("role", "admin");
+    loginUrl.searchParams.set("next", "/app/admin/branches");
+    await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="admin-branch-summary-grid"]', { timeout: 10000 });
     await page.screenshot({ path: screenshotPath, fullPage: true });
 

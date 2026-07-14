@@ -72,7 +72,11 @@ export function getManualPaymentManagementBlockReason(payment: Payment) {
     return "정기결제 약정 이력이 있어 수정하거나 삭제할 수 없습니다.";
   }
 
-  if ((payment.refundedAmount ?? 0) > 0) {
+  if (
+    payment.status === "refunded" ||
+    payment.status === "partially_refunded" ||
+    (payment.refundedAmount ?? 0) > 0
+  ) {
     return "환불 이력이 있어 수정하거나 삭제할 수 없습니다.";
   }
 

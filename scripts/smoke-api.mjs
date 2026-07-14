@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const skipDevReset = process.env.SMOKE_SKIP_DEV_RESET === "1";
@@ -107,9 +108,10 @@ async function resetDemoData(phase) {
     return;
   }
 
-  const response = await fetch(`${baseUrl}/api/v1/dev/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `${phase} smoke reset`,
   }).catch((error) => {
     throw new Error(`Cannot reset demo data ${phase} smoke tests. ${error.message}`);
   });
@@ -1396,6 +1398,10 @@ async function run() {
     "cancelled manual payment creation must persist the normalized reason and cancellation time",
   );
   assert(
+    !Object.prototype.hasOwnProperty.call(cancelledCreatePayment, "reason"),
+    "cancelled manual payment creation must not duplicate the audit reason outside the payment schema",
+  );
+  assert(
     cancelledCreatePayment.statusHistory?.some(
       (entry) => entry.event === "created" && entry.reason.includes(cancelledCreateReason),
     ),
@@ -1418,6 +1424,66 @@ async function run() {
     !result.payload.data.db.payments.some((payment) => payment.id === cancelledCreatePayment.id),
     "cancelled manual payment reason fixture must be removable after verification",
   );
+
+  const zeroRefundedPlanName = `Smoke Zero Refunded Create ${stamp}`;
+  const zeroRefundedReason = `Smoke zero refund completion ${stamp}`;
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        memberId: "member-jun",
+        planName: zeroRefundedPlanName,
+        status: "refunded",
+        amount: 0,
+        discountAmount: 0,
+        dueDate: "2026-06-13",
+        expiresAt: "2026-07-13",
+        reason: `  ${zeroRefundedReason}  `,
+      }),
+    },
+  );
+  const zeroRefundedPayment = result.payload.data.db.payments.find(
+    (payment) => payment.planName === zeroRefundedPlanName,
+  );
+  assert(zeroRefundedPayment, "zero-amount refunded manual payment must be created for integrity verification");
+  assert(
+    zeroRefundedPayment.status === "refunded" &&
+      zeroRefundedPayment.refundedAmount === 0 &&
+      zeroRefundedPayment.refundReason === zeroRefundedReason &&
+      Boolean(zeroRefundedPayment.refundedAt),
+    "zero-amount refunded manual payment must persist canonical refund metadata",
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(zeroRefundedPayment, "reason"),
+    "refunded manual payment must not duplicate the audit reason outside the payment schema",
+  );
+  result = await owner.request(
+    `/api/v1/payments/${zeroRefundedPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        amount: 0,
+        discountAmount: 0,
+        dueDate: "2026-06-13",
+        expiresAt: "2026-07-13",
+        planName: `${zeroRefundedPlanName} changed`,
+        reason: `Smoke invalid zero refund edit ${stamp}`,
+        status: "paid",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 422, "zero-amount refunded manual payment must not be editable");
+  result = await owner.request(
+    `/api/v1/payments/${zeroRefundedPayment.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ reason: `Smoke invalid zero refund delete ${stamp}` }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 422, "zero-amount refunded manual payment must not be deletable");
 
   const idempotencyKey = `manual.smoke.${stamp}`;
   const idempotentPlanName = `Smoke Idempotent Plan ${stamp}`;
@@ -1932,8 +1998,12 @@ async function run() {
     }),
   });
   const recurringPayment = result.payload.data.db.payments.find((payment) => payment.id === onlinePaymentSeed.id);
+  const expectedRecurringStatus = process.env.FINAL_JUDO_PAYMENT_PROVIDER?.trim() ? "pending" : "active";
 
-  assert(recurringPayment?.recurringAgreement?.status === "active", "recurring agreement must be active in mock provider mode");
+  assert(
+    recurringPayment?.recurringAgreement?.status === expectedRecurringStatus,
+    `recurring agreement must be ${expectedRecurringStatus} for the configured provider`,
+  );
   assert(recurringPayment.recurringAgreement.nextBillingDate === "2026-07-22", "recurring agreement next billing date missing");
   assert(
     recurringPayment.statusHistory?.some((entry) => entry.event === "recurring_agreement"),
@@ -1961,7 +2031,8 @@ async function run() {
   assert(result.response.status === 403, "recurring agreement cancel must reject a selected branch mismatch before validation");
   result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
   assert(
-    result.payload.data.db.payments.find((payment) => payment.id === onlinePaymentSeed.id)?.recurringAgreement?.status === "active",
+    result.payload.data.db.payments.find((payment) => payment.id === onlinePaymentSeed.id)?.recurringAgreement?.status ===
+      expectedRecurringStatus,
     "selected branch mismatch must not cancel the recurring agreement",
   );
 
@@ -3420,7 +3491,7 @@ async function run() {
           "member guardian counseling notice invalid selectedBranchId API 403",
           "member create/update/profile/guardian link and adult guardian-link block",
           "class create/update",
-          "payment calendar validity and chronology, cancelled/refunded create reasons, detail-only correction history integrity, status changes, delete/refund/cancel lifecycle, online webhook receipt/idempotency, and recurring agreement create/cancel",
+          "payment calendar validity and chronology, canonical terminal-state metadata without root reason duplication, zero-amount refund immutability, detail-only correction history integrity, status changes, delete/refund/cancel lifecycle, online webhook receipt/idempotency, and recurring agreement create/cancel",
           "online and recurring payment invalid selectedBranchId API 403",
           "member/guardian CSV export API 403",
           "CSV export invalid selectedBranchId API 403",

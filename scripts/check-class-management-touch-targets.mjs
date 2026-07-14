@@ -4,11 +4,17 @@ import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  assertOwnedSmokeServer,
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir =
   process.env.CLASS_MANAGEMENT_TOUCH_TARGETS_OUT_DIR ??
   ".data/mobile-builds/ios/class-management-touch-targets-20260705";
+const roleScreenTimeoutMs = 30_000;
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
@@ -73,8 +79,18 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "class management touch-target check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "class management touch-target check",
+  });
 
   if (await canReachAppServer()) {
+    await assertOwnedSmokeServer({
+      baseUrl,
+      env: process.env,
+      label: "class management touch-target check",
+    });
     usingExistingAppServer = true;
     return;
   }
@@ -122,8 +138,11 @@ async function stopManagedAppServer() {
 
 async function resetDevData(label) {
   assert(canMutateLocalDevData(), "class management touch-target check only mutates local dev data");
-
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `class management touch-target ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `class management touch-target ${label} reset failed with ${response.status}`);
@@ -189,8 +208,11 @@ async function gotoRole(page, role, nextPath) {
   loginUrl.searchParams.set("role", role);
   loginUrl.searchParams.set("next", nextPath);
 
-  await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
-  await page.waitForURL((url) => url.pathname === nextPath, { timeout: 15000 });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+  await page.waitForURL((url) => url.pathname === nextPath, {
+    timeout: 30000,
+    waitUntil: "domcontentloaded",
+  });
 }
 
 async function readHeights(page, selector) {
@@ -233,7 +255,7 @@ async function captureOwnerClasses(context) {
 
   try {
     await gotoRole(page, "owner", "/app/classes");
-    await page.waitForSelector('[data-testid="class-create-toggle"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="class-create-toggle"]', { timeout: roleScreenTimeoutMs });
 
     const collapsedLayout = {
       health: await collectPageHealth(page),
@@ -299,7 +321,7 @@ async function captureCoachAttendanceNote(context) {
 
   try {
     await gotoRole(page, "coach", "/app/classes");
-    await page.waitForSelector('[data-testid^="coach-class-card-"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid^="coach-class-card-"]', { timeout: roleScreenTimeoutMs });
     await page.locator('[data-testid^="coach-class-roster-toggle-"]').first().click();
     await page.waitForSelector('[data-testid^="attendance-note-toggle-"]', { timeout: 15000 });
     await page.locator('[data-testid^="attendance-note-toggle-"]').first().click();

@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ArrowRight, FileDown, Filter, RefreshCw, Search, ShieldCheck, X, XCircle } from "lucide-react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { useApiContext } from "@/hooks/use-api-context";
@@ -123,7 +123,6 @@ function hasActiveAuditFilters(filters: AuditLogDraftFilters) {
 }
 
 export function AdminAuditLogsScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const context = useApiContext();
   const filterParams = getAuditFiltersFromParams(searchParams);
@@ -265,9 +264,9 @@ export function AdminAuditLogsScreen() {
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {
-      router.replace(nextUrl, { scroll: false });
+      window.history.replaceState(null, "", nextUrl);
     }
-  }, [filters, router]);
+  }, [filters]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -287,9 +286,9 @@ export function AdminAuditLogsScreen() {
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {
-      router.replace(nextUrl, { scroll: false });
+      window.history.replaceState(null, "", nextUrl);
     }
-  }, [openPayloadLogIds, router]);
+  }, [openPayloadLogIds]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

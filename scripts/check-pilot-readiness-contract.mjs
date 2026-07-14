@@ -34,8 +34,8 @@ assert.deepEqual(
 assert.deepEqual(prePilotReadinessIds, defaultPrePilotIds, "preflight pre-pilot readiness ids must match default checks except pilot-retro");
 
 assert(
-  mockData.includes('import { createDefaultPilotReadinessChecks } from "@/lib/pilot-readiness";'),
-  "mock data must import readiness checks from the shared contract",
+  mockData.includes('import { createDefaultPilotReadinessChecks } from "./pilot-readiness.ts";'),
+  "mock data must use the shared readiness contract through a Node-compatible import",
 );
 assert(
   importScript.includes('await import("../src/lib/pilot-readiness.ts")'),

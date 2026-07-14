@@ -94,7 +94,12 @@ export async function PATCH(
 
   const coach = db.users.find((candidate) => candidate.id === nextClass.coachId);
 
-  if (!coach || !["coach", "admin"].includes(coach.role) || !coach.branchIds.includes(existing.branchId)) {
+  if (
+    !coach ||
+    !["coach", "owner", "admin"].includes(coach.role) ||
+    coach.invitationStatus === "pending" ||
+    !coach.branchIds.includes(existing.branchId)
+  ) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "선택한 지점에 배정된 코치를 선택해야 합니다.");
   }
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
+import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const skipDevReset = process.env.E2E_SKIP_DEV_RESET === "1";
@@ -31,9 +32,10 @@ async function resetDemoData(phase) {
     return;
   }
 
-  const response = await fetch(`${baseUrl}/api/v1/dev/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `${phase} mobile E2E reset`,
   }).catch((error) => {
     throw new Error(`Cannot reset demo data ${phase} mobile E2E. ${error.message}`);
   });
@@ -49,7 +51,7 @@ async function resetDemoData(phase) {
 }
 
 async function loginWithCredentials(page, phone) {
-  await page.goto(`${baseUrl}/login`, { waitUntil: "load" });
+  await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
   await page.getByLabel("휴대폰 번호").fill(phone);
   await page.getByLabel("비밀번호", { exact: true }).fill(defaultPilotPassword);
   await page.getByRole("button", { name: "로그인" }).click();
@@ -67,7 +69,7 @@ async function loginWithRoleShortcut(page, role) {
       sameSite: "Lax",
     },
   ]);
-  await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "load" });
+  await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "domcontentloaded" });
   await page.waitForURL("**/app/dashboard", { timeout: 10000 });
 }
 

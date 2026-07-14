@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.OPERATOR_LIST_SEARCH_OUT_DIR ?? ".data/mobile-builds/ios/operator-list-search-20260704";
@@ -71,6 +75,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "operator list search check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "operator list search check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -119,7 +128,11 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `operator list search ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `operator list search ${label} reset failed with ${response.status}`);
@@ -246,7 +259,10 @@ function assertStaticContracts() {
   assert(noticesScreen.includes('useUrlSyncedTextParam("q")'), "notice search must use the shared URL-synced text state");
   assert(syncedTextParamHook.includes("useSearchParams()"), "shared text state must read client-side Next search params");
   assert(syncedTextParamHook.includes("previousParamValueRef"), "shared text state must guard stale query values");
-  assert(syncedTextParamHook.includes("router.replace(nextUrl, { scroll: false })"), "shared text state must update through the Next router");
+  assert(
+    syncedTextParamHook.includes('window.history.replaceState(null, "", nextUrl)'),
+    "shared text state must update through the Next-compatible native history API",
+  );
   assert(notificationReadiness.includes("notice-list-search-input"), "notification readiness must guard notice list search");
 }
 

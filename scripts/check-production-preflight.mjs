@@ -172,15 +172,22 @@ function validateReferences(db, blockers) {
       addIssue(blockers, "MEMBER_BRANCH_MISSING", `회원 ${member.id}의 지점이 존재하지 않습니다.`, { branchId: member.branchId });
     }
     const coach = usersById.get(member.primaryCoachId);
-    if (member.primaryCoachId && !coach) {
+    if (!member.primaryCoachId) {
+      addIssue(blockers, "MEMBER_COACH_REQUIRED", `회원 ${member.id}의 담당 운영자가 지정되지 않았습니다.`);
+    } else if (!coach) {
       addIssue(blockers, "MEMBER_COACH_MISSING", `회원 ${member.id}의 담당 코치 계정이 존재하지 않습니다.`, {
         coachId: member.primaryCoachId,
       });
     }
-    if (coach && !["coach", "admin"].includes(coach.role)) {
-      addIssue(blockers, "MEMBER_COACH_ROLE_INVALID", `회원 ${member.id}의 담당자가 코치/어드민 역할이 아닙니다.`, {
+    if (coach && !["coach", "owner", "admin"].includes(coach.role)) {
+      addIssue(blockers, "MEMBER_COACH_ROLE_INVALID", `회원 ${member.id}의 담당자가 코치/대표/어드민 역할이 아닙니다.`, {
         coachId: coach.id,
         role: coach.role,
+      });
+    }
+    if (coach?.invitationStatus === "pending") {
+      addIssue(blockers, "MEMBER_COACH_INVITATION_PENDING", `회원 ${member.id}의 담당자 초대가 승인되지 않았습니다.`, {
+        coachId: coach.id,
       });
     }
     if (coach && !coach.branchIds.includes(member.branchId)) {
@@ -224,10 +231,15 @@ function validateReferences(db, blockers) {
     if (!coach) {
       addIssue(blockers, "CLASS_COACH_MISSING", `수업 ${session.id}의 담당 코치 계정이 존재하지 않습니다.`, { coachId: session.coachId });
     }
-    if (coach && !["coach", "admin"].includes(coach.role)) {
-      addIssue(blockers, "CLASS_COACH_ROLE_INVALID", `수업 ${session.id}의 담당자가 코치/어드민 역할이 아닙니다.`, {
+    if (coach && !["coach", "owner", "admin"].includes(coach.role)) {
+      addIssue(blockers, "CLASS_COACH_ROLE_INVALID", `수업 ${session.id}의 담당자가 코치/대표/어드민 역할이 아닙니다.`, {
         coachId: coach.id,
         role: coach.role,
+      });
+    }
+    if (coach?.invitationStatus === "pending") {
+      addIssue(blockers, "CLASS_COACH_INVITATION_PENDING", `수업 ${session.id}의 담당자 초대가 승인되지 않았습니다.`, {
+        coachId: coach.id,
       });
     }
     if (coach && !coach.branchIds.includes(session.branchId)) {
@@ -576,7 +588,7 @@ async function main() {
       }
 
       for (const role of requiredRoles) {
-        if (!db.users.some((user) => user.role === role)) {
+        if (!db.users.some((user) => user.role === role && user.invitationStatus !== "pending")) {
           addIssue(blockers, "ROLE_ACCOUNT_MISSING", `파일럿 ${role} 계정이 없습니다.`);
         }
       }

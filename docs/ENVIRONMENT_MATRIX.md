@@ -30,7 +30,8 @@
 | 변수 | 운영 기본값 | 설명 |
 | --- | --- | --- |
 | `FINAL_JUDO_ENABLE_DEMO_LOGIN` | `0` 또는 미설정 | production 역할 선택 데모 로그인을 여는 위험 플래그다. 파일럿 리허설 작업창 외에는 사용하지 않는다. |
-| `FINAL_JUDO_ENABLE_DEV_RESET` | `0` 또는 미설정 | production `/api/v1/dev/reset`을 여는 위험 플래그다. 운영 중에는 사용하지 않는다. |
+| `FINAL_JUDO_ENABLE_DEV_RESET` | `0` 또는 미설정 | production `/api/v1/dev/reset` 허용 조건 중 하나다. helper 발급 실행별 토큰, run-owned 임시 JSON 마커, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야 하며 공유·심볼릭 링크·PostgreSQL·운영 사용자 데이터에는 사용하지 않는다. |
+| `FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN` | 미설정 | 격리 테스트 서버·reset 호출자·임시 JSON 저장소 마커를 묶는 256비트 소유권 토큰이다. 테스트 러너가 임의 생성하며 저장·공유하지 않는다. 임의 문자열이나 약한 고정값은 거부한다. |
 | `ENABLE_DEMO_LOGIN` | 미설정 | legacy 호환 플래그. 새 배포에서는 사용하지 않는다. |
 | `ENABLE_DEV_RESET` | 미설정 | legacy 호환 플래그. 새 배포에서는 사용하지 않는다. |
 

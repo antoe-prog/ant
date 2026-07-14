@@ -1,11 +1,10 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createUrlWithTextParam, getNormalizedTextParam } from "@/lib/url-search-params";
 
 export function useUrlSyncedTextParam(paramName = "q") {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const paramValue = getNormalizedTextParam(searchParams.get(paramName));
   const previousParamValueRef = useRef(paramValue);
@@ -43,10 +42,10 @@ export function useUrlSyncedTextParam(paramName = "q") {
       const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
       if (nextUrl !== currentUrl) {
-        router.replace(nextUrl, { scroll: false });
+        window.history.replaceState(null, "", nextUrl);
       }
     },
-    [paramName, router],
+    [paramName],
   );
 
   return [value, setValue] as const;

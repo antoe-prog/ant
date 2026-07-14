@@ -7,6 +7,7 @@ const auditReadDeduplication = await import("../src/lib/audit-read-deduplication
 const auditLogQuery = await import("../src/lib/audit-log-query.ts");
 const notificationAlerts = await import("../src/lib/notification-alerts.ts");
 const noticeMemberSearch = await import("../src/lib/notice-member-search.ts");
+const notices = await import("../src/lib/notices.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
 const [paymentsExportRouteSource, operationsExportRouteSource, paymentsScreenSource, serverApiSource, mockApiSource] = await Promise.all([
   readFile("src/app/api/v1/exports/payments/route.ts", "utf8"),
@@ -441,6 +442,39 @@ assert.deepEqual(
   [guardian.id],
   "notice read persistence must initialize missing legacy read user lists",
 );
+assert.equal(
+  notices.hasSameNoticeAudience(["member", "member"], ["member", "all"]),
+  false,
+  "legacy duplicate notice audiences must not hide a coach audience expansion",
+);
+assert.equal(
+  notices.hasSameNoticeAudience(["guardian", "member", "guardian"], ["member", "guardian"]),
+  true,
+  "notice audience comparison must ignore ordering and duplicate entries",
+);
+const visibleNoticeContent = {
+  audience: ["guardian"],
+  body: "기존 본문",
+  important: false,
+  title: "기존 제목",
+};
+assert.equal(
+  notices.hasNoticeVisibleContentChanged(visibleNoticeContent, { ...visibleNoticeContent }),
+  false,
+  "idempotent notice updates must not reset read state",
+);
+for (const [label, next] of [
+  ["title", { ...visibleNoticeContent, title: "수정 제목" }],
+  ["body", { ...visibleNoticeContent, body: "수정 본문" }],
+  ["important", { ...visibleNoticeContent, important: true }],
+  ["audience", { ...visibleNoticeContent, audience: ["member", "guardian"] }],
+]) {
+  assert.equal(
+    notices.hasNoticeVisibleContentChanged(visibleNoticeContent, next),
+    true,
+    `notice ${label} changes must reset read state`,
+  );
+}
 assert.deepEqual(
   notificationAlerts.getNotificationAlertCounts({ db, selectedBranchId: "branch-gangnam", user: coach }),
   {
@@ -663,6 +697,7 @@ console.log(
         "branch scope selection",
         "member scope by role",
         "notice recipient targeting",
+        "notice audience equality and visible edit detection",
         "user email display guard",
         "role-scoped notification alert counts",
         "per-user notice read notification counts",

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
-import type { JsonValidator } from "./json-store";
+import type { JsonValidator, JsonWriteValidator } from "./json-store";
 import { attachStoreVersion, getStoreVersion } from "./store-version.ts";
 
 export type PostgresJsonStoreOptions<T> = {
@@ -9,6 +9,7 @@ export type PostgresJsonStoreOptions<T> = {
   key: string;
   createDefault: () => T;
   validate?: JsonValidator<T>;
+  validateWrite?: JsonWriteValidator<T>;
   tableName?: string;
   merge?: (base: T, requested: T, latest: T) => T;
 };
@@ -133,6 +134,34 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
             : (() => {
                 throw new Error("PostgreSQL runtime state changed before this write completed.");
               })();
+        const validatedNext = options.validateWrite ? options.validateWrite(next, latest) : next;
+        const result = await query<{ data: unknown; revision: string }>(
+          `
+            UPDATE ${tableName}
+            SET data = $2::jsonb, revision = revision + 1, updated_at = now()
+            WHERE key = $1
+            RETURNING data, revision;
+          `,
+          [options.key, JSON.stringify(validatedNext)],
+        );
+
+        return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
+      });
+    }
+
+    return inTransaction(async () => {
+      await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `${tableName}:${options.key}:write`,
+      ]);
+      const currentResult = await query<{ data: unknown; revision: string }>(
+        `SELECT data, revision FROM ${tableName} WHERE key = $1 FOR UPDATE`,
+        [options.key],
+      );
+      const currentRow = currentResult.rows[0];
+      const latest = currentRow ? validate(currentRow.data) : null;
+      const next = options.validateWrite ? options.validateWrite(requested, latest) : requested;
+
+      if (currentRow) {
         const result = await query<{ data: unknown; revision: string }>(
           `
             UPDATE ${tableName}
@@ -144,24 +173,19 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
         );
 
         return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
-      });
-    }
+      }
 
-    const result = await query<{ data: unknown; revision: string }>(
-      `
-        INSERT INTO ${tableName} (key, data, revision)
-        VALUES ($1, $2::jsonb, 1)
-        ON CONFLICT (key) DO UPDATE
-        SET
-          data = EXCLUDED.data,
-          revision = ${tableName}.revision + 1,
-          updated_at = now()
-        RETURNING data, revision;
-      `,
-      [options.key, JSON.stringify(requested)],
-    );
+      const result = await query<{ data: unknown; revision: string }>(
+        `
+          INSERT INTO ${tableName} (key, data, revision)
+          VALUES ($1, $2::jsonb, 1)
+          RETURNING data, revision;
+        `,
+        [options.key, JSON.stringify(next)],
+      );
 
-    return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
+      return attachStoreVersion(validate(result.rows[0]?.data), Number(result.rows[0]?.revision));
+    });
   }
 
   async function reset() {

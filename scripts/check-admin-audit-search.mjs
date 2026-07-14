@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import {
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.ADMIN_AUDIT_SEARCH_OUT_DIR ?? ".data/mobile-builds/ios/admin-audit-search-20260704";
@@ -71,6 +75,11 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
 
 async function ensureLocalAppServer() {
   assert(canMutateLocalDevData(), "admin audit search check only runs against a local dev app server");
+  await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "admin audit search check",
+  });
 
   if (await canReachAppServer()) {
     usingExistingAppServer = true;
@@ -119,7 +128,11 @@ async function stopManagedAppServer() {
 }
 
 async function resetDevData(label) {
-  const response = await fetch(new URL("/api/v1/dev/reset", baseUrl), { method: "POST" });
+  const response = await resetOwnedSmokeServer({
+    baseUrl,
+    env: process.env,
+    label: `admin audit search ${label} reset`,
+  });
   const payload = await response.json().catch(() => ({}));
 
   assert(response.ok, `admin audit search ${label} reset failed with ${response.status}`);
@@ -155,10 +168,12 @@ function collectConsoleMessages(page) {
 }
 
 async function loginTo(page, nextPath) {
-  await page.goto(
-    new URL(`/api/v1/dev/auto-login?role=admin&next=${encodeURIComponent(nextPath)}`, baseUrl).toString(),
-    { waitUntil: "load" },
-  );
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", "admin");
+  loginUrl.searchParams.set("next", nextPath);
+
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
 }
 
 async function readLayout(page) {
@@ -209,7 +224,10 @@ function assertStaticContracts() {
   assert(packageJson.includes('"test:admin-audit-search"'), "package.json must expose test:admin-audit-search");
   assert(releaseRunner.includes('["run", "test:admin-audit-search"]'), "test:release must include admin audit search");
   assert(adminAuditScreen.includes("useSearchParams"), "admin audit screen must hydrate filters from Next search params");
-  assert(adminAuditScreen.includes("router.replace(nextUrl, { scroll: false })"), "admin audit screen must write applied filters to the URL");
+  assert(
+    adminAuditScreen.includes('window.history.replaceState(null, "", nextUrl)'),
+    "admin audit screen must write applied filters through the Next-compatible native history API",
+  );
   assert(adminAuditScreen.includes('data-testid="admin-audit-search-input"'), "admin audit screen must expose a stable search input hook");
   assert(adminAuditScreen.includes('data-testid="admin-audit-search-clear"'), "admin audit screen must expose a search clear action");
   assert(adminAuditScreen.includes('data-testid="admin-audit-filter-reset"'), "admin audit screen must expose a filter reset action");
