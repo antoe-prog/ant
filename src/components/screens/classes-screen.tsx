@@ -558,10 +558,6 @@ export function ClassesScreen() {
         <ChildSwitcher items={childSwitcherItems} selectedChildId={selectedChildId} onSelect={setSelectedChildId} />
       ) : null}
 
-      {activePolicyBranch && isFinalMainBranch(activePolicyBranch) ? (
-        <FinalMainScheduleReference branchName={activePolicyBranch.name} />
-      ) : null}
-
       {canManageClasses ? (
         <section className="mb-3 rounded-lg border border-zinc-200 bg-white p-3" data-testid="class-create-panel">
           <div className="flex items-center justify-between gap-3">
@@ -1612,6 +1608,10 @@ export function ClassesScreen() {
             ))}
           </div>
         </section>
+      ) : null}
+
+      {activePolicyBranch && isFinalMainBranch(activePolicyBranch) ? (
+        <FinalMainScheduleReference branchName={activePolicyBranch.name} />
       ) : null}
     </div>
   );

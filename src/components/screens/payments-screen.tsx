@@ -222,6 +222,10 @@ export function PaymentsScreen() {
 
         setNewPaymentMemberId(presetMemberId);
         setPaymentMemberSearch(presetMemberSearch);
+        setNewPaymentPublicServiceBenefit(false);
+        setNewPaymentBenefitVerificationReason("");
+        setNewPaymentDiscountAmount("0");
+        setNewPaymentDiscountReason("");
         setPaymentCreateFeedback(null);
         paymentCreateIdempotencyKeyRef.current = createPaymentCreateIdempotencyKey();
         setPaymentCreateOpen(true);
@@ -235,9 +239,11 @@ export function PaymentsScreen() {
   const [newPaymentPlanName, setNewPaymentPlanName] = useState("월 회원권");
   const [newPaymentFeeProductId, setNewPaymentFeeProductId] = useState("");
   const [newPaymentPublicServiceBenefit, setNewPaymentPublicServiceBenefit] = useState(false);
+  const [newPaymentBenefitVerificationReason, setNewPaymentBenefitVerificationReason] = useState("");
   const [newPaymentStatus, setNewPaymentStatus] = useState<PaymentStatus>("paid");
   const [newPaymentAmount, setNewPaymentAmount] = useState("180000");
   const [newPaymentDiscountAmount, setNewPaymentDiscountAmount] = useState("0");
+  const [newPaymentDiscountReason, setNewPaymentDiscountReason] = useState("");
   const [newPaymentDueDate, setNewPaymentDueDate] = useState(() => dateInputValue(0));
   const [newPaymentExpiresAt, setNewPaymentExpiresAt] = useState(() => dateInputValue(30));
   const [newPaymentReason, setNewPaymentReason] = useState("");
@@ -379,6 +385,7 @@ export function PaymentsScreen() {
 
     if (selectedPaymentMember && value.trim() !== selectedPaymentMember.name) {
       setNewPaymentMemberId("");
+      clearPublicServiceBenefitForMemberChange();
     }
   }
 
@@ -397,6 +404,7 @@ export function PaymentsScreen() {
     if (!product) {
       setNewPaymentFeeProductId("");
       setNewPaymentPublicServiceBenefit(false);
+      setNewPaymentBenefitVerificationReason("");
       return;
     }
 
@@ -414,6 +422,9 @@ export function PaymentsScreen() {
 
       setNewPaymentFeeProductId(productId);
       setNewPaymentPublicServiceBenefit(benefitEnabled);
+      if (!benefitEnabled) {
+        setNewPaymentBenefitVerificationReason("");
+      }
       setNewPaymentPlanName(quote.planName);
       setNewPaymentAmount(String(quote.amount));
       setNewPaymentExpiresAt(quote.expiresAt);
@@ -421,8 +432,22 @@ export function PaymentsScreen() {
     } catch {
       setNewPaymentFeeProductId("");
       setNewPaymentPublicServiceBenefit(false);
+      setNewPaymentBenefitVerificationReason("");
       setPaymentCreateFeedback({ message: "공통 상품의 등록 기간을 계산하지 못했습니다.", tone: "error" });
     }
+  }
+
+  function clearPublicServiceBenefitForMemberChange() {
+    setNewPaymentBenefitVerificationReason("");
+    setNewPaymentDiscountAmount("0");
+    setNewPaymentDiscountReason("");
+
+    if (newPaymentFeeProductId) {
+      applyCommonFeeQuote(newPaymentFeeProductId, newPaymentDueDate, false);
+      return;
+    }
+
+    setNewPaymentPublicServiceBenefit(false);
   }
 
   async function handleCreatePayment(event: FormEvent<HTMLFormElement>) {
@@ -455,6 +480,13 @@ export function PaymentsScreen() {
       return;
     }
 
+    const discountReason = newPaymentDiscountReason.trim();
+
+    if (discountAmount > 0 && !discountReason) {
+      setPaymentCreateFeedback({ message: "할인 적용 근거를 입력해 주세요.", tone: "error" });
+      return;
+    }
+
     const dateRangeError = getManualPaymentDateRangeError(newPaymentDueDate, newPaymentExpiresAt);
 
     if (dateRangeError) {
@@ -469,6 +501,13 @@ export function PaymentsScreen() {
       return;
     }
 
+    const benefitVerificationReason = newPaymentBenefitVerificationReason.trim();
+
+    if (newPaymentPublicServiceBenefit && !benefitVerificationReason) {
+      setPaymentCreateFeedback({ message: "1+1 혜택 자격을 확인한 근거를 입력해 주세요.", tone: "error" });
+      return;
+    }
+
     setPaymentCreatePending(true);
     setPaymentCreateFeedback(null);
     const result = await createPayment(
@@ -479,11 +518,15 @@ export function PaymentsScreen() {
         status: newPaymentStatus,
         amount,
         discountAmount,
+        ...(discountAmount > 0 ? { discountReason } : {}),
         dueDate: newPaymentDueDate,
         expiresAt: newPaymentExpiresAt,
         ...(newPaymentFeeProductId ? { feeProductId: newPaymentFeeProductId } : {}),
         ...(newPaymentFeeProductId && newPaymentPublicServiceBenefit
-          ? { benefitCode: finalCommonPublicServiceBenefit.id }
+          ? {
+              benefitCode: finalCommonPublicServiceBenefit.id,
+              benefitVerificationReason,
+            }
           : {}),
         ...(requiresManualPaymentCreateReason(newPaymentStatus) ? { reason } : {}),
       },
@@ -499,9 +542,11 @@ export function PaymentsScreen() {
       setNewPaymentPlanName("월 회원권");
       setNewPaymentFeeProductId("");
       setNewPaymentPublicServiceBenefit(false);
+      setNewPaymentBenefitVerificationReason("");
       setNewPaymentStatus("paid");
       setNewPaymentAmount("180000");
       setNewPaymentDiscountAmount("0");
+      setNewPaymentDiscountReason("");
       setNewPaymentDueDate(dateInputValue(0));
       setNewPaymentExpiresAt(dateInputValue(30));
       setNewPaymentReason("");
@@ -658,9 +703,13 @@ export function PaymentsScreen() {
     setNewPaymentMemberId(payment.memberId);
     setPaymentMemberSearch(renewalMember?.name ?? "");
     setNewPaymentPlanName(payment.planName);
+    setNewPaymentFeeProductId("");
+    setNewPaymentPublicServiceBenefit(false);
+    setNewPaymentBenefitVerificationReason("");
     setNewPaymentStatus("scheduled");
     setNewPaymentAmount(String(payment.amount));
     setNewPaymentDiscountAmount(String(payment.discountAmount ?? 0));
+    setNewPaymentDiscountReason("");
     setNewPaymentDueDate(dateInputValue(0));
     setNewPaymentExpiresAt(dateInputValue(30));
     setPaymentCreateFeedback(null);
@@ -905,7 +954,7 @@ export function PaymentsScreen() {
       >
         {showPaymentOperationsMeta ? (
           <div className="grid gap-3 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_auto] md:items-end">
-            <label className="xl:col-span-2">
+            <label>
               <span className="mb-1 block text-xs font-semibold text-zinc-500">{paymentFilterLabel}</span>
               <select
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1050,6 +1099,7 @@ export function PaymentsScreen() {
                     setNewPaymentBranchId(event.target.value);
                     setNewPaymentMemberId("");
                     setPaymentMemberSearch("");
+                    clearPublicServiceBenefitForMemberChange();
                   }}
                 >
                   {context.db.branches.map((branch) => (
@@ -1113,6 +1163,7 @@ export function PaymentsScreen() {
                           onClick={() => {
                             setNewPaymentMemberId(member.id);
                             setPaymentMemberSearch(member.name);
+                            clearPublicServiceBenefitForMemberChange();
                             // 직전 결제 기준으로 회원권명·금액을 미리 채운다 (이력이 없으면 기존 입력 유지)
                             const lastPayment = (data ?? [])
                               .filter((payment) => payment.memberId === member.id)
@@ -1120,6 +1171,7 @@ export function PaymentsScreen() {
                             if (lastPayment) {
                               setNewPaymentFeeProductId("");
                               setNewPaymentPublicServiceBenefit(false);
+                              setNewPaymentBenefitVerificationReason("");
                               setNewPaymentPlanName(lastPayment.planName);
                               setNewPaymentAmount(String(lastPayment.amount));
                             }
@@ -1159,16 +1211,36 @@ export function PaymentsScreen() {
               </select>
             </label>
             {getFinalCommonFeeProduct(newPaymentFeeProductId)?.registeredMonths ? (
-              <label className="flex min-h-11 items-center gap-3 self-end rounded-md border border-zinc-200 bg-zinc-50 px-3 md:col-span-2 xl:col-span-2">
-                <input
-                  checked={newPaymentPublicServiceBenefit}
-                  className="h-5 w-5 accent-teal-700"
-                  data-testid="payment-create-public-service-benefit"
-                  type="checkbox"
-                  onChange={(event) => applyCommonFeeQuote(newPaymentFeeProductId, newPaymentDueDate, event.target.checked)}
-                />
-                <span className="text-sm font-semibold text-zinc-800">경찰·군인·소방 1+1 기간 적용</span>
-              </label>
+              <div className="grid gap-2 md:col-span-2 xl:col-span-4">
+                <label className="flex min-h-11 items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3">
+                  <input
+                    checked={newPaymentPublicServiceBenefit}
+                    className="h-5 w-5 accent-teal-700"
+                    data-testid="payment-create-public-service-benefit"
+                    type="checkbox"
+                    onChange={(event) => applyCommonFeeQuote(newPaymentFeeProductId, newPaymentDueDate, event.target.checked)}
+                  />
+                  <span className="text-sm font-semibold text-zinc-800">경찰·군인·소방 1+1 기간 적용</span>
+                </label>
+                {newPaymentPublicServiceBenefit ? (
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-600">1+1 자격 확인 근거</span>
+                    <textarea
+                      aria-describedby="payment-benefit-verification-help"
+                      className="min-h-24 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-5 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                      data-testid="payment-create-benefit-verification-reason"
+                      maxLength={200}
+                      placeholder="예: 경찰공무원증 실물·재직 여부 대면 확인"
+                      required
+                      value={newPaymentBenefitVerificationReason}
+                      onChange={(event) => setNewPaymentBenefitVerificationReason(event.target.value)}
+                    />
+                    <span className="mt-1 block text-xs leading-5 text-zinc-500" id="payment-benefit-verification-help">
+                      확인한 신분증 종류와 확인 메모만 입력하고, 주민등록번호·공무원증 번호 등 민감한 번호는 입력하지 마세요.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
             ) : null}
             <label className="xl:col-span-4">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">회원권명</span>
@@ -1181,6 +1253,7 @@ export function PaymentsScreen() {
                   setNewPaymentPlanName(event.target.value);
                   setNewPaymentFeeProductId("");
                   setNewPaymentPublicServiceBenefit(false);
+                  setNewPaymentBenefitVerificationReason("");
                 }}
               />
             </label>
@@ -1233,6 +1306,7 @@ export function PaymentsScreen() {
                   setNewPaymentAmount(event.target.value);
                   setNewPaymentFeeProductId("");
                   setNewPaymentPublicServiceBenefit(false);
+                  setNewPaymentBenefitVerificationReason("");
                 }}
               />
             </label>
@@ -1245,9 +1319,28 @@ export function PaymentsScreen() {
                 step={100}
                 type="number"
                 value={newPaymentDiscountAmount}
-                onChange={(event) => setNewPaymentDiscountAmount(event.target.value)}
+                onChange={(event) => {
+                  setNewPaymentDiscountAmount(event.target.value);
+                  if (Number(event.target.value || 0) <= 0) {
+                    setNewPaymentDiscountReason("");
+                  }
+                }}
               />
             </label>
+            {Number(newPaymentDiscountAmount || 0) > 0 ? (
+              <label className="md:col-span-2 xl:col-span-4">
+                <span className="mb-1 block text-xs font-semibold text-zinc-500">할인 적용 근거</span>
+                <textarea
+                  className="min-h-20 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-5 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="payment-create-discount-reason-input"
+                  maxLength={200}
+                  placeholder="예: 가족 할인 적용, 가족 관계 대면 확인"
+                  required
+                  value={newPaymentDiscountReason}
+                  onChange={(event) => setNewPaymentDiscountReason(event.target.value)}
+                />
+              </label>
+            ) : null}
             <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">납부일</span>
               <input
@@ -1278,6 +1371,7 @@ export function PaymentsScreen() {
                   setNewPaymentExpiresAt(event.target.value);
                   setNewPaymentFeeProductId("");
                   setNewPaymentPublicServiceBenefit(false);
+                  setNewPaymentBenefitVerificationReason("");
                 }}
               />
             </label>
@@ -1289,6 +1383,8 @@ export function PaymentsScreen() {
                 !selectedPaymentBranchId ||
                 !selectedPaymentMemberId ||
                 !newPaymentPlanName.trim() ||
+                (Number(newPaymentDiscountAmount || 0) > 0 && !newPaymentDiscountReason.trim()) ||
+                (newPaymentPublicServiceBenefit && !newPaymentBenefitVerificationReason.trim()) ||
                 (requiresManualPaymentCreateReason(newPaymentStatus) && !newPaymentReason.trim())
               }
               type="submit"

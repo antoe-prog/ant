@@ -1,4 +1,5 @@
 import type { Payment, PaymentStatus, PaymentStatusHistoryEntry } from "@/lib/domain";
+import { isFinalCommonMembershipProductId } from "./final-common-fee-policy.ts";
 
 type PaymentStatusHistoryInput = {
   actorUserId: string;
@@ -38,8 +39,13 @@ function isTerminalPayment(payment: Payment) {
   return payment.status === "cancelled" || payment.status === "refunded";
 }
 
+export function isMembershipPayment(payment: Pick<Payment, "feeProductId">) {
+  return payment.feeProductId ? isFinalCommonMembershipProductId(payment.feeProductId) : true;
+}
+
 export function getCurrentMemberPayment(payments: readonly Payment[]) {
   return [...payments]
+    .filter(isMembershipPayment)
     .sort(
       (left, right) =>
         Number(isTerminalPayment(left)) - Number(isTerminalPayment(right)) ||

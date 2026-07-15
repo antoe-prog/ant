@@ -123,6 +123,11 @@ npm audit --audit-level=moderate
 npm run test:next-build-readiness
 npm run test:release-smoke-isolation
 npm run test:unit
+npm run test:final-common-fee-policy
+npm run test:final-main-schedule-policy
+npm run test:final-common-promotion-policy
+npm run test:promotion-api-integrity
+npm run test:final-policy-ui
 npm run test:role-csv-export-gates
 npm run test:deleted-request-surface
 npm run test:store

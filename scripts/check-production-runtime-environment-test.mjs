@@ -46,6 +46,12 @@ assert.match(missingRun.stderr, /PRODUCTION_RUNTIME_DRIVER_NOT_POSTGRES/);
 assert.match(missingRun.stderr, /PRODUCTION_RUNTIME_POSTGRES_URL_INVALID/);
 assert.match(missingRun.stderr, /PRODUCTION_RUNTIME_INSTALLATION_ID_MISSING/);
 
+const missingPreviewRun = run({ VERCEL_ENV: "preview" });
+assert.notEqual(missingPreviewRun.status, 0);
+assert.match(missingPreviewRun.stderr, /PRODUCTION_RUNTIME_DRIVER_NOT_POSTGRES/);
+assert.match(missingPreviewRun.stderr, /PRODUCTION_RUNTIME_POSTGRES_URL_INVALID/);
+assert.match(missingPreviewRun.stderr, /PRODUCTION_RUNTIME_INSTALLATION_ID_MISSING/);
+
 const jsonRun = run({
   VERCEL_TARGET_ENV: "production",
   FINAL_JUDO_DB_DRIVER: "json",
@@ -113,6 +119,15 @@ assert.deepEqual(JSON.parse(validRun.stdout), {
   tableName: "app_runtime_state",
 });
 
+const validPreviewRun = run({
+  VERCEL_TARGET_ENV: "preview",
+  FINAL_JUDO_DB_DRIVER: "postgres",
+  FINAL_JUDO_INSTALLATION_ID: "final-judo-preview-01",
+  FINAL_JUDO_POSTGRES_URL: sensitiveUrl,
+});
+assert.equal(validPreviewRun.status, 0, validPreviewRun.stderr);
+assert.equal(JSON.parse(validPreviewRun.stdout).enforced, true);
+
 const migrationRun = run({}, ["--print-installation-migration"]);
 assert.equal(migrationRun.status, 0, migrationRun.stderr);
 assert.match(migrationRun.stdout, /ALTER TABLE app_runtime_state ADD COLUMN IF NOT EXISTS installation_id text/);
@@ -153,7 +168,7 @@ console.log(
       ok: true,
       checked: [
         "local builds remain available",
-        "production targets reject JSON or missing PostgreSQL configuration",
+        "production and preview targets reject JSON or missing PostgreSQL configuration",
         "production targets require a valid installation identity without logging it",
         "production targets reject placeholder URLs and unsafe table names",
         "production targets reject alternate state keys and tables",

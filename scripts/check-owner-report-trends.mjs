@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const { buildOwnerTrendRows } = await import("../src/lib/owner-reporting.ts");
+const { buildOwnerTrendRows, getRecognizedPaymentRevenue } = await import("../src/lib/owner-reporting.ts");
 
 function dateWithMonthOffset(offset, day = 15) {
   const date = new Date();
@@ -166,6 +166,29 @@ const scopedDb = {
       planName: "월 회원권",
       status: "overdue",
     },
+    {
+      amount: 180000,
+      branchId: "branch-a",
+      discountAmount: 20000,
+      dueDate: dateOnlyWithMonthOffset(0, 4),
+      expiresAt: dateOnlyWithMonthOffset(1, 4),
+      id: "pay-partially-refunded",
+      memberId: "member-a",
+      planName: "할인 회원권",
+      refundedAmount: 30000,
+      status: "partially_refunded",
+    },
+    {
+      amount: 90000,
+      branchId: "branch-a",
+      dueDate: dateOnlyWithMonthOffset(0, 4),
+      expiresAt: dateOnlyWithMonthOffset(0, 4),
+      feeProductId: "training-white",
+      id: "pay-uniform-expiring",
+      memberId: "member-a",
+      planName: "수련용 도복 백",
+      status: "expiringSoon",
+    },
   ],
   notices: [],
   pushSubscriptions: [],
@@ -214,13 +237,28 @@ assert.equal(latestTrend.classes, 1, "owner trend must count scoped classes by c
 assert.equal(latestTrend.enrolledSlots, 3, "owner trend must sum scoped enrolled slots");
 assert.equal(latestTrend.attendanceRecords, 2, "owner trend must count scoped attendance records");
 assert.equal(latestTrend.attendanceRatePercent, 67, "owner trend must calculate attendance percent");
-assert.equal(latestTrend.paidRevenue, 140000, "owner trend must sum paid revenue by paid status history month");
+assert.equal(latestTrend.paidRevenue, 270000, "owner trend must sum discount/refund-adjusted paid revenue");
 assert.equal(latestTrend.paymentRiskCount, 2, "owner trend must count overdue and expiring payments");
 assert.equal(latestTrend.memberChangeEvents, 1, "owner trend must count scoped member audit changes");
 assert.equal(latestTrend.newMembers, 2, "owner trend must count scoped new members by createdAt");
 assert.equal(latestTrend.withdrawnMembers, 1, "owner trend must count scoped withdrawn members by withdrawnAt");
 assert.equal(latestTrend.netMemberChange, 1, "owner trend must calculate net member change");
 assert.match(latestTrend.label, /^\d{4}년 \d{1,2}월$/, "owner trend label must be app-readable Korean month text");
+assert.equal(
+  getRecognizedPaymentRevenue({ ...scopedDb.payments[0], amount: 180000, discountAmount: 20000 }),
+  160000,
+  "recognized revenue must subtract discounts",
+);
+assert.equal(
+  getRecognizedPaymentRevenue(scopedDb.payments.find((payment) => payment.id === "pay-partially-refunded")),
+  130000,
+  "recognized revenue must include partial refunds at their remaining net amount",
+);
+assert.equal(
+  getRecognizedPaymentRevenue({ ...scopedDb.payments[0], status: "refunded", refundedAmount: 160000 }),
+  0,
+  "fully refunded payments must not contribute recognized revenue",
+);
 
 const files = {
   adminSettings: "src/components/screens/admin-settings-screen.tsx",
@@ -288,6 +326,7 @@ assert(ownerReportsSource.includes("지점 비교"), "owner reports screen must 
 assert(ownerReportsSource.includes("memberDelta"), "owner reports screen must calculate branch member growth");
 assert(ownerReportsSource.includes("paymentRiskDelta"), "owner reports screen must calculate branch payment risk changes");
 assert(ownerReportsSource.includes("revenueDelta"), "owner reports screen must calculate branch revenue trend changes");
+assert(ownerReportsSource.includes("getRecognizedPaymentRevenue"), "owner branch comparisons must use shared net revenue semantics");
 assert(ownerReportsSource.includes("owner-action-queue"), "owner reports screen must expose the owner action queue test hook");
 assert(ownerReportsSource.includes("우선순위 보기"), "owner reports screen must show the owner daily priority entry point");
 assert(ownerReportsSource.includes("우선순위 ${ownerReportHiddenActionCount}건 더 보기"), "owner reports screen must keep the owner daily priority expansion action");
@@ -306,6 +345,7 @@ assert(apiContractSource.includes("new_members`, `withdrawn_members`, `net_membe
 assert(operationsExportSource.includes("trend_period"), "operations CSV must include trend rows");
 assert(operationsExportSource.includes("net_member_change"), "operations CSV must include net member change");
 assert(operationsExportSource.includes("member_change_events"), "operations CSV must include member change events");
+assert(operationsExportSource.includes("getRecognizedPaymentRevenue"), "operations CSV branch rows must use shared net revenue semantics");
 assert(smokeApiSource.includes("net_member_change,member_change_events"), "smoke test must verify lifecycle trend CSV header");
 assert.equal(
   packageJson.scripts["test:owner-report-trends"],

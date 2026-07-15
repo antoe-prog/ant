@@ -42,6 +42,7 @@ const checks = [
   ["run", "test:final-common-fee-policy"],
   ["run", "test:final-main-schedule-policy"],
   ["run", "test:final-common-promotion-policy"],
+  ["run", "test:promotion-api-integrity"],
   ["run", "test:final-policy-ui"],
   ["run", "test:role-csv-export-gates"],
   ["run", "test:deleted-request-surface"],

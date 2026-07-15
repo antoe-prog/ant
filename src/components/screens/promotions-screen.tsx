@@ -6,7 +6,8 @@ import { Award, CalendarCheck, CheckCircle2, CircleSlash, Clock3, FileBadge, Plu
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { FinalPromotionPolicyReference } from "@/components/domain/final-promotion-policy-reference";
 import type { BeltPromotion, BeltPromotionResult } from "@/lib/domain";
-import { beltPromotionResultLabels, getNextBelt, judoBelts } from "@/lib/domain";
+import { beltPromotionResultLabels } from "@/lib/domain";
+import { getExactNextCompatiblePromotionBelt } from "@/lib/final-common-promotion-policy";
 import { formatDate, formatDateKey } from "@/lib/format";
 import { getPromotionEligibility, isSchedulablePromotionExamDate } from "@/lib/promotions";
 import { memberStatusLabels } from "@/lib/roles";
@@ -75,7 +76,6 @@ export function PromotionsScreen() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [resultFilter, setResultFilter] = useState<BeltPromotionResult | "all">("all");
   const [memberId, setMemberId] = useState("");
-  const [toBelt, setToBelt] = useState("");
   const [examDate, setExamDate] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
@@ -129,7 +129,7 @@ export function PromotionsScreen() {
     [db.members],
   );
   const selectedMember = memberId ? membersById.get(memberId) : undefined;
-  const suggestedBelt = selectedMember ? getNextBelt(selectedMember.belt) : null;
+  const suggestedBelt = selectedMember ? getExactNextCompatiblePromotionBelt(selectedMember.belt) : null;
   const eligibilityByMemberId = useMemo(
     () => new Map(selectableMembers.map((member) => [member.id, getPromotionEligibility(member, db)])),
     [selectableMembers, db],
@@ -140,7 +140,7 @@ export function PromotionsScreen() {
     event.preventDefault();
     setError(null);
 
-    if (!memberId || !toBelt || !examDate) {
+    if (!memberId || !suggestedBelt || !examDate) {
       setError("회원, 목표 띠, 심사일을 모두 선택해 주세요.");
       return;
     }
@@ -151,16 +151,18 @@ export function PromotionsScreen() {
     }
 
     setPending(true);
-    const ok = await createPromotion({ memberId, toBelt, examDate, note: note.trim() || undefined });
+    const ok = await createPromotion({ memberId, toBelt: suggestedBelt, examDate, note: note.trim() || undefined });
     setPending(false);
 
     if (ok) {
       setComposerOpen(false);
       setMemberId("");
-      setToBelt("");
       setExamDate("");
       setNote("");
+      return;
     }
+
+    setError("승급 심사를 등록하지 못했습니다. 현재 띠와 진행 중인 심사를 확인한 뒤 다시 시도해 주세요.");
   }
 
   async function handleDecide(promotion: BeltPromotion, result: "passed" | "failed" | "cancelled") {
@@ -244,6 +246,17 @@ export function PromotionsScreen() {
             <CalendarCheck className="h-4 w-4 text-teal-600" aria-hidden />새 승급 심사 등록
           </p>
 
+          {error ? (
+            <p
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
+              data-testid="promotion-create-error"
+              id="promotion-create-error"
+              role="alert"
+            >
+              {error}
+            </p>
+          ) : null}
+
           <label>
             <span className="text-sm font-semibold text-zinc-700">회원</span>
             <select
@@ -251,11 +264,7 @@ export function PromotionsScreen() {
               value={memberId}
               onChange={(event) => {
                 setMemberId(event.target.value);
-                const nextMember = membersById.get(event.target.value);
-                const nextBelt = nextMember ? getNextBelt(nextMember.belt) : null;
-                if (nextBelt) {
-                  setToBelt(nextBelt);
-                }
+                setError(null);
               }}
               required
             >
@@ -280,22 +289,19 @@ export function PromotionsScreen() {
             </p>
           ) : null}
 
-          <label>
-            <span className="text-sm font-semibold text-zinc-700">목표 띠{suggestedBelt ? ` (추천: ${suggestedBelt})` : ""}</span>
-            <select
-              className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-teal-500"
-              value={toBelt}
-              onChange={(event) => setToBelt(event.target.value)}
-              required
+          <div>
+            <span className="text-sm font-semibold text-zinc-700">목표 띠</span>
+            <p
+              className={`mt-2 flex min-h-11 items-center rounded-md border px-3 text-sm font-semibold ${
+                suggestedBelt
+                  ? "border-teal-200 bg-teal-50 text-teal-900"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+              data-testid="promotion-create-target-belt"
             >
-              <option value="">띠 선택</option>
-              {judoBelts.map((belt) => (
-                <option key={belt} value={belt}>
-                  {belt}
-                </option>
-              ))}
-            </select>
-          </label>
+              {suggestedBelt ?? "현재 띠에서 등록할 수 있는 다음 단계가 없습니다."}
+            </p>
+          </div>
 
           <label>
             <span className="text-sm font-semibold text-zinc-700">심사일</span>
@@ -319,14 +325,8 @@ export function PromotionsScreen() {
             />
           </label>
 
-          {error ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
-              {error}
-            </p>
-          ) : null}
-
           <div className="flex gap-2">
-            <Button className="flex-1" disabled={pending} size="lg" type="submit" variant="primary">
+            <Button className="flex-1" disabled={pending || !suggestedBelt} size="lg" type="submit" variant="primary">
               {pending ? "등록 중..." : "심사 등록"}
             </Button>
             <Button size="lg" variant="secondary" onClick={() => setComposerOpen(false)}>

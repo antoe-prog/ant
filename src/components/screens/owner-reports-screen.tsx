@@ -7,7 +7,8 @@ import { useApiContext } from "@/hooks/use-api-context";
 import { ApiClientError, apiClient } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format";
 import { isNoticeReadByUser } from "@/lib/notices";
-import { buildOwnerTrendRows } from "@/lib/owner-reporting";
+import { buildOwnerTrendRows, getRecognizedPaymentRevenue } from "@/lib/owner-reporting";
+import { isMembershipPayment } from "@/lib/payment-lifecycle";
 import { PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
 function rateLabel(done: number, total: number) {
@@ -92,7 +93,9 @@ export function OwnerReportsScreen() {
   const sessionIds = new Set(classes.map((session) => session.id));
   const attendance = context.db.attendance.filter((record) => sessionIds.has(record.sessionId));
   const enrolledCount = classes.reduce((sum, session) => sum + session.enrolledMemberIds.length, 0);
-  const riskPayments = payments.filter((payment) => payment.status === "overdue" || payment.status === "expiringSoon");
+  const riskPayments = payments.filter(
+    (payment) => isMembershipPayment(payment) && (payment.status === "overdue" || payment.status === "expiringSoon"),
+  );
   const trendRows = buildOwnerTrendRows(context.db, scopedBranchIds, trendPeriodMonths);
   const latestTrend = trendRows.at(-1);
   const previousTrend = trendRows.at(-2);
@@ -166,7 +169,9 @@ export function OwnerReportsScreen() {
     const branchAttendance = attendance.filter((record) => branchSessionIds.has(record.sessionId));
     const branchEnrolledCount = branchClasses.reduce((sum, session) => sum + session.enrolledMemberIds.length, 0);
     const branchPayments = payments.filter((payment) => payment.branchId === branch.id);
-    const branchPaymentRisks = branchPayments.filter((payment) => payment.status === "overdue" || payment.status === "expiringSoon");
+    const branchPaymentRisks = branchPayments.filter(
+      (payment) => isMembershipPayment(payment) && (payment.status === "overdue" || payment.status === "expiringSoon"),
+    );
     const attendanceGap = Math.max(branchEnrolledCount - branchAttendance.length, 0);
     const pausedMembers = branchMembers.filter((member) => member.status === "paused").length;
     const branchTrendRows = buildOwnerTrendRows(context.db, [branch.id], trendPeriodMonths);
@@ -201,7 +206,7 @@ export function OwnerReportsScreen() {
       riskPayments: branchPaymentRisks.length,
       riskScore: attendanceGap + branchPaymentRisks.length * 3 + pausedMembers,
       riskAmount: branchPaymentRisks.reduce((sum, payment) => sum + payment.amount, 0),
-      revenue: branchPayments.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + payment.amount, 0),
+      revenue: branchPayments.reduce((sum, payment) => sum + getRecognizedPaymentRevenue(payment), 0),
       revenueDelta: branchRevenueDelta,
     };
   });
@@ -301,7 +306,9 @@ export function OwnerReportsScreen() {
   const ownerReportHiddenPriorityCount = Math.max(priorityRows.length - 1, 0);
   const healthyBranchCount = branchRows.filter((row) => row.decisionScore === 0).length;
   const urgentBranchCount = branchRows.filter((row) => row.decisionScore >= 8).length;
-  const paidPaymentCount = payments.filter((payment) => payment.status === "paid").length;
+  const paidPaymentCount = payments.filter(
+    (payment) => payment.status === "paid" || payment.status === "partially_refunded",
+  ).length;
   const ownerUnreadNoticeCount = notices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
   const ownerReportFocusRow = p2DecisionRows[0] ?? priorityRows[0];
   const ownerReportFocusBranchName = ownerReportFocusRow?.branch.name ?? "전체 지점";

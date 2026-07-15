@@ -280,8 +280,20 @@ const finalCommonPublicServiceEligibleCategories: readonly FinalCommonFeeProduct
   "monthly_program",
 ];
 
+const finalCommonMembershipProductCategories: readonly FinalCommonFeeProductCategory[] = [
+  "regular_membership",
+  "lifetime_membership",
+  "monthly_program",
+];
+
 export function getFinalCommonFeeProduct(productId: string) {
   return finalCommonFeeProducts.find((product) => product.id === productId);
+}
+
+export function isFinalCommonMembershipProductId(productId: string) {
+  const product = getFinalCommonFeeProduct(productId);
+
+  return Boolean(product && finalCommonMembershipProductCategories.includes(product.category));
 }
 
 export function getFinalCommonRegularMembershipPlan(
@@ -312,6 +324,12 @@ export function addMonthsToDateKey(dateKey: string, months: number) {
     throw new RangeError("dateKey must be YYYY-MM-DD and months must be an integer");
   }
 
+  const sourceYear = Number(dateKey.slice(0, 4));
+
+  if (sourceYear < 1900 || sourceYear > 9999) {
+    throw new RangeError("dateKey year must be between 1900 and 9999");
+  }
+
   const source = new Date(`${dateKey}T00:00:00.000Z`);
 
   if (Number.isNaN(source.getTime()) || source.toISOString().slice(0, 10) !== dateKey) {
@@ -319,6 +337,15 @@ export function addMonthsToDateKey(dateKey: string, months: number) {
   }
 
   const targetMonth = new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth() + months, 1));
+
+  if (
+    Number.isNaN(targetMonth.getTime()) ||
+    targetMonth.getUTCFullYear() < 1900 ||
+    targetMonth.getUTCFullYear() > 9999
+  ) {
+    throw new RangeError("calculated date year must be between 1900 and 9999");
+  }
+
   const lastDayOfTargetMonth = new Date(
     Date.UTC(targetMonth.getUTCFullYear(), targetMonth.getUTCMonth() + 1, 0),
   ).getUTCDate();

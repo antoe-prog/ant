@@ -8,11 +8,13 @@ export type PaymentCreateSnapshot = {
   status: PaymentStatus;
   amount: number;
   discountAmount: number;
+  discountReason?: string;
   feeProductId?: string;
   policyVersion?: string;
   registeredMonths?: number;
   serviceMonths?: number;
   benefitCode?: Payment["benefitCode"];
+  benefitVerificationReason?: string;
   dueDate: string;
   expiresAt: string;
   reason?: string;
@@ -50,6 +52,8 @@ export function parsePaymentCreateIdempotencyKey(value: string | null) {
 
 export function createPaymentCreateSnapshot(input: PaymentCreateSnapshot): PaymentCreateSnapshot {
   const reason = input.status === "cancelled" || input.status === "refunded" ? input.reason?.trim() : undefined;
+  const benefitVerificationReason = input.benefitCode ? input.benefitVerificationReason?.trim() : undefined;
+  const discountReason = input.discountAmount > 0 ? input.discountReason?.trim() : undefined;
 
   return {
     memberId: input.memberId,
@@ -57,11 +61,13 @@ export function createPaymentCreateSnapshot(input: PaymentCreateSnapshot): Payme
     status: input.status,
     amount: Math.round(input.amount),
     discountAmount: Math.round(input.discountAmount),
+    ...(discountReason ? { discountReason } : {}),
     ...(input.feeProductId ? { feeProductId: input.feeProductId } : {}),
     ...(input.policyVersion ? { policyVersion: input.policyVersion } : {}),
     ...(input.registeredMonths ? { registeredMonths: input.registeredMonths } : {}),
     ...(input.serviceMonths ? { serviceMonths: input.serviceMonths } : {}),
     ...(input.benefitCode ? { benefitCode: input.benefitCode } : {}),
+    ...(benefitVerificationReason ? { benefitVerificationReason } : {}),
     dueDate: input.dueDate,
     expiresAt: input.expiresAt,
     ...(reason ? { reason } : {}),
@@ -92,12 +98,17 @@ export async function createPaymentCreateFingerprint(snapshot: PaymentCreateSnap
       snapshot.registeredMonths ?? 0,
       snapshot.serviceMonths ?? 0,
       snapshot.benefitCode ?? "",
+      snapshot.benefitVerificationReason ?? "",
     );
   }
 
   // 기존 일반 수기 등록 fingerprint는 유지하고, 사유가 필요한 신규 상태만 뒤에 추가한다.
   if (snapshot.reason) {
     canonicalPayloadValues.push(snapshot.reason);
+  }
+
+  if (snapshot.discountReason) {
+    canonicalPayloadValues.push(snapshot.discountReason);
   }
 
   const canonicalPayload = JSON.stringify(canonicalPayloadValues);

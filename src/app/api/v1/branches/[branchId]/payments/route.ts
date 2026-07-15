@@ -32,8 +32,10 @@ type PaymentBody = {
   status?: PaymentStatus;
   amount?: number;
   discountAmount?: number;
+  discountReason?: string;
   feeProductId?: string;
   benefitCode?: FinalCommonFeeBenefitCode;
+  benefitVerificationReason?: string;
   dueDate?: string;
   expiresAt?: string;
   reason?: string;
@@ -91,7 +93,7 @@ async function persistPayment({
 
   const paymentId = createRuntimeId("pay");
   const now = new Date().toISOString();
-  const { reason: terminalReason, ...paymentSnapshot } = snapshot;
+  const { reason: terminalReason, benefitVerificationReason, discountReason, ...paymentSnapshot } = snapshot;
   const isCancelled = snapshot.status === "cancelled";
   const isRefunded = snapshot.status === "refunded";
   const historyReason = isRefunded
@@ -129,7 +131,24 @@ async function persistPayment({
     targetId: paymentId,
     before: null,
     after: {
-      ...snapshot,
+      ...paymentSnapshot,
+      ...(terminalReason ? { reason: terminalReason } : {}),
+      ...(discountReason
+        ? {
+            discountVerification: {
+              reason: discountReason,
+              verifiedByUserId: user.id,
+            },
+          }
+        : {}),
+      ...(snapshot.benefitCode
+        ? {
+            benefitVerification: {
+              reason: benefitVerificationReason,
+              verifiedByUserId: user.id,
+            },
+          }
+        : {}),
       ...(idempotencyKey && idempotencyFingerprint ? { idempotencyFingerprint, idempotencyKey } : {}),
       statusHistory: nextPayment.statusHistory,
     },
@@ -183,14 +202,33 @@ export async function POST(
   }
 
   const body = (await request.json().catch(() => null)) as PaymentBody | null;
+
+  if (body?.feeProductId !== undefined && typeof body.feeProductId !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품 값이 올바르지 않습니다.");
+  }
+
+  if (body?.reason !== undefined && typeof body.reason !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "등록 사유가 올바르지 않습니다.");
+  }
+
+  if (body?.benefitVerificationReason !== undefined && typeof body.benefitVerificationReason !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "1+1 자격 확인 근거가 올바르지 않습니다.");
+  }
+
+  if (body?.discountReason !== undefined && typeof body.discountReason !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "할인 적용 근거가 올바르지 않습니다.");
+  }
+
   const memberId = body?.memberId?.trim() ?? "";
   let planName = body?.planName?.trim() ?? "";
   const status = body?.status;
   let amount = body?.amount;
   const discountAmount = body?.discountAmount ?? 0;
+  const discountReason = body?.discountReason?.trim() ?? "";
   const dueDate = body?.dueDate ?? "";
   let expiresAt = body?.expiresAt ?? "";
   const reason = body?.reason?.trim() ?? "";
+  const benefitVerificationReason = body?.benefitVerificationReason?.trim() ?? "";
   const feeProductId = body?.feeProductId?.trim() ?? "";
   const benefitCode = body?.benefitCode;
   let feeQuote: ReturnType<typeof quoteFinalCommonFeeProduct> | null = null;
@@ -201,6 +239,18 @@ export async function POST(
 
   if (benefitCode && !feeProductId) {
     return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품을 선택해야 1+1 혜택을 적용할 수 있습니다.");
+  }
+
+  if (benefitCode && !benefitVerificationReason) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      "경찰·군인·소방 1+1 혜택은 자격을 확인한 근거와 사유를 입력해야 합니다.",
+    );
+  }
+
+  if (benefitVerificationReason.length > 200) {
+    return jsonError(400, "VALIDATION_ERROR", "1+1 자격 확인 근거는 200자 이하로 입력해 주세요.");
   }
 
   if (feeProductId) {
@@ -239,31 +289,43 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "할인 금액은 결제 금액 이하의 0원 이상 숫자여야 합니다.");
   }
 
+  if (discountAmount > 0 && !discountReason) {
+    return jsonError(400, "VALIDATION_ERROR", "할인 금액을 적용하려면 할인 근거를 입력해 주세요.");
+  }
+
+  if (discountReason.length > 200) {
+    return jsonError(400, "VALIDATION_ERROR", "할인 근거는 200자 이하로 입력해 주세요.");
+  }
+
   const dateRangeError = getManualPaymentDateRangeError(dueDate, expiresAt);
 
   if (dateRangeError) {
     return jsonError(400, "VALIDATION_ERROR", dateRangeError);
   }
 
-  const snapshot = createPaymentCreateSnapshot({
-    memberId,
-    planName,
-    status,
-    amount,
-    discountAmount,
-    dueDate,
-    expiresAt,
-    ...(feeQuote
-      ? {
-          feeProductId,
-          policyVersion: feeQuote.policyVersion,
-          ...(feeQuote.registeredMonths ? { registeredMonths: feeQuote.registeredMonths } : {}),
-          ...(feeQuote.serviceMonths ? { serviceMonths: feeQuote.serviceMonths } : {}),
-          ...(feeQuote.benefitCode ? { benefitCode: feeQuote.benefitCode } : {}),
-        }
-      : {}),
-    ...(reason ? { reason } : {}),
-  });
+  const snapshot = {
+    ...createPaymentCreateSnapshot({
+      memberId,
+      planName,
+      status,
+      amount,
+      discountAmount,
+      ...(discountReason ? { discountReason } : {}),
+      dueDate,
+      expiresAt,
+      ...(feeQuote
+        ? {
+            feeProductId,
+            policyVersion: feeQuote.policyVersion,
+            ...(feeQuote.registeredMonths ? { registeredMonths: feeQuote.registeredMonths } : {}),
+            ...(feeQuote.serviceMonths ? { serviceMonths: feeQuote.serviceMonths } : {}),
+            ...(feeQuote.benefitCode ? { benefitCode: feeQuote.benefitCode } : {}),
+            ...(feeQuote.benefitCode ? { benefitVerificationReason } : {}),
+          }
+        : {}),
+      ...(reason ? { reason } : {}),
+    }),
+  };
   const idempotencyFingerprint = parsedIdempotencyKey.value
     ? await createPaymentCreateFingerprint(snapshot)
     : null;

@@ -16,6 +16,11 @@
 - Next production build trace에서 `.data` 런타임/증빙 산출물을 제외
 - `npm audit --audit-level=moderate` 통과
 - `npm run test:unit` 통과
+- `npm run test:final-common-fee-policy` 통과. 공통 회비 상품·할인·1+1 연장 규칙과 유효 날짜 경계를 확인
+- `npm run test:final-main-schedule-policy` 통과. 본관 전용 수업 시간표·훈련 프로그램과 전 지점 공통 정책의 분리를 확인
+- `npm run test:final-common-promotion-policy` 통과. 전 지점 공통 승급 기간·월 수련시간·1일 최대 인정시간·심사일·정확한 다음 띠·코치 범위를 확인
+- `npm run test:promotion-api-integrity` 통과. 격리 저장소와 서버에서 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위와 동시 요청 중복 반영 차단을 확인
+- `npm run test:final-policy-ui` 통과. 회비·본관 시간표·승급 기준 UI가 역할별 화면에 연결되고 정책 원문과 어긋나지 않는지 확인
 - `npm run test:role-csv-export-gates` 통과
 - `npm run test:deleted-request-surface` 통과
 - `npm run test:store` 통과. JSON runtime store의 동일 키 작업이 FIFO 순서로 직렬화되고 같은 base revision의 추가·서로 다른 필드 수정은 병합되며 동일 필드 충돌은 차단되고 revision/base 메타가 파일에 직렬화되지 않는지 확인

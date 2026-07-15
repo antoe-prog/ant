@@ -1,5 +1,6 @@
-import type { MockDatabase } from "@/lib/domain";
+import type { MockDatabase, Payment } from "@/lib/domain";
 import { getPaymentRemainingRefundableAmount } from "./payment-amounts.ts";
+import { isMembershipPayment } from "./payment-lifecycle.ts";
 
 export type OwnerTrendRow = {
   attendanceRatePercent: number;
@@ -65,6 +66,14 @@ function createEmptyTrendRow(key: string): OwnerTrendRow {
     paymentRiskCount: 0,
     withdrawnMembers: 0,
   };
+}
+
+export function getRecognizedPaymentRevenue(payment: Payment) {
+  if (payment.status !== "paid" && payment.status !== "partially_refunded") {
+    return 0;
+  }
+
+  return getPaymentRemainingRefundableAmount(payment);
 }
 
 function paymentTrendDate(payment: MockDatabase["payments"][number]) {
@@ -148,11 +157,9 @@ export function buildOwnerTrendRows(db: MockDatabase, branchIds: string[], perio
       continue;
     }
 
-    if (payment.status === "paid" || payment.status === "partially_refunded") {
-      row.paidRevenue += getPaymentRemainingRefundableAmount(payment);
-    }
+    row.paidRevenue += getRecognizedPaymentRevenue(payment);
 
-    if (payment.status === "overdue" || payment.status === "expiringSoon") {
+    if (isMembershipPayment(payment) && (payment.status === "overdue" || payment.status === "expiringSoon")) {
       row.paymentRiskCount += 1;
     }
   }

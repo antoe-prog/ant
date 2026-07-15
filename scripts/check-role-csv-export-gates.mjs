@@ -67,6 +67,11 @@ for (const role of ["member", "guardian"]) {
 
 assertOwnerAdminExportRoute(paymentsExportRouteSource, "payments CSV export route");
 assertOwnerAdminExportRoute(operationsExportRouteSource, "operations CSV export route");
+assert(
+  operationsExportRouteSource.includes("getRecognizedPaymentRevenue") &&
+    ownerReportsScreenSource.includes("getRecognizedPaymentRevenue"),
+  "operations CSV and owner branch comparisons must share discount/refund-adjusted revenue semantics",
+);
 
 assert(
   apiClientSource.includes("exportPaymentsCsv(selectedBranchId: string | null)") &&

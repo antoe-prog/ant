@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const { appendPaymentStatusHistory, createPaymentStatusHistoryEntry, getCurrentMemberPayment, getLatestPaymentStatusChange } = await import("../src/lib/payment-lifecycle.ts");
+const {
+  appendPaymentStatusHistory,
+  createPaymentStatusHistoryEntry,
+  getCurrentMemberPayment,
+  getLatestPaymentStatusChange,
+  isMembershipPayment,
+} = await import("../src/lib/payment-lifecycle.ts");
 const {
   createPaymentCreateIdempotencyKey,
   createPaymentCreateFingerprint,
@@ -84,6 +90,20 @@ const ordinarySnapshotWithStaleReason = createPaymentCreateSnapshot({
   ...idempotentSnapshot,
   reason: "이전 취소 사유",
 });
+const publicServiceSnapshot = createPaymentCreateSnapshot({
+  ...idempotentSnapshot,
+  benefitCode: "public-service-one-plus-one",
+  benefitVerificationReason: "  공무원증 육안 확인  ",
+  feeProductId: "regular-2d-3m",
+  policyVersion: "2026-03",
+  registeredMonths: 3,
+  serviceMonths: 6,
+});
+const discountedSnapshot = createPaymentCreateSnapshot({
+  ...idempotentSnapshot,
+  discountAmount: 20000,
+  discountReason: "  가족 관계 대면 확인  ",
+});
 const idempotentCreationLog = {
   id: "audit-idempotency",
   branchId: basePayment.branchId,
@@ -131,6 +151,22 @@ assert.notEqual(
   await createPaymentCreateFingerprint(cancelledSnapshot),
   idempotencyFingerprint,
   "manual payment create reasons must participate in new idempotency fingerprints",
+);
+assert.equal(
+  publicServiceSnapshot.benefitVerificationReason,
+  "공무원증 육안 확인",
+  "public-service verification reasons must be normalized separately from terminal reasons",
+);
+assert.notEqual(
+  await createPaymentCreateFingerprint(publicServiceSnapshot),
+  await createPaymentCreateFingerprint({ ...publicServiceSnapshot, benefitVerificationReason: "재직증명서 확인" }),
+  "public-service verification reasons must participate in idempotency fingerprints",
+);
+assert.equal(discountedSnapshot.discountReason, "가족 관계 대면 확인", "discount reasons must be normalized");
+assert.notEqual(
+  await createPaymentCreateFingerprint(discountedSnapshot),
+  await createPaymentCreateFingerprint({ ...discountedSnapshot, discountReason: "장기 수련 할인 확인" }),
+  "discount reasons must participate in idempotency fingerprints",
 );
 assert.equal(
   resolvePaymentCreateReplay({
@@ -199,6 +235,27 @@ assert.equal(
   ])?.id,
   "pay-active-current",
   "member payment summary must prefer an actionable record over a later cancelled membership period",
+);
+assert.equal(isMembershipPayment({ feeProductId: "regular-5d-1m" }), true, "regular fee products must be memberships");
+assert.equal(isMembershipPayment({ feeProductId: "day-pass-weekday" }), false, "day passes must not be memberships");
+assert.equal(isMembershipPayment({ feeProductId: "training-white" }), false, "uniform purchases must not be memberships");
+assert.equal(isMembershipPayment({}), true, "legacy payments without fee product metadata must remain membership-compatible");
+assert.equal(
+  getCurrentMemberPayment([
+    { ...basePayment, id: "pay-uniform", feeProductId: "training-white", expiresAt: "2026-09-15" },
+    { ...basePayment, id: "pay-day-pass", feeProductId: "day-pass-weekday", expiresAt: "2026-10-15" },
+    { ...basePayment, id: "pay-membership", feeProductId: "regular-5d-1m", expiresAt: "2026-07-15" },
+  ])?.id,
+  "pay-membership",
+  "member payment summary must ignore later non-membership purchases",
+);
+assert.equal(
+  getCurrentMemberPayment([
+    { ...basePayment, id: "pay-uniform-only", feeProductId: "training-white" },
+    { ...basePayment, id: "pay-day-pass-only", feeProductId: "day-pass-weekday" },
+  ]),
+  null,
+  "member payment summary must stay empty when only non-membership purchases exist",
 );
 assert.equal(
   getCurrentMemberPayment([
@@ -401,6 +458,24 @@ assert(paymentCreateRouteSource.includes("getManualPaymentDateRangeError"), "pay
 assert(paymentCreateRouteSource.includes("withServerDbLock"), "payment create route must use the runtime store lock for concurrent retries");
 assert(paymentCreateRouteSource.includes("Idempotency-Replayed"), "payment create route must mark replayed responses");
 assert(paymentCreateRouteSource.includes('createRuntimeId("pay")'), "payment create route must use collision-resistant payment IDs");
+assert(
+  paymentCreateRouteSource.includes('typeof body.feeProductId !== "string"'),
+  "payment create route must reject non-string fee product IDs before trimming",
+);
+assert(
+  paymentCreateRouteSource.includes("benefitCode && !benefitVerificationReason") &&
+    paymentCreateRouteSource.includes("benefitVerification"),
+  "public-service benefit creation must require and audit verification evidence",
+);
+assert(
+  paymentCreateRouteSource.includes("discountAmount > 0 && !discountReason") &&
+    paymentCreateRouteSource.includes("discountVerification"),
+  "discounted payment creation must require and audit a discount reason",
+);
+assert(
+  paymentsScreenSource.includes("payment-create-discount-reason-input") && paymentsScreenSource.includes("discountReason"),
+  "discounted payment UI must collect and submit a discount reason",
+);
 assert(runtimeIdSource.includes("randomUUID"), "runtime IDs must use UUID entropy instead of timestamps and array lengths");
 assert(paymentCreateIdempotencySource.includes("actorUserId") && paymentCreateIdempotencySource.includes("branchId"), "payment idempotency lookup must be scoped by actor and branch");
 assert(paymentCreateIdempotencySource.includes('reason: "deleted"'), "payment idempotency must protect deleted records from stale retries");

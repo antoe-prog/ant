@@ -2,14 +2,13 @@
 
 import Image from "next/image";
 import { Award, ChevronDown, Clock3, ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { type KeyboardEvent, useRef, useState } from "react";
 import { finalCommonPromotionPolicy } from "@/lib/final-common-promotion-policy";
 
 type ReferenceTab = "skills" | "periods";
 
 const referenceTabs = [
   {
-    alt: "FINAL 승급심사 기술표 원본",
     height: 529,
     href: "/reference/final-judo-promotion-skills-2026-03.png",
     label: "심사 기술표",
@@ -17,7 +16,6 @@ const referenceTabs = [
     width: 708,
   },
   {
-    alt: "FINAL 연령별 승급 수련기간 규정 원본",
     height: 539,
     href: "/reference/final-judo-promotion-periods-2026-03.png",
     label: "수련기간표",
@@ -26,14 +24,46 @@ const referenceTabs = [
   },
 ];
 
+const ageBandLabels = {
+  age_8_and_under: "8세 이하",
+  age_9_to_13: "9–13세",
+  age_14_to_16: "14–16세",
+  age_17_to_19: "17–19세",
+  age_20_and_over: "20세 이상",
+} as const;
+
 export function FinalPromotionPolicyReference() {
   const [activeTab, setActiveTab] = useState<ReferenceTab>("skills");
+  const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const activeReference = referenceTabs.find((tab) => tab.value === activeTab) ?? referenceTabs[0];
+  const descriptionId = `final-promotion-reference-description-${activeTab}`;
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | null = null;
+
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % referenceTabs.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + referenceTabs.length) % referenceTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = referenceTabs.length - 1;
+    }
+
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    setActiveTab(referenceTabs[nextIndex].value);
+    tabButtonRefs.current[nextIndex]?.focus();
+  }
 
   return (
     <section
       aria-labelledby="final-promotion-policy-title"
-      className="mb-4 border-y border-zinc-200 bg-white py-4"
+      className="mb-4 min-w-0 max-w-full border-y border-zinc-200 bg-white py-4"
       data-testid="final-common-promotion-policy"
     >
       <div className="flex items-start gap-3 px-1">
@@ -72,13 +102,13 @@ export function FinalPromotionPolicyReference() {
         </div>
       </dl>
 
-      <details className="group mt-3 border-t border-zinc-100 pt-1" data-testid="final-promotion-reference-details">
+      <details className="group mt-3 min-w-0 max-w-full border-t border-zinc-100 pt-1" data-testid="final-promotion-reference-details">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-1 text-sm font-semibold text-zinc-700 marker:hidden">
           기술표·수련기간표 보기
           <ChevronDown className="h-4 w-4 transition group-open:rotate-180" aria-hidden />
         </summary>
         <div className="grid grid-cols-2 gap-1 rounded-md bg-zinc-100 p-1" role="tablist" aria-label="승급 기준표">
-          {referenceTabs.map((tab) => (
+          {referenceTabs.map((tab, index) => (
             <button
               aria-controls="final-promotion-reference-panel"
               aria-selected={activeTab === tab.value}
@@ -86,35 +116,96 @@ export function FinalPromotionPolicyReference() {
                 activeTab === tab.value ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:bg-white/60"
               }`}
               data-testid={`final-promotion-reference-tab-${tab.value}`}
+              id={`final-promotion-reference-tab-${tab.value}`}
               key={tab.value}
+              ref={(node) => {
+                tabButtonRefs.current[index] = node;
+              }}
               role="tab"
+              tabIndex={activeTab === tab.value ? 0 : -1}
               type="button"
               onClick={() => setActiveTab(tab.value)}
+              onKeyDown={(event) => handleTabKeyDown(event, index)}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <div className="mt-3" id="final-promotion-reference-panel" role="tabpanel">
+        <div
+          aria-labelledby={`final-promotion-reference-tab-${activeTab}`}
+          className="mt-3 min-w-0 max-w-full"
+          id="final-promotion-reference-panel"
+          role="tabpanel"
+        >
+          <div
+            aria-describedby={descriptionId}
+            aria-label={`${activeReference.label} 원본 표`}
+            className="w-full min-w-0 max-w-full overflow-x-auto rounded-md border border-zinc-200 bg-white pb-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            data-testid="final-promotion-reference-scroll-region"
+            role="region"
+            tabIndex={0}
+          >
+            <div className="w-max min-w-full">
+              <Image
+                alt=""
+                className="h-auto max-w-none"
+                height={activeReference.height}
+                sizes={`${activeReference.width}px`}
+                src={activeReference.href}
+                style={{ width: activeReference.width }}
+                width={activeReference.width}
+              />
+            </div>
+          </div>
+
+          {activeTab === "skills" ? (
+            <p className="mt-2 text-xs leading-5 text-zinc-600" id={descriptionId}>
+              심사 범주: {finalCommonPromotionPolicy.skillCategories.map((category) => category.label).join(" · ")}
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-xs leading-5 text-zinc-600" id={descriptionId}>
+                연령별 단축 월 인정시간: {finalCommonPromotionPolicy.ageBands
+                  .map((band) => `${ageBandLabels[band.id]} ${band.acceleratedMonthlyHours}시간`)
+                  .join(" · ")}
+              </p>
+              <table className="sr-only">
+                <caption>연령별 승급 최소 수련기간</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">연령</th>
+                    <th scope="col">급</th>
+                    <th scope="col">누적 개월</th>
+                    <th scope="col">해당 급 수련 개월</th>
+                    <th scope="col">단축 누적 개월</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalCommonPromotionPolicy.ageBands.flatMap((band) =>
+                    finalCommonPromotionPolicy.periodRules[band.id].map((rule) => (
+                      <tr key={`${band.id}-${rule.grade}`}>
+                        <th scope="row">{ageBandLabels[band.id]}</th>
+                        <td>{rule.grade}급</td>
+                        <td>{rule.cumulativeMonths}개월</td>
+                        <td>{rule.monthsAtGrade}개월</td>
+                        <td>{rule.acceleratedCumulativeMonths ? `${rule.acceleratedCumulativeMonths}개월` : "해당 없음"}</td>
+                      </tr>
+                    )),
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
+
           <a
-            aria-label={`${activeReference.label} 원본 크게 보기`}
-            className="group block overflow-hidden rounded-md border border-zinc-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            aria-label={`${activeReference.label} 원본 새 창에서 보기`}
+            className="mt-2 flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-600 transition hover:border-teal-200 hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
             href={activeReference.href}
             rel="noreferrer"
             target="_blank"
           >
-            <Image
-              alt={activeReference.alt}
-              className="h-auto w-full"
-              height={activeReference.height}
-              sizes="(max-width: 768px) 100vw, 900px"
-              src={activeReference.href}
-              width={activeReference.width}
-            />
-            <span className="flex min-h-11 items-center justify-center gap-1.5 border-t border-zinc-100 text-xs font-semibold text-zinc-600 group-hover:text-teal-700">
-              원본 크게 보기 <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </span>
+            원본 크게 보기 <ExternalLink className="h-3.5 w-3.5" aria-hidden />
           </a>
         </div>
       </details>

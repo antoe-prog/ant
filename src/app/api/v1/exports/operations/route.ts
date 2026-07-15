@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuditLog } from "@/lib/domain";
-import { buildOwnerTrendRows } from "@/lib/owner-reporting";
+import { buildOwnerTrendRows, getRecognizedPaymentRevenue } from "@/lib/owner-reporting";
+import { isMembershipPayment } from "@/lib/payment-lifecycle";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { jsonError, requireSelectedBranchScope, requireSession } from "@/server/api";
 
@@ -51,8 +52,10 @@ export async function GET(request: NextRequest) {
     const attendance = db.attendance.filter((record) => classIds.has(record.sessionId));
     const enrolledSlots = classes.reduce((sum, session) => sum + session.enrolledMemberIds.length, 0);
     const payments = db.payments.filter((payment) => payment.branchId === branch.id);
-    const overduePayments = payments.filter((payment) => payment.status === "overdue");
-    const expiringPayments = payments.filter((payment) => payment.status === "expiringSoon");
+    const overduePayments = payments.filter((payment) => isMembershipPayment(payment) && payment.status === "overdue");
+    const expiringPayments = payments.filter(
+      (payment) => isMembershipPayment(payment) && payment.status === "expiringSoon",
+    );
     const riskPayments = [...overduePayments, ...expiringPayments];
     const attendanceGapSlots = Math.max(enrolledSlots - attendance.length, 0);
     const pausedMembers = members.filter((member) => member.status === "paused").length;
@@ -71,7 +74,7 @@ export async function GET(request: NextRequest) {
       attendance.length,
       percent(attendance.length, enrolledSlots),
       attendanceGapSlots,
-      payments.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + payment.amount, 0),
+      payments.reduce((sum, payment) => sum + getRecognizedPaymentRevenue(payment), 0),
       overduePayments.length,
       expiringPayments.length,
       riskPayments.length,

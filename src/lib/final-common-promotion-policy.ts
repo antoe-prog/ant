@@ -8,6 +8,7 @@ export const finalCommonPromotionSkillCategories = [
 ] as const;
 
 export const finalCommonPromotionPolicyVersion = "2026-03" as const;
+export const finalPromotionStateLockKey = "promotion-state" as const;
 
 export const finalYouthPromotionGrades = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1] as const;
 export const finalGeneralPromotionGrades = [8, 7, 6, 5, 4, 3, 2, 1] as const;
@@ -199,6 +200,10 @@ export function getFinalPromotionExamKind(dateKey: string): FinalPromotionExamKi
   return null;
 }
 
+export function hasFinalPromotionExamDateArrived(dateKey: string, today: string) {
+  return getFinalPromotionExamKind(dateKey) !== null && dateKey <= today;
+}
+
 export function getExactNextCompatiblePromotionBelt(currentBelt: string): string | null {
   const currentIndex = judoBelts.indexOf(currentBelt as (typeof judoBelts)[number]);
 
@@ -216,10 +221,14 @@ export function isExactNextCompatiblePromotionBelt(currentBelt: string, targetBe
 export function canCoachManagePromotionMember(
   user: AppUser,
   db: Pick<MockDatabase, "classes">,
-  member: Pick<Member, "branchId" | "id">,
+  member: Pick<Member, "branchId" | "id" | "primaryCoachId">,
 ) {
   if (user.role !== "coach" || !user.branchIds.includes(member.branchId)) {
     return false;
+  }
+
+  if (member.primaryCoachId === user.id) {
+    return true;
   }
 
   return db.classes.some(

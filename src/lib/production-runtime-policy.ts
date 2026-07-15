@@ -15,9 +15,11 @@ const safeTablePattern = /^[a-z_][a-z0-9_]*$/;
 const productionStateKey = "mvp";
 const productionTableName = "app_runtime_state";
 
-function isProductionTarget(env: RuntimeEnvironment) {
+function isPersistentRuntimeTarget(env: RuntimeEnvironment) {
   return env.VERCEL_ENV === "production" ||
+    env.VERCEL_ENV === "preview" ||
     env.VERCEL_TARGET_ENV === "production" ||
+    env.VERCEL_TARGET_ENV === "preview" ||
     env.FINAL_JUDO_REQUIRE_PERSISTENT_RUNTIME === "1";
 }
 
@@ -42,7 +44,7 @@ function hasUsablePostgresUrl(rawValue: string | undefined) {
 }
 
 export function assessProductionRuntimeEnvironment(env: RuntimeEnvironment): ProductionRuntimeAssessment {
-  const enforced = isProductionTarget(env);
+  const enforced = isPersistentRuntimeTarget(env);
   const blockerCodes: string[] = [];
   const expectedInstallationId = env.FINAL_JUDO_INSTALLATION_ID?.trim() || null;
   const stateKey = env.FINAL_JUDO_POSTGRES_STATE_KEY?.trim() || productionStateKey;

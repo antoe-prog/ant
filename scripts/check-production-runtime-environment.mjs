@@ -62,7 +62,7 @@ if (assessment.blockerCodes.length > 0) {
       ok: false,
       enforced: true,
       blockerCodes: assessment.blockerCodes,
-      message: "Production deployment requires a persistent PostgreSQL runtime store.",
+      message: "Deployed runtime requires a persistent PostgreSQL runtime store.",
     }),
   );
   process.exit(1);

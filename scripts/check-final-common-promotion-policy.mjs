@@ -9,6 +9,7 @@ import {
   finalCommonPromotionPolicy,
   finalCommonPromotionPolicyVersion,
   finalCommonPromotionSkillCategories,
+  finalPromotionStateLockKey,
   finalGeneralPromotionGrades,
   finalYouthPromotionGrades,
   getExactNextCompatiblePromotionBelt,
@@ -21,6 +22,7 @@ import {
   getPromotionAgeBand,
   getPromotionPeriodRule,
   getRecognizedPromotionTrainingHoursForDay,
+  hasFinalPromotionExamDateArrived,
   isExactNextCompatiblePromotionBelt,
   isFinalPromotionGradeForTrack,
 } from "../src/lib/final-common-promotion-policy.ts";
@@ -134,6 +136,9 @@ assert.equal(getFinalPromotionExamKind("2026-07-24"), "regular", "the fourth Fri
 assert.equal(getFinalPromotionExamKind("2026-07-17"), null, "the third Friday must not be a common grading day");
 assert.equal(getFinalPromotionExamKind("2026-07-11"), null, "non-Friday dates must not be common grading days");
 assert.equal(getFinalPromotionExamKind("2026-02-30"), null, "invalid dates must not be grading days");
+assert.equal(hasFinalPromotionExamDateArrived("2026-07-10", "2026-07-10"), true, "exam results may be decided on the grading day");
+assert.equal(hasFinalPromotionExamDateArrived("2026-07-24", "2026-07-10"), false, "future grading results must stay blocked");
+assert.equal(hasFinalPromotionExamDateArrived("2026-07-17", "2026-07-24"), false, "non-policy dates must not become decidable later");
 
 for (let index = 0; index < judoBelts.length; index += 1) {
   const currentBelt = judoBelts[index];
@@ -171,19 +176,24 @@ const coachScopeDb = {
   ],
 };
 assert.equal(
-  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-class", branchId: "branch-a" }),
+  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-class", branchId: "branch-a", primaryCoachId: "coach-b" }),
   true,
   "coach must manage members enrolled in a class they teach",
 );
 assert.equal(
-  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-other", branchId: "branch-a" }),
+  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-other", branchId: "branch-a", primaryCoachId: "coach-b" }),
   false,
   "coach must not manage unrelated members in the same branch",
 );
 assert.equal(
-  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-class", branchId: "branch-b" }),
+  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-class", branchId: "branch-b", primaryCoachId: "coach-a" }),
   false,
   "coach must not manage promotion members in another branch",
+);
+assert.equal(
+  canCoachManagePromotionMember(coach, coachScopeDb, { id: "member-primary", branchId: "branch-a", primaryCoachId: "coach-a" }),
+  true,
+  "primary coach must manage an assigned member even without a current class enrollment",
 );
 
 for (const [source, branchExpression, label] of [
@@ -198,12 +208,28 @@ assert(
   "promotion create route must enforce the exact next compatible belt",
 );
 assert(
-  resultRouteSource.includes('result === "passed" && member.belt !== promotion.fromBelt'),
-  "promotion result route must block stale passed decisions",
+  resultRouteSource.includes("isExactNextCompatiblePromotionBelt(member.belt, promotion.toBelt)"),
+  "promotion result route must reject legacy skipped-belt decisions",
 );
 assert(
   resultRouteSource.includes('jsonError(409, "CONFLICT"'),
   "promotion result route stale decisions must return a conflict",
+);
+for (const [source, label] of [
+  [createRouteSource, "promotion create route"],
+  [resultRouteSource, "promotion result route"],
+]) {
+  assert(source.includes("withServerDbLock(finalPromotionStateLockKey"), `${label} must serialize read-check-write state changes`);
+  assert(source.includes("const db = await readServerDb()"), `${label} must re-read the latest database inside the lock`);
+}
+assert.equal(finalPromotionStateLockKey, "promotion-state", "create and result routes must share one promotion state lock");
+assert(
+  createRouteSource.includes("getFinalPromotionExamKind(examDate)"),
+  "promotion create route must enforce second- or fourth-Friday grading dates",
+);
+assert(
+  resultRouteSource.includes("hasFinalPromotionExamDateArrived(promotion.examDate"),
+  "promotion result route must block decisions before a valid grading day arrives",
 );
 
 console.log(
@@ -217,9 +243,10 @@ console.log(
         "all fifty promotion period rows",
         "daily recognized training is capped at one hour",
         "second-Friday special and fourth-Friday regular grading",
+        "grading-day arrival and non-policy result rejection",
         "existing belt sequence permits only the exact next target",
-        "coach class assignment scope",
-        "promotion APIs enforce selected branch, coach scope, progression, and stale passed conflicts",
+        "coach class and primary assignment scope with branch isolation",
+        "promotion APIs serialize state changes and enforce selected branch, coach scope, schedule, and progression",
       ],
     },
     null,

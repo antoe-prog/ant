@@ -10,6 +10,7 @@ import {
   getFinalCommonFeeProduct,
   getFinalCommonPublicServiceDuration,
   getFinalCommonRegularMembershipPlan,
+  isFinalCommonMembershipProductId,
   quoteFinalCommonFeeProduct,
 } from "../src/lib/final-common-fee-policy.ts";
 import {
@@ -113,6 +114,11 @@ assert.ok(
   ),
 );
 assert.equal(getFinalCommonFeeProduct("regular-2d-3m")?.amount, 427_500);
+assert.equal(isFinalCommonMembershipProductId("regular-2d-3m"), true);
+assert.equal(isFinalCommonMembershipProductId("athlete-middle-school"), true);
+assert.equal(isFinalCommonMembershipProductId("day-pass-weekday"), false);
+assert.equal(isFinalCommonMembershipProductId("training-white"), false);
+assert.equal(isFinalCommonMembershipProductId("missing-product"), false);
 assert.deepEqual(
   quoteFinalCommonFeeProduct({
     benefitCode: "public-service-one-plus-one",
@@ -169,6 +175,8 @@ assert.equal(
 );
 assert.equal(addMonthsToDateKey("2024-01-31", 1), "2024-02-29");
 assert.equal(addMonthsToDateKey("2025-03-31", -1), "2025-02-28");
+assert.throws(() => addMonthsToDateKey("0099-01-31", 1), /between 1900 and 9999/);
+assert.throws(() => addMonthsToDateKey("9999-12-31", 1), /between 1900 and 9999/);
 assert.doesNotMatch(JSON.stringify(finalCommonFeePolicy), /bank|account/i);
 
 const discountedPayment = {
@@ -194,6 +202,10 @@ assert.match(manualCreateRoute, /feeQuote = quoteFinalCommonFeeProduct\(/);
 assert.match(manualCreateRoute, /planName = feeQuote\.planName/);
 assert.match(manualCreateRoute, /amount = feeQuote\.amount/);
 assert.match(manualCreateRoute, /expiresAt = feeQuote\.expiresAt \?\? ""/);
+assert.match(manualCreateRoute, /typeof body\.feeProductId !== "string"/);
+assert.match(manualCreateRoute, /benefitCode && !benefitVerificationReason/);
+assert.match(manualCreateRoute, /benefitVerification/);
+assert.match(manualCreateRoute, /verifiedByUserId: user\.id/);
 assert.doesNotMatch(manualCreateRoute, /isFinalMainBranch/, "common fee quoting must not be limited to the main branch");
 
 console.log("final common fee policy checks passed");

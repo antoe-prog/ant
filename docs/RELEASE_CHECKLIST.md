@@ -11,6 +11,11 @@
 - [x] Next production build trace에서 `.data` 런타임/증빙 산출물 제외
 - [x] `npm audit --audit-level=moderate` 취약점 0건
 - [x] `npm run test:unit` 도메인 규칙 단위 테스트 통과
+- [x] `npm run test:final-common-fee-policy` 공통 회비 상품·할인·1+1 연장 규칙과 유효 날짜 경계 통과
+- [x] `npm run test:final-main-schedule-policy` 본관 전용 수업 시간표·훈련 프로그램과 전 지점 공통 정책 분리 통과
+- [x] `npm run test:final-common-promotion-policy` 전 지점 공통 승급 기간·월 수련시간·1일 최대 인정시간·심사일·정확한 다음 띠·코치 범위 통과
+- [x] `npm run test:promotion-api-integrity` 격리 저장소·서버 기반 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위와 동시 요청 중복 반영 차단 통과
+- [x] `npm run test:final-policy-ui` 회비·본관 시간표·승급 기준의 역할별 UI 연결과 정책 원문 정합성 통과
 - [x] `npm run test:role-csv-export-gates` 회원/학부모 CSV 내보내기 비노출, 대표/총괄 export API/UI 전용 가드, 회원/학부모 CSV export API 403 smoke 증거 통과
 - [x] `npm run test:deleted-request-surface` 삭제된 `/app/requests`, `/requests`, 요청 생성/승인/반려 API, 보강 메뉴/카드/알림 링크 재유입 차단과 release runner/문서 등록 검증 통과
 - [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과

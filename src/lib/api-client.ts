@@ -94,7 +94,9 @@ export type ClassSessionUpdatePayload = Partial<ClassSessionCreatePayload>;
 
 export type PaymentCreatePayload = Pick<Payment, "memberId" | "planName" | "amount" | "dueDate" | "expiresAt"> & {
   benefitCode?: Payment["benefitCode"];
+  benefitVerificationReason?: string;
   discountAmount?: number;
+  discountReason?: string;
   feeProductId?: string;
   reason?: string;
   status: PaymentStatus;

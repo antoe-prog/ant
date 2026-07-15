@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
@@ -23,6 +23,9 @@ const chromeCandidates = [
 ].filter(Boolean);
 let managedAppServer = null;
 let usingExistingAppServer = false;
+const managedRuntimeStamp = `${process.pid}-${Date.now()}`;
+const managedDistDir = `.next-payment-create-${managedRuntimeStamp}`;
+const managedTsconfigPath = `.tsconfig.payment-create-${managedRuntimeStamp}.json`;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
@@ -86,11 +89,37 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
+  writeFileSync(
+    managedTsconfigPath,
+    `${JSON.stringify({
+      extends: "./tsconfig.json",
+      include: [
+        "next-env.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        ".next/types/**/*.ts",
+        ".next/dev/types/**/*.ts",
+        "**/*.mts",
+        `${managedDistDir}/types/**/*.ts`,
+        `${managedDistDir}/dev/types/**/*.ts`,
+      ],
+    }, null, 2)}\n`,
+  );
+  const managedUrl = new URL(baseUrl);
+
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--port", managedUrl.port, "--hostname", managedUrl.hostname],
+    {
     cwd: process.cwd(),
-    env: process.env,
+    env: {
+      ...process.env,
+      FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
+      FINAL_JUDO_NEXT_TSCONFIG_PATH: managedTsconfigPath,
+    },
     stdio: ["ignore", "pipe", "pipe"],
-  });
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.PAYMENT_CREATE_TOUCH_TARGETS_SERVER_LOGS === "1") {
@@ -125,6 +154,8 @@ async function stopManagedAppServer() {
       }
     }),
   ]);
+  rmSync(managedDistDir, { force: true, recursive: true });
+  rmSync(managedTsconfigPath, { force: true });
 }
 
 async function resetDevData(label) {
@@ -227,6 +258,11 @@ function assertStaticContracts() {
     'data-testid="payment-create-plan-input"',
     'data-testid="payment-create-status-select"',
     'data-testid="payment-create-reason-input"',
+    'data-testid="payment-create-discount-input"',
+    'data-testid="payment-create-discount-reason-input"',
+    'data-testid="payment-create-fee-product-select"',
+    'data-testid="payment-create-public-service-benefit"',
+    'data-testid="payment-create-benefit-verification-reason"',
     'data-testid="payment-create-amount-input"',
     'data-testid="payment-create-due-date-input"',
     'data-testid="payment-create-expiry-date-input"',
@@ -603,6 +639,25 @@ try {
   await page.screenshot({ path: collapsedScreenshotPath, fullPage: false });
 
   await gotoOwnerPayments(desktopPage);
+  await desktopPage.getByTestId("payment-status-filter").scrollIntoViewIfNeeded();
+  const desktopFilterLayout = await desktopPage.evaluate(() => {
+    const status = document.querySelector('[data-testid="payment-status-filter"]')?.getBoundingClientRect();
+    const search = document.querySelector('[data-testid="payment-list-search-input"]')?.getBoundingClientRect();
+    const count = document.querySelector('[data-testid="payment-list-status-label"]')?.getBoundingClientRect();
+
+    return {
+      countTop: Math.round(count?.top ?? 0),
+      searchTop: Math.round(search?.top ?? 0),
+      searchWidth: Math.round(search?.width ?? 0),
+      statusTop: Math.round(status?.top ?? 0),
+      statusWidth: Math.round(status?.width ?? 0),
+    };
+  });
+  assert(Math.abs(desktopFilterLayout.statusTop - desktopFilterLayout.searchTop) <= 2, "desktop status and search filters must share one row");
+  assert(Math.abs(desktopFilterLayout.statusTop - desktopFilterLayout.countTop) <= 2, "desktop payment count must stay on the filter row");
+  assert(desktopFilterLayout.searchWidth >= desktopFilterLayout.statusWidth, "desktop member search must not collapse below the status filter width");
+  const desktopFilterScreenshotPath = join(outDir, "owner-payments-filter-aligned-desktop.png");
+  await desktopPage.screenshot({ path: desktopFilterScreenshotPath, fullPage: false });
   const desktopRefundLayout = await collectCollapsedLayout(desktopPage);
   const desktopExpandedManagementLayout = await collectExpandedManagementLayout(desktopPage, { requireRefundRowAlignment: true });
   const desktopRefundScreenshotPath = join(outDir, "owner-payments-refund-aligned-desktop.png");
@@ -645,6 +700,42 @@ try {
   await page.screenshot({ path: terminalReasonScreenshotPath, fullPage: false, caret: "initial" });
   await page.getByTestId("payment-create-status-select").selectOption("paid");
   assert.equal(await page.getByTestId("payment-create-reason-input").count(), 0, "ordinary payment create must hide the terminal-state reason field");
+  await page.getByTestId("payment-create-discount-input").fill("10000");
+  const discountReasonInput = page.getByTestId("payment-create-discount-reason-input");
+  await discountReasonInput.waitFor({ state: "visible" });
+  await discountReasonInput.scrollIntoViewIfNeeded();
+  const discountReasonLayout = await page.evaluate(() => {
+    const input = document.querySelector('[data-testid="payment-create-discount-reason-input"]')?.getBoundingClientRect();
+    const submit = document.querySelector('[data-testid="payment-create-submit"]');
+
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      inputHeight: Math.round(input?.height ?? 0),
+      scrollWidth: document.documentElement.scrollWidth,
+      submitDisabledWithoutReason: submit instanceof HTMLButtonElement ? submit.disabled : null,
+    };
+  });
+  assert(discountReasonLayout.inputHeight >= 44, `discount reason input must stay 44px tall; got ${discountReasonLayout.inputHeight}px`);
+  assert.equal(discountReasonLayout.submitDisabledWithoutReason, true, "discounted payment create must stay disabled without a reason");
+  assert.equal(discountReasonLayout.scrollWidth, discountReasonLayout.clientWidth, "discount reason field must not overflow horizontally");
+  await discountReasonInput.fill("가족 관계 대면 확인");
+  assert.equal(await page.getByTestId("payment-create-submit").isEnabled(), true, "discounted payment create must enable after a reason is entered");
+  await page.getByTestId("payment-create-discount-input").fill("0");
+  assert.equal(await discountReasonInput.count(), 0, "zero discount must hide and clear the discount reason field");
+
+  await page.getByTestId("payment-create-fee-product-select").selectOption("regular-2d-3m");
+  await page.getByTestId("payment-create-public-service-benefit").check();
+  const benefitReasonInput = page.getByTestId("payment-create-benefit-verification-reason");
+  await benefitReasonInput.waitFor({ state: "visible" });
+  await benefitReasonInput.scrollIntoViewIfNeeded();
+  assert.equal(await page.getByTestId("payment-create-submit").isDisabled(), true, "1+1 payment create must stay disabled without verification evidence");
+  await benefitReasonInput.fill("공무원증 실물 대면 확인");
+  assert.equal(await page.getByTestId("payment-create-submit").isEnabled(), true, "1+1 payment create must enable after verification evidence is entered");
+  const benefitReasonScreenshotPath = join(outDir, "owner-payments-create-benefit-evidence-mobile.png");
+  await page.screenshot({ path: benefitReasonScreenshotPath, fullPage: false, caret: "initial" });
+  await page.getByTestId("payment-create-public-service-benefit").uncheck();
+  assert.equal(await benefitReasonInput.count(), 0, "disabling 1+1 must hide and clear verification evidence");
+
   const createdPlanName = `모바일 등록 검증 ${Date.now()}`;
   const paymentCreateIdempotencyKeys = [];
   let paymentCreateAttempt = 0;
@@ -836,10 +927,12 @@ try {
       "owner manual payment create form stays collapsed by default",
       "owner payment export, filter, summary status, operations metrics, and row actions stay 44px touch targets",
       "desktop refund amount, full amount, reason, and submit controls stay aligned on one row",
+      "desktop status, member search, and result count stay aligned on one row",
       "payment create toggle, search input, results, fields, and submit action stay 44px touch targets",
       "payment create member search finds and selects a real member without scroll-only picker behavior",
       "payment create submit enables only after member selection",
       "cancelled/refunded manual payment create exposes a 44px reason field and blocks empty submission",
+      "discount and public-service benefits require visible operator verification evidence",
       "manual payment create disables while saving and keeps its draft retryable after an uncertain response",
       "manual payment retry reuses its idempotency key, persists exactly once, and shows success feedback",
       "starting the next manual payment clears stale success feedback",
@@ -855,10 +948,12 @@ try {
       collapsed: collapsedLayout,
       expandedManagement: expandedManagementLayout,
       desktopRefund: desktopRefundLayout,
+      desktopFilter: desktopFilterLayout,
       desktopExpandedManagement: desktopExpandedManagementLayout,
       search: searchLayout,
       selected: selectedLayout,
       terminalReason: terminalReasonLayout,
+      discountReason: discountReasonLayout,
       manualEdit: manualEditLayout,
       manualDelete: manualDeleteLayout,
     },
@@ -891,6 +986,10 @@ try {
         path: terminalReasonScreenshotPath,
         sizeBytes: statSync(terminalReasonScreenshotPath).size,
       },
+      benefitEvidence: {
+        path: benefitReasonScreenshotPath,
+        sizeBytes: statSync(benefitReasonScreenshotPath).size,
+      },
       created: {
         path: createdScreenshotPath,
         sizeBytes: statSync(createdScreenshotPath).size,
@@ -918,6 +1017,10 @@ try {
       desktopRefund: {
         path: desktopRefundScreenshotPath,
         sizeBytes: statSync(desktopRefundScreenshotPath).size,
+      },
+      desktopFilter: {
+        path: desktopFilterScreenshotPath,
+        sizeBytes: statSync(desktopFilterScreenshotPath).size,
       },
     },
   };
