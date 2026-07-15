@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -129,11 +129,38 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
   const [depositorName, setDepositorName] = useState(context.user.name);
   const [selectedCardIssuer, setSelectedCardIssuer] = useState("우리카드");
   const [installment, setInstallment] = useState("일시불");
-  const [savePaymentInfo, setSavePaymentInfo] = useState(false);
   const [payerOptionalOpen, setPayerOptionalOpen] = useState(false);
   const [wooriPayOpen, setWooriPayOpen] = useState(false);
+  const [wooriPayTab, setWooriPayTab] = useState<"primary" | "other">("primary");
   const [confirmationMessage, setConfirmationMessage] = useState("");
+  const [confirmedInputFingerprint, setConfirmedInputFingerprint] = useState("");
+  const [cardGuideMessage, setCardGuideMessage] = useState("");
   const [addressSearchMessage, setAddressSearchMessage] = useState("");
+  const wooriPayDialogRef = useRef<HTMLDivElement>(null);
+  const wooriPayPrimaryTabRef = useRef<HTMLButtonElement>(null);
+  const wooriPayOtherTabRef = useRef<HTMLButtonElement>(null);
+
+  const mobilePhoneDigits = `${mobilePrefix}${mobileMiddle}${mobileLast}`.replace(/\D/g, "");
+  const mobilePhoneValid = /^01\d{8,9}$/.test(mobilePhoneDigits);
+  const inputFingerprint = [
+    payerName,
+    payerEmail,
+    zipCode,
+    baseAddress,
+    detailAddress,
+    landlinePrefix,
+    landlineMiddle,
+    landlineLast,
+    mobilePrefix,
+    mobileMiddle,
+    mobileLast,
+    selectedPaymentMethod,
+    selectedBank,
+    depositorName,
+    selectedCardIssuer,
+    installment,
+  ].join("\u001f");
+  const confirmationIsCurrent = Boolean(confirmationMessage && confirmedInputFingerprint === inputFingerprint);
 
   useEffect(() => {
     if (window.location.hash === "#payment-payer-address") {
@@ -164,17 +191,86 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
       requestAnimationFrame(() => {
         setSelectedPaymentMethod("card");
         setSelectedCardIssuer("우리카드");
+        setWooriPayTab("primary");
         setWooriPayOpen(true);
       });
     }
   }, []);
 
+  useEffect(() => {
+    if (!wooriPayOpen) {
+      return;
+    }
+
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => {
+      wooriPayPrimaryTabRef.current?.focus();
+    }, 0);
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setWooriPayOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab" || !wooriPayDialogRef.current) {
+        return;
+      }
+
+      const focusable = Array.from(
+        wooriPayDialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      const first = focusable[0];
+      const last = focusable.at(-1);
+
+      if (!first || !last) {
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [wooriPayOpen]);
+
   function selectCardIssuer(issuer: string) {
     setSelectedCardIssuer(issuer);
 
     if (issuer === "우리카드") {
+      setWooriPayTab("primary");
       setWooriPayOpen(true);
     }
+  }
+
+  function handleWooriPayTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    const nextTab =
+      event.key === "ArrowRight" || event.key === "End"
+        ? "other"
+        : event.key === "ArrowLeft" || event.key === "Home"
+          ? "primary"
+          : null;
+
+    if (!nextTab) {
+      return;
+    }
+
+    event.preventDefault();
+    (nextTab === "primary" ? wooriPayPrimaryTabRef.current : wooriPayOtherTabRef.current)?.focus();
+    setWooriPayTab(nextTab);
   }
 
   if (!payment) {
@@ -235,7 +331,7 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
 
   const checkoutAmount = getPaymentCheckoutAmount(payment);
   const canPrepareCheckout = checkoutAccess.canOpen;
-  const checkoutStateLabel = checkoutAccess.state === "ready" ? "결제 대상" : checkoutAccess.label;
+  const checkoutStateLabel = checkoutAccess.state === "ready" ? "요청 가능" : checkoutAccess.label;
 
   return (
     <div className="mx-auto max-w-2xl" data-testid="payment-checkout-page">
@@ -313,6 +409,19 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
           </dl>
         </div>
 
+        {canPrepareCheckout ? (
+          <div
+            className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900"
+            data-testid="payment-checkout-preview-notice"
+            role="note"
+          >
+            <p className="font-semibold">납부 요청 안내</p>
+            <p className="mt-0.5 text-xs leading-5">
+              지금은 실제 결제나 출금이 진행되지 않습니다. 희망 납부 방법을 접수하면 담당자가 확인 후 안내합니다.
+            </p>
+          </div>
+        ) : null}
+
         {(payment.discountAmount ?? 0) > 0 || (payment.refundedAmount ?? 0) > 0 ? (
           <div className="mt-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-700">
             {(payment.discountAmount ?? 0) > 0 ? (
@@ -336,7 +445,7 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
           <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <UserRound className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-              <h2 className="text-sm font-semibold text-zinc-950">결제자 정보</h2>
+              <h2 className="text-sm font-semibold text-zinc-950">요청자 정보</h2>
             </div>
             <span className="text-xs font-semibold text-red-600">이름·휴대전화 필수</span>
           </div>
@@ -513,13 +622,13 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
           <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <WalletCards className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-              <h2 className="text-sm font-semibold text-zinc-950">결제수단</h2>
+              <h2 className="text-sm font-semibold text-zinc-950">희망 납부 방법</h2>
             </div>
             <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
           </div>
 
           <div className="grid min-w-0 gap-3 p-3">
-            <div className="grid gap-2" role="radiogroup" aria-label="결제수단 선택">
+            <div className="grid gap-2" role="radiogroup" aria-label="희망 납부 방법 선택">
               {paymentMethods.map((method) => (
                 <label
                   className={`flex min-h-12 cursor-pointer items-start gap-2 rounded-md border px-3 py-2 transition ${
@@ -618,24 +727,39 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                 <div className="grid gap-2 sm:grid-cols-3" aria-label="결제 안내">
                   {["공인인증서 발급안내", "안심클릭안내", "안전결제 안내"].map((label) => (
                     <button
+                      aria-pressed={cardGuideMessage.startsWith(label)}
                       className="min-h-11 rounded-md border border-zinc-300 bg-zinc-50 px-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-100"
                       data-testid="payment-card-guide-button"
                       key={label}
                       type="button"
+                      onClick={() =>
+                        setCardGuideMessage(
+                          `${label}: 카드사 또는 은행 앱의 안내를 확인해 주세요. 이 화면에서는 인증이나 결제가 진행되지 않습니다.`,
+                        )
+                      }
                     >
                       {label}
                     </button>
                   ))}
                 </div>
+                {cardGuideMessage ? (
+                  <p
+                    className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium leading-5 text-blue-900"
+                    data-testid="payment-card-guide-feedback"
+                    role="status"
+                  >
+                    {cardGuideMessage}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
             {selectedPaymentMethod === "virtualAccount" || selectedPaymentMethod === "accountTransfer" ? (
-	              <div
-	                className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-6 text-zinc-700"
-	                data-testid="payment-account-method-panel"
-	                id="payment-account-method-panel"
-	              >
+              <div
+                className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-6 text-zinc-700"
+                data-testid="payment-account-method-panel"
+                id="payment-account-method-panel"
+              >
                 <div className="flex items-center gap-2 font-semibold text-zinc-900">
                   {selectedPaymentMethod === "virtualAccount" ? (
                     <Landmark className="h-4 w-4 text-zinc-600" aria-hidden />
@@ -645,21 +769,11 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                   {selectedPaymentMethod === "virtualAccount" ? "가상계좌 안내" : "계좌이체 안내"}
                 </div>
                 <p className="text-xs leading-5 text-zinc-500">
-                  선택한 납부 방식은 확인용으로 저장하고, 도장 안내 후 입금·인증 절차를 이어갑니다.
+                  선택한 납부 방식은 이 화면에서만 확인할 수 있습니다. 실제 입금·인증 절차는 도장 안내 후 진행합니다.
                 </p>
               </div>
             ) : null}
 
-            <label className="flex min-h-11 items-center gap-2 border-t border-zinc-100 pt-3 text-sm font-medium text-zinc-700">
-              <input
-                className="h-4 w-4 rounded border-zinc-300 accent-teal-600"
-                checked={savePaymentInfo}
-                data-testid="payment-save-method-checkbox"
-                type="checkbox"
-                onChange={(event) => setSavePaymentInfo(event.target.checked)}
-              />
-              결제수단과 입력정보를 다음에도 사용
-            </label>
           </div>
         </section>
 
@@ -667,32 +781,41 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
           <button
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-zinc-950 bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="payment-confirm-draft-button"
-            disabled={!payerName.trim() || !mobileMiddle.trim() || !mobileLast.trim()}
+            disabled={!payerName.trim() || !mobilePhoneValid}
             type="button"
-            onClick={() =>
+            onClick={() => {
+              setConfirmedInputFingerprint(inputFingerprint);
               setConfirmationMessage(
                 `${payerName.trim()}님 ${formatPhoneNumber(compactPhone([mobilePrefix, mobileMiddle, mobileLast]))} 정보와 ${getSelectedPaymentMethodSummary(
                   selectedPaymentMethod,
                   selectedCardIssuer,
                   selectedBank,
-                )} 납부 방법을 확인했습니다. ${
-                  savePaymentInfo ? "다음 납부에도 사용할 정보로 표시했습니다." : "이번 납부 확인에만 사용합니다."
-                } 담당자가 확인 후 안내합니다.`,
-              )
-            }
+                )} 선택 내용을 확인했습니다. 이 정보는 아직 저장되거나 담당자에게 전달되지 않으며 실제 결제나 출금도 진행되지 않습니다.`,
+              );
+            }}
           >
             <CreditCard className="h-4 w-4" aria-hidden />
-            납부 정보 확인
+            입력 내용 확인
           </button>
+          {!mobilePhoneValid && (mobileMiddle || mobileLast) ? (
+            <p className="text-xs font-medium text-red-600" role="alert">
+              휴대전화 번호를 확인해 주세요.
+            </p>
+          ) : null}
           {confirmationMessage ? (
             <p
               aria-live="polite"
-              className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium leading-6 text-teal-900"
+              className={`rounded-md border px-3 py-2 text-sm font-medium leading-6 ${
+                confirmationIsCurrent
+                  ? "border-teal-200 bg-teal-50 text-teal-900"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
+              data-confirmation-state={confirmationIsCurrent ? "current" : "changed"}
               data-testid="payment-confirm-feedback"
               id="payment-confirm-feedback"
               role="status"
             >
-              {confirmationMessage}
+              {confirmationIsCurrent ? confirmationMessage : "입력 내용이 변경되었습니다. 현재 내용으로 다시 확인해 주세요."}
             </p>
           ) : null}
         </div>
@@ -705,9 +828,9 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
         >
           <CreditCard className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
           <div className="min-w-0">
-            <p className="font-semibold text-zinc-800">납부 정보 접수</p>
+            <p className="font-semibold text-zinc-800">결제 정보 확인 단계</p>
             <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-              선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.
+              현재 입력 내용은 확인용이며 저장·전달되지 않습니다.
             </p>
           </div>
         </div>
@@ -715,17 +838,24 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
 
       {wooriPayOpen ? (
         <div
+          aria-labelledby="payment-wooriwonpay-title"
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
           data-testid="payment-wooriwonpay-modal"
           role="dialog"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setWooriPayOpen(false);
+            }
+          }}
         >
           <div
             className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-md bg-white shadow-xl"
             data-testid="payment-wooriwonpay-panel"
+            ref={wooriPayDialogRef}
           >
             <div className="flex min-h-12 items-center justify-between border-b border-zinc-100 px-4">
-              <div className="flex items-center gap-2 text-xs font-semibold text-blue-700">
+              <div className="flex items-center gap-2 text-xs font-semibold text-blue-700" id="payment-wooriwonpay-title">
                 <CreditCard className="h-4 w-4" aria-hidden />
                 우리카드 X 우리은행
               </div>
@@ -739,25 +869,47 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                 <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
-            <div className="grid grid-cols-2 border-b border-zinc-100 text-sm font-semibold">
+            <div className="grid grid-cols-2 border-b border-zinc-100 text-sm font-semibold" role="tablist" aria-label="우리WON페이 결제 방식">
               <button
-                className="min-h-12 border-b-2 border-blue-600 text-blue-700"
+                aria-controls="payment-wooriwonpay-primary-panel"
+                aria-selected={wooriPayTab === "primary"}
+                className={`min-h-12 border-b-2 ${wooriPayTab === "primary" ? "border-blue-600 text-blue-700" : "border-transparent text-zinc-500"}`}
                 data-testid="payment-wooriwonpay-tab-primary"
+                id="payment-wooriwonpay-tab-primary"
+                ref={wooriPayPrimaryTabRef}
+                role="tab"
+                tabIndex={wooriPayTab === "primary" ? 0 : -1}
                 type="button"
+                onKeyDown={handleWooriPayTabKeyDown}
+                onClick={() => setWooriPayTab("primary")}
               >
                 우리WON페이
               </button>
               <button
-                className="min-h-12 text-zinc-500"
+                aria-controls="payment-wooriwonpay-other-panel"
+                aria-selected={wooriPayTab === "other"}
+                className={`min-h-12 border-b-2 ${wooriPayTab === "other" ? "border-blue-600 text-blue-700" : "border-transparent text-zinc-500"}`}
                 data-testid="payment-wooriwonpay-tab-secondary"
+                id="payment-wooriwonpay-tab-secondary"
+                ref={wooriPayOtherTabRef}
+                role="tab"
+                tabIndex={wooriPayTab === "other" ? 0 : -1}
                 type="button"
+                onKeyDown={handleWooriPayTabKeyDown}
+                onClick={() => setWooriPayTab("other")}
               >
                 다른 수단
               </button>
             </div>
-            <div className="p-5">
+            <div
+              className="p-5"
+              hidden={wooriPayTab !== "primary"}
+              id="payment-wooriwonpay-primary-panel"
+              aria-labelledby="payment-wooriwonpay-tab-primary"
+              role="tabpanel"
+            >
               <h3 className="text-lg font-semibold leading-7 text-zinc-950">우리WON페이 선택을 확인합니다</h3>
-              <p className="mt-1 text-sm leading-6 text-zinc-600">앱 선택은 납부 안내에 참고됩니다.</p>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">앱 선택은 입력 내용 확인에만 사용됩니다.</p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {["우리카드 앱", "우리은행 앱"].map((label) => (
                   <button
@@ -773,6 +925,23 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                   </button>
                 ))}
               </div>
+            </div>
+            <div
+              className="p-5"
+              hidden={wooriPayTab !== "other"}
+              id="payment-wooriwonpay-other-panel"
+              aria-labelledby="payment-wooriwonpay-tab-secondary"
+              role="tabpanel"
+            >
+              <h3 className="text-lg font-semibold leading-7 text-zinc-950">다른 결제수단</h3>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">이 창을 닫고 결제수단 목록에서 원하는 방식을 선택해 주세요.</p>
+              <button
+                className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                type="button"
+                onClick={() => setWooriPayOpen(false)}
+              >
+                결제수단 선택으로 돌아가기
+              </button>
             </div>
           </div>
         </div>

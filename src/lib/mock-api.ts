@@ -358,7 +358,7 @@ export const mockApi = {
         ],
         todaysClasses,
         expiringPayments,
-        notices: scopedNotices(context).slice(0, 3),
+        notices: scopedNotices(context),
       };
     });
   },

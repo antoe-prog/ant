@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Ban, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards, X } from "lucide-react";
+import { Ban, ChevronDown, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards, X } from "lucide-react";
 import type { OnlinePaymentStatus, Payment, PaymentStatus, RecurringBillingStatus } from "@/lib/domain";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
@@ -24,7 +24,7 @@ import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-mem
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentCheckoutAmount } from "@/lib/payment-checkout-access";
 import { createPaymentCreateIdempotencyKey } from "@/lib/payment-create-idempotency";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
-import { paymentStatusLabels } from "@/lib/roles";
+import { memberStatusLabels, paymentStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
@@ -230,12 +230,19 @@ export function PaymentsScreen() {
     syncPaymentFilterToUrl(value);
   }
 
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
+  const guardianChildIds =
+    context.user.role === "guardian"
+      ? context.db.members
+          .filter((member) => context.user.childMemberIds?.includes(member.id))
+          .map((member) => member.id)
+      : undefined;
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id, guardianChildIds);
   const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
   const appliedRequestedMemberIdRef = useRef<string | null>(null);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
   const [paymentActionQueueOpen, setPaymentActionQueueOpen] = useState(false);
   const [activeFocusedPaymentId, setActiveFocusedPaymentId] = useState<string | null>(null);
+  const [expandedManagedPaymentId, setExpandedManagedPaymentId] = useState<string | null>(null);
   const { data, loading, error, reload } = useResource(
     () => apiClient.getPayments(context),
     [context.user.id, context.selectedBranchId, context.version],
@@ -251,6 +258,7 @@ export function PaymentsScreen() {
     // 작업목록 딥링크가 준비되면 해당 카드로 이동하고 한 번만 강조한다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveFocusedPaymentId(focusedPaymentId);
+    setExpandedManagedPaymentId(focusedPaymentId);
     const scrollTimer = window.setTimeout(() => {
       document
         .querySelector(`[data-payment-id="${CSS.escape(focusedPaymentId)}"]`)
@@ -665,11 +673,16 @@ export function PaymentsScreen() {
     showPaymentOperationsMeta && paymentSearchKeyword.length > 0 && scopedPayments.length > 0 && filteredPayments.length === 0;
   const filteredDue = filteredPayments
     .filter((payment) => payment.status === "scheduled" || payment.status === "overdue" || payment.status === "expiringSoon")
-    .reduce((sum, payment) => sum + payment.amount, 0);
+    .reduce((sum, payment) => sum + getPaymentCheckoutAmount(payment), 0);
   const totalDue = scopedPayments
     .filter((payment) => payment.status === "scheduled" || payment.status === "overdue" || payment.status === "expiringSoon")
-    .reduce((sum, payment) => sum + payment.amount, 0);
-  const overdueCount = scopedPayments.filter((payment) => payment.status === "overdue").length;
+    .reduce((sum, payment) => sum + getPaymentCheckoutAmount(payment), 0);
+  const familyAttentionCount =
+    effectivePaymentFilter === "all"
+      ? familyPaymentFilterCounts.risk ?? 0
+      : effectivePaymentFilter === "risk"
+        ? filteredPayments.length
+        : 0;
   const filteredOverdueCount = filteredPayments.filter((payment) => payment.status === "overdue").length;
   const renewalCandidateCount = filteredPayments.filter((payment) => payment.status === "expiringSoon").length;
   const discountedPaymentCount = filteredPayments.filter((payment) => (payment.discountAmount ?? 0) > 0).length;
@@ -801,7 +814,9 @@ export function PaymentsScreen() {
             ) : null
           }
         />
-      ) : null}
+      ) : (
+        <SectionHeader title="결제" />
+      )}
 
       {exportStatus ? (
         <p className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
@@ -815,6 +830,7 @@ export function PaymentsScreen() {
             id: child.id,
             name: child.name,
             meta: `${child.belt} · ${child.level}`,
+            statusLabel: memberStatusLabels[child.status],
           }))}
           selectedChildId={selectedGuardianPaymentChildId}
           onSelect={setSelectedChildId}
@@ -914,11 +930,17 @@ export function PaymentsScreen() {
               </div>
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <p className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600">
-                미납 {effectivePaymentFilter === "all" ? overdueCount : filteredOverdueCount}건
+              <p
+                className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"
+                data-testid="member-payment-due-summary-label"
+              >
+                주의 {familyAttentionCount}건
               </p>
-              <p className="shrink-0 text-sm font-semibold tabular-nums text-zinc-950">
-                {formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)}
+              <p
+                className="shrink-0 text-right text-xs font-semibold leading-5 tabular-nums text-zinc-950"
+                data-testid="member-payment-due-summary-amount"
+              >
+                납부 예정<br />{formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)}
               </p>
             </div>
           </div>
@@ -1213,7 +1235,12 @@ export function PaymentsScreen() {
               회원권 상태
             </span>
           </div>
-          <div className="mt-2 -mx-1 overflow-x-auto px-1">
+          <div
+            aria-label="결제/회원권 요약 지표"
+            className="mt-2 -mx-1 overflow-x-auto px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2"
+            role="region"
+            tabIndex={0}
+          >
             <div className="flex min-w-max gap-1.5">
             {paymentOperationsMetrics.map((metric) => {
               const toneClass =
@@ -1475,6 +1502,8 @@ export function PaymentsScreen() {
               const familyCheckoutStateHelper =
                 familyCheckoutAccess?.state === "guardian_required" ? "학부모 계정에서 진행" : null;
               const familyPaymentPlanLine = getFamilyPaymentPlanLine(payment.planName, payment.member.ageGroup);
+              const isManagedPaymentExpanded = canManagePayments && expandedManagedPaymentId === payment.id;
+              const managementPanelId = `payment-management-${payment.id}`;
 
               return (
                 <article
@@ -1514,7 +1543,7 @@ export function PaymentsScreen() {
                     <>
                       <div>
                         <Link
-                          className="font-semibold text-zinc-950 underline-offset-4 transition hover:text-teal-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                          className="inline-flex min-h-11 items-center font-semibold text-zinc-950 underline-offset-4 transition hover:text-teal-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
                           data-testid="payment-member-profile-link"
                           href={`/app/members?q=${encodeURIComponent(payment.member.name)}`}
                         >
@@ -1535,51 +1564,32 @@ export function PaymentsScreen() {
                       {showPaymentOperationsMeta ? (
                         <p className="text-sm font-semibold text-zinc-950 md:text-right">{formatCurrency(payment.amount)}</p>
                       ) : null}
-                      <div className="rounded-md bg-zinc-50 px-3 py-2 text-sm leading-6 text-zinc-600 md:col-span-5">
-                        <span>만료일 {formatDate(payment.expiresAt)}</span>
-                        {(payment.discountAmount ?? 0) > 0 ? (
-                          <span className="ml-3 font-medium text-teal-700"> 할인 {formatCurrency(payment.discountAmount ?? 0)}</span>
-                        ) : null}
-                        {(payment.refundedAmount ?? 0) > 0 ? (
-                          <span className="ml-3 font-medium text-red-700"> 환불 {formatCurrency(payment.refundedAmount ?? 0)}</span>
-                        ) : null}
-                        {payment.refundReason ? <span className="ml-3"> 사유 {payment.refundReason}</span> : null}
-                        {latestStatusChange ? (
-                          <span className="ml-3"> 최근 변경 {formatDateTime(latestStatusChange.changedAt)} · {latestStatusChange.reason}</span>
-                        ) : null}
+                      <div className="flex flex-col gap-2 rounded-md bg-zinc-50 px-3 py-2 text-sm text-zinc-600 md:col-span-5 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="min-w-0 break-words leading-6">
+                          만료일 {formatDate(payment.expiresAt)}
+                          {(payment.discountAmount ?? 0) > 0 ? ` · 할인 ${formatCurrency(payment.discountAmount ?? 0)}` : ""}
+                          {(payment.refundedAmount ?? 0) > 0 ? ` · 환불 ${formatCurrency(payment.refundedAmount ?? 0)}` : ""}
+                          {payment.refundReason ? ` · 사유 ${payment.refundReason}` : ""}
+                          {latestStatusChange
+                            ? ` · 최근 변경 ${formatDateTime(latestStatusChange.changedAt)} · ${latestStatusChange.reason}`
+                            : ""}
+                        </p>
                         <button
-                          className="ml-0 mt-2 inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 sm:ml-3 sm:mt-0"
-                          data-testid="payment-renewal-prefill"
+                          aria-controls={managementPanelId}
+                          aria-expanded={isManagedPaymentExpanded}
+                          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                          data-testid="payment-management-toggle"
                           type="button"
-                          onClick={() => handlePrefillRenewal(payment)}
+                          onClick={() =>
+                            setExpandedManagedPaymentId((current) => (current === payment.id ? null : payment.id))
+                          }
                         >
-                          <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
-                          재등록
+                          {isManagedPaymentExpanded ? "관리 접기" : "관리 열기"}
+                          <ChevronDown
+                            className={`h-4 w-4 transition-transform ${isManagedPaymentExpanded ? "rotate-180" : ""}`}
+                            aria-hidden
+                          />
                         </button>
-                        {canRequestOnlineCheckout ? (
-                          <button
-                            className="ml-0 mt-2 inline-flex min-h-11 items-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800 transition hover:bg-teal-50 sm:ml-2 sm:mt-0"
-                            data-testid="payment-online-request-button"
-                            type="button"
-                            onClick={() => void handleCreateOnlinePaymentCheckout(payment)}
-                          >
-                            <CreditCard className="h-3.5 w-3.5" aria-hidden />
-                            온라인 요청
-                          </button>
-                        ) : null}
-                        {canCreateRecurringAgreement ? (
-                          <button
-                            className="ml-0 mt-2 inline-flex min-h-11 items-center gap-2 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-800 transition hover:bg-blue-50 sm:ml-2 sm:mt-0"
-                            data-testid="payment-recurring-create-button"
-                            type="button"
-                            onClick={() => void handleCreateRecurringAgreement(payment)}
-                          >
-                            <Repeat2 className="h-3.5 w-3.5" aria-hidden />
-                            정기결제 약정
-                          </button>
-                        ) : null}
-                        {staffOnlinePaymentDetails}
-                        {staffRecurringAgreementDetails}
                       </div>
                     </>
                   ) : (
@@ -1640,144 +1650,191 @@ export function PaymentsScreen() {
                     </>
                   )}
 
-                  {canManagePayments && canManageManualPayment(payment) ? (
-                    <ManualPaymentManagement
-                      payment={payment}
-                      onDelete={handleManualPaymentDelete}
-                      onUpdate={handleManualPaymentUpdate}
-                    />
-                  ) : null}
-                  {canManagePayments ? (
-                    <div className="rounded-md border border-zinc-100 bg-white px-3 py-2 md:col-span-5">
-                      <p className="text-xs font-semibold text-zinc-500">상태 변경 이력</p>
-                      {statusHistory.length === 0 ? (
-                        <p className="mt-1 text-sm text-zinc-500">아직 기록된 상태 변경 이력이 없습니다.</p>
-                      ) : (
-                        <ol className="mt-2 grid gap-2">
-                          {statusHistory.slice(0, 3).map((entry) => (
-                            <li className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between" key={entry.id}>
-                              <div>
-                                <span className="font-semibold text-zinc-800">{paymentStatusLabels[entry.status]}</span>
-                                {entry.reason ? <span className="ml-2 text-zinc-500">{entry.reason}</span> : null}
-                              </div>
-                              <span className="text-xs text-zinc-500">{formatDateTime(entry.changedAt)}</span>
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </div>
-                  ) : null}
-                  {canRefund || canCancel ? (
-                    <form
-                      className={`grid gap-2 rounded-md border border-zinc-100 bg-zinc-50 p-3 md:col-span-5 lg:items-end ${
-                        canRefund
-                          ? "lg:grid-cols-[minmax(12rem,0.8fr)_auto_minmax(18rem,1.4fr)_auto]"
-                          : "lg:grid-cols-[minmax(0,1fr)_auto]"
-                      }`}
-                      data-testid="payment-adjustment-form"
-                      onSubmit={(event) => void handleRefundPayment(event, payment)}
-                    >
-                      {canRefund ? (
-                        <label>
-                          <span className="mb-1 block text-xs font-semibold text-zinc-500">환불 금액</span>
-                          <input
-                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                            data-testid="payment-refund-amount-input"
-                            max={remainingRefundable}
-                            min={100}
-                            step={100}
-                            type="number"
-                            value={draft.amount}
-                            onChange={(event) =>
-                              updatePaymentAdjustmentDraft(payment, { amount: event.target.value, feedback: undefined })
-                            }
-                          />
-                        </label>
-                      ) : null}
-                      {canRefund ? (
+                  {canManagePayments && isManagedPaymentExpanded ? (
+                    <div className="grid gap-3 md:col-span-5" data-testid="payment-management-panel" id={managementPanelId}>
+                      <div className="flex flex-wrap gap-2 rounded-md border border-zinc-100 bg-zinc-50 p-3">
                         <button
-                          className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 lg:w-auto lg:whitespace-nowrap"
-                          data-testid={`payment-refund-full-amount-${payment.id}`}
+                          className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                          data-testid="payment-renewal-prefill"
                           type="button"
-                          onClick={() => updatePaymentAdjustmentDraft(payment, { amount: String(remainingRefundable), feedback: undefined })}
+                          onClick={() => handlePrefillRenewal(payment)}
                         >
-                          전액 입력
+                          <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
+                          재등록
                         </button>
-                      ) : null}
-                      <label>
-                        <span className="mb-1 block text-xs font-semibold text-zinc-500">처리 사유</span>
-                        <input
-                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
-                          data-testid="payment-adjustment-reason-input"
-                          placeholder="환불/취소 사유"
-                          value={draft.reason}
-                          onChange={(event) =>
-                            updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })
-                          }
+                        {canRequestOnlineCheckout ? (
+                          <button
+                            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
+                            data-testid="payment-online-request-button"
+                            type="button"
+                            onClick={() => void handleCreateOnlinePaymentCheckout(payment)}
+                          >
+                            <CreditCard className="h-3.5 w-3.5" aria-hidden />
+                            온라인 요청
+                          </button>
+                        ) : null}
+                        {canCreateRecurringAgreement ? (
+                          <button
+                            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-800 transition hover:bg-blue-50"
+                            data-testid="payment-recurring-create-button"
+                            type="button"
+                            onClick={() => void handleCreateRecurringAgreement(payment)}
+                          >
+                            <Repeat2 className="h-3.5 w-3.5" aria-hidden />
+                            정기결제 약정
+                          </button>
+                        ) : null}
+                        <div className="w-full">
+                          {staffOnlinePaymentDetails}
+                          {staffRecurringAgreementDetails}
+                        </div>
+                      </div>
+                      {canManageManualPayment(payment) ? (
+                        <ManualPaymentManagement
+                          payment={payment}
+                          onDelete={handleManualPaymentDelete}
+                          onUpdate={handleManualPaymentUpdate}
                         />
-                      </label>
-                      {canRefund ? (
-                        <Button
-                          className="self-end"
-                          data-testid="payment-refund-submit"
-                          disabled={!draft.reason.trim()}
-                          size="lg"
-                          type="submit"
-                          variant="danger"
+                      ) : null}
+                      <div className="rounded-md border border-zinc-100 bg-white px-3 py-2">
+                        <p className="text-xs font-semibold text-zinc-500">상태 변경 이력</p>
+                        {statusHistory.length === 0 ? (
+                          <p className="mt-1 text-sm text-zinc-500">아직 기록된 상태 변경 이력이 없습니다.</p>
+                        ) : (
+                          <ol className="mt-2 grid gap-2">
+                            {statusHistory.slice(0, 3).map((entry) => (
+                              <li
+                                className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between"
+                                key={entry.id}
+                              >
+                                <div>
+                                  <span className="font-semibold text-zinc-800">{paymentStatusLabels[entry.status]}</span>
+                                  {entry.reason ? <span className="ml-2 text-zinc-500">{entry.reason}</span> : null}
+                                </div>
+                                <span className="text-xs text-zinc-500">{formatDateTime(entry.changedAt)}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                      {canRefund || canCancel ? (
+                        <form
+                          className={`grid gap-2 rounded-md border border-zinc-100 bg-zinc-50 p-3 lg:items-end ${
+                            canRefund
+                              ? "lg:grid-cols-[minmax(12rem,0.8fr)_auto_minmax(18rem,1.4fr)_auto]"
+                              : "lg:grid-cols-[minmax(0,1fr)_auto]"
+                          }`}
+                          data-testid="payment-adjustment-form"
+                          onSubmit={(event) => void handleRefundPayment(event, payment)}
                         >
-                          환불 처리
-                        </Button>
-                      ) : null}
-                      {canCancel ? (
-                        <Button
-                          className="self-end"
-                          data-testid="payment-cancel-submit"
-                          disabled={!draft.reason.trim()}
-                          size="lg"
-                          type="button"
-                          variant="secondary"
-                          onClick={() => void handleCancelPayment(payment)}
+                          {canRefund ? (
+                            <label>
+                              <span className="mb-1 block text-xs font-semibold text-zinc-500">환불 금액</span>
+                              <input
+                                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                                data-testid="payment-refund-amount-input"
+                                max={remainingRefundable}
+                                min={100}
+                                step={100}
+                                type="number"
+                                value={draft.amount}
+                                onChange={(event) =>
+                                  updatePaymentAdjustmentDraft(payment, { amount: event.target.value, feedback: undefined })
+                                }
+                              />
+                            </label>
+                          ) : null}
+                          {canRefund ? (
+                            <button
+                              className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 lg:w-auto lg:whitespace-nowrap"
+                              data-testid={`payment-refund-full-amount-${payment.id}`}
+                              type="button"
+                              onClick={() =>
+                                updatePaymentAdjustmentDraft(payment, {
+                                  amount: String(remainingRefundable),
+                                  feedback: undefined,
+                                })
+                              }
+                            >
+                              전액 입력
+                            </button>
+                          ) : null}
+                          <label>
+                            <span className="mb-1 block text-xs font-semibold text-zinc-500">처리 사유</span>
+                            <input
+                              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                              data-testid="payment-adjustment-reason-input"
+                              placeholder="환불/취소 사유"
+                              value={draft.reason}
+                              onChange={(event) =>
+                                updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })
+                              }
+                            />
+                          </label>
+                          {canRefund ? (
+                            <Button
+                              className="self-end"
+                              data-testid="payment-refund-submit"
+                              disabled={!draft.reason.trim()}
+                              size="lg"
+                              type="submit"
+                              variant="danger"
+                            >
+                              환불 처리
+                            </Button>
+                          ) : null}
+                          {canCancel ? (
+                            <Button
+                              className="self-end"
+                              data-testid="payment-cancel-submit"
+                              disabled={!draft.reason.trim()}
+                              size="lg"
+                              type="button"
+                              variant="secondary"
+                              onClick={() => void handleCancelPayment(payment)}
+                            >
+                              취소 처리
+                            </Button>
+                          ) : null}
+                          {draft.feedback ? (
+                            <p className="text-xs font-medium text-zinc-600 lg:col-span-full">{draft.feedback}</p>
+                          ) : null}
+                        </form>
+                      ) : canCancelRecurringAgreement ? (
+                        <form
+                          className="grid gap-2 rounded-md border border-zinc-100 bg-zinc-50 p-3 lg:grid-cols-[1fr_auto]"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void handleCancelRecurringAgreement(payment);
+                          }}
                         >
-                          취소 처리
-                        </Button>
+                          <label>
+                            <span className="mb-1 block text-xs font-semibold text-zinc-500">정기결제 해지 사유</span>
+                            <input
+                              className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                              placeholder="해지 요청 사유"
+                              value={draft.reason}
+                              onChange={(event) =>
+                                updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })
+                              }
+                            />
+                          </label>
+                          <Button
+                            className="self-end"
+                            data-testid="payment-recurring-cancel-submit"
+                            disabled={!draft.reason.trim()}
+                            size="lg"
+                            type="submit"
+                            variant="secondary"
+                          >
+                            해지 저장
+                          </Button>
+                          {draft.feedback ? (
+                            <p className="text-xs font-medium text-zinc-600 lg:col-span-2">{draft.feedback}</p>
+                          ) : null}
+                        </form>
                       ) : null}
-                      {draft.feedback ? (
-                        <p className="text-xs font-medium text-zinc-600 lg:col-span-full">{draft.feedback}</p>
-                      ) : null}
-                    </form>
-                  ) : canCancelRecurringAgreement ? (
-                    <form
-                      className="grid gap-2 rounded-md border border-zinc-100 bg-zinc-50 p-3 md:col-span-5 lg:grid-cols-[1fr_auto]"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void handleCancelRecurringAgreement(payment);
-                      }}
-                    >
-                      <label>
-                        <span className="mb-1 block text-xs font-semibold text-zinc-500">정기결제 해지 사유</span>
-                        <input
-                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
-                          placeholder="해지 요청 사유"
-                          value={draft.reason}
-                          onChange={(event) =>
-                            updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })
-                          }
-                        />
-                      </label>
-                      <Button
-                        className="self-end"
-                        data-testid="payment-recurring-cancel-submit"
-                        disabled={!draft.reason.trim()}
-                        size="lg"
-                        type="submit"
-                        variant="secondary"
-                      >
-                        해지 저장
-                      </Button>
-                      {draft.feedback ? (
-                        <p className="text-xs font-medium text-zinc-600 lg:col-span-2">{draft.feedback}</p>
-                      ) : null}
-                    </form>
+                    </div>
                   ) : null}
                 </article>
               );

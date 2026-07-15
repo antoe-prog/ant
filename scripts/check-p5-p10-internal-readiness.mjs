@@ -54,6 +54,7 @@ const files = {
   notificationAlerts: "src/lib/notification-alerts.ts",
   notificationsAliasRoute: "src/app/(app)/app/notifications/page.tsx",
   notificationsScreen: "src/components/screens/notifications-screen.tsx",
+  noticesLib: "src/lib/notices.ts",
   noticesAliasRoute: "src/app/(app)/notices/page.tsx",
   noticeMemberSearch: "src/lib/notice-member-search.ts",
   notFound: "src/app/not-found.tsx",
@@ -678,6 +679,14 @@ for (const fragment of retiredRequestEvidenceFragments) {
   assert(!screenshotFiles.some((file) => file.includes(fragment)), `deleted request evidence must not stay in active screenshot requirements: ${fragment}`);
 }
 
+const releaseRunnerSource = readFileSync(files.releaseRunner, "utf8");
+assertAppearsBefore(
+  releaseRunnerSource,
+  '["run", "test:visible-app-copy-stability"]',
+  '["run", "test:p5-p10-internal-readiness"]',
+  "release runner visible-copy evidence dependency",
+);
+
 const optionalRemovedFileKeys = new Set(["requestsScreen"]);
 const sources = Object.fromEntries(
   Object.entries(files).map(([key, file]) => [
@@ -895,26 +904,29 @@ for (const snippet of [
   assertIncludes(sources.appShell, snippet, "app shell role-aware navigation labels");
 }
 for (const snippet of [
-  'const showMobileSessionRail = user.role !== "member" && user.role !== "guardian";',
-  'data-testid="mobile-session-rail"',
+  "const showMobileAccountMenu = true;",
+  'data-testid="mobile-account-menu-toggle"',
+  'data-testid="mobile-account-menu"',
+  'document.addEventListener("pointerdown", handlePointerDown);',
+  'document.addEventListener("keydown", handleKeyDown);',
   'data-testid="app-header-notice-link"',
-  'className="relative inline-flex h-11 w-11',
+  "relative inline-flex h-11 w-11",
   'data-testid="mobile-session-role-switch"',
   'data-testid="mobile-session-logout-button"',
   "data-mobile-route-id={route.id}",
-  'const isNoticeScreenPath = pathname === "/app/notices" || pathname.startsWith("/app/notices/");',
-  'const useNotificationInboxMobileRoute = route.id === "notices" && !isNoticeScreenPath;',
-  'const mobileRouteHref = useNotificationInboxMobileRoute ? "/app/notifications" : route.href;',
-  'const mobileRouteLabel = useNotificationInboxMobileRoute ? "알림" : routeLabel;',
+  "const mobileRouteHref = route.href;",
+  "const mobileRouteLabel = routeLabel;",
+  'route.id === "notices" && hasUnreadNotices',
   "const mobileRouteAriaLabel =",
   'aria-label={mobileRouteAriaLabel}',
-  'renderNotificationBadge("mobile-notice-unread-badge", "mobile")',
+  'renderNotificationBadge("mobile-notice-unread-badge", "mobile", true)',
   'placement === "mobile" ? "right-1 top-1" : "-right-1 -top-1"',
   "pointer-events-none absolute inline-flex",
-  "{showMobileSessionRail ? (",
+  "{showMobileAccountMenu ? (",
 ]) {
-  assertIncludes(sources.appShell, snippet, "app shell family mobile session rail cleanup");
+  assertIncludes(sources.appShell, snippet, "app shell compact mobile account and notice navigation");
 }
+assertExcludes(sources.appShell, 'data-testid="mobile-session-rail"', "retired permanent mobile session rail");
 for (const snippet of ["operationError.status", "operationError.code"]) {
   assertExcludes(sources.appShell, snippet, "app shell operation error technical code cleanup");
 }
@@ -1007,12 +1019,16 @@ assertIncludes(
   "guardian child switcher avoids duplicate trial copy",
 );
 for (const snippet of [
-  "function isNoticeVisibleForGuardianChild",
-  'notice.audience.includes("all") || notice.audience.includes("guardian")',
-  "notice.branchId === child.branchId",
-  "notice.targetMemberIds.includes(child.id)",
-  "notice.targetClassIds.some((classId) => childClassIds.has(classId))",
+  "export function isNoticeRelevantToMember",
+  "targetMemberIds.includes(memberId)",
+  "targetClassIds.some((classId) => memberClassIds.has(classId))",
+]) {
+  assertIncludes(sources.noticesLib, snippet, "shared notice-to-member scope helper");
+}
+for (const snippet of [
+  "isNoticeRelevantToMember",
   "const selectedChildVisibleNotices = selectedChild",
+  "data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChild.id, context.db.classes))",
   "const promotionResultNotice = selectedChildVisibleNotices.find",
   "/심사\\s*결과|승급\\s*결과|통과|합격|불합격/.test",
   "selectedChildVisibleNotices.find((notice) => /대회|시합|토너먼트/.test",
@@ -1032,7 +1048,11 @@ for (const snippet of [
 ]) {
   assertIncludes(sources.childSwitcher, snippet, "guardian child switcher mobile no-overflow layout");
 }
-assertExcludes(sources.childSwitcher, 'child.statusLabel ? ` · ${child.statusLabel}` : ""', "guardian child switcher avoids repeated account status labels");
+assertIncludes(
+  sources.childSwitcher,
+  'child.statusLabel && child.statusLabel !== "활성" ? ` · ${child.statusLabel}` : ""',
+  "guardian child switcher surfaces exceptional states while keeping active implicit",
+);
 assertExcludes(sources.childSwitcher, "overflow-x-auto", "guardian child switcher mobile horizontal crop");
 for (const snippet of [
   'actionLabel: "자세히 보기"',
@@ -1078,7 +1098,7 @@ for (const snippet of [
   'data-testid="guardian-learning-action-link"',
   "href: personalPaymentActionHref",
   'href: "/app/notifications"',
-  "import { Fragment, useMemo, useState } from \"react\";",
+  "import { Fragment, useEffect, useMemo, useState } from \"react\";",
   "{index > 0 ? <span className=\"sr-only\"> </span> : null}",
   "const node = insight.actionHref && insight.actionLabel ?",
   "{node}",
@@ -1128,7 +1148,7 @@ for (const snippet of [
   "`출석 기록 ${personalAttendanceRecords.length}건`",
   "const personalNoticeStatus = personalUnreadNotices.length > 0 ? `${personalUnreadNotices.length}건` : \"확인 완료\"",
   "`미확인 공지 ${personalUnreadNotices.length}건`",
-  "`공지 ${data.notices.length}건 모두 확인`",
+  "`공지 ${personalNotices.length}건 모두 확인`",
   'label: "공지"',
 ]) {
   assertIncludes(sources.dashboardScreen, snippet, "member dashboard priority card copy stays compact");
@@ -1327,9 +1347,13 @@ assertIncludes(sources.noticesScreen, ': `공지 ${filteredNotices.length} · �
 assertExcludes(sources.noticesScreen, "현재 공지 모두 읽음", "member and guardian bulk read button state-like copy");
 assertIncludes(sources.noticesScreen, 'data-testid="family-notice-compact-filter-bar"', "member and guardian compact notice filter bar");
 assertIncludes(sources.noticesScreen, 'data-testid="family-notice-filter-grid"', "member and guardian notice toolbar fixed grid layout");
-assertIncludes(sources.noticesScreen, "grid grid-cols-4 gap-1.5", "member and guardian notice toolbar avoids clipped horizontal scroll");
-assertIncludes(sources.noticesScreen, "inline-flex min-h-11 min-w-0", "member and guardian notice filter touch target");
-assertIncludes(sources.noticesScreen, 'className="min-h-11 min-w-0 px-1.5 text-sm"', "member and guardian notice bulk read touch target");
+assertIncludes(
+  sources.noticesScreen,
+  "grid grid-cols-[repeat(3,minmax(0,1fr))_minmax(4.5rem,auto)] gap-1.5",
+  "member and guardian notice toolbar reserves width for the bulk-read action",
+);
+assertIncludes(sources.noticesScreen, "inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap", "member and guardian notice filter touch target");
+assertIncludes(sources.noticesScreen, 'className="min-h-11 min-w-0 whitespace-nowrap px-1.5 text-sm"', "member and guardian notice bulk read touch target");
 assertExcludes(sources.noticesScreen, 'data-testid="family-notice-status-badge"', "member and guardian notices avoid redundant filter-count status badge");
 assertIncludes(sources.noticesScreen, 'const singleReadButtonLabel = showNoticeDeliveryMeta ? "읽음" : "확인";', "member and guardian individual read button compact app copy");
 assertIncludes(sources.noticesScreen, "const showCompactReadAction = !showNoticeDeliveryMeta && !read;", "member and guardian compact notice read action guard");
@@ -1657,11 +1681,11 @@ const notificationPaymentTargetSource = sources.notificationsScreen.slice(
 assertIncludes(notificationPaymentTargetSource, 'actionLabel: checkoutAccess.label', "notifications screen reuses checkout action label for payable family users");
 assertIncludes(notificationPaymentTargetSource, 'checkoutAccess.state === "guardian_required" ? "학부모 확인" : "납부 확인"', "notifications screen uses specific non-payable payment action labels");
 assertExcludes(notificationPaymentTargetSource, 'actionLabel: "보기"', "payment notification fallback must not restore generic view copy");
-assertIncludes(sources.notificationsScreen, "납부 정보 확인 필요", "notifications screen pending payment copy asks for payment info confirmation");
+assertIncludes(sources.notificationsScreen, "납부 요청 필요", "notifications screen pending payment copy asks for a payment request");
 assertIncludes(
   sources.paymentCheckoutAccess,
-  'label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 정보 확인"',
-  "family checkout ready action uses payment-info confirmation copy",
+  'label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청"',
+  "family checkout ready action uses request copy before provider integration",
 );
 assertExcludes(sources.paymentCheckoutAccess, "결제하기", "family checkout ready action must not imply live payment approval");
 assertExcludes(sources.notificationsScreen, "결제 진행 필요", "notifications screen must not imply live payment progress from pending alerts");
@@ -1688,14 +1712,18 @@ assertIncludes(sources.noticesAliasRoute, 'redirect("/app/notices")', "legacy ro
 assertIncludes(sources.roles, "mobileNavRouteIdsByRole", "role-specific mobile bottom navigation contract");
 assertIncludes(
   sources.roles,
-  'admin: ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "adminSettings"]',
-  "admin mobile nav management route set",
+  'admin: ["dashboard", "adminBranches", "adminUsers", "notices", "adminSettings"]',
+  "admin mobile primary navigation route set",
 );
 assertIncludes(
   sources.roles,
-  'owner: ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"]',
-  "owner mobile nav compact route set",
+  'owner: ["dashboard", "members", "payments", "notices", "ownerReports"]',
+  "owner mobile primary navigation route set",
 );
+assertIncludes(sources.roles, "mobileSecondaryRouteIdsByRole", "role-specific mobile secondary navigation contract");
+assertIncludes(sources.roles, 'admin: ["members", "adminRoles", "adminAuditLogs"]', "admin mobile secondary navigation route set");
+assertIncludes(sources.roles, 'owner: ["ownerBranches"]', "owner mobile secondary navigation route set");
+assertIncludes(sources.roles, "export function getMobileSecondaryRoutes(role: UserRole)", "mobile secondary route selector");
 for (const snippet of [
   'coach: ["dashboard", "classes", "members", "promotions", "notices"]',
   'guardian: ["dashboard", "classes", "members", "payments", "tournaments"]',
@@ -2212,16 +2240,16 @@ assert.equal(
   "guardian payment copy evidence must seed a pending checkout",
 );
 assert(
-  (guardianNotificationPaymentCopyCase.beforeState?.paymentTitles ?? []).includes("한유나 납부 정보 확인 필요"),
-  "guardian payment copy evidence must show pending payment info-confirmation title",
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentTitles ?? []).includes("한유나 납부 요청 필요"),
+  "guardian payment copy evidence must show pending payment request title",
 );
 assert(
   (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 확인 중"),
   "guardian payment copy evidence must show pending payment confirmation action copy",
 );
 assert(
-  (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 정보 확인"),
-  "guardian payment copy evidence must show payable payment info-confirmation action copy",
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 요청"),
+  "guardian payment copy evidence must show payable payment request action copy",
 );
 assert(
   !/결제 진행 필요|결제 진행 중|결제하기/.test(guardianNotificationPaymentCopyCase.beforeState?.inboxText ?? ""),
@@ -2707,13 +2735,12 @@ assertExcludes(sources.accountScreen, "@finaljudo.test", "account visible seed e
 assertIncludes(sources.accountScreen, "<InstallAppAction />", "account keeps web-only install action");
 for (const snippet of [
   'const { signOut } = useAppStore();',
-  'const showFamilyAccountActions = context.user.role === "member" || context.user.role === "guardian";',
   'data-testid="account-action-panel"',
   'data-testid="account-role-switch-link"',
   'data-testid="account-logout-button"',
   "min-h-11",
 ]) {
-  assertIncludes(sources.accountScreen, snippet, "family account actions stay on the account screen");
+  assertIncludes(sources.accountScreen, snippet, "all-role account actions stay on the account screen");
 }
 assertIncludes(sources.roles, "export const roleManagementScopeLabels", "shared role management scope descriptions");
 assertIncludes(sources.roles, 'guardian: "자녀 확인"', "shared guardian scope copy");
@@ -4383,12 +4410,12 @@ for (const [label, source] of [
 assertIncludes(sources.noticePermissions, 'export const noticePublisherRoles = new Set<UserRole>(["owner", "admin", "coach"]);', "member and guardian notice operation board visibility guard");
 for (const snippet of [
   "noticePublisherRoles.has(context.user.role)",
-  'const isCoachNoticeReader = context.user.role === "coach" && !canPublishNotice;',
-  "showNoticeScreenHeader",
   "const showNoticeAside = canPublishNotice;",
 ]) {
   assertIncludes(sources.noticesScreen, snippet, "member and guardian notice operation board visibility guard");
 }
+assertIncludes(sources.noticesScreen, '<SectionHeader title="공지" />', "notice screen keeps a role-independent orientation heading");
+assertExcludes(sources.noticesScreen, "showNoticeScreenHeader", "notice screen no longer conditionally removes its orientation heading");
 for (const snippet of ["const showNoticeOperations = canPublishNotice;", "showNoticeSettings", "NotificationPermissionPanel", "notice-action-queue", "p2-notice-follow-up-board"]) {
   assertExcludes(sources.noticesScreen, snippet, "member and guardian notice operation boards stay removed");
 }
@@ -4397,7 +4424,7 @@ for (const snippet of [
   "const showNoticeDeliveryMeta = canPublishNotice;",
   "showNoticeDeliveryMeta ? (",
   "${formatDateTime(notice.createdAt)} · 읽음 ${getNoticeReadCount(notice)}명",
-  '{showNoticeScreenHeader ? <SectionHeader title="공지" /> : null}',
+  '<SectionHeader title="공지" />',
 ]) {
   assertIncludes(sources.noticesScreen, snippet, "notice delivery metadata stays limited to publishing roles");
 }
@@ -4455,17 +4482,14 @@ assertExcludes(sources.adminSettings, '<SectionHeader title="시스템 설정" /
 assertExcludes(sources.adminSettings, 'aria-label="시스템 설정 요약"', "admin settings system-facing summary label");
 for (const [source, snippet, label] of [
   [sources.classesScreen, 'const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";', "classes member/guardian screen header guard"],
-  [sources.classesScreen, '{showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : null}', "classes member/guardian repeated title removal"],
+  [sources.classesScreen, '{showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : <SectionHeader title="수업" />}', "classes role-aware orientation heading"],
   [sources.paymentsScreen, 'const showPaymentsScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";', "payments member/guardian screen header guard"],
-  [sources.paymentsScreen, "{showPaymentsScreenHeader ? (", "payments member/guardian repeated title removal"],
-  [sources.appShell, 'const isAccountRoute = pathname === "/app/account" || pathname.startsWith("/app/account/");', "family account route header logout guard"],
-  [sources.appShell, "const showMobileHeaderLogout = !showMobileSessionRail && !isAccountRoute;", "member/guardian compact header logout guard"],
-  [sources.appShell, 'data-testid="mobile-header-logout-button"', "member/guardian compact header logout test id"],
+  [sources.paymentsScreen, '<SectionHeader title="결제" />', "payments family orientation heading"],
+  [sources.appShell, 'const isAccountRoute = pathname === "/app/account" || pathname.startsWith("/app/account/");', "all-role account menu active-route guard"],
+  [sources.appShell, "const showMobileAccountMenu = true;", "all-role compact account menu guard"],
   [sources.visibleAppCopyScript, "familyRepeatedScreenHeaderCount", "visible copy repeated family screen header guard"],
-  [sources.visibleAppCopyScript, "mobileSessionRailCount", "visible copy family session rail guard"],
-  [sources.visibleAppCopyScript, "mobileHeaderLogoutButtonCount", "visible copy family header logout guard"],
-  [sources.visibleAppCopyScript, "mobileHeaderLogoutButtonCount, 0", "visible copy family account header logout removal guard"],
-  [sources.visibleAppCopyScript, "mobileHeaderLogoutButtonHeight >= 44", "visible copy family header logout touch guard"],
+  [sources.visibleAppCopyScript, "mobileAccountMenuToggleCount", "visible copy all-role account menu guard"],
+  [sources.visibleAppCopyScript, "mobileHeaderLogoutButtonCount, 0", "visible copy duplicate header logout removal guard"],
   [sources.visibleAppCopyScript, "mobileBottomNavRouteIds", "visible copy mobile nav order guard"],
   [sources.visibleAppCopyScript, "mobileBottomNavActiveRouteIds", "visible copy mobile active nav route guard"],
   [sources.visibleAppCopyScript, "mobileBottomNavCurrentRouteIds", "visible copy mobile current nav route guard"],
@@ -4476,11 +4500,11 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgeContained", "visible copy mobile notice badge containment guard"],
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgePointerEvents", "visible copy mobile notice badge tap guard"],
   [sources.visibleAppCopyScript, "must activate the notices bottom-nav item", "visible copy notices active nav guard"],
-  [sources.visibleAppCopyScript, "`${expectedFamilyNoticeLabel}, 미확인 공지`", "visible copy family mobile unread notice aria guard"],
-  [sources.visibleAppCopyScript, "`${expectedFamilyNoticeLabel}, 확인 필요 결제`", "visible copy family mobile payment alert aria guard"],
-  [sources.visibleAppCopyScript, "`${expectedCoachNoticeLabel}, 미확인 공지`", "visible copy coach mobile unread notice aria guard"],
-  [sources.visibleAppCopyScript, "`${expectedCoachNoticeLabel}, 확인 필요 결제`", "visible copy coach mobile payment alert aria guard"],
-  [sources.visibleAppCopyScript, "familyNoticeCardMaxHeight <= 132", "visible copy compact family notice card guard"],
+  [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgeUnreadCount", "visible copy notice-only badge count guard"],
+  [sources.visibleAppCopyScript, "layout.appHeaderNoticeBadgeUnreadCount", "visible copy header/mobile unread notice consistency guard"],
+  [sources.visibleAppCopyScript, 'includes("공지, 미확인 공지")', "visible copy coach notice-only aria guard"],
+  [sources.visibleAppCopyScript, "bottom navigation must not duplicate the header notification inbox", "visible copy family duplicate notice removal guard"],
+  [sources.visibleAppCopyScript, "familyNoticeCardMaxHeight <= 152", "visible copy compact family notice card guard"],
   [sources.visibleAppCopyScript, "familyNoticeBodyMaxHeight <= 44", "visible copy compact tappable family notice body guard"],
   [sources.visibleAppCopyScript, "familyNoticeFilterGridColumnCount", "visible copy family notice toolbar grid guard"],
   [sources.visibleAppCopyScript, "familyNoticeDetailToggleCount", "visible copy family notice content toggle guard"],
@@ -4510,9 +4534,7 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, '"guardian-notifications"', "visible copy guardian notifications alias coverage"],
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeHref", "visible copy bottom notice href evidence"],
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeLabel", "visible copy bottom notice label evidence"],
-  [sources.visibleAppCopyScript, 'testCase.next === "/app/notices" ? "공지" : "알림"', "visible copy path-aware notice label guard"],
   [sources.visibleAppCopyScript, 'layout.mobileBottomNavNoticeHref, "/app/notices"', "visible copy notices bottom href guard"],
-  [sources.visibleAppCopyScript, 'layout.mobileBottomNavNoticeHref, "/app/notifications"', "visible copy notifications bottom href guard"],
   [sources.visibleAppCopyScript, "localhost|127\\.0\\.0\\.1|example\\.com", "visible copy local/example origin guard"],
   [sources.dashboardScreen, 'className="order-1 overflow-hidden rounded-lg border border-zinc-200 bg-white"', "owner dashboard surfaces branch comparison before risk summary on mobile"],
   [sources.dashboardScreen, 'className="order-2 grid gap-2 xl:gap-3"', "owner dashboard keeps compact risk summary below branch comparison on mobile"],
@@ -4685,7 +4707,7 @@ for (const snippet of [
   ": paymentFilterOptions.filter((option) => isFamilyPaymentFilter(option.value));",
   "const familyPaymentFilterCounts",
   "showPaymentOperationsMeta ? (",
-  "latestStatusChange ? (",
+  "` · 최근 변경 ${formatDateTime(latestStatusChange.changedAt)} · ${latestStatusChange.reason}`",
   'data-testid={canManagePayments ? undefined : "member-guardian-payment-status-list"}',
   'data-testid={canManagePayments ? undefined : "member-payment-compact-card"}',
   'data-testid="member-payment-date-line"',
@@ -4727,7 +4749,7 @@ for (const snippet of [
   'className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"',
   'className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"',
   "납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}",
-  '{effectivePaymentFilter === "all" ? overdueCount : filteredOverdueCount}',
+	  "const familyAttentionCount =",
   'formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)',
 ]) {
   assertIncludes(sources.paymentsScreen, snippet, "member and guardian payment operations meta guard");
@@ -5296,10 +5318,10 @@ assertIncludes(sources.dashboardScreen, "const ownerNoActionLabel = `${period.la
 assertIncludes(sources.dashboardScreen, 'const ownerPrioritySignalLabel = period.id === "today" ? "오늘 우선 신호"', "owner dashboard period-aware priority signal");
 
 for (const snippet of [
-  "formatDateKey",
-  "const todayDateKey = formatDateKey(new Date());",
+  "const [currentTime, setCurrentTime] = useState(() => Date.now());",
+  "window.setInterval(() => setCurrentTime(Date.now()), 60_000)",
   "const personalUpcomingClasses = [...personalClasses]",
-  "formatDateKey(session.endsAt) >= todayDateKey",
+  "new Date(session.endsAt).getTime() > currentTime",
   "const personalUpcomingTodayClasses = [...personalTodayClasses]",
   "personalUpcomingTodayClasses[0] ?? personalUpcomingClasses[0]",
   "출석 기록 ${personalAttendanceRecords.length}건",
@@ -5588,26 +5610,26 @@ for (const snippet of [
   "payment-checkout-provider-status",
   "payment-wooriwonpay-modal",
   "payment-checkout-summary",
-	  "payment-checkout-summary-grid",
-	  "initialPaymentMethod",
-	  "getInitialPaymentMethod",
-	  "#payment-wooriwonpay-modal",
-	  "#payment-account-method-panel",
-	  'id="payment-account-method-panel"',
-	  'checkoutAccess.state === "guardian_required"',
+  "payment-checkout-summary-grid",
+  "initialPaymentMethod",
+  "getInitialPaymentMethod",
+  "#payment-wooriwonpay-modal",
+  "#payment-account-method-panel",
+  'id="payment-account-method-panel"',
+  'checkoutAccess.state === "guardian_required"',
   'checkoutAccess.state === "forbidden"',
   "checkoutStateLabel",
-	  "납부 안내",
-	  "이름·휴대전화 필수",
-	  "결제 대상",
-	  "납부 방법 안내 상태",
-	  "납부 정보 접수",
-		  "납부 정보 확인",
-		  "const [savePaymentInfo, setSavePaymentInfo] = useState(false);",
-		  "선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.",
-		  "선택한 납부 방식은 확인용으로 저장하고, 도장 안내 후 입금·인증 절차를 이어갑니다.",
-		  "다음 납부에도 사용할 정보로 표시했습니다.",
-	  "이번 납부 확인에만 사용합니다.",
+  "납부 안내",
+  "이름·휴대전화 필수",
+  "요청 가능",
+  "납부 방법 안내 상태",
+  "납부 요청 안내",
+  "지금은 실제 결제나 출금이 진행되지 않습니다.",
+  "선택한 납부 방식은 이 화면에서만 확인할 수 있습니다.",
+  "입력 내용 확인",
+  "결제 정보 확인 단계",
+  "현재 입력 내용은 확인용이며 저장·전달되지 않습니다.",
+  "저장되거나 담당자에게 전달되지 않으며 실제 결제나 출금도 진행되지 않습니다.",
   'data-testid="payment-confirm-feedback"',
   'id="payment-confirm-feedback"',
   'role="status"',
@@ -5748,9 +5770,9 @@ for (const snippet of [
   "providerStatusNavClearance >= 24",
   "summaryHeight <= 245",
   "summaryGridHeight <= 150",
-  "payerInfoTop <= 480",
+  "payerInfoTop < layout.viewportHeight",
   "payerInfoHeight <= 280",
-  "methodSectionTop <= 730",
+  "methodSectionTop - layout.payerInfoTop <= 360",
   "cardGuideButtonMinHeight >= 44",
   "payment-card-guide-button",
   "optionalDetailsCount, 0",
@@ -5771,23 +5793,23 @@ for (const snippet of [
   "outputCleanup",
   "이메일 주소 입력",
   "payer email placeholder avoids sample/test account copy",
-  "must require an explicit opt-in before saving payment method info",
-  "bank transfer confirmation must default to one-time payment info",
-  "confirmation must reflect saved payment info after explicit opt-in",
-  "reusable payment information starts unchecked and only changes after explicit opt-in",
-  "다음 납부에도 사용할 정보로 표시했습니다",
-  "이번 납부 확인에만 사용합니다",
-  "default confirmation must not claim saved payment info",
-  "saved confirmation must not keep one-time payment copy",
+  "saveMethodControlCount, 0",
+  "must not pretend to save payment method data before provider integration",
+  "bank transfer confirmation must expose the unsaved state",
+  "bank transfer confirmation must not imply immediate approval",
+  "editing confirmed payer info must invalidate the prior confirmation",
+  "card guide feedback must announce as a status message",
+  "unimplemented reusable payment information controls stay hidden",
   "collectConfirmationFeedbackA11y",
   "confirmation feedback must announce as a status message",
   "confirmation feedback must use polite live-region timing",
   "checkout confirmation feedback announces through a polite status live region",
   "confirmationFeedbackA11y",
-	  "collectWooriWonPayModalLayout",
-	  "우리WON페이 선택을 확인합니다",
-	  "앱 선택은 납부 안내에 참고됩니다",
-	  "WooriWON Pay modal copy confirms app selection without implying live payment",
+  "collectWooriWonPayModalLayout",
+  "우리WON페이 선택을 확인합니다",
+  "앱 선택은 입력 내용 확인에만 사용됩니다",
+  "Woori modal ArrowRight must select the next tab",
+  "WooriWON Pay modal copy confirms app selection without implying live payment",
   "Woori modal must not imply live payment completion before provider connection",
   'data-testid="payment-wooriwonpay-panel"',
   'data-testid="payment-wooriwonpay-tab-primary"',
@@ -6638,8 +6660,9 @@ assertExcludes(
 );
 
 for (const snippet of [
-  "scrollToHashTarget",
+  "navigateToHashTarget",
   "scrollIntoView",
+  'window.addEventListener("hashchange", navigateToHashTarget);',
 ]) {
   assertIncludes(sources.adminSettings, snippet, "admin settings operational guardrails");
 }
@@ -7078,22 +7101,24 @@ for (const id of [
     assert.equal(page.memberProfileEmptyAlertCopyCount, 0, `${id} visible app copy scan must hide repeated empty warning copy`);
     assert.equal(page.memberProfileEmptyNoteCopyCount, 0, `${id} visible app copy scan must hide repeated empty counseling/feedback copy`);
   }
-  if (page.role === "member" || page.role === "guardian") {
-    const isFamilyAccountPage = id === "member-account" || id === "guardian-account";
+	  if (page.role === "member" || page.role === "guardian") {
+	    const isFamilyAccountPage = id === "member-account" || id === "guardian-account";
 
-    assert.equal(page.mobileSessionRailCount, 0, `${id} visible app copy scan must keep the repeated mobile session rail hidden`);
-    if (isFamilyAccountPage) {
-      assert.equal(page.mobileHeaderLogoutButtonCount, 0, `${id} visible app copy scan must keep logout only in the account action panel`);
-      assert.equal(page.accountLogoutButtonCount, 1, `${id} visible app copy scan must keep one account-screen logout action`);
-    } else {
-      assert.equal(page.mobileHeaderLogoutButtonCount, 1, `${id} visible app copy scan must render one compact header logout action`);
-      assert(page.mobileHeaderLogoutButtonHeight >= 44, `${id} visible app copy scan must keep header logout tappable`);
-    }
+	    assert.equal(page.mobileAccountMenuToggleCount, 1, `${id} visible app copy scan must render one compact family account menu`);
+	    assert(page.mobileAccountMenuToggleHeight >= 44, `${id} visible app copy scan must keep the family account menu tappable`);
+	    assert.equal(page.mobileHeaderLogoutButtonCount, 0, `${id} visible app copy scan must keep logout inside the account menu or account screen`);
+	    if (isFamilyAccountPage) {
+	      assert.equal(page.accountLogoutButtonCount, 1, `${id} visible app copy scan must keep one account-screen logout action`);
+	    }
+	  }
+  if (page.role === "admin" || page.role === "owner" || page.role === "coach") {
+    assert.equal(page.mobileAccountMenuToggleCount, 1, `${id} visible app copy scan must render one compact staff account menu`);
+    assert(page.mobileAccountMenuToggleHeight >= 44, `${id} visible app copy scan must keep the staff account menu tappable`);
   }
-  if (id === "member-account" || id === "guardian-account") {
-    assert.equal(page.mobileBottomNavActiveRouteIds, "members", `${id} visible app copy scan must keep the family info bottom-nav item active`);
-    assert.equal(page.mobileBottomNavCurrentRouteIds, "members", `${id} visible app copy scan must mark the family info bottom-nav item as current`);
-  }
+	  if (id === "member-account" || id === "guardian-account") {
+	    assert.equal(page.mobileBottomNavActiveRouteIds, "", `${id} visible app copy scan must not mislabel family info as the current account destination`);
+	    assert.equal(page.mobileBottomNavCurrentRouteIds, "", `${id} visible app copy scan must keep account location in the account menu`);
+	  }
 	  if (id === "admin-audit") {
 	    assert.equal(page.adminAuditVisibleReadLogCount, 0, "admin audit visible app copy scan must hide read-audit noise by default");
 	    assert.equal(page.adminAuditSummaryBarCount, 1, "admin audit visible app copy scan must render one compact summary bar");
@@ -7124,6 +7149,9 @@ for (const id of [
 	    assert(page.adminAuditActiveFilterChipCount >= 4, "admin audit visible app copy scan must show compact applied filter chips");
 	  }
   if (id === "admin-settings") {
+    assert.equal(page.adminSettingsPolicySelectedBeforeSwitch, "true", "admin settings visible copy scan must begin on policy settings");
+    assert.equal(page.adminSettingsOperationsSelectedAfterSwitch, "true", "admin settings visible copy scan must switch to field operations");
+    assert(page.adminSettingsPolicyScreenshotSizeBytes > 10_000, "admin settings visible copy scan must capture the policy tab");
     assert.equal(page.adminSettingsSummaryBarCount, 1, "admin settings visible app copy scan must render one compact summary bar");
     assert(page.adminSettingsSummaryBarHeight >= 44, "admin settings visible app copy scan must keep summary readable");
     assert(page.adminSettingsSummaryBarHeight <= 56, "admin settings visible app copy scan must keep summary compact");
@@ -7459,14 +7487,25 @@ for (const id of [
     assert.equal(page.memberPaymentDateLineCount, page.memberPaymentCompactCardCount, `${id} visible app copy scan must render one due/expires line per payment`);
     assert(page.memberPaymentDateLineMaxHeight >= 44, `${id} visible app copy scan must keep payment date lines at a stable scan height`);
     assert(page.memberPaymentDateLineMaxHeight <= 48, `${id} visible app copy scan must keep payment date lines compact`);
-    assert(
-      (page.memberPaymentCheckoutActionTexts ?? []).some((text) => String(text).includes("납부 정보 확인")),
-      `${id} visible app copy scan must show payment-info confirmation copy on checkout actions`,
-    );
-    assert(
-      (page.memberPaymentCheckoutActionTexts ?? []).every((text) => !String(text).includes("결제하기")),
-      `${id} visible app copy scan must not show live-payment approval copy on checkout actions`,
-    );
+	    if (id === "member-payments") {
+	      assert(page.memberPaymentCheckoutActionCount > 0, `${id} visible app copy scan must keep checkout actions on payable cards`);
+	    } else {
+	      assert(
+	        page.memberPaymentCheckoutActionCount > 0 || page.memberPaymentCheckoutStateBadgeCount > 0,
+	        `${id} visible app copy scan must show a payable action or the selected child's truthful state`,
+	      );
+	    }
+	    if (page.memberPaymentCheckoutActionCount > 0) {
+	      assert(
+	        (page.memberPaymentCheckoutActionTexts ?? []).some((text) => String(text).includes("납부 요청")),
+	        `${id} visible app copy scan must show request copy on checkout actions`,
+	      );
+	      assert(
+	        (page.memberPaymentCheckoutActionTexts ?? []).every((text) => !String(text).includes("결제하기")),
+	        `${id} visible app copy scan must not show live-payment approval copy on checkout actions`,
+	      );
+	      assert(page.memberPaymentCheckoutActionMinHeight >= 44, `${id} visible app copy scan must keep checkout actions tappable`);
+	    }
     assert.equal(
       page.memberPaymentCheckoutLinkCardCount,
       page.memberPaymentCheckoutActionCount,
@@ -7491,8 +7530,14 @@ for (const id of [
     assert.equal(page.memberPaymentCompactAmountTextCount, 0, `${id} visible app copy scan must not expose compact payment amounts`);
   }
   if (id === "member-notices" || id === "guardian-notices") {
-    assert.equal(page.mobileBottomNavNoticeLabel, "공지", `${id} visible app copy scan must label the active notices tab as 공지`);
-    assert.equal(page.mobileBottomNavNoticeHref, "/app/notices", `${id} visible app copy scan must keep the active notices tab on /app/notices`);
+    assert.equal(page.mobileBottomNavNoticeLabel, "", `${id} visible app copy scan must not duplicate the header notice inbox in bottom navigation`);
+    assert.equal(page.mobileBottomNavNoticeHref, "", `${id} visible app copy scan must not expose a duplicate bottom notice route`);
+    assert.equal(
+      page.mobileBottomNavRouteIds,
+      "dashboard|classes|members|payments|tournaments",
+      `${id} visible app copy scan must keep the stable family bottom navigation while viewing notices`,
+    );
+    assert.equal(page.mobileBottomNavNoticeBadgeCount, 0, `${id} visible app copy scan must keep notice badges in the header only`);
     assert.equal(page.familyNoticeCompactFilterBarCount, 1, `${id} visible app copy scan must render compact family notice filter bar`);
     assert(page.familyNoticeCompactFilterBarHeight <= 72, `${id} visible app copy scan must keep family notice toolbar compact`);
     assert.equal(page.familyNoticeFilterGridColumnCount, 4, `${id} visible app copy scan must keep family notice toolbar in four fixed columns`);
@@ -7500,7 +7545,7 @@ for (const id of [
     assert.equal(page.familyNoticeFilterOverflow, 0, `${id} visible app copy scan must avoid family notice toolbar overflow`);
     assert.equal(page.familyNoticeStatusBadgeCount, 0, `${id} visible app copy scan must hide the redundant family notice status badge`);
     assert(page.familyNoticeCardCount > 0, `${id} visible app copy scan must render compact family notice cards`);
-    assert(page.familyNoticeCardMaxHeight <= 132, `${id} visible app copy scan must keep family notice cards scan-friendly`);
+    assert(page.familyNoticeCardMaxHeight <= 152, `${id} visible app copy scan must keep family notice cards scan-friendly`);
     assert(page.familyNoticeBodyMaxHeight <= 44, `${id} visible app copy scan must keep family notice previews compact and tappable`);
     if (page.familyNoticeDetailToggleCount > 0) {
       assert(page.familyNoticeDetailToggleMinHeight >= 44, `${id} visible app copy scan must keep family notice detail toggles tappable`);
@@ -7538,8 +7583,14 @@ for (const id of [
     if (typeof page.notificationsScreenCount === "number") {
       assert.equal(page.notificationsScreenCount, 1, `${id} visible app copy scan must render the dedicated notification inbox`);
       assert.equal(page.noticesScreenCount, 0, `${id} visible app copy scan must not render the notices alias screen`);
-      assert.equal(page.mobileBottomNavNoticeLabel, "알림", `${id} visible app copy scan must label the notification inbox tab as 알림`);
-      assert.equal(page.mobileBottomNavNoticeHref, "/app/notifications", `${id} visible app copy scan must keep notification inbox tab on /app/notifications`);
+      assert.equal(page.mobileBottomNavNoticeLabel, "", `${id} visible app copy scan must not duplicate the header notification inbox in bottom navigation`);
+      assert.equal(page.mobileBottomNavNoticeHref, "", `${id} visible app copy scan must not expose a duplicate bottom notification route`);
+      assert.equal(
+        page.mobileBottomNavRouteIds,
+        "dashboard|classes|members|payments|tournaments",
+        `${id} visible app copy scan must keep the stable family bottom navigation while viewing notifications`,
+      );
+      assert.equal(page.mobileBottomNavNoticeBadgeCount, 0, `${id} visible app copy scan must keep notification badges in the header only`);
       assert.equal(page.notificationSummaryCardCount, 0, `${id} visible app copy scan must not render duplicate notification summary cards`);
       assert(page.notificationInboxCardCount > 0, `${id} visible app copy scan must render notification cards`);
       assert(page.notificationInboxCardMaxHeight <= 132, `${id} visible app copy scan must keep notification rows compact enough for mobile scanning`);
@@ -7586,7 +7637,11 @@ for (const id of [
       } else {
         assertIncludes(sources.notificationsScreen, 'data-testid="notification-notice-content-link"', `${id} current source must keep notice content tappable`);
       }
-      assert(page.notificationFollowUpStateBadgeCount > 0, `${id} visible app copy scan must render follow-up states as badges`);
+	      assert.equal(
+	        page.notificationFollowUpStateBadgeCount,
+	        page.notificationInboxCardCount - page.notificationNoticeCardCount,
+	        `${id} visible app copy scan must render follow-up badges only for actionable non-notice items`,
+	      );
       assert(page.notificationFilterButtonMinHeight >= 44, `${id} visible app copy scan must keep notification filters tappable`);
       if (typeof page.notificationFilterButtonText === "string") {
         assert(page.notificationFilterButtonText.includes("미확인"), `${id} visible app copy scan must keep unread filter visible`);
@@ -7627,8 +7682,8 @@ for (const id of [
       }
       if (page.notificationPaymentCheckoutLinkCount > 0) {
         assert(
-          /납부 정보 확인|납부 확인 중|납부 확인|학부모 확인/.test(page.notificationPaymentCheckoutLinkText),
-          `${id} visible app copy scan must label payment alert checkout links with payment-info confirmation copy`,
+	          /납부 요청|납부 확인 중|납부 확인|학부모 확인/.test(page.notificationPaymentCheckoutLinkText),
+	          `${id} visible app copy scan must label payment alert checkout links with request or confirmation copy`,
         );
         assert(
           !/결제하기|결제 진행/.test(page.notificationPaymentCheckoutLinkText),
@@ -7751,8 +7806,12 @@ for (const id of [
     assert.equal(page.coachMemberEmptyAlertCopyCount, 0, "coach members visible app copy scan must hide repeated empty warning copy");
     assert.equal(page.coachMemberEmptyNoteCopyCount, 0, "coach members visible app copy scan must hide repeated empty counseling copy");
   }
-  if (id === "guardian-dashboard") {
-    assert.equal(page.guardianChildChipStatusTextCount, 0, "guardian dashboard visible app copy scan must hide repeated child status labels");
+	  if (id === "guardian-dashboard") {
+	    assert(page.guardianChildChipStatusTextCount > 0, "guardian dashboard visible app copy scan must expose non-active child states");
+	    assert(
+	      page.guardianChildChipStatusTextCount < page.guardianChildChipCount,
+	      "guardian dashboard visible app copy scan must keep the normal active state implicit",
+	    );
     assert.equal(page.guardianLearningInsightGridCount, 1, "guardian dashboard visible app copy scan must render one learning insight grid");
     assert(page.guardianLearningInsightGridHeight <= 122, "guardian dashboard visible app copy scan must keep learning grid dense");
     assert.equal(page.guardianLearningInsightCellCount, 4, "guardian dashboard visible app copy scan must render four learning insight cells");
@@ -7799,7 +7858,7 @@ for (const id of [
   }
   if (id === "member-dashboard") {
     assert.equal(page.memberGuardianPriorityGridCount, 1, "member dashboard visible app copy scan must render one compact priority list");
-    assert.equal(page.memberGuardianPriorityCellCount, 4, "member dashboard visible app copy scan must render four priority rows");
+	    assert.equal(page.memberGuardianPriorityCellCount, 5, "member dashboard visible app copy scan must render five core-status rows");
     assert(
       !page.memberGuardianPriorityHrefs.some((href) => href.startsWith("/app/requests")),
       "member dashboard visible app copy scan must not expose deleted request links",
@@ -7808,11 +7867,12 @@ for (const id of [
       page.memberGuardianPriorityHrefs.some((href) => href.startsWith("/app/payments/checkout?paymentId=")),
       "member dashboard visible app copy scan must deep-link payable adult payment priority row to checkout preparation",
     );
-    assert.deepEqual(
-      page.memberGuardianPriorityLabels,
-      ["다음 수업", "출석", "결제 상태", "공지"],
-      "member dashboard visible app copy scan must show notice only, not counseling/notice",
-    );
+	    assert.deepEqual(
+	      page.memberGuardianPriorityLabels,
+	      ["다음 수업", "출석", "결제 상태", "승급", "공지"],
+	      "member dashboard visible app copy scan must connect class, payment, promotion, and notice flows",
+	    );
+	    assert(page.memberGuardianPriorityHrefs.includes("/app/promotions"), "member dashboard visible app copy scan must link the promotion row to promotion history");
     assert(page.memberGuardianPriorityHrefs.includes("/app/notices"), "member dashboard visible app copy scan must always link the notice row to notices");
     assert(
       page.memberGuardianPriorityDetails.some((detail) => /미확인 공지 \d+건|공지 \d+건 모두 확인|도착한 공지 없음/.test(detail)),

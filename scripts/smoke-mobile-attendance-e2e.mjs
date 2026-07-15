@@ -47,7 +47,7 @@ async function resetDemoData(phase) {
 }
 
 async function loginWithCredentials(page, phone) {
-  await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${baseUrl}/login`, { waitUntil: "networkidle" });
   await page.getByLabel("휴대폰 번호").fill(phone);
   await page.getByLabel("비밀번호", { exact: true }).fill(coachPassword);
   await page.getByRole("button", { name: "로그인" }).click();
@@ -66,6 +66,7 @@ async function logoutWithApi(page) {
     window.localStorage.removeItem("final-judo-mvp-session");
   });
   await page.context().clearCookies();
+  await page.goto("about:blank");
 }
 
 async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
@@ -342,7 +343,7 @@ async function run() {
     await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
     await mainContent.getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
     await mainContent.getByRole("heading", { name: "출석 처리" }).waitFor({ timeout: 10000 });
-    await page.getByRole("link", { name: /내 계정 보기: .*코치/ }).waitFor({ timeout: 10000 });
+    await page.getByTestId("mobile-account-menu-toggle").waitFor({ timeout: 10000 });
 
     const coachMobileSpeedPanel = page.getByTestId("coach-mobile-speed-panel");
     await coachMobileSpeedPanel.waitFor({ timeout: 10000 });
@@ -420,6 +421,8 @@ async function run() {
       "coach mobile speed panel must not introduce horizontal overflow",
     );
 
+    const accountMenuToggle = page.getByTestId("mobile-account-menu-toggle");
+    await accountMenuToggle.click();
     const roleSwitchLink = page.getByRole("link", { name: "계정 전환" });
     await roleSwitchLink.waitFor({ timeout: 10000 });
     const roleSwitchHref = await roleSwitchLink.getAttribute("href");
@@ -436,6 +439,8 @@ async function run() {
     assert(mobileLogoutBox, "mobile logout button must have a visible bounding box");
     assert(mobileLogoutBox.height >= 44, `mobile logout button height must be at least 44px, got ${mobileLogoutBox.height}`);
     assert(mobileLogoutBox.width >= 64, `mobile logout button width must be at least 64px, got ${mobileLogoutBox.width}`);
+    await accountMenuToggle.click();
+    assert.equal(await accountMenuToggle.getAttribute("aria-expanded"), "false", "mobile account menu must close after inspection");
 
     const mobileNav = page.getByTestId("mobile-bottom-navigation");
     await mobileNav.waitFor({ timeout: 10000 });
@@ -491,14 +496,20 @@ async function run() {
     await attendanceProgress.waitFor({ timeout: 10000 });
     await attendanceUnchecked.waitFor({ timeout: 10000 });
 
-    const initialProgressValue = Number(await attendanceProgress.getAttribute("aria-valuenow"));
+	    const initialProgressValue = Number(await attendanceProgress.getAttribute("aria-valuenow"));
+	    const initialProgressLabel = await attendanceProgress.getAttribute("aria-label");
     const initialUncheckedText = await attendanceUnchecked.textContent();
     const initialUncheckedLabel = await attendanceUnchecked.getAttribute("aria-label");
 
-    assert(
-      Number.isFinite(initialProgressValue) && initialProgressValue >= 0 && initialProgressValue <= 100,
-      `mobile attendance progress must expose a 0-100 aria value, got ${initialProgressValue}`,
-    );
+	    assert(
+	      Number.isFinite(initialProgressValue) && initialProgressValue >= 0 && initialProgressValue <= 100,
+	      `mobile attendance progress must expose a 0-100 aria value, got ${initialProgressValue}`,
+	    );
+	    assert.match(
+	      initialProgressLabel ?? "",
+	      /^.+ 출석 처리율 \d+%$/,
+	      `mobile attendance progress must expose its class and percentage, got ${initialProgressLabel}`,
+	    );
     assert(
       /^\d+(명)?$/.test(initialUncheckedText?.trim() ?? "") && /^미처리 \d+명$/.test(initialUncheckedLabel ?? ""),
       `mobile attendance unchecked count must expose a people count, got text=${initialUncheckedText} aria=${initialUncheckedLabel}`,
@@ -1038,7 +1049,7 @@ async function main() {
           "coach dashboard follow-up instead of payment warning",
           "mobile classes route render",
           "no horizontal overflow",
-          "mobile account identity strip",
+        "mobile account menu",
           "mobile role switch action",
           "mobile logout action",
           "coach mobile speed panel",

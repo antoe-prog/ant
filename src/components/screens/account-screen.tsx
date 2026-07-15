@@ -32,7 +32,6 @@ export function AccountScreen() {
   const accountStatusLabel = showAccountStatus ? "초대 대기" : null;
   const accountMetaGridClassName = showAccountStatus ? "mt-4 grid grid-cols-3 gap-2" : "mt-4 grid grid-cols-2 gap-2";
   const roleSwitchHref = `/select-role?next=${encodeURIComponent(pathname || "/app/dashboard")}`;
-  const showFamilyAccountActions = context.user.role === "member" || context.user.role === "guardian";
 
   return (
     <div>
@@ -81,8 +80,7 @@ export function AccountScreen() {
         </div>
       </section>
 
-      {showFamilyAccountActions ? (
-        <section className="mt-3 grid grid-cols-2 gap-2" aria-label="계정 작업" data-testid="account-action-panel">
+      <section className="mt-3 grid grid-cols-2 gap-2" aria-label="계정 작업" data-testid="account-action-panel">
           <Link
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
             data-testid="account-role-switch-link"
@@ -100,8 +98,7 @@ export function AccountScreen() {
             <LogOut className="h-4 w-4" aria-hidden />
             로그아웃
           </button>
-        </section>
-      ) : null}
+      </section>
 
       <section className="mt-4">
         <InstallAppAction />

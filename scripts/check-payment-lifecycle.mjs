@@ -194,6 +194,14 @@ assert.equal(
 );
 assert.equal(
   getCurrentMemberPayment([
+    { ...basePayment, id: "pay-cancelled-future", status: "cancelled", expiresAt: "2026-09-15" },
+    { ...basePayment, id: "pay-active-current", status: "overdue", expiresAt: "2026-07-15" },
+  ])?.id,
+  "pay-active-current",
+  "member payment summary must prefer an actionable record over a later cancelled membership period",
+);
+assert.equal(
+  getCurrentMemberPayment([
     {
       ...basePayment,
       id: "pay-z-older-paid",

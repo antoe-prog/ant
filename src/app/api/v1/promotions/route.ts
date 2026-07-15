@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, BeltPromotion } from "@/lib/domain";
 import { judoBelts } from "@/lib/domain";
+import { formatDateKey } from "@/lib/format";
+import { isSchedulablePromotionExamDate } from "@/lib/promotions";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -40,8 +42,12 @@ export async function POST(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "목표 띠가 올바르지 않습니다.");
   }
 
-  if (Number.isNaN(Date.parse(examDate))) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(examDate)) {
     return jsonError(400, "VALIDATION_ERROR", "심사일 형식이 올바르지 않습니다.");
+  }
+
+  if (!isSchedulablePromotionExamDate(examDate, formatDateKey(new Date()))) {
+    return jsonError(400, "VALIDATION_ERROR", "심사일은 오늘 이후로 선택해 주세요.");
   }
 
   const member = db.members.find((candidate) => candidate.id === memberId);

@@ -252,10 +252,17 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
             </>
           ) : null}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4">
-            <Link className="text-sm font-semibold text-teal-700 hover:text-teal-800" data-testid="login-signup-link" href="/signup">
+            <Link
+              className="inline-flex min-h-11 items-center text-sm font-semibold text-teal-700 hover:text-teal-800"
+              data-testid="login-signup-link"
+              href="/signup"
+            >
               회원가입
             </Link>
-            <Link className="text-sm font-semibold text-teal-700 hover:text-teal-800" href="/reset-password">
+            <Link
+              className="inline-flex min-h-11 items-center text-sm font-semibold text-teal-700 hover:text-teal-800"
+              href="/reset-password"
+            >
               비밀번호 재설정 요청
             </Link>
           </div>

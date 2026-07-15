@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
 import net from "node:net";
@@ -351,6 +351,32 @@ async function main() {
   assert(tokenMatchIndex >= 0 && passwordHashIndex > tokenMatchIndex, "token hash matching must precede PBKDF2 password hashing");
   const tempDir = await mkdtemp(path.join(tmpdir(), "final-judo-invitation-security-"));
   const dbFile = path.join(tempDir, "runtime-db.json");
+  const runtimeStamp = `${process.pid}-${stamp}`;
+  const distDir = `.next-invitation-security-${runtimeStamp}`;
+  const tsconfigPath = `.tsconfig-invitation-security-${runtimeStamp}.json`;
+
+  await writeFile(
+    tsconfigPath,
+    `${JSON.stringify(
+      {
+        extends: "./tsconfig.json",
+        include: [
+          "next-env.d.ts",
+          "**/*.ts",
+          "**/*.tsx",
+          ".next/types/**/*.ts",
+          ".next/dev/types/**/*.ts",
+          "**/*.mts",
+          `${distDir}/types/**/*.ts`,
+          `${distDir}/dev/types/**/*.ts`,
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [nextBin, "dev", "--webpack", "--port", String(port), "--hostname", "127.0.0.1"], {
@@ -359,6 +385,8 @@ async function main() {
       ...process.env,
       FINAL_JUDO_DB_DRIVER: "json",
       FINAL_JUDO_ENABLE_DEMO_LOGIN: "1",
+      FINAL_JUDO_NEXT_DIST_DIR: distDir,
+      FINAL_JUDO_NEXT_TSCONFIG_PATH: tsconfigPath,
       PILOT_DB_FILE: dbFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -382,6 +410,7 @@ async function main() {
         "accepted invitation phone/password logout and relogin",
         "authorized one-time invitation link reissue with scope checks and prior-link invalidation",
         "raw token, password, and IP audit redaction",
+        "isolated Next dev artifacts alongside an existing workspace dev server",
       ],
     }, null, 2));
   } catch (error) {
@@ -391,7 +420,11 @@ async function main() {
     throw error;
   } finally {
     await stopServer(child);
-    await rm(tempDir, { force: true, recursive: true });
+    await Promise.all([
+      rm(tempDir, { force: true, recursive: true }),
+      rm(distDir, { force: true, recursive: true }),
+      rm(tsconfigPath, { force: true }),
+    ]);
   }
 }
 

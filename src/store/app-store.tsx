@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -147,13 +148,14 @@ type AppStore = AppState & {
   hydrated: boolean;
   authPending: boolean;
   authError: string | null;
+  branchSelectionPending: boolean;
   operationError: OperationError | null;
   accessibleBranchIds: string[];
   attendanceSync: AppState["attendanceSync"];
   signIn: (payload: UserRole | LoginCredentials) => Promise<boolean>;
   signOut: () => void;
   clearOperationError: () => void;
-  selectBranch: (branchId: string | null) => void;
+  selectBranch: (branchId: string | null) => Promise<boolean>;
   markAttendance: (sessionId: string, memberId: string, status: AttendanceStatus, note?: string) => void;
   markSessionAttendance: (sessionId: string, memberIds: string[], status: AttendanceStatus, note?: string) => void;
   saveAttendanceReason: (sessionId: string, memberId: string, reason: string) => Promise<boolean>;
@@ -567,6 +569,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [branchSelectionPending, setBranchSelectionPending] = useState(false);
+  const branchSelectionPendingRef = useRef(false);
+  const branchSelectionRequestRef = useRef(0);
+  const confirmedBranchIdRef = useRef<string | null>(null);
   const reportOperationError = useCallback((error: unknown, fallbackMessage: string) => {
     dispatch({ type: "setOperationError", error: createOperationError(error, fallbackMessage) });
   }, []);
@@ -632,6 +638,66 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     persistPendingAttendanceQueue(state.attendanceSync.queue);
   }, [hydrated, state.attendanceSync.queue]);
 
+  useEffect(() => {
+    if (!branchSelectionPendingRef.current) {
+      confirmedBranchIdRef.current = state.selectedBranchId;
+    }
+  }, [state.selectedBranchId, state.user?.id]);
+
+  useEffect(() => {
+    const familyUserId = state.user?.id;
+    const familyRole = state.user?.role;
+
+    if (!hydrated || !familyUserId || (familyRole !== "member" && familyRole !== "guardian")) {
+      return;
+    }
+
+    let disposed = false;
+    let refreshing = false;
+
+    async function refreshFamilyScope() {
+      if (disposed || refreshing || document.visibilityState === "hidden" || branchSelectionPendingRef.current) {
+        return;
+      }
+
+      refreshing = true;
+      const branchRequestId = branchSelectionRequestRef.current;
+
+      try {
+        const payload = await apiClient.getBootstrap(state.selectedBranchId);
+
+        if (!disposed && branchRequestId === branchSelectionRequestRef.current && payload.user.id === familyUserId) {
+          dispatch({ type: "serverSnapshot", payload });
+          persistSession({ userId: payload.user.id, selectedBranchId: payload.selectedBranchId });
+        }
+      } catch (error) {
+        if (!disposed && error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+          persistSession(null);
+          persistPendingAttendanceQueue([]);
+          dispatch({ type: "logout" });
+        }
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    const handleFocus = () => void refreshFamilyScope();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshFamilyScope();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hydrated, state.selectedBranchId, state.user?.id, state.user?.role]);
+
   const accessibleBranchIds = useMemo(() => {
     if (!state.user) {
       return [];
@@ -667,6 +733,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(() => {
+    branchSelectionRequestRef.current += 1;
+    branchSelectionPendingRef.current = false;
+    confirmedBranchIdRef.current = null;
+    setBranchSelectionPending(false);
     void apiClient.signOut().catch(() => undefined);
     persistSession(null);
     persistPendingAttendanceQueue([]);
@@ -674,22 +744,54 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const selectBranch = useCallback(
-    (branchId: string | null) => {
+    async (branchId: string | null) => {
       if (!state.user || (branchId && !accessibleBranchIds.includes(branchId))) {
-        return;
+        return false;
       }
 
+      if (!branchSelectionPendingRef.current && branchId === state.selectedBranchId) {
+        return true;
+      }
+
+      const requestId = branchSelectionRequestRef.current + 1;
+      const previousBranchId = confirmedBranchIdRef.current;
+      const userId = state.user.id;
+
+      branchSelectionRequestRef.current = requestId;
+      branchSelectionPendingRef.current = true;
+      setBranchSelectionPending(true);
+
       dispatch({ type: "selectBranch", branchId });
-      persistSession({ userId: state.user.id, selectedBranchId: branchId });
-      void apiClient
-        .getBootstrap(branchId)
-        .then((payload) => {
-          dispatch({ type: "serverSnapshot", payload });
-          persistSession({ userId: payload.user.id, selectedBranchId: payload.selectedBranchId });
-        })
-        .catch((error) => reportOperationError(error, "지점 선택을 저장하지 못했습니다."));
+      persistSession({ userId, selectedBranchId: branchId });
+
+      try {
+        const payload = await apiClient.getBootstrap(branchId);
+
+        if (requestId !== branchSelectionRequestRef.current) {
+          return false;
+        }
+
+        confirmedBranchIdRef.current = payload.selectedBranchId;
+        dispatch({ type: "serverSnapshot", payload });
+        persistSession({ userId: payload.user.id, selectedBranchId: payload.selectedBranchId });
+        return true;
+      } catch (error) {
+        if (requestId !== branchSelectionRequestRef.current) {
+          return false;
+        }
+
+        dispatch({ type: "selectBranch", branchId: previousBranchId });
+        persistSession({ userId, selectedBranchId: previousBranchId });
+        reportOperationError(error, "지점 선택을 저장하지 못했습니다.");
+        return false;
+      } finally {
+        if (requestId === branchSelectionRequestRef.current) {
+          branchSelectionPendingRef.current = false;
+          setBranchSelectionPending(false);
+        }
+      }
     },
-    [accessibleBranchIds, reportOperationError, state.user],
+    [accessibleBranchIds, reportOperationError, state.selectedBranchId, state.user],
   );
 
   const markAttendance = useCallback(
@@ -1734,6 +1836,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       hydrated,
       authPending,
       authError,
+      branchSelectionPending,
       accessibleBranchIds,
       signIn,
       signOut,
@@ -1792,6 +1895,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       assignBranchOwner,
       authError,
       authPending,
+      branchSelectionPending,
       clearOperationError,
       cancelRecurringAgreement,
       createBranch,

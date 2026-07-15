@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useMemo, useState } from "react";
 import { AlertTriangle, CalendarPlus, CheckCheck, ChevronDown, ChevronUp, ClipboardList, RefreshCw, Save, Search, Undo2, X } from "lucide-react";
 import type {
@@ -11,11 +12,13 @@ import type {
   Member,
   SaveStatus,
 } from "@/lib/domain";
+import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
-import { formatCompactTimeRange, formatDate, formatDateTime } from "@/lib/format";
-import { attendanceStatusLabels } from "@/lib/roles";
+import { formatCompactTimeRange, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import { attendanceStatusLabels, memberStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { AttendanceStatusBadge, AttendanceStatusButton, Button, SectionHeader } from "@/components/ui/primitives";
@@ -46,6 +49,7 @@ type AttendanceUndoSnapshot = {
   sessionName: string;
   memberName: string;
   previousStatus: AttendanceStatus;
+  previousNote: string;
   nextStatus: AttendanceStatus;
   changedAt: string;
 };
@@ -195,6 +199,15 @@ export function ClassesScreen() {
   const canManageClasses = context.user.role === "owner" || context.user.role === "admin";
   const isFamilyRole = context.user.role === "member" || context.user.role === "guardian";
   const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
+  const guardianChildren =
+    context.user.role === "guardian"
+      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      : [];
+  const guardianChildIds = guardianChildren.map((member) => member.id);
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    context.user.id,
+    context.user.role === "guardian" ? guardianChildIds : undefined,
+  );
   const [newClassBranchId, setNewClassBranchId] = useState("");
   const [newClassName, setNewClassName] = useState("");
   const [newClassAgeGroup, setNewClassAgeGroup] = useState<Member["ageGroup"]>("kids");
@@ -325,6 +338,7 @@ export function ClassesScreen() {
       ...current,
       [noteKey]: true,
     }));
+    setReasonSavedKey(null);
   }
 
   function handleAttendanceSelect(
@@ -341,6 +355,7 @@ export function ClassesScreen() {
         sessionName: session.name,
         memberName: member.name,
         previousStatus: previousRecord.status,
+        previousNote: previousRecord.note ?? "",
         nextStatus,
         changedAt: new Date().toISOString(),
       });
@@ -369,7 +384,12 @@ export function ClassesScreen() {
       return;
     }
 
-    markAttendance(lastAttendanceChange.sessionId, lastAttendanceChange.memberId, lastAttendanceChange.previousStatus);
+    markAttendance(
+      lastAttendanceChange.sessionId,
+      lastAttendanceChange.memberId,
+      lastAttendanceChange.previousStatus,
+      lastAttendanceChange.previousNote,
+    );
     setLastAttendanceChange(null);
   }
 
@@ -395,29 +415,53 @@ export function ClassesScreen() {
     return <ErrorState description={error ?? "수업과 출석 명단을 불러오지 못했습니다."} onRetry={reload} />;
   }
 
-  const totalEnrolled = data.reduce((sum, session) => sum + session.enrolledMembers.length, 0);
-  const totalChecked = data.reduce((sum, session) => sum + getAttendanceProgress(session).checkedCount, 0);
+  const scopedSessions =
+    context.user.role === "guardian" && selectedChildId
+      ? data
+          .filter((session) => session.enrolledMemberIds.includes(selectedChildId))
+          .map((session) => ({
+            ...session,
+            attendance: session.attendance.filter((record) => record.memberId === selectedChildId),
+            enrolledMemberIds: session.enrolledMemberIds.filter((memberId) => memberId === selectedChildId),
+            enrolledMembers: session.enrolledMembers.filter((member) => member.id === selectedChildId),
+          }))
+      : data;
+  const todayDateKey = formatDateKey(new Date());
+  const visibleSessions = isCoachRole
+    ? scopedSessions.filter((session) => formatDateKey(session.startsAt) === todayDateKey)
+    : scopedSessions;
+  const otherDateCoachSessions = isCoachRole
+    ? scopedSessions.filter((session) => formatDateKey(session.startsAt) !== todayDateKey)
+    : [];
+  const childSwitcherItems = guardianChildren.map((member) => ({
+    id: member.id,
+    name: member.name,
+    meta: `${member.belt} · ${member.level}`,
+    statusLabel: memberStatusLabels[member.status],
+  }));
+  const totalEnrolled = visibleSessions.reduce((sum, session) => sum + session.enrolledMembers.length, 0);
+  const totalChecked = visibleSessions.reduce((sum, session) => sum + getAttendanceProgress(session).checkedCount, 0);
   const totalUnchecked = Math.max(totalEnrolled - totalChecked, 0);
   const totalCheckedPercent = totalEnrolled > 0 ? Math.round((totalChecked / totalEnrolled) * 100) : 0;
   const attendanceSearchTerm = normalizeAttendanceSearch(attendanceSearch);
-  const reasonRequiredCount = data.reduce((sum, session) => sum + session.attendance.filter(needsAttendanceReason).length, 0);
-  const filteredRosterCount = data.reduce(
+  const reasonRequiredCount = visibleSessions.reduce((sum, session) => sum + session.attendance.filter(needsAttendanceReason).length, 0);
+  const filteredRosterCount = visibleSessions.reduce(
     (sum, session) =>
       sum + getVisibleAttendanceMembers(session, showUncheckedOnly, showReasonRequiredOnly, attendanceSearchTerm, attendanceStatusFilter).length,
     0,
   );
   const hasAttendanceRosterFilter = showUncheckedOnly || showReasonRequiredOnly || Boolean(attendanceSearchTerm) || attendanceStatusFilter !== "all";
   const coachClassMobileVisibleLimit = 1;
-  const coachClassListCollapsible = isCoachRole && !hasAttendanceRosterFilter && data.length > coachClassMobileVisibleLimit;
-  const hiddenCoachClassCount = coachClassListCollapsible ? data.length - coachClassMobileVisibleLimit : 0;
+  const coachClassListCollapsible = isCoachRole && !hasAttendanceRosterFilter && visibleSessions.length > coachClassMobileVisibleLimit;
+  const hiddenCoachClassCount = coachClassListCollapsible ? visibleSessions.length - coachClassMobileVisibleLimit : 0;
   const defaultOpenCoachClassId =
     hasAttendanceRosterFilter
-      ? data.find((session) => getVisibleAttendanceMembers(session, showUncheckedOnly, showReasonRequiredOnly, attendanceSearchTerm, attendanceStatusFilter).length > 0)?.id ?? null
+      ? visibleSessions.find((session) => getVisibleAttendanceMembers(session, showUncheckedOnly, showReasonRequiredOnly, attendanceSearchTerm, attendanceStatusFilter).length > 0)?.id ?? null
       : null;
   const attendanceCounts = attendanceSummaryLabels.map(({ status, label }) => ({
     status,
     label,
-    count: data.reduce(
+    count: visibleSessions.reduce(
       (sum, session) => sum + session.attendance.filter((record) => record.status === status).length,
       0,
     ),
@@ -451,7 +495,7 @@ export function ClassesScreen() {
   const shouldShowMobileSaveStatusPanel =
     canEditAttendance && (hasPendingAttendance || attendanceSyncPending || Boolean(lastAttendanceChange));
   const coachVisibleMembers = Array.from(
-    new Map(data.flatMap((session) => session.enrolledMembers.map((member) => [member.id, member]))).values(),
+    new Map(visibleSessions.flatMap((session) => session.enrolledMembers.map((member) => [member.id, member]))).values(),
   );
   const coachVisibleMemberIds = new Set(coachVisibleMembers.map((member) => member.id));
   const coachAttentionMembers = coachVisibleMembers.filter((member) => member.alerts.length > 0);
@@ -463,7 +507,7 @@ export function ClassesScreen() {
     ...coachAttentionMembers.map((member) => member.id),
     ...coachVisibleCounselingNotes.map((note) => note.memberId),
   ]).size;
-  const coachReasonRequiredRecords = data.flatMap((session) =>
+  const coachReasonRequiredRecords = visibleSessions.flatMap((session) =>
     session.attendance
       .filter((record) => needsAttendanceReason(record))
       .map((record) => ({ record, session, member: session.enrolledMembers.find((member) => member.id === record.memberId) })),
@@ -491,19 +535,21 @@ export function ClassesScreen() {
     Boolean(attendanceSync.updatedAt);
   const showAttendanceSearchInput = attendanceSearchOpen || Boolean(attendanceSearch);
   const coachPreClassFlowSummary = [
-    `명단 ${totalEnrolled}명`,
-    `주의 ${coachAttentionMemberCount}명`,
-    "확인",
+    `명단 ${totalEnrolled}`,
+    `주의 ${coachAttentionMemberCount}`,
   ].join(" · ");
   const coachPostClassFlowSummary = [
-    `마감 ${totalUnchecked}명`,
-    `사유 ${coachReasonRequiredRecords.length}건`,
-    hasPendingAttendance ? `저장 ${attendanceSync.pendingCount}건` : "저장 정상",
+    `미처리 ${totalUnchecked}`,
+    hasPendingAttendance ? `저장 ${attendanceSync.pendingCount}` : "저장됨",
   ].join(" · ");
 
   return (
     <div className={`relative ${canEditAttendance ? "pb-36 lg:pb-0" : ""}`}>
-      {showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : null}
+      {showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : <SectionHeader title="수업" />}
+
+      {context.user.role === "guardian" ? (
+        <ChildSwitcher items={childSwitcherItems} selectedChildId={selectedChildId} onSelect={setSelectedChildId} />
+      ) : null}
 
       {canManageClasses ? (
         <section className="mb-3 rounded-lg border border-zinc-200 bg-white p-3" data-testid="class-create-panel">
@@ -678,7 +724,7 @@ export function ClassesScreen() {
         </section>
       ) : null}
 
-      {data.length === 0 ? (
+      {visibleSessions.length === 0 ? (
         <EmptyState title="예정 수업이 없습니다" />
       ) : (
         <>
@@ -994,7 +1040,7 @@ export function ClassesScreen() {
           ) : null}
 
           <div className={isFamilyRole ? "grid gap-3" : "grid gap-4"}>
-            {data.map((session, sessionIndex) => {
+            {visibleSessions.map((session, sessionIndex) => {
               const allMemberIds = session.enrolledMemberIds;
               const attendanceProgress = getAttendanceProgress(session);
               const visibleMembers = canEditAttendance
@@ -1105,8 +1151,9 @@ export function ClassesScreen() {
 		                            </span>
 		                          </div>
 		                        )}
-	                        <div className="mt-1 h-1.5 rounded-full bg-zinc-100" aria-label={`${session.name} 출석 처리율 ${attendanceProgress.checkedPercent}%`}>
+	                        <div className="mt-1 h-1.5 rounded-full bg-zinc-100">
 	                          <div
+	                            aria-label={`${session.name} 출석 처리율 ${attendanceProgress.checkedPercent}%`}
 	                            className="h-1.5 rounded-full bg-teal-600 transition-[width]"
 	                            role="progressbar"
 	                            aria-valuemax={100}
@@ -1253,12 +1300,13 @@ export function ClassesScreen() {
                                         className="mt-2 h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                                         id={`attendance-note-${attendanceNoteKey}`}
                                         maxLength={80}
-                                        onChange={(event) =>
+                                        onChange={(event) => {
+                                          setReasonSavedKey(null);
                                           setAttendanceNotes((current) => ({
                                             ...current,
                                             [attendanceNoteKey]: event.target.value,
-                                          }))
-                                        }
+                                          }));
+                                        }}
                                         onKeyDown={(event) => {
                                           // 이미 출석 기록이 있으면 Enter로 사유만 즉시 저장 (현장 한 손 조작 편의)
                                           if (event.key === "Enter" && attendanceRecord && noteValue.trim()) {
@@ -1299,6 +1347,22 @@ export function ClassesScreen() {
                                           </button>
                                         ) : null}
                                       </div>
+                                    </div>
+                                  ) : null}
+                                  {isCoachRole && (status === "late" || status === "absent" || status === "excused" || member.alerts.length > 0) ? (
+                                    <div className="mt-2 grid grid-cols-2 gap-2" data-testid={`attendance-follow-up-${session.id}-${member.id}`}>
+                                      <Link
+                                        className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:border-teal-300 hover:bg-teal-50"
+                                        href={`/app/members?memberId=${encodeURIComponent(member.id)}&q=${encodeURIComponent(member.name)}`}
+                                      >
+                                        회원 기록
+                                      </Link>
+                                      <Link
+                                        className="inline-flex min-h-11 items-center justify-center rounded-md border border-teal-200 bg-teal-50 px-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-100"
+                                        href={`/app/notices?noticeCompose=1&noticeTarget=member&noticeTargetMemberId=${encodeURIComponent(member.id)}&noticeMemberSearch=${encodeURIComponent(member.name)}`}
+                                      >
+                                        {member.ageGroup !== "adult" && member.guardianIds.length > 0 ? "보호자 안내" : "회원 안내"}
+                                      </Link>
                                     </div>
                                   ) : null}
                                 </div>
@@ -1516,6 +1580,28 @@ export function ClassesScreen() {
           ) : null}
         </>
       )}
+
+      {otherDateCoachSessions.length > 0 ? (
+        <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-3" aria-labelledby="coach-other-date-classes-title">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-950" id="coach-other-date-classes-title">다른 날짜 수업</h2>
+            <span className="text-xs font-semibold text-zinc-500">일정 확인만 가능</span>
+          </div>
+          <div className="mt-2 divide-y divide-zinc-100">
+            {otherDateCoachSessions.map((session) => (
+              <article className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 first:pt-0 last:pb-0" key={session.id}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-zinc-900">{session.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">{session.room} · {session.enrolledMemberIds.length}명</p>
+                </div>
+                <p className="shrink-0 text-right text-xs font-semibold text-zinc-700">
+                  {formatDate(session.startsAt)} · {formatCompactTimeRange(session.startsAt, session.endsAt)}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

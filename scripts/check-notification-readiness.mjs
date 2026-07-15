@@ -222,9 +222,8 @@ assert(noticesScreen.includes("noticeCompose"), "notice composer must open from 
 assert(noticesScreen.includes("noticeTargetMemberId"), "notice composer must support a deep-linked personal target member");
 assertExcludes(noticesScreen, 'data-testid="notice-create-member-select"', "notice composer removed personal target scroll select");
 assertExcludes(noticesScreen, "noticeTargetMembers[0]?.id", "notice composer personal target fallback");
-assert(noticesScreen.includes('const isCoachNoticeReader = context.user.role === "coach" && !canPublishNotice;'), "coach reader-only header guard must not conflict with scoped publishing");
 assert(noticesScreen.includes("const showNoticeDeliveryMeta = canPublishNotice;"), "notice delivery metadata must stay limited to publishing roles");
-assert(noticesScreen.includes("showNoticeScreenHeader"), "coach notices must keep the notice heading with scoped publishing controls");
+assert(noticesScreen.includes('<SectionHeader title="공지" />'), "all notice roles must keep a stable page heading");
 for (const removedNoticeCardContract of [
   'data-testid="notice-action-queue"',
   'data-testid="p2-notice-follow-up-board"',
@@ -279,9 +278,9 @@ assert(notificationsScreen.includes("getFamilyPaymentCheckoutAccess"), "notifica
 assert(notificationsScreen.includes("paymentNotificationTarget"), "notification inbox payment alerts must choose a role-safe payment target");
 assert(notificationsScreen.includes("/app/payments/checkout?paymentId="), "notification inbox must deep-link payable family payment alerts to checkout preparation");
 assert(notificationsScreen.includes('actionLabel: checkoutAccess.label'), "notification inbox payment alerts must reuse checkout action copy for payable family users");
-assert(notificationsScreen.includes("납부 정보 확인 필요"), "notification inbox pending payment copy must ask for payment info confirmation");
+assert(notificationsScreen.includes("납부 요청 필요"), "notification inbox pending payment copy must ask for a payment request");
 assert(notificationsScreen.includes("납부 확인"), "notification inbox fallback payment action must use payment confirmation copy");
-assert(paymentCheckoutAccess.includes('label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 정보 확인"'), "payable family checkout action must use payment-info confirmation copy");
+assert(paymentCheckoutAccess.includes('label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청"'), "payable family checkout action must use request copy before provider integration");
 assertExcludes(paymentCheckoutAccess, "결제하기", "family checkout live-payment action copy");
 assertExcludes(notificationsScreen, "결제 진행 필요", "notification inbox live-payment implication copy");
 assertExcludes(notificationsScreen, "apiClient.getRequests(context)", "notification inbox request alert fetch");

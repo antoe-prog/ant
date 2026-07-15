@@ -34,17 +34,20 @@ export function getLatestPaymentStatusChange(payment: Payment) {
   return [...(payment.statusHistory ?? [])].sort((left, right) => right.changedAt.localeCompare(left.changedAt)).at(0);
 }
 
+function isTerminalPayment(payment: Payment) {
+  return payment.status === "cancelled" || payment.status === "refunded";
+}
+
 export function getCurrentMemberPayment(payments: readonly Payment[]) {
   return [...payments]
     .sort(
       (left, right) =>
+        Number(isTerminalPayment(left)) - Number(isTerminalPayment(right)) ||
         right.expiresAt.localeCompare(left.expiresAt) ||
         right.dueDate.localeCompare(left.dueDate) ||
         (getLatestPaymentStatusChange(right)?.changedAt ?? "").localeCompare(
           getLatestPaymentStatusChange(left)?.changedAt ?? "",
         ) ||
-        Number(left.status === "cancelled" || left.status === "refunded") -
-          Number(right.status === "cancelled" || right.status === "refunded") ||
         right.id.localeCompare(left.id),
     )
     .at(0) ?? null;

@@ -65,6 +65,7 @@ async function gotoApp(page, role, next) {
 
   await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.origin === expectedOrigin && url.pathname === next, { timeout: 15000 });
+  await page.waitForLoadState("networkidle", { timeout: 15000 });
 }
 
 mkdirSync(outDir, { recursive: true });
@@ -79,6 +80,9 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const messages = [];
+
+page.setDefaultTimeout(15_000);
+page.setDefaultNavigationTimeout(15_000);
 
 page.on("console", (message) => {
   if (message.type() === "error" || message.type() === "warning") {

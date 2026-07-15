@@ -215,6 +215,7 @@ export function AdminSettingsScreen() {
   const [operationEditorOpen, setOperationEditorOpen] = useState(false);
   const [incidentCreateOpen, setIncidentCreateOpen] = useState(false);
   const [incidentEditorId, setIncidentEditorId] = useState<string | null>(null);
+  const [settingsView, setSettingsView] = useState<"policy" | "operations">("policy");
   const [rolePolicyOpen, setRolePolicyOpen] = useState(false);
   const [branchPolicyOpen, setBranchPolicyOpen] = useState(false);
   const [auditPolicyOpen, setAuditPolicyOpen] = useState(false);
@@ -223,32 +224,68 @@ export function AdminSettingsScreen() {
   const [incidentListOpen, setIncidentListOpen] = useState(false);
 
   useEffect(() => {
-    const scrollToHashTarget = () => {
+    const navigateToHashTarget = () => {
       const rawHash = window.location.hash.slice(1);
 
       if (!rawHash) {
         return;
       }
 
-      const target = document.getElementById(decodeURIComponent(rawHash));
-
-      if (!target) {
-        return;
+      if (
+        rawHash.startsWith("pilot-") ||
+        rawHash.startsWith("admin-settings-readiness") ||
+        rawHash.startsWith("admin-settings-operation") ||
+        rawHash.startsWith("admin-settings-incident") ||
+        rawHash.startsWith("admin-settings-operator")
+      ) {
+        setSettingsView("operations");
+      } else if (rawHash.startsWith("admin-settings-policy")) {
+        setSettingsView("policy");
       }
 
-      target.scrollIntoView({ block: "start", behavior: "auto" });
+      window.setTimeout(() => {
+        const target = document.getElementById(decodeURIComponent(rawHash));
+
+        target?.scrollIntoView({ block: "start", behavior: "auto" });
+      }, 0);
     };
 
-    const retryTimer = window.setTimeout(scrollToHashTarget, 250);
+    const initialTimer = window.setTimeout(navigateToHashTarget, 0);
+    const retryTimer = window.setTimeout(navigateToHashTarget, 250);
 
-    scrollToHashTarget();
-    window.addEventListener("hashchange", scrollToHashTarget);
+    window.addEventListener("hashchange", navigateToHashTarget);
 
     return () => {
+      window.clearTimeout(initialTimer);
       window.clearTimeout(retryTimer);
-      window.removeEventListener("hashchange", scrollToHashTarget);
+      window.removeEventListener("hashchange", navigateToHashTarget);
     };
   }, []);
+
+  function selectSettingsView(nextView: "policy" | "operations", focusTab = false) {
+    setSettingsView(nextView);
+    window.history.replaceState(null, "", `#admin-settings-${nextView}-view`);
+
+    if (focusTab) {
+      requestAnimationFrame(() => document.getElementById(`admin-settings-${nextView}-tab`)?.focus());
+    }
+  }
+
+  function handleSettingsTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    const nextView =
+      event.key === "ArrowRight" || event.key === "End"
+        ? "operations"
+        : event.key === "ArrowLeft" || event.key === "Home"
+          ? "policy"
+          : null;
+
+    if (!nextView) {
+      return;
+    }
+
+    event.preventDefault();
+    selectSettingsView(nextView, true);
+  }
 
   const pilotChecks = context.db.pilotReadinessChecks;
   const pilotIncidents = context.db.pilotIncidents;
@@ -575,6 +612,48 @@ export function AdminSettingsScreen() {
         </div>
       </section>
 
+      <div
+        aria-label="운영 설정 보기"
+        className="mt-3 grid grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-zinc-100 p-1"
+        role="tablist"
+      >
+        <button
+          aria-controls="admin-settings-policy-view"
+          aria-selected={settingsView === "policy"}
+          className={`min-h-11 rounded px-3 text-sm font-semibold transition ${
+            settingsView === "policy" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:bg-white/70"
+          }`}
+          data-testid="admin-settings-policy-tab"
+          id="admin-settings-policy-tab"
+          role="tab"
+          tabIndex={settingsView === "policy" ? 0 : -1}
+          type="button"
+          onClick={() => selectSettingsView("policy")}
+          onKeyDown={handleSettingsTabKeyDown}
+        >
+          정책·권한
+        </button>
+        <button
+          aria-controls="admin-settings-operations-view"
+          aria-selected={settingsView === "operations"}
+          className={`min-h-11 rounded px-3 text-sm font-semibold transition ${
+            settingsView === "operations" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:bg-white/70"
+          }`}
+          data-testid="admin-settings-operations-tab"
+          id="admin-settings-operations-tab"
+          role="tab"
+          tabIndex={settingsView === "operations" ? 0 : -1}
+          type="button"
+          onClick={() => selectSettingsView("operations")}
+          onKeyDown={handleSettingsTabKeyDown}
+        >
+          현장 운영
+        </button>
+      </div>
+
+      {settingsView === "policy" ? (
+      <div aria-labelledby="admin-settings-policy-tab" data-testid="admin-settings-policy-view" id="admin-settings-policy-view" role="tabpanel">
+
       <section className="mt-3 grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="flex items-start justify-between gap-3">
@@ -590,7 +669,7 @@ export function AdminSettingsScreen() {
               type="button"
               onClick={() => setRolePolicyOpen((current) => !current)}
             >
-              {rolePolicyOpen ? "닫기" : "상세"}
+              {rolePolicyOpen ? "권한 기준 닫기" : "권한 기준 보기"}
             </button>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1.5" data-testid="admin-settings-role-policy-summary">
@@ -633,7 +712,7 @@ export function AdminSettingsScreen() {
               type="button"
               onClick={() => setBranchPolicyOpen((current) => !current)}
             >
-              {branchPolicyOpen ? "닫기" : "상세"}
+              {branchPolicyOpen ? "지점 정책 닫기" : "지점 정책 보기"}
             </button>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-1.5" data-testid="admin-settings-branch-policy-summary">
@@ -684,7 +763,7 @@ export function AdminSettingsScreen() {
               type="button"
               onClick={() => setAuditPolicyOpen((current) => !current)}
             >
-              {auditPolicyOpen ? "닫기" : "상세"}
+              {auditPolicyOpen ? "기록 항목 닫기" : "기록 항목 보기"}
             </button>
           </div>
           <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5" data-testid="admin-settings-audit-policy-summary">
@@ -715,6 +794,11 @@ export function AdminSettingsScreen() {
           </div>
         </div>
       </section>
+      </div>
+      ) : null}
+
+      {settingsView === "operations" ? (
+      <div aria-labelledby="admin-settings-operations-tab" data-testid="admin-settings-operations-view" id="admin-settings-operations-view" role="tabpanel">
 
       <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby="pilot-operator-support-heading">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1535,6 +1619,8 @@ export function AdminSettingsScreen() {
           </div>
         </div>
       </section>
+      </div>
+      ) : null}
     </div>
   );
 }

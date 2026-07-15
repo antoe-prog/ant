@@ -286,6 +286,8 @@ assert(manifest.shortcuts?.some((shortcut) => shortcut.url === "/app/dashboard")
 assert(layoutSource.includes("export const viewport: Viewport"), "layout must use the Next viewport export");
 assert(layoutSource.includes('themeColor: "#102a43"'), "layout viewport must set mobile browser theme color");
 assert(layoutSource.includes('viewportFit: "cover"'), "layout viewport must support iOS safe-area display");
+assert(!layoutSource.includes("maximumScale"), "layout viewport must not block user zoom with maximumScale");
+assert(!layoutSource.includes("userScalable"), "layout viewport must not disable user zoom");
 assert(layoutSource.includes('manifest: "/manifest.webmanifest"'), "metadata must link the web app manifest");
 assert(!layoutSource.includes("final-judo-icon.svg"), "metadata must not prefer the stale SVG app icon");
 assert(layoutSource.includes("appleWebApp"), "metadata must include iOS web app hints");

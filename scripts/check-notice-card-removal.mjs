@@ -262,8 +262,8 @@ assert(
 assert(
   noticeDeleteUiSource.includes('getByTestId("notice-delivery-delete-action")') &&
     noticeDeleteUiSource.includes("ensureLocalAppServer") &&
-    noticeDeleteUiSource.includes('["run", "dev", "--", "--webpack"]') &&
-    noticeDeleteUiSource.includes('appServer: usingExistingAppServer ? "existing" : "managed-next-dev-webpack"') &&
+	    noticeDeleteUiSource.includes('["run", "dev", "--", "--webpack", "--hostname", appUrl.hostname, "--port", appPort]') &&
+	    noticeDeleteUiSource.includes('appServer: usingExistingAppServer ? "existing" : `managed-next-${managedAppServerMode}`') &&
     noticeDeleteUiSource.includes('getByTestId("notice-delete-confirm-action")') &&
     noticeDeleteUiSource.includes('getByTestId("notice-delivery-read-action")') &&
     noticeDeleteUiSource.includes('getByTestId("notice-read-feedback")') &&
@@ -272,8 +272,8 @@ assert(
     noticeDeleteUiSource.includes("mobile-notices-read-feedback.png") &&
     noticeDeleteUiSource.includes('getByTestId("notification-notice-delete-action")') &&
     noticeDeleteUiSource.includes('getByTestId("notification-notice-delete-confirm-action")') &&
-    noticeDeleteUiSource.includes('bottomClearance >= 96') &&
-    noticeDeleteUiSource.includes('safeAreaHeight >= 112') &&
+	    noticeDeleteUiSource.includes('bottomState.bottomClearance >= 96') &&
+	    noticeDeleteUiSource.includes('bottomState.safeAreaHeight >= 112') &&
     noticeDeleteUiSource.includes("Browser skill present but node_repl js tool unavailable; Playwright fallback used") &&
     noticeDeleteUiSource.includes("공지를 삭제했습니다") &&
     noticeDeleteUiSource.includes(".data/mobile-builds/ios/notice-delete-ui-20260701"),

@@ -209,25 +209,36 @@ export function getVisibleRoutes(role: UserRole) {
 }
 
 const mobileNavRouteIdsByRole: Record<UserRole, AppRouteId[]> = {
-  admin: ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "adminSettings"],
+  admin: ["dashboard", "adminBranches", "adminUsers", "notices", "adminSettings"],
   coach: ["dashboard", "classes", "members", "promotions", "notices"],
   // 회원/학부모 하단 내비의 알림은 헤더 종 아이콘과 중복이라 대회 메뉴로 대체한다.
-  // 공지/알림 화면에 진입하면 현재 경로 유지 로직이 마지막 칸을 알림으로 바꿔 준다.
   guardian: ["dashboard", "classes", "members", "payments", "tournaments"],
   member: ["dashboard", "classes", "members", "payments", "tournaments"],
-  owner: ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"],
+  owner: ["dashboard", "members", "payments", "notices", "ownerReports"],
+};
+
+const mobileSecondaryRouteIdsByRole: Record<UserRole, AppRouteId[]> = {
+  admin: ["members", "adminRoles", "adminAuditLogs"],
+  coach: [],
+  guardian: ["promotions"],
+  member: ["promotions"],
+  owner: ["ownerBranches"],
 };
 
 export function getMobileVisibleRoutes(role: UserRole, pathname?: string) {
+  void pathname;
   const visibleRoutesById = new Map(getVisibleRoutes(role).map((route) => [route.id, route]));
-  const baseRouteIds = mobileNavRouteIdsByRole[role];
-  const currentRoute = pathname ? getRouteByPath(pathname) : undefined;
-  const routeIds =
-    currentRoute && visibleRoutesById.has(currentRoute.id) && !baseRouteIds.includes(currentRoute.id)
-      ? [...baseRouteIds.slice(0, -1), currentRoute.id]
-      : baseRouteIds;
 
-  return routeIds.flatMap((routeId) => {
+  return mobileNavRouteIdsByRole[role].flatMap((routeId) => {
+    const route = visibleRoutesById.get(routeId);
+    return route ? [route] : [];
+  });
+}
+
+export function getMobileSecondaryRoutes(role: UserRole) {
+  const visibleRoutesById = new Map(getVisibleRoutes(role).map((route) => [route.id, route]));
+
+  return mobileSecondaryRouteIdsByRole[role].flatMap((routeId) => {
     const route = visibleRoutesById.get(routeId);
     return route ? [route] : [];
   });

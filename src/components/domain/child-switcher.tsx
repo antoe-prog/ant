@@ -26,6 +26,7 @@ export function ChildSwitcher({
 
           return (
             <button
+              aria-label={`${child.name}, ${child.meta}${child.statusLabel ? `, ${child.statusLabel}` : ""}`}
               className={`flex min-h-11 min-w-0 flex-col justify-center rounded-md border px-2 py-1.5 text-left transition ${
                 selected
                   ? "border-brand-teal-700 bg-brand-teal-50 text-brand-teal-800"
@@ -38,7 +39,10 @@ export function ChildSwitcher({
               onClick={() => onSelect(child.id)}
             >
               <span className="block min-w-0 truncate text-sm font-semibold">{child.name}</span>
-              <span className="mt-0.5 block min-w-0 truncate text-[11px] font-medium leading-4 text-zinc-600">{child.meta}</span>
+              <span className="mt-0.5 block min-w-0 truncate text-[11px] font-medium leading-4 text-zinc-600">
+                {child.meta}
+                {child.statusLabel && child.statusLabel !== "활성" ? ` · ${child.statusLabel}` : ""}
+              </span>
             </button>
           );
         })}

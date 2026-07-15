@@ -34,15 +34,18 @@ const appCases = [
   { id: "admin-audit", role: "admin", next: "/app/admin/audit-logs?action=attendance.update" },
   { id: "admin-members", role: "admin", next: "/app/members" },
   { id: "admin-notices", role: "admin", next: "/app/notices" },
+  { id: "admin-account", role: "admin", next: "/app/account" },
   { id: "owner-dashboard", role: "owner", next: "/app/dashboard" },
   { id: "owner-members", role: "owner", next: "/app/members" },
   { id: "owner-branches", role: "owner", next: "/app/owner/branches" },
   { id: "owner-reports", role: "owner", next: "/app/owner/reports" },
   { id: "owner-notices", role: "owner", next: "/app/notices" },
+  { id: "owner-account", role: "owner", next: "/app/account" },
   { id: "coach-dashboard", role: "coach", next: "/app/dashboard" },
   { id: "coach-classes", role: "coach", next: "/app/classes" },
   { id: "coach-members", role: "coach", next: "/app/members" },
   { id: "coach-notices", role: "coach", next: "/app/notices" },
+  { id: "coach-account", role: "coach", next: "/app/account" },
   { id: "member-dashboard", role: "member", next: "/app/dashboard" },
   { id: "member-classes", role: "member", next: "/app/classes" },
   { id: "member-members", role: "member", next: "/app/members" },
@@ -377,6 +380,8 @@ async function main() {
     isMobile: true,
   });
   const page = await context.newPage();
+  page.setDefaultTimeout(15000);
+  page.setDefaultNavigationTimeout(15000);
   const results = [];
 
   try {
@@ -400,6 +405,11 @@ async function main() {
 
       try {
         await page.goto(url, { waitUntil: "load" });
+        if (testCase.role) {
+          const expectedPathname = new URL(testCase.next, baseUrl).pathname;
+          await page.waitForURL((currentUrl) => currentUrl.pathname === expectedPathname, { waitUntil: "load" });
+        }
+        await page.waitForLoadState("networkidle");
         await page.waitForSelector("main", { timeout: 10000 });
         await page
           .waitForFunction(() => (document.querySelector("main")?.textContent ?? "").trim().length > 30, null, { timeout: 10000 })
@@ -416,7 +426,73 @@ async function main() {
           )
           .catch(() => undefined);
 
-        const bodyText = await page.locator("body").innerText();
+        let adminSettingsPolicyLayout = {};
+        let adminSettingsViewEvidence = null;
+        let inactiveViewBodyText = "";
+
+        if (testCase.id === "admin-settings") {
+          inactiveViewBodyText = await page.locator("body").innerText();
+          adminSettingsPolicyLayout = await page.evaluate(() => ({
+            adminSettingsRolePolicySummaryCount: document.querySelectorAll('[data-testid="admin-settings-role-policy-summary"]').length,
+            adminSettingsRolePolicySummaryHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-role-policy-summary"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsRolePolicyDetailCount: document.querySelectorAll('[data-testid="admin-settings-role-policy-detail"]').length,
+            adminSettingsRolePolicyToggleCount: document.querySelectorAll('[data-testid="admin-settings-role-policy-toggle"]').length,
+            adminSettingsRolePolicyToggleHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-role-policy-toggle"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsBranchPolicySummaryCount: document.querySelectorAll('[data-testid="admin-settings-branch-policy-summary"]').length,
+            adminSettingsBranchPolicySummaryHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-branch-policy-summary"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsBranchPolicyDetailCount: document.querySelectorAll('[data-testid="admin-settings-branch-policy-detail"]').length,
+            adminSettingsBranchPolicyToggleCount: document.querySelectorAll('[data-testid="admin-settings-branch-policy-toggle"]').length,
+            adminSettingsBranchPolicyToggleHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-branch-policy-toggle"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsAuditPolicySummaryCount: document.querySelectorAll('[data-testid="admin-settings-audit-policy-summary"]').length,
+            adminSettingsAuditPolicySummaryHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-audit-policy-summary"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsAuditPolicyDetailCount: document.querySelectorAll('[data-testid="admin-settings-audit-policy-detail"]').length,
+            adminSettingsAuditPolicyToggleCount: document.querySelectorAll('[data-testid="admin-settings-audit-policy-toggle"]').length,
+            adminSettingsAuditPolicyToggleHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-audit-policy-toggle"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsServicePolicySummaryCount: document.querySelectorAll('[data-testid="admin-settings-service-policy-summary"]').length,
+            adminSettingsServicePolicySummaryHeight:
+              Math.round(document.querySelector('[data-testid="admin-settings-service-policy-summary"]')?.getBoundingClientRect().height ?? 0),
+            adminSettingsServicePolicySummaryTileCount: document.querySelectorAll('[data-testid="admin-settings-service-policy-summary"] p').length,
+          }));
+
+          const policyScreenshotPath = join(outDir, "admin-settings-policy.png");
+          await page.screenshot({ path: policyScreenshotPath, fullPage: true, caret: "initial" });
+          const policyScreenshotSizeBytes = statSync(policyScreenshotPath).size;
+          const policyTab = page.locator('[data-testid="admin-settings-policy-tab"]');
+          const operationsTab = page.locator('[data-testid="admin-settings-operations-tab"]');
+          const beforeSwitch = {
+            operationsSelected: await operationsTab.getAttribute("aria-selected"),
+            operationsViewCount: await page.locator('[data-testid="admin-settings-operations-view"]').count(),
+            policySelected: await policyTab.getAttribute("aria-selected"),
+            policyViewCount: await page.locator('[data-testid="admin-settings-policy-view"]').count(),
+          };
+
+          await operationsTab.click();
+          await page.waitForSelector('[data-testid="admin-settings-operations-view"]', { timeout: 10000 });
+          const afterSwitch = {
+            operationsSelected: await operationsTab.getAttribute("aria-selected"),
+            operationsViewCount: await page.locator('[data-testid="admin-settings-operations-view"]').count(),
+            policySelected: await policyTab.getAttribute("aria-selected"),
+            policyViewCount: await page.locator('[data-testid="admin-settings-policy-view"]').count(),
+          };
+
+          adminSettingsViewEvidence = {
+            afterSwitch,
+            beforeSwitch,
+            policyScreenshotPath,
+            policyScreenshotSizeBytes,
+          };
+        }
+
+        let bodyText = await page.locator("body").innerText();
+        if (inactiveViewBodyText) {
+          bodyText = `${inactiveViewBodyText}\n${bodyText}`;
+        }
         const lines = bodyText
           .split(/\n+/)
           .map((line) => line.trim())
@@ -432,7 +508,8 @@ async function main() {
           },
           { pattern: blockedFormPlaceholderPattern.source, flags: blockedFormPlaceholderPattern.flags },
         );
-        const layout = await page.evaluate(() => {
+        const layout = {
+          ...(await page.evaluate(() => {
           const authRoleShortcutButtons = Array.from(document.querySelectorAll("main button")).filter((button) => {
             const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
 
@@ -454,16 +531,10 @@ async function main() {
           hasAppError: document.body.innerText.includes("Application error") || document.body.innerText.includes("Unhandled Runtime Error"),
           inviteFormCount: document.querySelectorAll("#admin-user-invite-form").length,
           inviteToggleCount: document.querySelectorAll('[data-testid="admin-user-invite-toggle"]').length,
-          mobileSessionRailCount: document.querySelectorAll('[data-testid="mobile-session-rail"]').length,
-          mobileSessionRailActionMinHeight: Math.min(
-            ...Array.from(
-              document.querySelectorAll(
-                '[data-testid="mobile-session-rail"] a, [data-testid="mobile-session-rail"] button',
-              ),
-            )
-              .map((action) => Math.round(action.getBoundingClientRect().height))
-              .filter((height) => height > 0),
-          ),
+          mobileAccountMenuToggleCount: document.querySelectorAll('[data-testid="mobile-account-menu-toggle"]').length,
+          mobileAccountMenuToggleHeight:
+            Math.round(document.querySelector('[data-testid="mobile-account-menu-toggle"]')?.getBoundingClientRect().height ?? 0),
+          mobileHeaderHeight: Math.round(document.querySelector("header")?.getBoundingClientRect().height ?? 0),
           mobileHeaderLogoutButtonCount: document.querySelectorAll('[data-testid="mobile-header-logout-button"]').length,
           mobileHeaderLogoutButtonHeight:
             Math.round(document.querySelector('[data-testid="mobile-header-logout-button"]')?.getBoundingClientRect().height ?? 0),
@@ -471,6 +542,8 @@ async function main() {
           appHeaderNoticeLinkHeight:
             Math.round(document.querySelector('[data-testid="app-header-notice-link"]')?.getBoundingClientRect().height ?? 0),
           appHeaderNoticeBadgeCount: document.querySelectorAll('[data-testid="notice-unread-badge"]').length,
+          appHeaderNoticeBadgeUnreadCount:
+            Number(document.querySelector('[data-testid="notice-unread-badge"]')?.getAttribute("data-unread-notice-count") ?? 0),
           mobileBottomNavScrollerClientWidth:
             Math.round(document.querySelector('[data-testid="mobile-bottom-navigation-scroller"]')?.clientWidth ?? 0),
           mobileBottomNavScrollerScrollWidth:
@@ -519,6 +592,8 @@ async function main() {
           mobileBottomNavNoticeBadgeCount: document.querySelectorAll(
             '[data-testid="mobile-bottom-navigation"] [data-testid="mobile-notice-unread-badge"]',
           ).length,
+          mobileBottomNavNoticeBadgeUnreadCount:
+            Number(document.querySelector('[data-testid="mobile-notice-unread-badge"]')?.getAttribute("data-unread-notice-count") ?? 0),
           mobileBottomNavRequestsBadgeCount: document.querySelectorAll(
             '[data-testid="mobile-bottom-navigation"] a[data-mobile-route-id="requests"] [data-testid="mobile-notice-unread-badge"]',
           ).length,
@@ -936,6 +1011,8 @@ async function main() {
           adminUserInvitePanelCount: document.querySelectorAll('[data-testid="admin-user-invite-panel"]').length,
           adminUserMemberCreateLinkHeight:
             Math.round(document.querySelector('[data-testid="admin-user-member-create-link"]')?.getBoundingClientRect().height ?? 0),
+          adminUserMemberCreateLinkHref:
+            document.querySelector('[data-testid="admin-user-member-create-link"]')?.getAttribute("href") ?? "",
           adminUserInviteToggleText: document.querySelector('[data-testid="admin-user-invite-toggle"]')?.textContent?.trim() ?? "",
           adminUserInviteToggleHeight:
             Math.round(document.querySelector('[data-testid="admin-user-invite-toggle"]')?.getBoundingClientRect().height ?? 0),
@@ -2162,7 +2239,9 @@ async function main() {
               )
             : 0,
 	        };
-        });
+          })),
+          ...adminSettingsPolicyLayout,
+        };
 
         await page.screenshot({ path: screenshotPath, fullPage: true, caret: "initial" });
         const screenshotSizeBytes = statSync(screenshotPath).size;
@@ -2273,6 +2352,7 @@ async function main() {
           assert.equal(layout.adminUserRoleFilterRoles, "owner|coach|guardian|member", "admin users role filter cards must keep the requested role order");
           assert(layout.adminUserRoleFilterButtonMinHeight >= 44, "admin users role filter cards must stay tappable on mobile");
           assert(layout.adminUserMemberCreateLinkHeight >= 44, "admin users member create shortcut must keep a 44px touch height");
+          assert.equal(layout.adminUserMemberCreateLinkHref, "/app/members?create=1", "admin users member create shortcut must open the registration form directly");
           assert(layout.adminUserInviteToggleHeight >= 44, "admin users invite toggle must keep a 44px touch height");
           assert(layout.adminUserListRowCount > 0, "admin users must render user list rows");
           assert(layout.adminUserEditToggleCount >= layout.adminUserListRowCount, "admin users must render an edit toggle for each visible user");
@@ -2382,6 +2462,18 @@ async function main() {
         }
 
         if (testCase.id === "admin-settings") {
+          assert.equal(adminSettingsViewEvidence?.beforeSwitch.policySelected, "true", "admin settings must open on the policy tab");
+          assert.equal(adminSettingsViewEvidence?.beforeSwitch.operationsSelected, "false", "admin settings operations tab must start inactive");
+          assert.equal(adminSettingsViewEvidence?.beforeSwitch.policyViewCount, 1, "admin settings must render the policy view by default");
+          assert.equal(adminSettingsViewEvidence?.beforeSwitch.operationsViewCount, 0, "admin settings must not render both tab panels at once");
+          assert.equal(adminSettingsViewEvidence?.afterSwitch.policySelected, "false", "admin settings policy tab must deactivate after switching");
+          assert.equal(adminSettingsViewEvidence?.afterSwitch.operationsSelected, "true", "admin settings operations tab must activate after switching");
+          assert.equal(adminSettingsViewEvidence?.afterSwitch.policyViewCount, 0, "admin settings policy panel must leave the active view after switching");
+          assert.equal(adminSettingsViewEvidence?.afterSwitch.operationsViewCount, 1, "admin settings must render the operations view after switching");
+          assert(
+            (adminSettingsViewEvidence?.policyScreenshotSizeBytes ?? 0) > 10_000,
+            "admin settings policy screenshot must be non-empty",
+          );
           assert.equal(layout.adminSettingsSummaryBarCount, 1, "admin settings must render one compact summary bar");
           assert(layout.adminSettingsSummaryBarHeight >= 44, "admin settings summary must keep a readable 44px scan height");
           assert(layout.adminSettingsSummaryBarHeight <= 56, "admin settings summary must stay compact after readability padding");
@@ -2502,7 +2594,7 @@ async function main() {
           );
         }
 
-        if (testCase.id === "member-account" || testCase.id === "guardian-account") {
+        if (testCase.id.endsWith("-account")) {
           assert.equal(layout.accountSummaryCardCount, 1, `${testCase.id} must render one compact account summary card`);
           assert.equal(layout.accountSummaryGridCount, 1, `${testCase.id} must render one compact account summary grid`);
           assert.equal(layout.accountStatusCardCount, 0, `${testCase.id} must not show a redundant active account status card`);
@@ -2513,9 +2605,13 @@ async function main() {
           assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must avoid duplicate header logout on the account screen`);
           assert(layout.accountRoleSwitchLinkHeight >= 44, `${testCase.id} role switch action must keep a 44px touch height`);
           assert(layout.accountLogoutButtonHeight >= 44, `${testCase.id} logout action must keep a 44px touch height`);
-          assert.equal(layout.accountBranchListHeadingCount, 0, `${testCase.id} must not repeat a single branch list below the summary`);
-          assert.equal(layout.mobileBottomNavActiveRouteIds, "members", `${testCase.id} must keep the family info bottom-nav item active`);
-          assert.equal(layout.mobileBottomNavCurrentRouteIds, "members", `${testCase.id} must mark the family info bottom-nav item as current`);
+          if (testCase.role === "admin" || testCase.role === "owner") {
+            assert.equal(layout.accountBranchListHeadingCount, 1, `${testCase.id} must expose its multi-branch scope below the summary`);
+          } else {
+            assert.equal(layout.accountBranchListHeadingCount, 0, `${testCase.id} must not repeat a single branch list below the summary`);
+          }
+          assert.equal(layout.mobileBottomNavActiveRouteIds, "", `${testCase.id} must not mislabel family info as the current account destination`);
+          assert.equal(layout.mobileBottomNavCurrentRouteIds, "", `${testCase.id} must keep account location in the account menu instead of bottom navigation`);
         }
 
         if (testCase.role) {
@@ -2523,32 +2619,21 @@ async function main() {
           assert(layout.appHeaderNoticeLinkHeight >= 44, `${testCase.id} header notice action must keep a 44px touch height`);
         }
 
-        if (testCase.role === "admin" || testCase.role === "owner" || testCase.role === "coach") {
-          assert.equal(layout.mobileSessionRailCount, 1, `${testCase.id} must show one compact mobile session rail`);
-          assert(layout.mobileSessionRailActionMinHeight >= 44, `${testCase.id} mobile session rail actions must keep 44px touch height`);
+        if (testCase.role) {
+          assert.equal(layout.mobileAccountMenuToggleCount, 1, `${testCase.id} must show one compact mobile account menu action`);
+          assert(layout.mobileAccountMenuToggleHeight >= 44, `${testCase.id} mobile account menu action must keep 44px touch height`);
+          assert(layout.mobileHeaderHeight <= 96, `${testCase.id} mobile header must stay compact without a permanent session rail`);
+          assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must keep logout inside the account menu or account screen`);
         }
 
         if (testCase.role === "member" || testCase.role === "guardian") {
-          // 기본 하단 내비는 대회로 끝나고, 공지/알림 화면에서는 현재 경로 유지 로직이 마지막 칸을 알림으로 바꾼다.
-          const familyNoticesInNav = testCase.next === "/app/notices" || testCase.next === "/app/notifications";
-          const expectedFamilyNoticeLabel = testCase.next === "/app/notices" ? "공지" : "알림";
-          const expectedFamilyLastLabel = familyNoticesInNav ? expectedFamilyNoticeLabel : "대회";
-          const expectedFamilyBottomNavRouteIds = familyNoticesInNav
-            ? "dashboard|classes|members|payments|notices"
-            : "dashboard|classes|members|payments|tournaments";
+          const expectedFamilyBottomNavRouteIds = "dashboard|classes|members|payments|tournaments";
           const expectedFamilyBottomNavLabels =
             testCase.role === "guardian"
-              ? `홈|수업|자녀|결제|${expectedFamilyLastLabel}`
-              : `홈|수업|내 정보|결제|${expectedFamilyLastLabel}`;
-          const isFamilyAccountPage = testCase.id === "member-account" || testCase.id === "guardian-account";
-
-          assert.equal(layout.mobileSessionRailCount, 0, `${testCase.id} must not repeat account/session actions below the FINAL header`);
-          if (isFamilyAccountPage) {
-            assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must keep logout only in the account action panel`);
-          } else {
-            assert.equal(layout.mobileHeaderLogoutButtonCount, 1, `${testCase.id} must expose one compact header logout action`);
-            assert(layout.mobileHeaderLogoutButtonHeight >= 44, `${testCase.id} header logout action must stay tappable`);
-          }
+              ? "홈|수업|자녀|결제|대회"
+              : "홈|수업|내 정보|결제|대회";
+          assert.equal(layout.mobileAccountMenuToggleCount, 1, `${testCase.id} must expose the same account-menu pattern used by other roles`);
+          assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must not duplicate logout outside the account menu`);
           assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} must show the five family bottom-nav actions`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} family bottom navigation must render as a fixed grid`);
           assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} family bottom navigation must allocate one grid column per action`);
@@ -2562,36 +2647,11 @@ async function main() {
             expectedFamilyBottomNavLabels,
             `${testCase.id} family bottom navigation labels must keep unread badges out of visible menu text`,
           );
-          if (familyNoticesInNav) {
-            assert.equal(
-              layout.mobileBottomNavNoticeBadgeCount,
-              layout.appHeaderNoticeBadgeCount,
-              `${testCase.id} bottom notice badge must mirror the header unread notice badge`,
-            );
-          } else {
-            assert.equal(
-              layout.mobileBottomNavNoticeBadgeCount,
-              0,
-              `${testCase.id} bottom navigation must not render a notice badge when the inbox action lives in the header`,
-            );
-          }
-          if (layout.mobileBottomNavNoticeBadgeCount > 0) {
-            assert(
-              layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedFamilyNoticeLabel}, 미확인 공지`) ||
-                layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedFamilyNoticeLabel}, 확인 필요 결제`),
-              `${testCase.id} bottom notice badge must expose an actionable notification aria label`,
-            );
-            assert.equal(
-              layout.mobileBottomNavNoticeBadgeContained,
-              true,
-              `${testCase.id} bottom notice badge must stay inside the bottom-nav notice action`,
-            );
-            assert.equal(
-              layout.mobileBottomNavNoticeBadgePointerEvents,
-              "none",
-              `${testCase.id} bottom notice badge must not intercept bottom-nav taps`,
-            );
-          }
+          assert.equal(
+            layout.mobileBottomNavNoticeBadgeCount,
+            0,
+            `${testCase.id} bottom navigation must not duplicate the header notification inbox`,
+          );
           assert(layout.mobileBottomNavLinkMinWidth >= 56, `${testCase.id} bottom-nav actions must keep at least a 56px tap width`);
           assert(
             layout.mobileBottomNavScrollerScrollWidth <= layout.mobileBottomNavScrollerClientWidth,
@@ -2600,23 +2660,13 @@ async function main() {
         }
 
         if (testCase.role === "admin") {
-          const expectedAdminBottomNavRouteIds =
-            testCase.id === "admin-notices"
-              ? "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|notices"
-              : testCase.id === "admin-members"
-              ? "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|members"
-              : "dashboard|adminBranches|adminUsers|adminRoles|adminAuditLogs|adminSettings";
-          const expectedAdminBottomNavLabels =
-            testCase.id === "admin-notices"
-              ? "대시보드|지점|사용자|권한|변경 기록|공지"
-              : testCase.id === "admin-members"
-              ? "대시보드|지점|사용자|권한|변경 기록|회원"
-              : "대시보드|지점|사용자|권한|변경 기록|설정";
+          const expectedAdminBottomNavRouteIds = "dashboard|adminBranches|adminUsers|notices|adminSettings";
+          const expectedAdminBottomNavLabels = "대시보드|지점|사용자|공지|설정";
 
-          assert.equal(layout.mobileBottomNavLinkCount, 6, `${testCase.id} admin bottom navigation must stay focused on six management actions`);
+          assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} admin bottom navigation must stay focused on five primary management actions`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} admin bottom navigation must render as a fixed grid`);
-          assert.equal(layout.mobileBottomNavGridColumnCount, 6, `${testCase.id} admin bottom navigation must allocate one grid column per action`);
-          assert.equal(layout.mobileBottomNavRouteIds, expectedAdminBottomNavRouteIds, `${testCase.id} admin bottom navigation must include the current route when it is outside the default set`);
+          assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} admin bottom navigation must allocate one grid column per action`);
+          assert.equal(layout.mobileBottomNavRouteIds, expectedAdminBottomNavRouteIds, `${testCase.id} admin bottom navigation must keep stable management destinations`);
           assert.equal(layout.mobileBottomNavLabels, expectedAdminBottomNavLabels, `${testCase.id} admin bottom navigation labels must match the rendered route set`);
           assert(layout.mobileBottomNavLinkMinWidth >= 56, `${testCase.id} admin bottom-nav actions must keep at least a 56px tap width`);
           assert(
@@ -2626,7 +2676,6 @@ async function main() {
         }
 
         if (testCase.role === "coach") {
-          const expectedCoachNoticeLabel = testCase.id === "coach-notices" ? "공지" : "알림";
           assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} coach bottom navigation must show five actions including promotions and notices`);
           assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} coach bottom navigation must render as a fixed grid`);
           assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} coach bottom navigation must allocate one grid column per action`);
@@ -2637,19 +2686,23 @@ async function main() {
           );
           assert.equal(
             layout.mobileBottomNavLabels,
-            `홈|수업/출석|회원|승급 심사|${expectedCoachNoticeLabel}`,
+            "홈|수업/출석|회원|승급 심사|공지",
             `${testCase.id} coach bottom navigation labels must keep unread badges out of visible menu text`,
           );
           assert.equal(
+            layout.mobileBottomNavNoticeBadgeUnreadCount,
+            layout.appHeaderNoticeBadgeUnreadCount,
+            `${testCase.id} bottom notice badge must mirror only the header unread notice count`,
+          );
+          assert.equal(
             layout.mobileBottomNavNoticeBadgeCount,
-            layout.appHeaderNoticeBadgeCount,
-            `${testCase.id} bottom notice badge must mirror the header unread notice badge`,
+            layout.appHeaderNoticeBadgeUnreadCount > 0 ? 1 : 0,
+            `${testCase.id} bottom notice badge visibility must depend only on unread notices`,
           );
           if (layout.mobileBottomNavNoticeBadgeCount > 0) {
             assert(
-              layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedCoachNoticeLabel}, 미확인 공지`) ||
-                layout.mobileBottomNavNoticeAriaLabel.includes(`${expectedCoachNoticeLabel}, 확인 필요 결제`),
-              `${testCase.id} bottom notice badge must expose an actionable notification aria label`,
+              layout.mobileBottomNavNoticeAriaLabel.includes("공지, 미확인 공지"),
+              `${testCase.id} bottom notice badge must expose a notice-only aria label`,
             );
             assert.equal(
               layout.mobileBottomNavNoticeBadgeContained,
@@ -2670,8 +2723,8 @@ async function main() {
         }
 
         if (testCase.role === "owner") {
-          assert.equal(layout.mobileBottomNavLinkCount, 6, `${testCase.id} owner bottom navigation must remove deleted request actions`);
-          assert(layout.mobileBottomNavLinkMinWidth >= 48, `${testCase.id} owner bottom-nav actions must keep at least a 48px tap width`);
+          assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} owner bottom navigation must keep five primary operation actions`);
+          assert(layout.mobileBottomNavLinkMinWidth >= 56, `${testCase.id} owner bottom-nav actions must keep at least a 56px tap width`);
           assert(
             layout.mobileBottomNavScrollerScrollWidth <= layout.mobileBottomNavScrollerClientWidth + 1,
             `${testCase.id} owner bottom navigation must fit without horizontal scrolling`,
@@ -2679,7 +2732,8 @@ async function main() {
         }
 
         if (/^(member|guardian)-(classes|members|payments|notices|notifications)$/.test(testCase.id)) {
-          assert.equal(layout.familyRepeatedScreenHeaderCount, 0, `${testCase.id} must not repeat the screen title under the FINAL header`);
+          const expectedScreenHeaderCount = testCase.id.endsWith("-notices") ? 1 : 0;
+          assert.equal(layout.familyRepeatedScreenHeaderCount, expectedScreenHeaderCount, `${testCase.id} must keep only the page title needed for orientation`);
         }
 
         if (testCase.id === "member-members" || testCase.id === "guardian-members") {
@@ -2740,10 +2794,10 @@ async function main() {
         if (testCase.id === "member-notices" || testCase.id === "guardian-notices") {
           assert.equal(layout.noticesScreenCount, 1, `${testCase.id} must render the dedicated notices screen`);
           assert.equal(layout.requestsScreenCount, 0, `${testCase.id} must not render the requests screen inside notices`);
-          assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must activate the notices bottom-nav item`);
-          assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
-          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", `${testCase.id} must label the active notices tab as 공지`);
-          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", `${testCase.id} active notices tab must keep the notices href`);
+          assert.equal(layout.mobileBottomNavActiveRouteIds, "", `${testCase.id} must not replace a stable family destination with notices`);
+          assert.equal(layout.mobileBottomNavCurrentRouteIds, "", `${testCase.id} must keep the header as the notification entry point`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "", `${testCase.id} must not duplicate notices in the family bottom navigation`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "", `${testCase.id} must not duplicate the header notice link`);
           assert(
             layout.familyNoticeReadActionCount === 0 || layout.familyNoticeReadActionMinHeight >= 44,
             `${testCase.id} family notice read actions must keep 44px touch height when unread notices exist`,
@@ -2755,7 +2809,10 @@ async function main() {
           assert.equal(layout.familyNoticeFilterOverflow, 0, `${testCase.id} family notice filter toolbar must not overflow horizontally`);
           assert.equal(layout.familyNoticeStatusBadgeCount, 0, `${testCase.id} must not repeat the filter counts in a separate status badge`);
           assert(layout.familyNoticeCardCount > 0, `${testCase.id} must render compact family notice cards`);
-          assert(layout.familyNoticeCardMaxHeight <= 132, `${testCase.id} family notice cards must stay scan-friendly`);
+          assert(
+            layout.familyNoticeCardMaxHeight <= 152,
+            `${testCase.id} family notice cards must stay scan-friendly while preserving guardian target context and 44px actions`,
+          );
           assert(layout.familyNoticeBodyMaxHeight <= 44, `${testCase.id} family notice bodies must stay within a compact tappable preview`);
           if (layout.familyNoticeDetailToggleCount > 0) {
             assert(layout.familyNoticeDetailToggleMinHeight >= 44, `${testCase.id} detail toggles must keep a 44px touch target`);
@@ -2776,10 +2833,10 @@ async function main() {
           assert.equal(layout.notificationsScreenCount, 1, `${testCase.id} must render the dedicated notification inbox`);
           assert.equal(layout.noticesScreenCount, 0, `${testCase.id} must not render the notices screen alias`);
           assert.equal(layout.requestsScreenCount, 0, `${testCase.id} must not render the requests screen`);
-          assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must keep the notices bottom-nav item active`);
-          assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
-          assert.equal(layout.mobileBottomNavNoticeLabel, "알림", `${testCase.id} must label the notification inbox tab as 알림`);
-          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notifications", `${testCase.id} notification inbox tab must open the notification inbox`);
+          assert.equal(layout.mobileBottomNavActiveRouteIds, "", `${testCase.id} must keep family bottom-nav destinations stable`);
+          assert.equal(layout.mobileBottomNavCurrentRouteIds, "", `${testCase.id} must keep the header as the notification entry point`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "", `${testCase.id} must not duplicate the notification inbox`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "", `${testCase.id} must not duplicate the header notification link`);
           assert.equal(layout.notificationSummaryCardCount, 0, `${testCase.id} must not render duplicate summary cards`);
           assert.equal(layout.notificationSummaryGridCount, 0, `${testCase.id} must not render a duplicate summary grid`);
           assert.equal(layout.notificationDuplicateSummaryTextCount, 0, `${testCase.id} must not render duplicate summary helper text`);
@@ -2814,7 +2871,11 @@ async function main() {
               `${testCase.id} must tone down every confirmed notice state badge`,
             );
           }
-          assert(layout.notificationFollowUpStateBadgeCount > 0, `${testCase.id} must show follow-up states as badges`);
+          assert.equal(
+            layout.notificationFollowUpStateBadgeCount,
+            layout.notificationInboxCardCount - layout.notificationNoticeCardCount,
+            `${testCase.id} must show follow-up badges on every actionable non-notice item without inventing one for a fully paid selected child`,
+          );
           assert(layout.notificationFilterButtonMinHeight >= 44, `${testCase.id} filter buttons must keep 44px touch height`);
           assert(layout.notificationFilterButtonText.includes("미확인"), `${testCase.id} unread filter must remain visible`);
           assert(
@@ -2839,8 +2900,8 @@ async function main() {
           }
           if (layout.notificationPaymentCheckoutLinkCount > 0) {
             assert(
-              /납부 정보 확인|납부 확인 중|납부 확인|학부모 확인/.test(layout.notificationPaymentCheckoutLinkText),
-              `${testCase.id} payment alert checkout links must use payment-info confirmation copy`,
+              /납부 요청|납부 확인 중|납부 확인|학부모 확인/.test(layout.notificationPaymentCheckoutLinkText),
+              `${testCase.id} payment alert checkout links must use request or confirmation copy`,
             );
             assert(
               !/결제하기|결제 진행/.test(layout.notificationPaymentCheckoutLinkText),
@@ -2877,8 +2938,8 @@ async function main() {
           assert.equal(layout.requestsScreenCount, 0, "coach notices must not render the requests screen inside notices");
           assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", "coach notices must activate the notices bottom-nav item");
           assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", "coach notices must mark only notices as the current bottom-nav item");
-          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", "coach notices must label the active notices tab as 공지");
-          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", "coach notices active bottom tab must keep the notices href");
+          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", "coach notices must label notice management directly");
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", "coach notice tab must open notice management directly");
           assert.equal(layout.noticeOperationsPanelCount, 0, "coach notices must not render owner/admin notice operations");
           assert.equal(layout.noticeActionQueueCount, 0, "coach notices must not render owner/admin notice action queues");
           assert.equal(layout.noticeFollowUpBoardCount, 0, "coach notices must not render owner/admin read-status detail");
@@ -2902,10 +2963,10 @@ async function main() {
         }
 
         if (testCase.id === "owner-notices" || testCase.id === "admin-notices") {
-          assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must activate the notices bottom-nav item`);
-          assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark only notices as the current bottom-nav item`);
-          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", `${testCase.id} must label the active notices tab as 공지`);
-          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", `${testCase.id} active notices tab must keep the notices href`);
+          assert.equal(layout.mobileBottomNavActiveRouteIds, "notices", `${testCase.id} must activate notice management in the stable bottom navigation`);
+          assert.equal(layout.mobileBottomNavCurrentRouteIds, "notices", `${testCase.id} must mark notice management as current`);
+          assert.equal(layout.mobileBottomNavNoticeLabel, "공지", `${testCase.id} must label notice management directly`);
+          assert.equal(layout.mobileBottomNavNoticeHref, "/app/notices", `${testCase.id} notice action must keep the management destination`);
           assert.equal(layout.noticeOperationsPanelCount, 0, `${testCase.id} must remove the separate notice operations card panel`);
           assert.equal(layout.noticeOperationsPanelHeight, 0, `${testCase.id} must not reserve space for the removed operations panel`);
           assert.equal(layout.noticeOperationsToggleCount, 0, `${testCase.id} must remove the separate operations detail toggle`);
@@ -2964,16 +3025,25 @@ async function main() {
           assert.equal(layout.memberPaymentDateLineCount, layout.memberPaymentCompactCardCount, `${testCase.id} must show one compact due/expires date line per payment`);
           assert(layout.memberPaymentDateLineMaxHeight >= 44, `${testCase.id} payment date line must keep a stable 44px scan height`);
           assert(layout.memberPaymentDateLineMaxHeight <= 48, `${testCase.id} payment date line must stay compact`);
-          assert(layout.memberPaymentCheckoutActionCount > 0, `${testCase.id} must keep payment checkout actions on payable cards`);
-          assert(
-            layout.memberPaymentCheckoutActionTexts.some((text) => text.includes("납부 정보 확인")),
-            `${testCase.id} checkout action must use payment-info confirmation copy`,
-          );
-          assert(
-            layout.memberPaymentCheckoutActionTexts.every((text) => !text.includes("결제하기")),
-            `${testCase.id} checkout action must not imply live payment approval`,
-          );
-          assert(layout.memberPaymentCheckoutActionMinHeight >= 44, `${testCase.id} checkout actions must keep a 44px touch height`);
+          if (testCase.id === "member-payments") {
+            assert(layout.memberPaymentCheckoutActionCount > 0, `${testCase.id} must keep payment checkout actions on payable cards`);
+          } else {
+            assert(
+              layout.memberPaymentCheckoutActionCount > 0 || layout.memberPaymentCheckoutStateBadgeCount > 0,
+              `${testCase.id} must show either a payable action or the selected child's truthful blocked/completed state`,
+            );
+          }
+          if (layout.memberPaymentCheckoutActionCount > 0) {
+            assert(
+              layout.memberPaymentCheckoutActionTexts.some((text) => text.includes("납부 요청")),
+              `${testCase.id} checkout action must use request copy before provider integration`,
+            );
+            assert(
+              layout.memberPaymentCheckoutActionTexts.every((text) => !text.includes("결제하기")),
+              `${testCase.id} checkout action must not imply live payment approval`,
+            );
+            assert(layout.memberPaymentCheckoutActionMinHeight >= 44, `${testCase.id} checkout actions must keep a 44px touch height`);
+          }
           assert.equal(
             layout.memberPaymentCheckoutLinkCardCount,
             layout.memberPaymentCheckoutActionCount,
@@ -3090,7 +3160,7 @@ async function main() {
 
         if (testCase.id === "member-dashboard") {
           assert.equal(layout.memberGuardianPriorityGridCount, 1, "member dashboard must render one compact priority list");
-          assert.equal(layout.memberGuardianPriorityCellCount, 4, "member dashboard compact priority list must render four rows");
+          assert.equal(layout.memberGuardianPriorityCellCount, 5, "member dashboard compact priority list must render five core-status rows");
           assert(
             !layout.memberGuardianPriorityHrefs.includes("/app/requests?compose=1"),
             "member dashboard must not expose the deleted request compose flow",
@@ -3101,8 +3171,12 @@ async function main() {
           );
           assert.deepEqual(
             layout.memberGuardianPriorityLabels,
-            ["다음 수업", "출석", "결제 상태", "공지"],
-            "member dashboard compact priority list must show notice only, not counseling/notice",
+            ["다음 수업", "출석", "결제 상태", "승급", "공지"],
+            "member dashboard compact priority list must connect class, payment, promotion, and notice flows",
+          );
+          assert(
+            layout.memberGuardianPriorityHrefs.includes("/app/promotions"),
+            "member dashboard promotion priority row must open promotion history",
           );
           assert(
             layout.memberGuardianPriorityHrefs.includes("/app/notices"),
@@ -3119,7 +3193,11 @@ async function main() {
         if (testCase.id === "guardian-dashboard") {
           assert.equal(layout.guardianChildSwitcherCount, 1, "guardian dashboard must render one compact child switcher");
           assert(layout.guardianChildChipCount >= 2, "guardian dashboard must render child chips");
-          assert.equal(layout.guardianChildChipStatusTextCount, 0, "guardian dashboard child chips must not repeat account status labels");
+          assert(layout.guardianChildChipStatusTextCount > 0, "guardian dashboard must expose non-active child states in the selector");
+          assert(
+            layout.guardianChildChipStatusTextCount < layout.guardianChildChipCount,
+            "guardian dashboard must keep the normal active state implicit while surfacing exceptional child states",
+          );
           assert(layout.guardianChildChipMinHeight >= 44, "guardian dashboard child chips must remain tappable");
           assert(layout.guardianChildChipMaxHeight <= 52, "guardian dashboard child selector must stay compact");
           assert.equal(layout.guardianLearningStageBarCount, 1, "guardian dashboard must render the compact belt stage bar");
@@ -4202,6 +4280,16 @@ async function main() {
           };
         }
 
+        if (adminSettingsViewEvidence) {
+          interaction = {
+            ...interaction,
+            settings: {
+              ...interaction?.settings,
+              views: adminSettingsViewEvidence,
+            },
+          };
+        }
+
         results.push({
           ...testCase,
           layout,
@@ -4259,15 +4347,15 @@ async function main() {
       rasterFinalLogoCount: layout.rasterFinalLogoCount,
       screenshotPath,
       screenshotSizeBytes,
-      mobileSessionRailCount: layout.mobileSessionRailCount,
-      mobileSessionRailActionMinHeight: Number.isFinite(layout.mobileSessionRailActionMinHeight)
-        ? layout.mobileSessionRailActionMinHeight
-        : 0,
+      mobileAccountMenuToggleCount: layout.mobileAccountMenuToggleCount,
+      mobileAccountMenuToggleHeight: layout.mobileAccountMenuToggleHeight,
+      mobileHeaderHeight: layout.mobileHeaderHeight,
       mobileHeaderLogoutButtonCount: layout.mobileHeaderLogoutButtonCount,
       mobileHeaderLogoutButtonHeight: layout.mobileHeaderLogoutButtonHeight,
       appHeaderNoticeLinkCount: layout.appHeaderNoticeLinkCount,
-      appHeaderNoticeLinkHeight: layout.appHeaderNoticeLinkHeight,
-      appHeaderNoticeBadgeCount: layout.appHeaderNoticeBadgeCount,
+	      appHeaderNoticeLinkHeight: layout.appHeaderNoticeLinkHeight,
+	      appHeaderNoticeBadgeCount: layout.appHeaderNoticeBadgeCount,
+	      appHeaderNoticeBadgeUnreadCount: layout.appHeaderNoticeBadgeUnreadCount,
       mobileBottomNavScrollerClientWidth: layout.mobileBottomNavScrollerClientWidth,
       mobileBottomNavScrollerScrollWidth: layout.mobileBottomNavScrollerScrollWidth,
       mobileBottomNavScrollerDisplay: layout.mobileBottomNavScrollerDisplay,
@@ -4282,7 +4370,8 @@ async function main() {
       mobileBottomNavRouteIds: layout.mobileBottomNavRouteIds,
       mobileBottomNavActiveRouteIds: layout.mobileBottomNavActiveRouteIds,
       mobileBottomNavCurrentRouteIds: layout.mobileBottomNavCurrentRouteIds,
-      mobileBottomNavNoticeBadgeCount: layout.mobileBottomNavNoticeBadgeCount,
+	      mobileBottomNavNoticeBadgeCount: layout.mobileBottomNavNoticeBadgeCount,
+	      mobileBottomNavNoticeBadgeUnreadCount: layout.mobileBottomNavNoticeBadgeUnreadCount,
       mobileBottomNavRequestsBadgeCount: layout.mobileBottomNavRequestsBadgeCount,
       mobileBottomNavNoticeAriaLabel: layout.mobileBottomNavNoticeAriaLabel,
       mobileBottomNavNoticeBadgeContained: layout.mobileBottomNavNoticeBadgeContained,
@@ -4667,6 +4756,7 @@ async function main() {
       adminUserProtectedActionStackMaxHeight: layout.adminUserProtectedActionStackMaxHeight,
       adminUserInvitePanelCount: layout.adminUserInvitePanelCount,
       adminUserMemberCreateLinkHeight: layout.adminUserMemberCreateLinkHeight,
+      adminUserMemberCreateLinkHref: layout.adminUserMemberCreateLinkHref,
       adminUserInviteToggleText: layout.adminUserInviteToggleText,
       adminUserInviteToggleHeight: layout.adminUserInviteToggleHeight,
       adminUserBottomNavTop: layout.adminUserBottomNavTop,
@@ -4833,6 +4923,10 @@ async function main() {
       adminSettingsIncidentCreateOpenScreenshotSizeBytes: interaction?.settings?.incidentCreateOpenScreenshotSizeBytes ?? 0,
       adminSettingsIncidentEditorOpenScreenshotPath: interaction?.settings?.incidentEditorOpenScreenshotPath ?? null,
       adminSettingsIncidentEditorOpenScreenshotSizeBytes: interaction?.settings?.incidentEditorOpenScreenshotSizeBytes ?? 0,
+      adminSettingsPolicyScreenshotPath: interaction?.settings?.views?.policyScreenshotPath ?? null,
+      adminSettingsPolicyScreenshotSizeBytes: interaction?.settings?.views?.policyScreenshotSizeBytes ?? 0,
+      adminSettingsPolicySelectedBeforeSwitch: interaction?.settings?.views?.beforeSwitch?.policySelected ?? null,
+      adminSettingsOperationsSelectedAfterSwitch: interaction?.settings?.views?.afterSwitch?.operationsSelected ?? null,
       familyNoticeReadActionMinHeight: Number.isFinite(layout.familyNoticeReadActionMinHeight)
         ? layout.familyNoticeReadActionMinHeight
         : 0,

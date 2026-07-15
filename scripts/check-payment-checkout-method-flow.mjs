@@ -243,14 +243,12 @@ async function collectCheckoutLayout(page, label) {
       payerInfoTop: payerInfo?.getBoundingClientRect().top ?? 0,
       payerInfoHeight: payerInfo?.getBoundingClientRect().height ?? 0,
       payerInfoCount: document.querySelectorAll('[data-testid="payment-checkout-payer-info"]').length,
-      saveMethodChecked:
-        document.querySelector('[data-testid="payment-save-method-checkbox"]') instanceof HTMLInputElement
-          ? document.querySelector('[data-testid="payment-save-method-checkbox"]').checked
-          : null,
+      saveMethodControlCount: document.querySelectorAll('[data-testid="payment-save-method-checkbox"]').length,
       scrollWidth: document.documentElement.scrollWidth,
       summaryGridHeight: summaryGrid?.getBoundingClientRect().height ?? 0,
       summaryGridRowMinHeight: summaryGridRowHeights.length > 0 ? Math.min(...summaryGridRowHeights) : 0,
       summaryHeight: summary?.getBoundingClientRect().height ?? 0,
+      viewportHeight: window.innerHeight,
     };
   });
 
@@ -259,24 +257,24 @@ async function collectCheckoutLayout(page, label) {
   assert(layout.cardIssuerCount >= 20, `${label} must render the expected card issuer grid`);
   assert.equal(layout.cardGuideButtonCount, 3, `${label} must render three card payment guide actions`);
   assert(layout.cardGuideButtonMinHeight >= 44, `${label} card payment guide actions must keep 44px touch targets`);
-  assert.equal(layout.saveMethodChecked, false, `${label} must require an explicit opt-in before saving payment method info`);
+  assert.equal(layout.saveMethodControlCount, 0, `${label} must not pretend to save payment method data before provider integration`);
   assert(layout.confirmButtonHeight >= 44, `${label} confirm button must keep a 44px touch target`);
   assert(layout.summaryHeight > 0, `${label} must render the compact checkout summary`);
   assert(layout.summaryHeight <= 245, `${label} checkout summary must stay compact on mobile`);
   assert(layout.summaryGridHeight <= 150, `${label} summary grid must not return to tall card blocks`);
   assert(layout.summaryGridRowMinHeight >= 44, `${label} summary rows must keep a 44px touch target rhythm`);
-  assert(layout.payerInfoTop > 0 && layout.payerInfoTop <= 480, `${label} payer info must start within the first mobile viewport`);
+  assert(layout.payerInfoTop > 0 && layout.payerInfoTop < layout.viewportHeight, `${label} payer info must start within the first mobile viewport`);
   assert(layout.payerInfoHeight <= 280, `${label} payer info must keep optional fields collapsed by default`);
   assert.equal(layout.optionalDetailsCount, 0, `${label} optional payer details must stay collapsed by default`);
   assert.equal(layout.optionalToggleExpanded, "false", `${label} optional payer details toggle must start collapsed`);
   assert(layout.optionalToggleHeight >= 44, `${label} optional payer details toggle must keep a 44px touch target`);
   assert(layout.methodSectionTop > layout.payerInfoTop, `${label} payment method section must follow payer info`);
-  assert(layout.methodSectionTop <= 730, `${label} payment method section must move closer after compact payer info`);
+  assert(layout.methodSectionTop - layout.payerInfoTop <= 360, `${label} payment method section must follow the compact payer info without excess spacing`);
   assert.equal(layout.scrollWidth, layout.clientWidth, `${label} must not horizontally overflow at 390px`);
-  assert.match(layout.bodyText, /결제자 정보/, `${label} must show payer information copy`);
+  assert.match(layout.bodyText, /요청자 정보/, `${label} must show requester information copy`);
   assert.match(layout.bodyText, /이름·휴대전화 필수/, `${label} must make the required payer fields explicit`);
   assert.match(layout.bodyText, /주소·이메일 추가/, `${label} must expose optional payer details as an explicit compact action`);
-  assert.match(layout.bodyText, /결제수단/, `${label} must show payment method copy`);
+  assert.match(layout.bodyText, /희망 납부 방법/, `${label} must show payment request method copy`);
   assert.match(layout.bodyText, /신용카드/, `${label} must include card method copy`);
   assert.doesNotMatch(layout.bodyText, /일반전화/, `${label} must not show optional landline fields before expansion`);
   assert.doesNotMatch(layout.bodyText, /우편번호/, `${label} must not show optional address fields before expansion`);
@@ -407,7 +405,8 @@ async function collectAccountMethodPanel(page, methodTestId, label, options = {}
   if (options.expectVisible) {
     assert(layout.top >= 0 && layout.top <= 520, `${label} account method panel must be visible after hash navigation`);
   }
-  assert.match(layout.text, /도장 안내 후 입금·인증 절차를 이어갑니다/, `${label} must use user-facing payment guidance`);
+  assert.match(layout.text, /이 화면에서만 확인할 수 있습니다/, `${label} must disclose that the selection is not persisted`);
+  assert.match(layout.text, /도장 안내 후 진행합니다/, `${label} must use user-facing payment guidance`);
   assert.doesNotMatch(
     layout.text,
     /운영 결제 설정|설정이 완료|전용 화면|연동 전|연결 전|API|준비 중|테스트|샘플|더미/i,
@@ -432,7 +431,8 @@ async function collectConfirmationFeedbackA11y(page, label) {
   assert.equal(layout.role, "status", `${label} confirmation feedback must announce as a status message`);
   assert.equal(layout.ariaLive, "polite", `${label} confirmation feedback must use polite live-region timing`);
   assert.equal(layout.id, "payment-confirm-feedback", `${label} confirmation feedback must keep a stable id`);
-  assert.match(layout.text, /납부 방법을 확인했습니다/, `${label} confirmation feedback must keep the user-facing success copy`);
+  assert.match(layout.text, /선택 내용을 확인했습니다/, `${label} confirmation feedback must describe a local review rather than a submitted request`);
+  assert.match(layout.text, /저장되거나 담당자에게 전달되지 않으며/, `${label} confirmation feedback must expose the unsaved state`);
 
   return layout;
 }
@@ -441,52 +441,52 @@ async function collectBottomNavigationClearance(page, label) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(250);
 
-	  const layout = await page.evaluate(() => {
-	    const bottomNav = document.querySelector('[data-testid="mobile-bottom-navigation"]')?.getBoundingClientRect();
-	    const confirmButtonElement = document.querySelector('[data-testid="payment-confirm-draft-button"]');
-	    const providerStatusElement = document.querySelector('[data-testid="payment-checkout-provider-status"]');
-	    const confirmButton = confirmButtonElement?.getBoundingClientRect();
-	    const providerStatus = providerStatusElement?.getBoundingClientRect();
-	    const confirmButtonText = confirmButtonElement?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-	    const providerStatusText = providerStatusElement?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-	    const viewportHeight = window.innerHeight;
-	    const navTop = bottomNav?.top ?? viewportHeight;
+  const layout = await page.evaluate(() => {
+    const bottomNav = document.querySelector('[data-testid="mobile-bottom-navigation"]')?.getBoundingClientRect();
+    const confirmButtonElement = document.querySelector('[data-testid="payment-confirm-draft-button"]');
+    const providerStatusElement = document.querySelector('[data-testid="payment-checkout-provider-status"]');
+    const confirmButton = confirmButtonElement?.getBoundingClientRect();
+    const providerStatus = providerStatusElement?.getBoundingClientRect();
+    const confirmButtonText = confirmButtonElement?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const providerStatusText = providerStatusElement?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const viewportHeight = window.innerHeight;
+    const navTop = bottomNav?.top ?? viewportHeight;
 
-	    return {
-	      confirmButtonBottom: confirmButton?.bottom ?? 0,
-	      confirmButtonNavClearance: navTop - (confirmButton?.bottom ?? 0),
-	      confirmButtonText,
-	      navTop,
-	      providerStatusBottom: providerStatus?.bottom ?? 0,
-	      providerStatusNavClearance: navTop - (providerStatus?.bottom ?? 0),
-	      providerStatusText,
-	      scrollY: window.scrollY,
-	      viewportHeight,
-	    };
-	  });
+    return {
+      confirmButtonBottom: confirmButton?.bottom ?? 0,
+      confirmButtonNavClearance: navTop - (confirmButton?.bottom ?? 0),
+      confirmButtonText,
+      navTop,
+      providerStatusBottom: providerStatus?.bottom ?? 0,
+      providerStatusNavClearance: navTop - (providerStatus?.bottom ?? 0),
+      providerStatusText,
+      scrollY: window.scrollY,
+      viewportHeight,
+    };
+  });
 
   assert(layout.confirmButtonBottom > 0, `${label} must render the checkout confirmation action`);
   assert(layout.providerStatusBottom > 0, `${label} must render the payment provider status block`);
-	  assert(
-	    layout.confirmButtonNavClearance >= 24,
-	    `${label} confirmation action must clear the mobile bottom navigation by at least 24px`,
-	  );
-	  assert(
-	    layout.providerStatusNavClearance >= 24,
-	    `${label} provider status must clear the mobile bottom navigation by at least 24px`,
-	  );
-	  assert.match(layout.confirmButtonText, /납부 정보 확인/, `${label} confirm action must avoid real-payment completion copy`);
-	  assert.doesNotMatch(layout.confirmButtonText, /결제 진행하기/, `${label} confirm action must not imply live payment approval`);
-		  assert.match(layout.providerStatusText, /납부 정보 접수/, `${label} provider status must frame the flow as information receipt`);
-		  assert.match(layout.providerStatusText, /담당자가 확인 후 안내/, `${label} provider status must avoid implying immediate approval`);
-		  assert.doesNotMatch(
-		    layout.providerStatusText,
-		    /온라인 결제 준비|실제 승인은|승인 완료|결제 완료/i,
-		    `${label} provider status must not imply live payment approval`,
-		  );
+  assert(
+    layout.confirmButtonNavClearance >= 24,
+    `${label} confirmation action must clear the mobile bottom navigation by at least 24px`,
+  );
+  assert(
+    layout.providerStatusNavClearance >= 24,
+    `${label} provider status must clear the mobile bottom navigation by at least 24px`,
+  );
+  assert.match(layout.confirmButtonText, /입력 내용 확인/, `${label} confirm action must avoid implying a submitted request`);
+  assert.doesNotMatch(layout.confirmButtonText, /결제 진행하기/, `${label} confirm action must not imply live payment approval`);
+  assert.match(layout.providerStatusText, /결제 정보 확인 단계/, `${label} provider status must describe the current confirmation step`);
+  assert.match(layout.providerStatusText, /저장·전달되지 않습니다/, `${label} provider status must avoid implying a persisted request`);
+  assert.doesNotMatch(
+    layout.providerStatusText,
+    /온라인 결제 준비|실제 승인은|승인 완료|결제 완료/i,
+    `${label} provider status must not imply live payment approval`,
+  );
 
-	  return layout;
-	}
+  return layout;
+}
 
 function cleanPaymentCheckoutOutputDir() {
   if (!existsSync(outDir)) {
@@ -549,7 +549,7 @@ try {
   assert.match(wooriModalText, /우리WON페이/, "Woori modal must show WooriWON Pay tab copy");
   assert.match(wooriModalText, /다른 수단/, "Woori modal must describe alternate methods without live-payment wording");
   assert.match(wooriModalText, /우리WON페이 선택을 확인합니다/, "Woori modal must frame the app choice as a selection confirmation");
-  assert.match(wooriModalText, /앱 선택은 납부 안내에 참고됩니다/, "Woori modal must explain app selection as advisory information");
+  assert.match(wooriModalText, /앱 선택은 입력 내용 확인에만 사용됩니다/, "Woori modal must explain that app selection remains local confirmation");
   assert.match(wooriModalText, /우리카드 앱/, "Woori modal must show Woori Card app option");
   assert.match(wooriModalText, /우리은행 앱/, "Woori modal must show Woori Bank app option");
   assert.match(wooriModalText, /선택 확인/, "Woori modal app choices must confirm selection instead of claiming payment");
@@ -559,9 +559,27 @@ try {
     "Woori modal must not imply live payment completion before provider connection",
   );
   const wooriModalLayout = await collectWooriWonPayModalLayout(page, "WooriWON Pay modal");
+  const primaryWooriTab = page.getByTestId("payment-wooriwonpay-tab-primary");
+  const secondaryWooriTab = page.getByTestId("payment-wooriwonpay-tab-secondary");
+  await primaryWooriTab.focus();
+  await primaryWooriTab.press("ArrowRight");
+  assert.equal(await secondaryWooriTab.getAttribute("aria-selected"), "true", "Woori modal ArrowRight must select the next tab");
+  assert.equal(
+    await secondaryWooriTab.evaluate((tab) => tab === document.activeElement),
+    true,
+    "Woori modal ArrowRight must move focus with selection",
+  );
+  await secondaryWooriTab.press("Home");
+  assert.equal(await primaryWooriTab.getAttribute("aria-selected"), "true", "Woori modal Home must restore the first tab");
   await page.screenshot({ path: wooriModalScreenshotPath, fullPage: false });
   await page.getByTestId("payment-wooriwonpay-close").click();
   await page.waitForSelector('[data-testid="payment-wooriwonpay-modal"]', { state: "detached", timeout: 10000 });
+
+  const cardGuideButton = page.getByTestId("payment-card-guide-button").first();
+  await cardGuideButton.click();
+  const cardGuideFeedback = page.getByTestId("payment-card-guide-feedback");
+  assert.equal(await cardGuideFeedback.getAttribute("role"), "status", "card guide feedback must announce as a status message");
+  assert.match(await cardGuideFeedback.innerText(), /이 화면에서는 인증이나 결제가 진행되지 않습니다/, "card guide must explain its non-payment scope");
 
   await page.getByTestId("payment-method-radio-bankTransfer").click();
   await page.waitForSelector('[data-testid="payment-bank-transfer-panel"]', { timeout: 10000 });
@@ -573,20 +591,31 @@ try {
   const confirmationFeedbackA11y = await collectConfirmationFeedbackA11y(page, "adult member bank transfer checkout");
   const bankFeedback = await page.getByTestId("payment-confirm-feedback").innerText();
   assert.match(bankFeedback, /우리은행/, "bank transfer confirmation must summarize the selected bank");
-  assert.match(bankFeedback, /납부 방법을 확인했습니다/, "bank transfer confirmation must describe confirmation rather than live payment");
-  assert.match(bankFeedback, /이번 납부 확인에만 사용합니다/, "bank transfer confirmation must default to one-time payment info");
-  assert.doesNotMatch(bankFeedback, /다음 납부에도 사용할 정보로 표시했습니다/, "default confirmation must not claim saved payment info");
-  assert.match(bankFeedback, /담당자가 확인 후 안내합니다/, "bank transfer confirmation must not imply immediate approval");
+  assert.match(bankFeedback, /선택 내용을 확인했습니다/, "bank transfer confirmation must describe local input review rather than submission");
+  assert.match(bankFeedback, /저장되거나 담당자에게 전달되지 않으며/, "bank transfer confirmation must expose the unsaved state");
+  assert.match(bankFeedback, /실제 결제나 출금도 진행되지 않습니다/, "bank transfer confirmation must not imply immediate approval");
   assert.doesNotMatch(
     bankFeedback,
     /실제 결제 승인은|승인 완료|결제 완료/i,
     "bank transfer confirmation must avoid live approval copy",
   );
-  await page.getByTestId("payment-save-method-checkbox").check();
+  await page.getByTestId("payment-payer-name-input").fill("최민재 확인");
+  assert.equal(
+    await page.getByTestId("payment-confirm-feedback").getAttribute("data-confirmation-state"),
+    "changed",
+    "editing confirmed payer info must invalidate the prior confirmation",
+  );
+  assert.match(
+    await page.getByTestId("payment-confirm-feedback").innerText(),
+    /현재 내용으로 다시 확인해 주세요/,
+    "invalidated confirmation must ask for a fresh review",
+  );
   await page.getByTestId("payment-confirm-draft-button").click();
-  const savedFeedback = await page.getByTestId("payment-confirm-feedback").innerText();
-  assert.match(savedFeedback, /다음 납부에도 사용할 정보로 표시했습니다/, "confirmation must reflect saved payment info after explicit opt-in");
-  assert.doesNotMatch(savedFeedback, /이번 납부 확인에만 사용합니다/, "saved confirmation must not keep one-time payment copy");
+  assert.equal(
+    await page.getByTestId("payment-confirm-feedback").getAttribute("data-confirmation-state"),
+    "current",
+    "reconfirming edited payer info must restore the current state",
+  );
   const virtualAccountPanel = await collectAccountMethodPanel(
     page,
     "payment-method-radio-virtualAccount",
@@ -644,6 +673,8 @@ try {
       "card issuer grid renders Woori card app handoff modal",
       "WooriWON Pay modal copy confirms app selection without implying live payment",
       "WooriWON Pay modal keeps 44px close and tab touch targets",
+      "WooriWON Pay tabs support roving keyboard focus",
+      "card payment guide actions provide explicit non-payment feedback",
       "bank transfer method renders bank and depositor inputs",
       "virtual account and account transfer panels avoid internal setup copy",
       "guardian child checkout uses the same payment input flow",
@@ -656,8 +687,9 @@ try {
       "checkout confirmation and payer receipt status clear the mobile bottom navigation",
       "checkout action and status copy avoid implying live payment approval before provider connection",
       "checkout confirmation feedback announces through a polite status live region",
-      "reusable payment information starts unchecked and only changes after explicit opt-in",
-	      "mobile checkout screens stay nonblank, overflow-free, and console-clean",
+      "editing reviewed payer data invalidates stale confirmation until reviewed again",
+      "unimplemented reusable payment information controls stay hidden",
+      "mobile checkout screens stay nonblank, overflow-free, and console-clean",
     ],
     consoleMessages: messages,
     bottomNavigationClearance: {

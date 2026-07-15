@@ -250,24 +250,22 @@ function assertStaticContracts() {
 
 async function gotoOwnerMembers(page) {
   const next = "/app/members";
-  const loginUrl = new URL("/login", baseUrl);
-  loginUrl.searchParams.set("autoLogin", "1");
+  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
   loginUrl.searchParams.set("role", "owner");
   loginUrl.searchParams.set("next", next);
 
-  await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
   await page.waitForSelector('[data-testid="member-create-toggle"]', { timeout: 15000 });
 }
 
 async function gotoMembersAsRole(page, role) {
   const next = "/app/members";
-  const loginUrl = new URL("/login", baseUrl);
-  loginUrl.searchParams.set("autoLogin", "1");
+  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
   loginUrl.searchParams.set("role", role);
   loginUrl.searchParams.set("next", next);
 
-  await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
   await page.waitForSelector("[data-member-id]", { timeout: 15000 });
 }
@@ -410,10 +408,16 @@ async function captureOwnerMembers(context) {
     }
     await page.screenshot({ fullPage: false, path: openScreenshotPath });
 
+    await page.goto(new URL("/app/members?create=1", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#member-create-form", { timeout: 15000 });
+    const deepLinkCreateFormCount = await page.locator("#member-create-form").count();
+    assert.equal(deepLinkCreateFormCount, 1, "member create deep link must open the registration form without a second tap");
+
     assert.deepEqual(messages, [], "member management touch-target flow must not emit console warnings/errors");
 
     return {
       collapsedLayout,
+      deepLinkCreateFormCount,
       messages,
       openControlHeights,
       openHealth,

@@ -706,7 +706,7 @@ export function AdminUsersScreen() {
             <Link
               className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
               data-testid="admin-user-member-create-link"
-              href="/app/members"
+              href="/app/members?create=1"
             >
               <UserPlus className="h-4 w-4" aria-hidden />
               회원 등록

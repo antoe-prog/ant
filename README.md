@@ -230,9 +230,9 @@ npm run test:qa-plan
 npm run test:release-docs
 npm run test:admin-settings-gates
 npm run test:p3-operations
+npm run test:visible-app-copy-stability
 npm run test:p5-p10-internal-readiness
 npm run test:notice-delete-ui
-npm run test:visible-app-copy-stability
 npm run test:routes
 npm run test:e2e
 npm run test:smoke

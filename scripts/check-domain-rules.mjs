@@ -8,13 +8,30 @@ const auditLogQuery = await import("../src/lib/audit-log-query.ts");
 const notificationAlerts = await import("../src/lib/notification-alerts.ts");
 const noticeMemberSearch = await import("../src/lib/notice-member-search.ts");
 const notices = await import("../src/lib/notices.ts");
+const promotions = await import("../src/lib/promotions.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
-const [paymentsExportRouteSource, operationsExportRouteSource, paymentsScreenSource, serverApiSource, mockApiSource] = await Promise.all([
+const [
+  paymentsExportRouteSource,
+  operationsExportRouteSource,
+  paymentsScreenSource,
+  serverApiSource,
+  mockApiSource,
+  appStoreSource,
+  ownerBranchesScreenSource,
+  classesScreenSource,
+  paymentCheckoutScreenSource,
+  notificationOutboxRunnerSource,
+] = await Promise.all([
   readFile("src/app/api/v1/exports/payments/route.ts", "utf8"),
   readFile("src/app/api/v1/exports/operations/route.ts", "utf8"),
   readFile("src/components/screens/payments-screen.tsx", "utf8"),
   readFile("src/server/api.ts", "utf8"),
   readFile("src/lib/mock-api.ts", "utf8"),
+  readFile("src/store/app-store.tsx", "utf8"),
+  readFile("src/components/screens/owner-branches-screen.tsx", "utf8"),
+  readFile("src/components/screens/classes-screen.tsx", "utf8"),
+  readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
+  readFile("src/server/notification-outbox-runner.ts", "utf8"),
 ]);
 
 const db = {
@@ -183,6 +200,10 @@ function mobileRouteIdsForPath(role, pathname) {
   return roles.getMobileVisibleRoutes(role, pathname).map((route) => route.id);
 }
 
+function mobileSecondaryRouteIdsFor(role) {
+  return roles.getMobileSecondaryRoutes(role).map((route) => route.id);
+}
+
 for (const role of ["member", "guardian", "coach", "owner", "admin"]) {
   const rbacRole = roles.getRbacRole(role);
 
@@ -203,23 +224,42 @@ assert(routeIdsFor("admin").includes("adminSettings"), "admin nav must include s
 assert(!routeIdsFor("admin").includes("ownerReports"), "admin nav must omit owner-only reports");
 assert.deepEqual(
   mobileRouteIdsFor("admin"),
-  ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "adminSettings"],
+  ["dashboard", "adminBranches", "adminUsers", "notices", "adminSettings"],
   "admin mobile nav must stay focused on management routes",
 );
 assert.deepEqual(
   mobileRouteIdsForPath("admin", "/app/notices"),
-  ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "notices"],
-  "admin mobile nav must keep the current notices route visible when managing notices",
+  ["dashboard", "adminBranches", "adminUsers", "notices", "adminSettings"],
+  "admin mobile nav must keep its management destinations stable on notices",
 );
 assert.deepEqual(
   mobileRouteIdsForPath("admin", "/app/notifications"),
-  ["dashboard", "adminBranches", "adminUsers", "adminRoles", "adminAuditLogs", "notices"],
-  "admin mobile nav must keep the current notification inbox route mapped to notices",
+  ["dashboard", "adminBranches", "adminUsers", "notices", "adminSettings"],
+  "admin mobile nav must keep its management destinations stable in the notification inbox",
 );
 assert.deepEqual(
   mobileRouteIdsFor("owner"),
-  ["dashboard", "members", "payments", "notices", "ownerBranches", "ownerReports"],
+  ["dashboard", "members", "payments", "notices", "ownerReports"],
   "owner mobile nav must keep daily operation routes without deleted request links",
+);
+assert.deepEqual(
+  mobileSecondaryRouteIdsFor("admin"),
+  ["members", "adminRoles", "adminAuditLogs"],
+  "admin account menu must keep member records distinct from user administration and expose secondary management routes",
+);
+assert.deepEqual(mobileSecondaryRouteIdsFor("owner"), ["ownerBranches"], "owner account menu must keep branch management available");
+assert(
+  appStoreSource.includes("branchSelectionRequestRef") &&
+    appStoreSource.includes("requestId !== branchSelectionRequestRef.current") &&
+    appStoreSource.includes('dispatch({ type: "selectBranch", branchId: previousBranchId })') &&
+    appStoreSource.includes("branchSelectionPending"),
+  "branch selection must ignore stale responses, restore the confirmed scope after failure, and expose pending state",
+);
+assert(
+  ownerBranchesScreenSource.includes("await selectBranch(branchId)") &&
+    ownerBranchesScreenSource.includes("router.push(href)") &&
+    ownerBranchesScreenSource.includes("branchSelectionPending"),
+  "owner branch actions must confirm their branch scope before navigating",
 );
 assert.deepEqual(mobileRouteIdsFor("member"), ["dashboard", "classes", "members", "payments", "tournaments"], "member mobile nav must surface tournaments instead of the duplicated notice inbox");
 assert.deepEqual(
@@ -324,6 +364,21 @@ assert.equal(scope.canReadNotice(guardian, db, noticesById.get("notice-member-on
 assert.equal(scope.canReadNotice(member, db, noticesById.get("notice-member-only-branch")), true, "member must read member-only branch notice");
 assert.equal(scope.canReadNotice(guardian, db, noticesById.get("notice-songpa")), false, "guardian must not read another branch notice");
 assert.equal(scope.canReadNotice(member, db, noticesById.get("notice-songpa")), false, "member must not read another member notice");
+assert.equal(
+  notices.isNoticeRelevantToMember(noticesById.get("notice-global"), "member-jun", db.classes),
+  true,
+  "branch-wide notices must remain visible in a selected child scope",
+);
+assert.equal(
+  notices.isNoticeRelevantToMember(noticesById.get("notice-class"), "member-jun", db.classes),
+  true,
+  "class notices must remain visible for an enrolled selected child",
+);
+assert.equal(
+  notices.isNoticeRelevantToMember(noticesById.get("notice-member"), "member-seo", db.classes),
+  false,
+  "another child's direct notice must stay out of the selected child scope",
+);
 assert.equal(
   noticeMemberSearch.normalizeNoticeMemberSearchText("010-7248 3619"),
   "01072483619",
@@ -507,6 +562,44 @@ assert.deepEqual(
 
 const promotionExamSoon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const promotionExamFar = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+assert.equal(
+  notificationAlerts.isUpcomingPromotionExam("2026-07-14", "scheduled", new Date("2026-07-15T12:00:00+09:00")),
+  false,
+  "past scheduled promotion exams must not remain in imminent notifications",
+);
+assert.equal(
+  notificationAlerts.isUpcomingPromotionExam("2026-07-15", "scheduled", new Date("2026-07-15T12:00:00+09:00")),
+  true,
+  "today's scheduled promotion exam must remain visible for the full local day",
+);
+assert.equal(promotions.isSchedulablePromotionExamDate("2026-07-14", "2026-07-15"), false, "past promotion dates must be rejected");
+assert.equal(promotions.isSchedulablePromotionExamDate("2026-07-15", "2026-07-15"), true, "today's promotion date must be allowed");
+assert.equal(promotions.isSchedulablePromotionExamDate("2026-07-31", "2026-07-15"), true, "future promotion dates must be allowed");
+assert.equal(promotions.isSchedulablePromotionExamDate("2026-02-30", "2026-02-01"), false, "impossible promotion dates must be rejected");
+assert.equal(promotions.isSchedulablePromotionExamDate("tomorrow", "2026-07-15"), false, "non-date promotion values must be rejected");
+assert(
+  classesScreenSource.includes("otherDateCoachSessions") &&
+    classesScreenSource.includes("formatDateKey(session.startsAt) === todayDateKey") &&
+    classesScreenSource.includes("previousNote") &&
+    classesScreenSource.includes('member.ageGroup !== "adult"'),
+  "coach attendance UI must limit editing to today's sessions, restore notes on undo, and label adult follow-up correctly",
+);
+assert(
+  paymentCheckoutScreenSource.includes("confirmedInputFingerprint") &&
+    paymentCheckoutScreenSource.includes('data-confirmation-state={confirmationIsCurrent ? "current" : "changed"}') &&
+    paymentCheckoutScreenSource.includes("handleWooriPayTabKeyDown"),
+  "payment confirmation must become stale after edits and Woori tabs must support keyboard navigation",
+);
+assert(
+  notificationOutboxRunnerSource.includes("createNoticeDeepLink") &&
+    notificationOutboxRunnerSource.includes('params.set("memberId", matchingMemberIds[0])') &&
+    notificationOutboxRunnerSource.includes("matchingMemberIds.length === 1"),
+  "notice push links must include a uniquely resolved family member context without guessing among multiple children",
+);
+assert(
+  !mockApiSource.includes("notices: scopedNotices(context).slice(0, 3)") && mockApiSource.includes("notices: scopedNotices(context)"),
+  "dashboard unread notice totals must use the full scoped notice set",
+);
 const dbWithPromotions = {
   ...db,
   promotions: [
@@ -705,6 +798,12 @@ console.log(
         "audit read retry deduplication",
         "audit date filter boundaries",
         "audit reversed date range rejection",
+        "branch selection response ordering and scoped owner navigation",
+        "promotion exam date lower-bound validation",
+        "coach today-only attendance workflow and full undo context",
+        "payment confirmation invalidation and keyboard tabs",
+        "family notice push member context",
+        "dashboard full notice count scope",
       ],
     },
     null,

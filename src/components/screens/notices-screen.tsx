@@ -3,15 +3,17 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, BellRing, CheckCheck, Pencil, Send, Trash2 } from "lucide-react";
-import type { Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
+import { ChildSwitcher } from "@/components/domain/child-switcher";
+import type { Member, Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient } from "@/lib/api-client";
 import { userRoles } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { matchesNoticeMemberSearch, normalizeNoticeMemberSearchText } from "@/lib/notice-member-search";
 import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
-import { getNoticeReadCount, isNoticeReadByUser, sortNoticesForDisplay } from "@/lib/notices";
-import { roleLabels } from "@/lib/roles";
+import { getNoticeReadCount, isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
+import { memberStatusLabels, roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { useAppStore } from "@/store/app-store";
@@ -58,25 +60,53 @@ function audienceLabel(audience: NoticeAudience[]) {
   return audience.map((item) => (item === "all" ? "전체" : roleLabels[item])).join(", ");
 }
 
-function targetLabel(notice: Notice, classNameById: Map<string, string>, memberNameById: Map<string, string>) {
+function targetLabel(
+  notice: Notice,
+  classNameById: Map<string, string>,
+  memberNameById: Map<string, string>,
+  selectedChildId?: string | null,
+) {
   const classNames = (notice.targetClassIds ?? [])
-    .map((classId) => classNameById.get(classId) ?? classId);
+    .map((classId) => classNameById.get(classId))
+    .filter((name): name is string => Boolean(name));
   const memberNames = (notice.targetMemberIds ?? [])
-    .map((memberId) => memberNameById.get(memberId) ?? memberId);
+    .map((memberId) => memberNameById.get(memberId))
+    .filter((name): name is string => Boolean(name));
+  const selectedChildTargeted = selectedChildId ? (notice.targetMemberIds ?? []).includes(selectedChildId) : false;
+  const otherFamilyTargetCount = selectedChildId
+    ? (notice.targetMemberIds ?? []).filter((memberId) => memberId !== selectedChildId && memberNameById.has(memberId)).length
+    : 0;
+  const memberLabels = selectedChildId
+    ? [
+        ...(selectedChildTargeted ? [`개인 ${memberNameById.get(selectedChildId) ?? "선택한 자녀"}`] : []),
+        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 자녀 ${otherFamilyTargetCount}명`] : []),
+      ]
+    : memberNames.map((name) => `개인 ${name}`);
 
-  if (classNames.length === 0 && memberNames.length === 0) {
+  if (classNames.length === 0 && memberLabels.length === 0) {
     return "지점 전체";
   }
 
   return [
     ...classNames.map((name) => `반 ${name}`),
-    ...memberNames.map((name) => `개인 ${name}`),
+    ...memberLabels,
   ].join(", ");
 }
 
 export function NoticesScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
+  const guardianChildren =
+    context.user.role === "guardian"
+      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      : [];
+  const guardianChildIds = guardianChildren.map((member) => member.id);
+  const requestedChildId = searchParams.get("memberId")?.trim() ?? "";
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    context.user.id,
+    context.user.role === "guardian" ? guardianChildIds : undefined,
+    context.user.role === "guardian" ? requestedChildId : null,
+  );
   const { createNotice, updateNotice, deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
   const [noticeSearch, setNoticeListSearch] = useUrlSyncedTextParam("q");
   const [noticeComposerDefaults] = useState(getInitialNoticeComposerState);
@@ -92,6 +122,7 @@ export function NoticesScreen() {
   const [noticeTargetClassId, setNoticeTargetClassId] = useState("");
   const [noticeTargetMemberId, setNoticeTargetMemberId] = useState(noticeComposerDefaults.targetMemberId);
   const [noticeMemberSearch, setNoticeMemberSearch] = useState(noticeComposerDefaults.memberSearch);
+  const [noticeMemberActiveIndex, setNoticeMemberActiveIndex] = useState(0);
   const [noticeTargetType, setNoticeTargetType] = useState<NoticeTargetType>(noticeComposerDefaults.targetType);
   const [noticeFilter, setNoticeFilter] = useState<NoticeFilter>("all");
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
@@ -192,9 +223,7 @@ export function NoticesScreen() {
     };
   }, [searchParams]);
   const canPublishNotice = noticePublisherRoles.has(context.user.role);
-  const isCoachNoticeReader = context.user.role === "coach" && !canPublishNotice;
   const showNoticeDeliveryMeta = canPublishNotice;
-  const showNoticeScreenHeader = showNoticeDeliveryMeta || isCoachNoticeReader;
   const showNoticeAside = canPublishNotice;
   const selectedNoticeBranchId = noticeBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const classNameById = useMemo(
@@ -285,10 +314,17 @@ export function NoticesScreen() {
 
   function handleNoticeMemberSearchChange(value: string) {
     setNoticeMemberSearch(value);
+    setNoticeMemberActiveIndex(0);
 
     if (selectedNoticeMember && value.trim() !== selectedNoticeMember.name) {
       setNoticeTargetMemberId("");
     }
+  }
+
+  function selectNoticeTargetMember(member: Member) {
+    setNoticeTargetMemberId(member.id);
+    setNoticeMemberSearch(member.name);
+    setNoticeMemberActiveIndex(0);
   }
 
   async function handleCreateNotice(event: FormEvent<HTMLFormElement>) {
@@ -408,11 +444,15 @@ export function NoticesScreen() {
     return <ErrorState description={error ?? "공지를 불러오지 못했습니다."} onRetry={reload} />;
   }
 
-  const sortedNotices = sortNoticesForDisplay(notices);
-  const unreadNoticeCount = notices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
-  const importantNoticeCount = notices.filter((notice) => notice.important).length;
+  const scopedNotices =
+    context.user.role === "guardian" && selectedChildId
+      ? notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChildId, context.db.classes))
+      : notices;
+  const sortedNotices = sortNoticesForDisplay(scopedNotices);
+  const unreadNoticeCount = scopedNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
+  const importantNoticeCount = scopedNotices.filter((notice) => notice.important).length;
   const noticeFilterOptions: Array<{ label: string; value: NoticeFilter; count: number; testId: string }> = [
-    { label: "전체", value: "all", count: notices.length, testId: "notice-filter-all" },
+    { label: "전체", value: "all", count: scopedNotices.length, testId: "notice-filter-all" },
     { label: "미읽음", value: "unread", count: unreadNoticeCount, testId: "notice-filter-unread" },
     { label: "중요", value: "important", count: importantNoticeCount, testId: "notice-filter-important" },
   ];
@@ -436,9 +476,9 @@ export function NoticesScreen() {
     .filter((notice) => !isNoticeReadByUser(notice, context.user.id))
     .map((notice) => notice.id);
   const showNoticeSearchEmptyState =
-    showNoticeDeliveryMeta && noticeSearchKeyword.length > 0 && notices.length > 0 && filteredNotices.length === 0;
+    showNoticeDeliveryMeta && noticeSearchKeyword.length > 0 && scopedNotices.length > 0 && filteredNotices.length === 0;
   const noticeListStatusLabel = showNoticeDeliveryMeta
-    ? `${filteredNotices.length}/${notices.length}건 표시 · 미읽음 ${filteredUnreadNoticeIds.length}건`
+    ? `${filteredNotices.length}/${scopedNotices.length}건 표시 · 미읽음 ${filteredUnreadNoticeIds.length}건`
     : `공지 ${filteredNotices.length} · 미읽음 ${filteredUnreadNoticeIds.length}`;
   const bulkReadSuccessLabel = showNoticeDeliveryMeta
     ? `보이는 미읽음 공지 ${filteredUnreadNoticeIds.length}건을 읽음 처리했습니다.`
@@ -493,7 +533,20 @@ export function NoticesScreen() {
 
   return (
     <div data-testid="notices-screen">
-      {showNoticeScreenHeader ? <SectionHeader title="공지" /> : null}
+      <SectionHeader title="공지" />
+
+      {context.user.role === "guardian" ? (
+        <ChildSwitcher
+          items={guardianChildren.map((member) => ({
+            id: member.id,
+            name: member.name,
+            meta: `${member.belt} · ${member.level}`,
+            statusLabel: memberStatusLabels[member.status],
+          }))}
+          selectedChildId={selectedChildId}
+          onSelect={setSelectedChildId}
+        />
+      ) : null}
 
       <div className={showNoticeAside ? "grid gap-4 xl:grid-cols-[1fr_360px]" : "grid gap-4"}>
         <section className={`${showNoticeAside ? "order-2 xl:order-1" : ""} rounded-lg border border-zinc-200 bg-white`}>
@@ -587,11 +640,14 @@ export function NoticesScreen() {
             </div>
           ) : (
             <div className="border-b border-zinc-100 px-3 py-2" data-testid="family-notice-compact-filter-bar">
-              <div className="grid grid-cols-4 gap-1.5" data-testid="family-notice-filter-grid">
+              <div
+                className="grid grid-cols-[repeat(3,minmax(0,1fr))_minmax(4.5rem,auto)] gap-1.5"
+                data-testid="family-notice-filter-grid"
+              >
                 <div className="contents" role="group" aria-label="공지 필터">
                   {noticeFilterOptions.map((option) => (
                     <button
-                      className={`inline-flex min-h-11 min-w-0 items-center justify-center rounded-md border px-1.5 text-sm font-semibold transition ${
+                      className={`inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-md border px-1.5 text-sm font-semibold transition ${
                         noticeFilter === option.value
                           ? "border-teal-700 bg-teal-700 text-white"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -607,7 +663,7 @@ export function NoticesScreen() {
                   ))}
                 </div>
                 <Button
-                  className="min-h-11 min-w-0 px-1.5 text-sm"
+                  className="min-h-11 min-w-0 whitespace-nowrap px-1.5 text-sm"
                   data-testid="notice-bulk-read-filtered"
                   disabled={filteredUnreadNoticeIds.length === 0 || bulkReadPending}
                   size="sm"
@@ -626,7 +682,7 @@ export function NoticesScreen() {
             </div>
           )}
 
-          {notices.length === 0 ? (
+          {scopedNotices.length === 0 ? (
             <div className="p-4">
               <EmptyState title="확인할 공지가 없습니다" />
             </div>
@@ -796,6 +852,11 @@ export function NoticesScreen() {
                             </button>
                           ) : null}
                         </div>
+                        {!showNoticeDeliveryMeta && context.user.role === "guardian" ? (
+                          <p className="mt-1 text-xs font-semibold leading-5 text-teal-800" data-testid="guardian-notice-target-label">
+                            대상 · {targetLabel(notice, classNameById, memberNameById, selectedChildId)}
+                          </p>
+                        ) : null}
                         {showNoticeDeliveryMeta ? (
                           <p className="mt-1 line-clamp-1 text-xs font-medium leading-5 text-zinc-500" data-testid="notice-delivery-meta-line">
                             {deliveryMetaLabel}
@@ -1086,11 +1147,40 @@ export function NoticesScreen() {
                           <label>
                             <span className="mb-1 block text-xs font-semibold text-zinc-500">대상 회원 검색</span>
                             <input
+                              aria-activedescendant={
+                                noticeMemberSearchResults.length > 0
+                                  ? `notice-member-option-${noticeMemberSearchResults[Math.min(noticeMemberActiveIndex, noticeMemberSearchResults.length - 1)].id}`
+                                  : undefined
+                              }
+                              aria-autocomplete="list"
+                              aria-controls="notice-member-search-results"
+                              aria-expanded={showNoticeMemberSearchResults}
                               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                               data-testid="notice-create-member-search-input"
                               placeholder="회원 이름, 연락처, 보호자 검색"
+                              role="combobox"
                               value={noticeMemberSearch}
                               onChange={(event) => handleNoticeMemberSearchChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (noticeMemberSearchResults.length === 0) {
+                                  return;
+                                }
+
+                                if (event.key === "ArrowDown") {
+                                  event.preventDefault();
+                                  setNoticeMemberActiveIndex((current) =>
+                                    Math.min(current + 1, noticeMemberSearchResults.length - 1),
+                                  );
+                                } else if (event.key === "ArrowUp") {
+                                  event.preventDefault();
+                                  setNoticeMemberActiveIndex((current) => Math.max(current - 1, 0));
+                                } else if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  selectNoticeTargetMember(
+                                    noticeMemberSearchResults[Math.min(noticeMemberActiveIndex, noticeMemberSearchResults.length - 1)],
+                                  );
+                                }
+                              }}
                             />
                           </label>
 
@@ -1109,6 +1199,7 @@ export function NoticesScreen() {
                               aria-label="공지 대상 회원 검색 결과"
                               className="max-h-56 overflow-y-auto rounded-md border border-zinc-200 bg-white"
                               data-testid="notice-create-member-results"
+                              id="notice-member-search-results"
                               role="listbox"
                             >
                               {noticeTargetMembers.length === 0 ? (
@@ -1132,13 +1223,11 @@ export function NoticesScreen() {
                                         selected ? "bg-teal-50 text-teal-900" : "bg-white text-zinc-800 hover:bg-zinc-50"
                                       }`}
                                       data-testid="notice-create-member-result"
+                                      id={`notice-member-option-${member.id}`}
                                       key={member.id}
                                       role="option"
                                       type="button"
-                                      onClick={() => {
-                                        setNoticeTargetMemberId(member.id);
-                                        setNoticeMemberSearch(member.name);
-                                      }}
+                                      onClick={() => selectNoticeTargetMember(member)}
                                     >
                                       <span className="font-semibold">{member.name}</span>
                                       <span className="text-xs font-medium text-zinc-500">

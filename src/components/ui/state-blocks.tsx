@@ -55,7 +55,7 @@ export function ErrorState({ title = "화면을 불러오지 못했습니다", d
       <p className="mt-1 max-w-md text-sm leading-6 text-red-700">{description}</p>
       {onRetry ? (
         <button
-          className="mt-4 inline-flex h-10 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+          className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
           type="button"
           onClick={onRetry}
         >

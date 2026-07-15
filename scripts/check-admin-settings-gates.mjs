@@ -140,6 +140,16 @@ assert(
     adminSettingsSource.includes("<p>새 이슈는 기록 버튼에서 추가</p>"),
   "/app/admin/settings incident area must avoid duplicate status summary cards by default",
 );
+assert(
+  adminSettingsSource.includes('data-testid="admin-settings-policy-tab"') &&
+    adminSettingsSource.includes('data-testid="admin-settings-operations-tab"') &&
+    adminSettingsSource.includes('data-testid="admin-settings-policy-view"') &&
+    adminSettingsSource.includes('data-testid="admin-settings-operations-view"'),
+  "/app/admin/settings must separate policy and field-operation views",
+);
+for (const actionLabel of ["권한 기준 보기", "지점 정책 보기", "기록 항목 보기"]) {
+  assert(adminSettingsSource.includes(actionLabel), `/app/admin/settings must use a specific detail action label: ${actionLabel}`);
+}
 
 console.log(
   JSON.stringify(
@@ -150,6 +160,7 @@ console.log(
         "test:release keeps admin settings and visible-copy readiness gates outside the app UI",
         "raw npm, .data, handoff, doctor, release blocker, and simulator-only labels stay out of admin settings",
         "operation and incident defaults stay compact instead of dense cards",
+        "policy and field-operation settings stay separated with specific detail actions",
       ],
       adminGateCommands: [...adminGateCommands],
     },

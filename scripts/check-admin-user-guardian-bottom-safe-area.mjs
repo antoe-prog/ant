@@ -15,6 +15,7 @@ const outDir =
   ".data/mobile-builds/ios/admin-user-guardian-bottom-safe-area-20260701";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const targetUserId = "user-guardian";
+const browserFlowTimeoutMs = 60_000;
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -166,6 +167,21 @@ function collectConsoleMessages(page) {
   return messages;
 }
 
+function createFlowTimeout(timeoutMs) {
+  let timeoutId;
+
+  return {
+    cancel() {
+      clearTimeout(timeoutId);
+    },
+    promise: new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Admin user guardian browser flow timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }),
+  };
+}
+
 async function loginTo(page, role, nextPath) {
   const loginUrl = new URL("/login", baseUrl);
   loginUrl.searchParams.set("next", nextPath);
@@ -174,6 +190,7 @@ async function loginTo(page, role, nextPath) {
 
   await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.pathname === nextPath.split("?")[0], { timeout: 15000 });
+  await page.waitForLoadState("networkidle", { timeout: 15000 });
 }
 
 async function collectListActionLayout(page) {
@@ -318,22 +335,27 @@ async function main() {
   const context = await browser.newContext({ deviceScaleFactor: 2, isMobile: true, viewport: { height: 844, width: 390 } });
   const page = await context.newPage();
   const messages = collectConsoleMessages(page);
+  const flowTimeout = createFlowTimeout(browserFlowTimeoutMs);
+
+  page.setDefaultTimeout(15_000);
+  page.setDefaultNavigationTimeout(15_000);
 
   try {
+    const runBrowserFlow = async () => {
     const listActionLayout = await collectListActionLayout(page);
     const listActionScreenshotPath = join(outDir, "admin-user-list-safe-area-browser.png");
-    await page.screenshot({ path: listActionScreenshotPath, fullPage: false, caret: "initial" });
+    await page.screenshot({ path: listActionScreenshotPath, fullPage: false, caret: "initial", timeout: 15_000 });
     const listActionScreenshotSizeBytes = statSync(listActionScreenshotPath).size;
 
     await openGuardianEditForm(page);
 
     const selectedLayout = await collectSelectedChildLayout(page);
     const screenshotPath = join(outDir, "admin-user-guardian-bottom-safe-area-browser.png");
-    await page.screenshot({ path: screenshotPath, fullPage: false, caret: "initial" });
+    await page.screenshot({ path: screenshotPath, fullPage: false, caret: "initial", timeout: 15_000 });
     const screenshotSizeBytes = statSync(screenshotPath).size;
     const actionBarLayout = await collectActionBarLayout(page);
     const actionBarScreenshotPath = join(outDir, "admin-user-guardian-action-bar-browser.png");
-    await page.screenshot({ path: actionBarScreenshotPath, fullPage: false, caret: "initial" });
+    await page.screenshot({ path: actionBarScreenshotPath, fullPage: false, caret: "initial", timeout: 15_000 });
     const actionBarScreenshotSizeBytes = statSync(actionBarScreenshotPath).size;
     const layout = { ...listActionLayout, ...selectedLayout, ...actionBarLayout };
 
@@ -393,7 +415,11 @@ async function main() {
 
     writeFileSync(summary.summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
     console.log(JSON.stringify(summary, null, 2));
+    };
+
+    await Promise.race([runBrowserFlow(), flowTimeout.promise]);
   } finally {
+    flowTimeout.cancel();
     await context.close();
     await browser.close();
     await stopManagedAppServer();

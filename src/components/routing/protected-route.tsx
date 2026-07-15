@@ -43,13 +43,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link
-              className="inline-flex h-10 items-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="inline-flex min-h-11 items-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
               href="/app/dashboard"
             >
               대시보드로 이동
             </Link>
             <button
-              className="inline-flex h-10 items-center rounded-md border border-zinc-200 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+              className="inline-flex min-h-11 items-center rounded-md border border-zinc-200 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
               type="button"
               onClick={signOut}
             >

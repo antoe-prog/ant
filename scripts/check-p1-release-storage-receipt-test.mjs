@@ -98,6 +98,14 @@ async function writeCompletedIntake(sourcePath, targetPath) {
   await writeFile(targetPath, `${JSON.stringify(intake, null, 2)}\n`);
 }
 
+async function getUploadedAtAfterArchive(archiveManifestPath) {
+  const archiveManifest = JSON.parse(await readFile(archiveManifestPath, "utf8"));
+  const archiveGeneratedAt = Date.parse(archiveManifest.generatedAt);
+
+  assert(Number.isFinite(archiveGeneratedAt), "ready archive fixture must include a valid generatedAt timestamp");
+  return new Date(archiveGeneratedAt + 60_000).toISOString();
+}
+
 async function createReadyFixture(prefix = "") {
   const paths = {
     deployment: filePath(`${prefix}deployment-handoff.report.json`),
@@ -174,11 +182,12 @@ assert(blockedDraft.blockers.some((blocker) => blocker.code === "P1_RELEASE_STOR
 
 const readyReceipt = filePath("p1-release-storage-receipt.ready.json");
 const storagePrefix = "https://storage.finaljudo.test/p1-release-20260715/artifacts";
+const readyUploadedAt = await getUploadedAtAfterArchive(ready.archiveManifest);
 const completedDraft = await runScript([
   "scripts/create-p1-release-storage-receipt-draft.mjs",
   `--archive=${ready.archiveManifest}`,
   `--out=${readyReceipt}`,
-  "--uploaded-at=2026-07-15T03:00:00.000Z",
+  `--uploaded-at=${readyUploadedAt}`,
   "--uploaded-by=A0 PM",
   "--storage-provider=Cloud Archive",
   "--storage-location=https://storage.finaljudo.test/p1-release-20260715/",
@@ -279,11 +288,12 @@ assert(tamperedReport.blockers.some((blocker) => blocker.code === "P1_RELEASE_ST
 
 const secret = await createReadyFixture("secret-");
 const secretReceipt = filePath("p1-release-storage-receipt.secret.json");
+const secretUploadedAt = await getUploadedAtAfterArchive(secret.archiveManifest);
 await runScript([
   "scripts/create-p1-release-storage-receipt-draft.mjs",
   `--archive=${secret.archiveManifest}`,
   `--out=${secretReceipt}`,
-  "--uploaded-at=2026-07-15T03:00:00.000Z",
+  `--uploaded-at=${secretUploadedAt}`,
   "--uploaded-by=A0 PM",
   "--storage-provider=Cloud Archive",
   "--storage-location=https://storage.finaljudo.test/p1-release-secret/",

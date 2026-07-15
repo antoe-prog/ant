@@ -240,13 +240,13 @@ async function verifyFamilyCase(browser, testCase) {
       `${testCase.id} notifications must not imply live payment progress before provider connection`,
     );
     assert(
-      beforeState.paymentActionLabels.includes("납부 정보 확인"),
-      `${testCase.id} payable payment notification action must use payment-info confirmation copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
+      beforeState.paymentActionLabels.includes("납부 요청"),
+      `${testCase.id} payable payment notification action must use request copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
     );
     if (testCase.role === "guardian") {
       assert(
-        beforeState.paymentTitles.some((title) => title.includes("한유나 납부 정보 확인 필요")),
-        `guardian notifications must show pending payment info-confirmation copy: ${JSON.stringify(beforeState.paymentTitles)}`,
+        beforeState.paymentTitles.some((title) => title.includes("한유나 납부 요청 필요")),
+        `guardian notifications must show pending payment request copy: ${JSON.stringify(beforeState.paymentTitles)}`,
       );
       assert(
         beforeState.paymentActionLabels.includes("납부 확인 중"),

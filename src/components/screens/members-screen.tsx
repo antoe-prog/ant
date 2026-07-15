@@ -275,7 +275,13 @@ export function MembersScreen() {
     setStatusFilterState(value);
     syncMemberStatusFilterToUrl(value === "all" ? null : value);
   }
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
+  const guardianChildIds =
+    context.user.role === "guardian"
+      ? context.db.members
+          .filter((member) => context.user.childMemberIds?.includes(member.id))
+          .map((member) => member.id)
+      : undefined;
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id, guardianChildIds);
   const [inviteBranchId, setInviteBranchId] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -315,6 +321,19 @@ export function MembersScreen() {
   const showMembersScreenHeader = !isFamilyRole;
   const selectedInviteBranchId = inviteBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const selectedCreateBranchId = newMemberBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
+
+  useEffect(() => {
+    if (!canManageMembers || new URLSearchParams(window.location.search).get("create") !== "1") {
+      return;
+    }
+
+    const revealTimer = window.setTimeout(() => {
+      setMemberCreateFormOpen(true);
+      document.getElementById("member-create-panel")?.scrollIntoView({ block: "start" });
+    }, 0);
+
+    return () => window.clearTimeout(revealTimer);
+  }, [canManageMembers]);
 
   const guardianChildId = context.user.role === "guardian" ? selectedChildId || data?.[0]?.id || null : null;
   const childSwitcherItems = useMemo(
@@ -1007,7 +1026,11 @@ export function MembersScreen() {
       ) : null}
 
       {canManageMembers ? (
-        <section className="mb-4 rounded-lg border border-zinc-200 bg-white p-3" data-testid="member-create-panel">
+        <section
+          className="mb-4 scroll-mt-24 rounded-lg border border-zinc-200 bg-white p-3"
+          data-testid="member-create-panel"
+          id="member-create-panel"
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <PlusCircle className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
@@ -1261,7 +1284,11 @@ export function MembersScreen() {
                     <UserRound className="h-5 w-5" aria-hidden />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold text-zinc-950">{member.name}</h2>
+                    {isFamilyRole ? (
+                      <h1 className="truncate text-base font-semibold text-zinc-950">{member.name}</h1>
+                    ) : (
+                      <h2 className="truncate text-base font-semibold text-zinc-950">{member.name}</h2>
+                    )}
                     <p className="mt-1 text-sm text-zinc-600">
                       {member.belt} · {member.level}
                     </p>

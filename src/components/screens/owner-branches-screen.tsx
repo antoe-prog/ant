@@ -1,18 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CalendarCheck, CreditCard, Settings2, Users } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { formatBranchTimezone, normalizeBranchSettings } from "@/lib/domain";
 import { formatCurrency } from "@/lib/format";
+import { useAppStore } from "@/store/app-store";
 import { SectionHeader } from "@/components/ui/primitives";
 import { EmptyState } from "@/components/ui/state-blocks";
 
 export function OwnerBranchesScreen() {
   const context = useApiContext();
+  const router = useRouter();
+  const { branchSelectionPending, selectBranch } = useAppStore();
   const [openPolicyBranchIds, setOpenPolicyBranchIds] = useState<string[]>([]);
   const [openActionBranchIds, setOpenActionBranchIds] = useState<string[]>([]);
+  const [openingActionKey, setOpeningActionKey] = useState<string | null>(null);
   const accessibleBranchIds = context.user.branchIds;
   const branches = context.db.branches.filter((branch) => accessibleBranchIds.includes(branch.id));
 
@@ -26,6 +31,23 @@ export function OwnerBranchesScreen() {
     setOpenActionBranchIds((current) =>
       current.includes(branchId) ? current.filter((currentBranchId) => currentBranchId !== branchId) : [...current, branchId],
     );
+  }
+
+  async function openBranchAction(branchId: string, href: string) {
+    if (branchSelectionPending) {
+      return;
+    }
+
+    const actionKey = `${branchId}:${href}`;
+    setOpeningActionKey(actionKey);
+
+    try {
+      if (await selectBranch(branchId)) {
+        router.push(href);
+      }
+    } finally {
+      setOpeningActionKey(null);
+    }
   }
 
   return (
@@ -174,12 +196,18 @@ export function OwnerBranchesScreen() {
                   <div className="grid min-w-0 grid-cols-2 gap-1.5">
                     {visibleActionLinks.map((action) => (
                       <Link
+                        aria-busy={openingActionKey === `${branch.id}:${action.href}`}
+                        aria-disabled={branchSelectionPending}
                         className="inline-flex min-h-11 min-w-0 flex-col items-center justify-center rounded-md border border-zinc-200 px-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
                         data-testid="owner-branch-action-link"
                         href={action.href}
                         key={action.label}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void openBranchAction(branch.id, action.href);
+                        }}
                       >
-                        <span>{action.label}</span>
+                        <span>{openingActionKey === `${branch.id}:${action.href}` ? "이동 중" : action.label}</span>
                         <span className="mt-0.5 max-w-full truncate text-[10px] leading-3 text-zinc-500">{action.signal}</span>
                       </Link>
                     ))}

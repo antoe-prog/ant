@@ -23,15 +23,17 @@ export function isUpcomingPromotionExam(examDate: string, result: string, now = 
     return false;
   }
 
-  const exam = new Date(examDate);
+  const exam = new Date(`${examDate.slice(0, 10)}T00:00:00`);
 
   if (Number.isNaN(exam.getTime())) {
     return false;
   }
 
-  const diffDays = (exam.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  const currentDay = new Date(now);
+  currentDay.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((exam.getTime() - currentDay.getTime()) / (1000 * 60 * 60 * 24));
 
-  return diffDays <= promotionAlertWindowDays;
+  return diffDays >= 0 && diffDays <= promotionAlertWindowDays;
 }
 
 export function getNotificationAlertCounts({

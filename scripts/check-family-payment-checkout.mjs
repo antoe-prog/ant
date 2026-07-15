@@ -92,7 +92,7 @@ const adultAccess = getFamilyPaymentCheckoutAccess(adultUser, {
 });
 
 assert.equal(adultAccess.canOpen, true, "adult member must be able to open checkout preparation");
-assert.equal(adultAccess.label, "납부 정보 확인", "adult member checkout action label must avoid live payment copy");
+assert.equal(adultAccess.label, "납부 요청", "adult member checkout action label must avoid live payment copy");
 assert.equal(getPaymentCheckoutAmount(adultPayment), 170000, "adult checkout amount mismatch");
 assert.equal(
   getFamilyPaymentPlanLine(adultPayment.planName, "teen"),
@@ -111,7 +111,7 @@ const guardianAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
 });
 
 assert.equal(guardianAccess.canOpen, true, "guardian must be able to open child checkout preparation");
-assert.equal(guardianAccess.label, "납부 정보 확인", "guardian checkout action label must avoid live payment copy");
+assert.equal(guardianAccess.label, "납부 요청", "guardian checkout action label must avoid live payment copy");
 const guardianPendingAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
   ...youthPayment,
   member: youthMember,
@@ -297,10 +297,10 @@ assert(
   "member dashboard payment card must expose checkout state copy from the shared family rule",
 );
 assert(
-  checkoutScreenSource.includes("payment-checkout-ready") &&
-    checkoutScreenSource.includes("payment-checkout-unavailable") &&
-    checkoutScreenSource.includes("checkoutStateLabel") &&
-    checkoutScreenSource.includes("결제 대상"),
+	  checkoutScreenSource.includes("payment-checkout-ready") &&
+	    checkoutScreenSource.includes("payment-checkout-unavailable") &&
+	    checkoutScreenSource.includes("checkoutStateLabel") &&
+	    checkoutScreenSource.includes("요청 가능"),
   "checkout screen must render ready and unavailable states with status copy instead of a detail CTA",
 );
 assert(
@@ -315,16 +315,16 @@ assert(
   "checkout screen must hide payment details for forbidden direct checkout routes",
 );
 assert(
-  checkoutScreenSource.includes("payment-checkout-provider-status") &&
-    checkoutScreenSource.includes("납부 방법 안내 상태") &&
-    checkoutScreenSource.includes("납부 정보 접수") &&
-    checkoutScreenSource.includes("선택한 납부 정보는 확인용으로 접수되며, 담당자가 확인 후 안내합니다.") &&
-    !checkoutScreenSource.includes("결제 진행하기"),
-  "checkout screen must explain the non-integrated payment state without exposing unfinished copy",
+	  checkoutScreenSource.includes("payment-checkout-provider-status") &&
+	    checkoutScreenSource.includes("납부 방법 안내 상태") &&
+		    checkoutScreenSource.includes("결제 정보 확인 단계") &&
+	    checkoutScreenSource.includes("저장·전달되지 않습니다") &&
+	    !checkoutScreenSource.includes("결제 진행하기"),
+	"checkout screen must explain the request-only payment state without exposing unfinished copy",
 );
 assert(
   checkoutScreenSource.includes('data-testid="payment-checkout-payer-info"') &&
-    checkoutScreenSource.includes("결제자 정보") &&
+	    checkoutScreenSource.includes("요청자 정보") &&
     checkoutScreenSource.includes("주소검색") &&
     checkoutScreenSource.includes("휴대전화") &&
     checkoutScreenSource.includes("이메일") &&
@@ -332,13 +332,13 @@ assert(
   "checkout screen must collect payer contact details without asking for account passwords",
 );
 assert(
-  checkoutScreenSource.includes('data-testid="payment-checkout-method-section"') &&
-    checkoutScreenSource.includes("무통장입금") &&
-    checkoutScreenSource.includes("신용카드") &&
-    checkoutScreenSource.includes("가상계좌") &&
-    checkoutScreenSource.includes("계좌이체") &&
-    checkoutScreenSource.includes('data-testid="payment-save-method-checkbox"'),
-  "checkout screen must expose selectable payment methods and reusable payment info consent",
+	  checkoutScreenSource.includes('data-testid="payment-checkout-method-section"') &&
+	    checkoutScreenSource.includes("무통장입금") &&
+	    checkoutScreenSource.includes("신용카드") &&
+	    checkoutScreenSource.includes("가상계좌") &&
+	    checkoutScreenSource.includes("계좌이체") &&
+	    !checkoutScreenSource.includes('data-testid="payment-save-method-checkbox"'),
+	  "checkout screen must expose selectable payment methods without pretending to persist reusable payment data",
 );
 assert(
   checkoutScreenSource.includes('data-testid="payment-card-issuer-grid"') &&
@@ -360,6 +360,7 @@ assert(
 assert(
   !checkoutScreenSource.includes("결제 연결 전") &&
     !checkoutScreenSource.includes("실 결제 연결 전") &&
+	    !checkoutScreenSource.includes("결제 연동") &&
     !checkoutScreenSource.includes("온라인 결제 준비") &&
     !checkoutScreenSource.includes("온라인 결제 준비 중") &&
     !checkoutScreenSource.includes("납부 안내 대기") &&
@@ -367,10 +368,10 @@ assert(
   "checkout screen must not show unfinished payment integration copy",
 );
 assert(
-  checkoutScreenSource.includes("납부 안내") &&
-    !checkoutScreenSource.includes("결제 연동") &&
-    !checkoutScreenSource.includes("결제사 연결"),
-  "checkout screen must avoid technical integration wording in the customer-facing detail page",
+	  checkoutScreenSource.includes("납부 안내") &&
+	    checkoutScreenSource.includes("납부 요청 안내") &&
+	    checkoutScreenSource.includes("실제 결제나 출금이 진행되지 않습니다."),
+	  "checkout screen must make the request-only state explicit before collecting a payment method request",
 );
 assert(
   !checkoutScreenSource.includes("paymentStatusLabels[payment.status]") &&

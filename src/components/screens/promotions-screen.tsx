@@ -1,13 +1,16 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Award, CalendarCheck, CheckCircle2, CircleSlash, Clock3, FileBadge, Plus, XCircle } from "lucide-react";
+import { ChildSwitcher } from "@/components/domain/child-switcher";
 import type { BeltPromotion, BeltPromotionResult } from "@/lib/domain";
 import { beltPromotionResultLabels, getNextBelt, judoBelts } from "@/lib/domain";
-import { formatDate } from "@/lib/format";
-import { getPromotionEligibility } from "@/lib/promotions";
+import { formatDate, formatDateKey } from "@/lib/format";
+import { getPromotionEligibility, isSchedulablePromotionExamDate } from "@/lib/promotions";
+import { memberStatusLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState } from "@/components/ui/state-blocks";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -60,6 +63,13 @@ export function PromotionsScreen() {
   const { createPromotion, updatePromotion } = useAppStore();
   const { db, user } = context;
   const canManage = user.role === "coach" || user.role === "owner" || user.role === "admin";
+  const guardianChildren =
+    user.role === "guardian" ? db.members.filter((member) => user.childMemberIds?.includes(member.id)) : [];
+  const guardianChildIds = guardianChildren.map((member) => member.id);
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    user.id,
+    user.role === "guardian" ? guardianChildIds : undefined,
+  );
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [resultFilter, setResultFilter] = useState<BeltPromotionResult | "all">("all");
@@ -70,17 +80,35 @@ export function PromotionsScreen() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gradingId, setGradingId] = useState<string | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<{
+    promotionId: string;
+    result: "passed" | "failed" | "cancelled";
+  } | null>(null);
+  const [decisionFeedback, setDecisionFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const decisionConfirmRef = useRef<HTMLDivElement>(null);
+  const decisionTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!pendingDecision) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => decisionConfirmRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [pendingDecision]);
 
   const membersById = useMemo(() => new Map(db.members.map((member) => [member.id, member])), [db.members]);
   const usersById = useMemo(() => new Map(db.users.map((candidate) => [candidate.id, candidate])), [db.users]);
   const promotions = useMemo(
     () =>
-      [...(db.promotions ?? [])].sort((a, b) => {
-        if (a.result === "scheduled" && b.result !== "scheduled") return -1;
-        if (a.result !== "scheduled" && b.result === "scheduled") return 1;
-        return b.examDate.localeCompare(a.examDate);
-      }),
-    [db.promotions],
+      [...(db.promotions ?? [])]
+        .filter((promotion) => user.role !== "guardian" || !selectedChildId || promotion.memberId === selectedChildId)
+        .sort((a, b) => {
+          if (a.result === "scheduled" && b.result !== "scheduled") return -1;
+          if (a.result !== "scheduled" && b.result === "scheduled") return 1;
+          return b.examDate.localeCompare(a.examDate);
+        }),
+    [db.promotions, selectedChildId, user.role],
   );
   const scheduledCount = promotions.filter((promotion) => promotion.result === "scheduled").length;
   const passedCount = promotions.filter((promotion) => promotion.result === "passed").length;
@@ -116,6 +144,11 @@ export function PromotionsScreen() {
       return;
     }
 
+    if (!isSchedulablePromotionExamDate(examDate)) {
+      setError("심사일은 오늘 이후로 선택해 주세요.");
+      return;
+    }
+
     setPending(true);
     const ok = await createPromotion({ memberId, toBelt, examDate, note: note.trim() || undefined });
     setPending(false);
@@ -131,8 +164,20 @@ export function PromotionsScreen() {
 
   async function handleDecide(promotion: BeltPromotion, result: "passed" | "failed" | "cancelled") {
     setGradingId(promotion.id);
-    await updatePromotion(promotion.id, { result });
+    setDecisionFeedback(null);
+    const ok = await updatePromotion(promotion.id, { result });
     setGradingId(null);
+
+    if (ok) {
+      setPendingDecision(null);
+      setDecisionFeedback({
+        ok: true,
+        text: `${membersById.get(promotion.memberId)?.name ?? "회원"}님의 심사 결과를 ${beltPromotionResultLabels[result]} 상태로 저장했습니다.`,
+      });
+      return;
+    }
+
+    setDecisionFeedback({ ok: false, text: "심사 결과를 저장하지 못했습니다. 다시 시도해 주세요." });
   }
 
   return (
@@ -141,13 +186,26 @@ export function PromotionsScreen() {
         title="승급 심사"
         action={
           canManage ? (
-            <Button size="sm" variant="primary" onClick={() => setComposerOpen((open) => !open)}>
+            <Button size="lg" variant="primary" onClick={() => setComposerOpen((open) => !open)}>
               <Plus className="h-4 w-4" aria-hidden />
               심사 등록
             </Button>
           ) : undefined
         }
       />
+
+      {user.role === "guardian" ? (
+        <ChildSwitcher
+          items={guardianChildren.map((member) => ({
+            id: member.id,
+            name: member.name,
+            meta: `${member.belt} · ${member.level}`,
+            statusLabel: memberStatusLabels[member.status],
+          }))}
+          selectedChildId={selectedChildId}
+          onSelect={setSelectedChildId}
+        />
+      ) : null}
 
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-center">
@@ -163,6 +221,19 @@ export function PromotionsScreen() {
           <p className="mt-1 text-xl font-bold tabular-nums text-zinc-900">{promotions.length}</p>
         </div>
       </div>
+
+      {decisionFeedback ? (
+        <p
+          className={`rounded-md border px-3 py-2 text-sm font-medium ${
+            decisionFeedback.ok
+              ? "border-teal-200 bg-teal-50 text-teal-900"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+          role={decisionFeedback.ok ? "status" : "alert"}
+        >
+          {decisionFeedback.text}
+        </p>
+      ) : null}
 
       {canManage && composerOpen ? (
         <form className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm" onSubmit={(event) => void handleCreate(event)}>
@@ -235,6 +306,7 @@ export function PromotionsScreen() {
             <input
               className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-teal-500"
               type="date"
+              min={formatDateKey(new Date())}
               value={examDate}
               onChange={(event) => setExamDate(event.target.value)}
               required
@@ -258,10 +330,10 @@ export function PromotionsScreen() {
           ) : null}
 
           <div className="flex gap-2">
-            <Button className="flex-1" disabled={pending} type="submit" variant="primary">
+            <Button className="flex-1" disabled={pending} size="lg" type="submit" variant="primary">
               {pending ? "등록 중..." : "심사 등록"}
             </Button>
-            <Button variant="secondary" onClick={() => setComposerOpen(false)}>
+            <Button size="lg" variant="secondary" onClick={() => setComposerOpen(false)}>
               닫기
             </Button>
           </div>
@@ -275,7 +347,7 @@ export function PromotionsScreen() {
             return (
               <button
                 aria-pressed={selected}
-                className={`inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 text-xs font-semibold transition ${
+                className={`inline-flex min-h-11 items-center gap-1 rounded-md border px-3 text-xs font-semibold transition ${
                   selected
                     ? "border-teal-600 bg-teal-600 text-white"
                     : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
@@ -338,7 +410,7 @@ export function PromotionsScreen() {
                 {promotion.result === "passed" ? (
                   <div className="mt-3 border-t border-zinc-100 pt-3">
                     <Link
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-700 transition hover:bg-teal-100"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-700 transition hover:bg-teal-100"
                       href={`/app/promotions/${encodeURIComponent(promotion.id)}/certificate`}
                     >
                       <FileBadge className="h-4 w-4" aria-hidden />
@@ -348,33 +420,81 @@ export function PromotionsScreen() {
                 ) : null}
 
                 {canManage && promotion.result === "scheduled" ? (
-                  <div className="mt-3 flex gap-2 border-t border-zinc-100 pt-3">
-                    <Button
-                      className="flex-1"
-                      disabled={gradingId === promotion.id}
-                      size="sm"
-                      variant="primary"
-                      onClick={() => void handleDecide(promotion, "passed")}
-                    >
-                      승급 확정
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      disabled={gradingId === promotion.id}
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void handleDecide(promotion, "failed")}
-                    >
-                      보류
-                    </Button>
-                    <Button
-                      disabled={gradingId === promotion.id}
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void handleDecide(promotion, "cancelled")}
-                    >
-                      취소
-                    </Button>
+                  <div className="mt-3 border-t border-zinc-100 pt-3">
+                    {pendingDecision?.promotionId === promotion.id ? (
+                      <div
+                        aria-label="심사 결과 변경 확인"
+                        className="rounded-md border border-amber-200 bg-amber-50 p-3"
+                        data-testid="promotion-decision-confirmation"
+                        ref={decisionConfirmRef}
+                        tabIndex={-1}
+                      >
+                        <p className="text-sm font-semibold text-amber-950">
+                          {member?.name ?? "회원"}님의 심사 결과를 {beltPromotionResultLabels[pendingDecision.result]} 상태로 변경할까요?
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-amber-800">저장 후에는 운영 기록에 결과가 반영됩니다.</p>
+                        <div className="mt-3 flex gap-2">
+                          <Button
+                            className="flex-1"
+                            disabled={gradingId === promotion.id}
+                            size="lg"
+                            variant={pendingDecision.result === "passed" ? "primary" : "danger"}
+                            onClick={() => void handleDecide(promotion, pendingDecision.result)}
+                          >
+                            {gradingId === promotion.id ? "저장 중" : "변경 확인"}
+                          </Button>
+                          <Button
+                            disabled={gradingId === promotion.id}
+                            size="lg"
+                            variant="secondary"
+                            onClick={() => {
+                              setPendingDecision(null);
+                              requestAnimationFrame(() => decisionTriggerRef.current?.focus());
+                            }}
+                          >
+                            돌아가기
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1"
+                          disabled={gradingId === promotion.id}
+                          size="lg"
+                          variant="primary"
+                          onClick={(event) => {
+                            decisionTriggerRef.current = event.currentTarget;
+                            setPendingDecision({ promotionId: promotion.id, result: "passed" });
+                          }}
+                        >
+                          승급 확정
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          disabled={gradingId === promotion.id}
+                          size="lg"
+                          variant="secondary"
+                          onClick={(event) => {
+                            decisionTriggerRef.current = event.currentTarget;
+                            setPendingDecision({ promotionId: promotion.id, result: "failed" });
+                          }}
+                        >
+                          보류
+                        </Button>
+                        <Button
+                          disabled={gradingId === promotion.id}
+                          size="lg"
+                          variant="secondary"
+                          onClick={(event) => {
+                            decisionTriggerRef.current = event.currentTarget;
+                            setPendingDecision({ promotionId: promotion.id, result: "cancelled" });
+                          }}
+                        >
+                          취소
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </li>

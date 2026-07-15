@@ -1,4 +1,4 @@
-import type { Notice, NoticeAudience } from "./domain";
+import type { ClassSession, Notice, NoticeAudience } from "./domain";
 
 export type SortableNotice = {
   createdAt: string;
@@ -36,6 +36,29 @@ export function hasNoticeVisibleContentChanged(
     (current.important === true) !== (next.important === true) ||
     !hasSameNoticeAudience(current.audience, next.audience)
   );
+}
+
+export function isNoticeRelevantToMember(
+  notice: Pick<Notice, "targetClassIds" | "targetMemberIds">,
+  memberId: string,
+  classes: readonly Pick<ClassSession, "enrolledMemberIds" | "id">[],
+) {
+  const targetClassIds = notice.targetClassIds ?? [];
+  const targetMemberIds = notice.targetMemberIds ?? [];
+
+  if (targetClassIds.length === 0 && targetMemberIds.length === 0) {
+    return true;
+  }
+
+  if (targetMemberIds.includes(memberId)) {
+    return true;
+  }
+
+  const memberClassIds = new Set(
+    classes.filter((session) => session.enrolledMemberIds.includes(memberId)).map((session) => session.id),
+  );
+
+  return targetClassIds.some((classId) => memberClassIds.has(classId));
 }
 
 export function sortNoticesForDisplay<T extends SortableNotice>(notices: T[]) {

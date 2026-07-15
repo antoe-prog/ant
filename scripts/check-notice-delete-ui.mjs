@@ -198,12 +198,13 @@ async function collectScreenState(page, screenTestId) {
 }
 
 async function loginTo(page, role, nextPath) {
-  const loginUrl = new URL("/login", baseUrl);
-  loginUrl.searchParams.set("autoLogin", "1");
-  loginUrl.searchParams.set("role", role);
-  loginUrl.searchParams.set("next", nextPath);
+	  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
+	  loginUrl.searchParams.set("role", role);
+	  loginUrl.searchParams.set("next", nextPath);
+	  const loginResponse = await page.context().request.get(loginUrl.toString(), { maxRedirects: 0 });
 
-  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+	  assert([302, 303, 307, 308].includes(loginResponse.status()), `notice delete UI ${role} login must redirect after creating the session`);
+	  await page.goto(new URL(nextPath, baseUrl).toString(), { waitUntil: "domcontentloaded" });
 }
 
 async function createNoticeFromCurrentSession(page, title, body) {
@@ -603,11 +604,13 @@ async function verifyNoticesScreenDelete(browser) {
   const confirmScreenshotPath = join(outDir, "desktop-notices-delete-confirm.png");
   const afterScreenshotPath = join(outDir, "desktop-notices-delete-after.png");
 
-  try {
-    await loginTo(page, "admin", "/app/notices?noticeCompose=1");
-    await page.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
+	try {
+	  await loginTo(page, "admin", "/app/notices");
+	  await page.waitForSelector('[data-testid="notices-screen"]', { timeout: 15000 });
+	  await page.getByTestId("notice-create-toggle").click();
+	  await page.getByTestId("notice-create-title-input").waitFor({ state: "visible", timeout: 5000 });
 
-    const initialState = await collectScreenState(page, "notices-screen");
+	  const initialState = await collectScreenState(page, "notices-screen");
 
     assert.equal(initialState.screenVisible, true, "admin notices screen must render");
     assert.equal(initialState.frameworkOverlayCount, 0, "admin notices screen must not show a framework overlay");

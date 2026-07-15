@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -23,9 +23,11 @@ import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
-import { formatCompactTimeRange, formatCurrency, formatDate, formatDateKey } from "@/lib/format";
-import { isNoticeReadByUser } from "@/lib/notices";
+import { beltPromotionResultLabels } from "@/lib/domain";
+import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format";
+import { isNoticeReadByUser, isNoticeRelevantToMember } from "@/lib/notices";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
+import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { memberStatusLabels, paymentStatusLabels } from "@/lib/roles";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { MetricCard, OperationalKpiCard, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
@@ -77,19 +79,6 @@ function compactText(value: string, maxLength = 56) {
 
 function formatMobileClassSchedule(name: string, startsAt: string, endsAt: string) {
   return `${name} · ${formatDate(startsAt)} · ${formatCompactTimeRange(startsAt, endsAt)}`;
-}
-
-function isNoticeVisibleForGuardianChild(
-  notice: { audience: string[]; branchId: string; targetClassIds?: string[]; targetMemberIds?: string[] },
-  child: { branchId: string; id: string },
-  childClassIds: Set<string>,
-) {
-  const roleVisible = notice.audience.includes("all") || notice.audience.includes("guardian");
-  const branchVisible = notice.branchId === child.branchId;
-  const memberVisible = !notice.targetMemberIds?.length || notice.targetMemberIds.includes(child.id);
-  const classVisible = !notice.targetClassIds?.length || notice.targetClassIds.some((classId) => childClassIds.has(classId));
-
-  return roleVisible && branchVisible && memberVisible && classVisible;
 }
 
 type MobilePriorityCard = {
@@ -213,7 +202,7 @@ function FamilyMobilePriorityPanel({
             <>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-zinc-950">{card.label}</p>
-                <p className="mt-0.5 truncate text-xs leading-4 text-zinc-500">{card.detail}</p>
+                <p className="mt-0.5 line-clamp-2 break-words text-xs leading-4 text-zinc-500">{card.detail}</p>
               </div>
               <span className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md bg-teal-50 px-2 text-xs font-semibold tabular-nums text-teal-700">
                 {card.status}
@@ -299,7 +288,7 @@ function GuardianLearningSummaryPanel({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-zinc-950 sm:text-lg">{childName} 학습 리포트</h2>
+          <h1 className="text-base font-semibold text-zinc-950 sm:text-lg">{childName} 학습 리포트</h1>
         </div>
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-teal-200 bg-teal-50 text-teal-700 sm:h-8 sm:w-8">
           <Award className="h-4 w-4" aria-hidden />
@@ -408,14 +397,6 @@ function GuardianLearningSummaryPanel({
 
 export function DashboardScreen() {
   const context = useApiContext();
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id);
-  const [ownerPeriod, setOwnerPeriod] = useState<OwnerPeriod>("today");
-  const [showOwnerDashboardDetails, setShowOwnerDashboardDetails] = useState(false);
-  const { data, loading, error, reload } = useResource(
-    () => apiClient.getDashboard(context),
-    [context.user.id, context.selectedBranchId, context.version],
-  );
-
   const guardianChildren = useMemo(
     () =>
       context.user.role === "guardian"
@@ -423,7 +404,25 @@ export function DashboardScreen() {
         : [],
     [context.db.members, context.user.childMemberIds, context.user.role],
   );
+  const guardianChildIds = useMemo(() => guardianChildren.map((child) => child.id), [guardianChildren]);
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    context.user.id,
+    context.user.role === "guardian" ? guardianChildIds : undefined,
+  );
+  const [ownerPeriod, setOwnerPeriod] = useState<OwnerPeriod>("today");
+  const [showOwnerDashboardDetails, setShowOwnerDashboardDetails] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const { data, loading, error, reload } = useResource(
+    () => apiClient.getDashboard(context),
+    [context.user.id, context.selectedBranchId, context.version],
+  );
+
   const selectedChild = guardianChildren.find((child) => child.id === selectedChildId) ?? guardianChildren[0];
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (loading) {
     return <LoadingState />;
@@ -461,6 +460,7 @@ export function DashboardScreen() {
           }))
           .filter((row) => row.member)
       : [];
+  const coachFirstFollowUpMember = coachDashboardFollowUpNotes[0]?.member;
   const dashboardAttendanceGap = Math.max(dashboardTodayEnrolledCount - dashboardTodayAttendanceCount, 0);
   const dashboardAttendanceRate = rateLabel(dashboardTodayAttendanceCount, dashboardTodayEnrolledCount);
   const dashboardUnreadNoticeCount = data.notices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
@@ -525,7 +525,9 @@ export function DashboardScreen() {
       value: String(data.todaysClasses.length),
     },
     {
-      actionHref: "/app/members",
+      actionHref: coachFirstFollowUpMember
+        ? `/app/members?memberId=${encodeURIComponent(coachFirstFollowUpMember.id)}&q=${encodeURIComponent(coachFirstFollowUpMember.name)}`
+        : "/app/members",
       actionLabel: "회원 보기",
       badge: dashboardActiveMemberCount > 0 ? "활성" : undefined,
       helper: `활성 ${dashboardActiveMemberCount}명 · 전체 ${dashboardScopedMembers.length}명`,
@@ -600,8 +602,8 @@ export function DashboardScreen() {
   const personalPayments = context.db.payments.filter((payment) => personalMemberIds.has(payment.memberId));
   const personalPrimaryPayment =
     selectedPersonalMember
-      ? (personalPayments.find((payment) => payment.memberId === selectedPersonalMember.id) ?? personalPayments[0])
-      : personalPayments[0];
+      ? getCurrentMemberPayment(personalPayments.filter((payment) => payment.memberId === selectedPersonalMember.id))
+      : getCurrentMemberPayment(personalPayments);
   const personalPaymentCheckoutAccess =
     selectedPersonalMember && personalPrimaryPayment
       ? getFamilyPaymentCheckoutAccess(context.user, personalPrimaryPayment, selectedPersonalMember)
@@ -616,20 +618,34 @@ export function DashboardScreen() {
     personalPrimaryPayment && selectedPersonalMember
       ? getFamilyPaymentPlanLine(personalPrimaryPayment.planName, selectedPersonalMember.ageGroup)
       : null;
-  const personalUnreadNotices = data.notices.filter((notice) => !isNoticeReadByUser(notice, context.user.id));
+  const personalNotices =
+    context.user.role === "guardian" && selectedPersonalMember
+      ? data.notices.filter((notice) =>
+          isNoticeRelevantToMember(notice, selectedPersonalMember.id, context.db.classes),
+        )
+      : data.notices;
+  const personalUnreadNotices = personalNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id));
   const personalNoticeStatus = personalUnreadNotices.length > 0 ? `${personalUnreadNotices.length}건` : "확인 완료";
   const personalNoticeDetail =
     personalUnreadNotices.length > 0
       ? `미확인 공지 ${personalUnreadNotices.length}건`
-      : data.notices.length > 0
-        ? `공지 ${data.notices.length}건 모두 확인`
+      : personalNotices.length > 0
+        ? `공지 ${personalNotices.length}건 모두 확인`
         : "도착한 공지 없음";
-  const todayDateKey = formatDateKey(new Date());
+  const personalPromotion = selectedPersonalMember
+    ? [...(context.db.promotions ?? [])]
+        .filter((promotion) => promotion.memberId === selectedPersonalMember.id)
+        .sort(
+          (left, right) =>
+            Number(right.result === "scheduled") - Number(left.result === "scheduled") ||
+            right.examDate.localeCompare(left.examDate),
+        )[0]
+    : null;
   const personalUpcomingClasses = [...personalClasses]
-    .filter((session) => formatDateKey(session.endsAt) >= todayDateKey)
+    .filter((session) => new Date(session.endsAt).getTime() > currentTime)
     .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
   const personalUpcomingTodayClasses = [...personalTodayClasses]
-    .filter((session) => formatDateKey(session.endsAt) >= todayDateKey)
+    .filter((session) => new Date(session.endsAt).getTime() > currentTime)
     .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
   const nextPersonalClass =
     personalUpcomingTodayClasses[0] ?? personalUpcomingClasses[0];
@@ -657,6 +673,14 @@ export function DashboardScreen() {
         : "등록된 회원권이 없습니다.",
       label: "결제 상태",
       status: personalPaymentActionStatus,
+    },
+    {
+      actionHref: "/app/promotions",
+      detail: personalPromotion
+        ? `${personalPromotion.fromBelt} → ${personalPromotion.toBelt} · ${formatDate(personalPromotion.examDate)}`
+        : "등록된 승급 심사가 없습니다.",
+      label: "승급",
+      status: personalPromotion ? beltPromotionResultLabels[personalPromotion.result] : "확인",
     },
     {
       actionHref: "/app/notices",
@@ -692,9 +716,8 @@ export function DashboardScreen() {
       selectedChildBeltIndex >= 0 && selectedChildBeltIndex < beltProgression.length - 1
         ? beltProgression[selectedChildBeltIndex + 1]
         : null;
-    const selectedChildClassIds = new Set(selectedChildClasses.map((session) => session.id));
     const selectedChildVisibleNotices = selectedChild
-      ? data.notices.filter((notice) => isNoticeVisibleForGuardianChild(notice, selectedChild, selectedChildClassIds))
+      ? data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChild.id, context.db.classes))
       : [];
     const promotionResultNotice = selectedChildVisibleNotices.find((notice) =>
       /심사\s*결과|승급\s*결과|통과|합격|불합격/.test(`${notice.title} ${notice.body}`),
@@ -1323,7 +1346,16 @@ export function DashboardScreen() {
               ) : (
                 <div className="mt-4 space-y-3">
                   {coachDashboardFollowUpNotes.map(({ member, note }) => (
-                    <div className="rounded-md border border-zinc-200 p-3" key={note.id}>
+                    <Link
+                      aria-label={`${member?.name ?? "회원"} 상담·주의 기록 확인`}
+                      className="block rounded-md border border-zinc-200 p-3 transition hover:border-teal-300 hover:bg-teal-50/40"
+                      href={
+                        member
+                          ? `/app/members?memberId=${encodeURIComponent(member.id)}&q=${encodeURIComponent(member.name)}`
+                          : "/app/members"
+                      }
+                      key={note.id}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-zinc-950">{member?.name ?? "회원 확인"}</p>
                         <span className="shrink-0 rounded-md bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700">
@@ -1331,7 +1363,7 @@ export function DashboardScreen() {
                         </span>
                       </div>
                       <p className="mt-1 break-words text-sm leading-6 text-zinc-600">{compactText(note.body, 64)}</p>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

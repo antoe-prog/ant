@@ -69,7 +69,7 @@ function authorizedPaymentCheckoutAccess(payment: Payment, reason: string): Fami
 
   return {
     canOpen: true,
-    label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 정보 확인",
+    label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청",
     reason,
     state: payment.onlinePayment?.status === "pending" ? "pending" : "ready",
   };

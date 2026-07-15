@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { AuditLog, MockDatabase, Notice, PushDispatchJob } from "@/lib/domain";
 import { isNoticeRecipient } from "@/lib/mock-api";
+import { isNoticeRelevantToMember } from "@/lib/notices";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import {
   beginPushDispatchProviderCall,
@@ -94,12 +95,33 @@ function samePayload(left: PushDispatchJob["payloadSnapshot"], right: PushDispat
   return left.title === right.title && left.body === right.body && left.tag === right.tag && left.url === right.url;
 }
 
-function createCurrentNoticePayload(notice: Notice) {
+function createNoticeDeepLink(db: MockDatabase, notice: Notice, recipientUserId: string) {
+  const recipient = db.users.find((user) => user.id === recipientUserId);
+  const candidateMemberIds =
+    recipient?.role === "guardian"
+      ? recipient.childMemberIds ?? []
+      : recipient?.role === "member"
+        ? recipient.memberIds ?? []
+        : [];
+  const matchingMemberIds = candidateMemberIds.filter((memberId) =>
+    isNoticeRelevantToMember(notice, memberId, db.classes),
+  );
+  const params = new URLSearchParams({ highlight: notice.id });
+
+  if (matchingMemberIds.length === 1) {
+    params.set("memberId", matchingMemberIds[0]);
+  }
+
+  return `/app/notifications?${params.toString()}`;
+}
+
+function createCurrentNoticePayload(db: MockDatabase, notice: Notice, recipientUserId: string) {
   return createNoticePushPayloadSnapshot({
     noticeId: notice.id,
     title: notice.title,
     body: notice.body,
     important: notice.important,
+    url: createNoticeDeepLink(db, notice, recipientUserId),
   });
 }
 
@@ -137,9 +159,8 @@ export function prepareNoticePushDispatchJobs(
     };
   }
 
-  const payloadSnapshot = createCurrentNoticePayload(notice);
-
   for (const subscription of subscriptions) {
+    const payloadSnapshot = createCurrentNoticePayload(db, notice, subscription.userId);
     const result = enqueuePushDispatchJob(nextDb, {
       id: `push-job-${requestAuditLog.id}-${subscription.id}`,
       auditLogId: requestAuditLog.id,
@@ -175,7 +196,7 @@ export function validateLeasedPushDispatchJob(db: MockDatabase, job: PushDispatc
   if (!notice || !recipient || !isNoticeRecipient(recipient, db, notice)) {
     return { ok: false as const, reason: "공지 또는 수신 대상이 변경됐습니다." };
   }
-  if (!samePayload(job.payloadSnapshot, createCurrentNoticePayload(notice))) {
+  if (!samePayload(job.payloadSnapshot, createCurrentNoticePayload(db, notice, job.recipientUserId))) {
     return { ok: false as const, reason: "공지 내용이 변경되어 이전 발송 요청을 취소했습니다." };
   }
 

@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowRight, Bell, CheckCheck, CreditCard, MailOpen, Medal, Trash2 } from "lucide-react";
+import { ChildSwitcher } from "@/components/domain/child-switcher";
 import type { AppUser, BeltPromotion, EnrichedPayment, Notice } from "@/lib/domain";
 import { apiClient } from "@/lib/api-client";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -16,10 +18,11 @@ import {
 } from "@/lib/notification-alerts";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { canDeleteNotice } from "@/lib/notice-permissions";
-import { isNoticeReadByUser, sortNoticesForDisplay } from "@/lib/notices";
+import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
-import { paymentStatusLabels, roleLabels } from "@/lib/roles";
+import { memberStatusLabels, paymentStatusLabels, roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
+import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useAppStore } from "@/store/app-store";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -51,37 +54,56 @@ function audienceLabel(notice: Notice) {
   return notice.audience.map((item) => (item === "all" ? "전체" : roleLabels[item])).join(", ");
 }
 
-function noticeTargetLabel(notice: Notice, context: ReturnType<typeof useApiContext>) {
+function noticeTargetLabel(notice: Notice, context: ReturnType<typeof useApiContext>, selectedChildId?: string | null) {
   const classNames = (notice.targetClassIds ?? [])
     .map((classId) => context.db.classes.find((session) => session.id === classId)?.name)
     .filter(Boolean);
   const memberNames = (notice.targetMemberIds ?? [])
     .map((memberId) => context.db.members.find((member) => member.id === memberId)?.name)
     .filter(Boolean);
+  const selectedChildTargeted = selectedChildId ? (notice.targetMemberIds ?? []).includes(selectedChildId) : false;
+  const selectedChildName = selectedChildId
+    ? context.db.members.find((member) => member.id === selectedChildId)?.name
+    : null;
+  const otherFamilyTargetCount = selectedChildId
+    ? (notice.targetMemberIds ?? []).filter(
+        (memberId) => memberId !== selectedChildId && context.user.childMemberIds?.includes(memberId),
+      ).length
+    : 0;
+  const memberLabels = selectedChildId
+    ? [
+        ...(selectedChildTargeted ? [`개인 ${selectedChildName ?? "선택한 자녀"}`] : []),
+        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 자녀 ${otherFamilyTargetCount}명`] : []),
+      ]
+    : memberNames.map((name) => `개인 ${name}`);
 
-  if (classNames.length === 0 && memberNames.length === 0) {
+  if (classNames.length === 0 && memberLabels.length === 0) {
     return "지점 전체";
   }
 
   return [
     ...classNames.map((name) => `반 ${name}`),
-    ...memberNames.map((name) => `개인 ${name}`),
+    ...memberLabels,
   ].join(", ");
 }
 
-function buildNoticeNotification(notice: Notice, context: ReturnType<typeof useApiContext>): NotificationItem {
+function buildNoticeNotification(
+  notice: Notice,
+  context: ReturnType<typeof useApiContext>,
+  selectedChildId?: string | null,
+): NotificationItem {
   const read = isNoticeReadByUser(notice, context.user.id);
 
   return {
     body: notice.body,
     createdAt: notice.createdAt,
-    href: `/app/notices?highlight=${encodeURIComponent(notice.id)}`,
+    href: `/app/notices?highlight=${encodeURIComponent(notice.id)}${selectedChildId ? `&memberId=${encodeURIComponent(selectedChildId)}` : ""}`,
     id: `notice-${notice.id}`,
     important: Boolean(notice.important),
     kind: "notice",
     kindLabel: "공지",
     actionLabel: "보기",
-    meta: `${audienceLabel(notice)} · ${noticeTargetLabel(notice, context)} · ${formatDateTime(notice.createdAt)}`,
+    meta: `${audienceLabel(notice)} · ${noticeTargetLabel(notice, context, selectedChildId)} · ${formatDateTime(notice.createdAt)}`,
     noticeCanDelete: canDeleteNotice(context.user, context.db, notice),
     noticeBranchId: notice.branchId,
     noticeId: notice.id,
@@ -116,7 +138,7 @@ function buildPaymentNotification(payment: EnrichedPayment, user: AppUser): Noti
   const title = critical
     ? `${payment.member.name} 미납 결제 확인`
     : checkoutPending
-      ? `${payment.member.name} 납부 정보 확인 필요`
+      ? `${payment.member.name} 납부 요청 필요`
       : `${payment.member.name} 회원권 만료 예정`;
 
   return {
@@ -199,8 +221,20 @@ function syncNotificationFilterToUrl(value: NotificationFilter) {
 }
 
 export function NotificationsScreen() {
+  const searchParams = useSearchParams();
   const context = useApiContext();
   const { deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
+  const guardianChildren =
+    context.user.role === "guardian"
+      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      : [];
+  const guardianChildIds = guardianChildren.map((member) => member.id);
+  const requestedChildId = searchParams.get("memberId")?.trim() ?? "";
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    context.user.id,
+    context.user.role === "guardian" ? guardianChildIds : undefined,
+    context.user.role === "guardian" ? requestedChildId : null,
+  );
   const [notificationFilter, setNotificationFilterState] = useState<NotificationFilter>(getInitialNotificationFilter);
 
   function setNotificationFilter(value: NotificationFilter) {
@@ -231,17 +265,29 @@ export function NotificationsScreen() {
       return [];
     }
 
-    const noticeItems = sortNoticesForDisplay(data.notices).map((notice) => buildNoticeNotification(notice, context));
+    const scopedNotices =
+      context.user.role === "guardian" && selectedChildId
+        ? data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChildId, context.db.classes))
+        : data.notices;
+    const noticeItems = sortNoticesForDisplay(scopedNotices).map((notice) =>
+      buildNoticeNotification(notice, context, context.user.role === "guardian" ? selectedChildId : null),
+    );
     const paymentItems = canShowPaymentNotificationForRole(context.user.role)
-      ? data.payments.flatMap((payment) => {
+      ? data.payments
+          .filter((payment) => context.user.role !== "guardian" || !selectedChildId || payment.memberId === selectedChildId)
+          .flatMap((payment) => {
           const item = buildPaymentNotification(payment, context.user);
 
           return item ? [item] : [];
-        })
+          })
       : [];
     // 승급 알림: 요약 카운트(getNotificationAlertCounts)와 동일한 스코프/조건으로 카드 생성
     const scopeBranchIds = getNotificationScopeBranchIds(context.user, context.db, context.selectedBranchId);
-    const accessibleMemberIds = new Set(getAccessibleMemberIds(context.user, context.db, scopeBranchIds));
+    const accessibleMemberIds = new Set(
+      context.user.role === "guardian" && selectedChildId
+        ? [selectedChildId]
+        : getAccessibleMemberIds(context.user, context.db, scopeBranchIds),
+    );
     const promotionItems = (context.db.promotions ?? [])
       .filter(
         (promotion) =>
@@ -256,7 +302,7 @@ export function NotificationsScreen() {
         Number(right.important) - Number(left.important) ||
         right.createdAt.localeCompare(left.createdAt),
     );
-  }, [context, data]);
+  }, [context, data, selectedChildId]);
 
   if (loading) {
     return <LoadingState />;
@@ -300,13 +346,17 @@ export function NotificationsScreen() {
   const filteredUnreadNoticeIds = filteredItems
     .filter((item) => item.kind === "notice" && !item.read && item.noticeId)
     .map((item) => item.noticeId as string);
+  const notificationScopeUser =
+    context.user.role === "guardian" && selectedChildId
+      ? { ...context.user, childMemberIds: [selectedChildId] }
+      : context.user;
   const notificationCounts = getNotificationAlertCounts({
     db: context.db,
     selectedBranchId: context.selectedBranchId,
-    user: context.user,
+    user: notificationScopeUser,
   });
   const notificationActionableSummary =
-    formatNotificationActionableLabel(notificationCounts, " · ") || "미확인 공지 0건";
+    formatNotificationActionableLabel(notificationCounts, " · ") || "확인할 알림이 없습니다";
 
   async function handleMarkFilteredNotificationsAsRead() {
     if (filteredUnreadNoticeIds.length === 0 || bulkReadPending) {
@@ -364,6 +414,19 @@ export function NotificationsScreen() {
   return (
     <div data-testid="notifications-screen">
       <SectionHeader title="알림함" />
+
+      {context.user.role === "guardian" ? (
+        <ChildSwitcher
+          items={guardianChildren.map((member) => ({
+            id: member.id,
+            name: member.name,
+            meta: `${member.belt} · ${member.level}`,
+            statusLabel: memberStatusLabels[member.status],
+          }))}
+          selectedChildId={selectedChildId}
+          onSelect={setSelectedChildId}
+        />
+      ) : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white" aria-label="알림 목록">
         <div className="grid gap-2 border-b border-zinc-100 px-3 py-2.5 sm:px-4">

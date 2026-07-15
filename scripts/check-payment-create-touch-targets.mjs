@@ -208,6 +208,8 @@ function assertStaticContracts() {
     'data-testid="payment-export-button"',
     'data-testid="payment-status-filter"',
     'data-testid="payment-operations-metric"',
+    'data-testid="payment-management-toggle"',
+    'data-testid="payment-management-panel"',
     'data-testid="payment-renewal-prefill"',
     'data-testid="payment-online-request-button"',
     'data-testid="payment-recurring-create-button"',
@@ -267,28 +269,11 @@ async function gotoOwnerPayments(page) {
   await page.waitForSelector('[data-testid="payment-create-toggle"]', { timeout: 15000 });
 }
 
-async function collectCollapsedLayout(page, { requireRefundRowAlignment = false } = {}) {
+async function collectCollapsedLayout(page) {
   const layout = await page.evaluate(() => {
     const toggle = document.querySelector('[data-testid="payment-create-toggle"]')?.getBoundingClientRect();
     const readHeights = (selector) =>
       Array.from(document.querySelectorAll(selector)).map((element) => Math.round(element.getBoundingClientRect().height));
-    const actionControlSelectors = [
-      '[data-testid="payment-renewal-prefill"]',
-      '[data-testid="payment-online-request-button"]',
-      '[data-testid="payment-recurring-create-button"]',
-      '[data-testid^="payment-refund-full-amount-"]',
-      '[data-testid="payment-refund-submit"]',
-      '[data-testid="payment-cancel-submit"]',
-      '[data-testid="payment-recurring-cancel-button"]',
-      '[data-testid="payment-recurring-cancel-submit"]',
-      '[data-testid="payment-online-checkout-link"]',
-      '[data-testid="payment-receipt-link"]',
-      '[data-testid="manual-payment-edit-open"]',
-      '[data-testid="manual-payment-delete-open"]',
-    ];
-    const actionControlHeights = Object.fromEntries(
-      actionControlSelectors.map((selector) => [selector, readHeights(selector)]),
-    );
     const topControlHeights = {
       exportButton: readHeights('[data-testid="payment-export-button"]'),
       listSearchInput: readHeights('[data-testid="payment-list-search-input"]'),
@@ -296,37 +281,15 @@ async function collectCollapsedLayout(page, { requireRefundRowAlignment = false 
       operationsMetrics: readHeights('[data-testid="payment-operations-metric"]'),
       statusFilter: readHeights('[data-testid="payment-status-filter"]'),
     };
-    const refundFormControlRows = Array.from(document.querySelectorAll('[data-testid="payment-adjustment-form"]'))
-      .map((form) => {
-        const amountInput = form.querySelector('[data-testid="payment-refund-amount-input"]')?.getBoundingClientRect();
-        const fullAmountButton = form.querySelector('[data-testid^="payment-refund-full-amount-"]')?.getBoundingClientRect();
-        const reasonInput = form.querySelector('[data-testid="payment-adjustment-reason-input"]')?.getBoundingClientRect();
-        const submitButton = form.querySelector('[data-testid="payment-refund-submit"]')?.getBoundingClientRect();
-
-        if (!amountInput || !fullAmountButton || !reasonInput || !submitButton) {
-          return null;
-        }
-
-        return {
-          amountInputBottom: Math.round(amountInput.bottom),
-          amountInputTop: Math.round(amountInput.top),
-          fullAmountButtonBottom: Math.round(fullAmountButton.bottom),
-          fullAmountButtonTop: Math.round(fullAmountButton.top),
-          reasonInputBottom: Math.round(reasonInput.bottom),
-          reasonInputTop: Math.round(reasonInput.top),
-          submitButtonBottom: Math.round(submitButton.bottom),
-          submitButtonTop: Math.round(submitButton.top),
-        };
-      })
-      .filter(Boolean);
 
     return {
-      actionControlHeights,
       bodyText: document.body.innerText.replace(/\s+/g, " ").trim(),
       clientWidth: document.documentElement.clientWidth,
       fieldsCount: document.querySelectorAll('[data-testid="payment-create-fields"]').length,
       formCount: document.querySelectorAll('[data-testid="payment-create-form"]').length,
-      refundFormControlRows,
+      managementPanelCount: document.querySelectorAll('[data-testid="payment-management-panel"]').length,
+      managementToggleHeights: readHeights('[data-testid="payment-management-toggle"]'),
+      memberProfileLinkHeights: readHeights('[data-testid="payment-member-profile-link"]'),
       scrollWidth: document.documentElement.scrollWidth,
       topControlHeights,
       toggleHeight: Math.round(toggle?.height ?? 0),
@@ -335,11 +298,98 @@ async function collectCollapsedLayout(page, { requireRefundRowAlignment = false 
 
   assert.equal(layout.formCount, 1, "owner payments must render one manual payment create form");
   assert.equal(layout.fieldsCount, 0, "payment create fields must stay collapsed by default");
+  assert.equal(layout.managementPanelCount, 0, "owner payment management panels must stay collapsed by default");
   assert(layout.toggleHeight >= 44, `payment create toggle must stay 44px tall; got ${layout.toggleHeight}px`);
   for (const [label, heights] of Object.entries(layout.topControlHeights)) {
     assert(heights.length > 0, `owner payment ${label} control must be rendered`);
     for (const [index, height] of heights.entries()) {
       assert(height >= 44, `owner payment ${label} control ${index + 1} must stay 44px tall; got ${height}px`);
+    }
+  }
+  assert(layout.managementToggleHeights.length > 0, "owner payment rows must expose management toggles");
+  for (const [index, height] of layout.managementToggleHeights.entries()) {
+    assert(height >= 44, `owner payment management toggle ${index + 1} must stay 44px tall; got ${height}px`);
+  }
+  for (const [index, height] of layout.memberProfileLinkHeights.entries()) {
+    assert(height >= 44, `owner payment member link ${index + 1} must stay 44px tall; got ${height}px`);
+  }
+  assert.equal(layout.scrollWidth, layout.clientWidth, "collapsed owner payment create form must not overflow horizontally");
+  assert.match(layout.bodyText, /수기 결제 등록/, "owner payments must show the manual payment create affordance");
+
+  return layout;
+}
+
+async function collectExpandedManagementLayout(page, { requireRefundRowAlignment = false } = {}) {
+  const toggles = page.getByTestId("payment-management-toggle");
+  const toggleCount = await toggles.count();
+  const actionControlHeights = {};
+  let refundRow = null;
+  let refundToggleIndex = -1;
+
+  for (let index = 0; index < toggleCount; index += 1) {
+    await toggles.nth(index).click();
+    assert.equal(await page.getByTestId("payment-management-panel").count(), 1, "only one payment management panel may be open");
+    const sample = await toggles.nth(index).evaluate((toggleElement) => {
+      const article = toggleElement.closest("[data-payment-id]");
+      const selectors = [
+        '[data-testid="payment-renewal-prefill"]',
+        '[data-testid="payment-online-request-button"]',
+        '[data-testid="payment-recurring-create-button"]',
+        '[data-testid^="payment-refund-full-amount-"]',
+        '[data-testid="payment-refund-submit"]',
+        '[data-testid="payment-cancel-submit"]',
+        '[data-testid="payment-recurring-cancel-button"]',
+        '[data-testid="payment-recurring-cancel-submit"]',
+        '[data-testid="payment-online-checkout-link"]',
+        '[data-testid="payment-receipt-link"]',
+        '[data-testid="manual-payment-edit-open"]',
+        '[data-testid="manual-payment-delete-open"]',
+      ];
+      const heights = Object.fromEntries(
+        selectors.map((selector) => [
+          selector,
+          Array.from(article?.querySelectorAll(selector) ?? []).map((element) =>
+            Math.round(element.getBoundingClientRect().height),
+          ),
+        ]),
+      );
+      const form = article?.querySelector('[data-testid="payment-adjustment-form"]');
+      const rect = (selector) => form?.querySelector(selector)?.getBoundingClientRect() ?? null;
+      const amountInput = rect('[data-testid="payment-refund-amount-input"]');
+      const fullAmountButton = rect('[data-testid^="payment-refund-full-amount-"]');
+      const reasonInput = rect('[data-testid="payment-adjustment-reason-input"]');
+      const submitButton = rect('[data-testid="payment-refund-submit"]');
+
+      return {
+        heights,
+        refundRow:
+          amountInput && fullAmountButton && reasonInput && submitButton
+            ? {
+                amountInputBottom: Math.round(amountInput.bottom),
+                amountInputTop: Math.round(amountInput.top),
+                fullAmountButtonBottom: Math.round(fullAmountButton.bottom),
+                fullAmountButtonTop: Math.round(fullAmountButton.top),
+                reasonInputBottom: Math.round(reasonInput.bottom),
+                reasonInputTop: Math.round(reasonInput.top),
+                submitButtonBottom: Math.round(submitButton.bottom),
+                submitButtonTop: Math.round(submitButton.top),
+              }
+            : null,
+      };
+    });
+
+    for (const [selector, heights] of Object.entries(sample.heights)) {
+      actionControlHeights[selector] = [...(actionControlHeights[selector] ?? []), ...heights];
+    }
+    if (sample.refundRow && !refundRow) {
+      refundRow = sample.refundRow;
+      refundToggleIndex = index;
+    }
+  }
+
+  for (const [selector, heights] of Object.entries(actionControlHeights)) {
+    for (const [index, height] of heights.entries()) {
+      assert(height >= 44, `owner payment action ${selector} ${index + 1} must stay 44px tall; got ${height}px`);
     }
   }
   for (const requiredSelector of [
@@ -352,32 +402,23 @@ async function collectCollapsedLayout(page, { requireRefundRowAlignment = false 
     '[data-testid="manual-payment-edit-open"]',
     '[data-testid="manual-payment-delete-open"]',
   ]) {
-    assert(
-      layout.actionControlHeights[requiredSelector]?.length > 0,
-      `owner payment action ${requiredSelector} must be present in seeded payment rows`,
-    );
+    assert(actionControlHeights[requiredSelector]?.length > 0, `seeded rows must expose ${requiredSelector}`);
   }
-  for (const [selector, heights] of Object.entries(layout.actionControlHeights)) {
-    for (const [index, height] of heights.entries()) {
-      assert(height >= 44, `owner payment action ${selector} ${index + 1} must stay 44px tall; got ${height}px`);
-    }
-  }
-  assert(layout.refundFormControlRows.length > 0, "owner payment rows must expose at least one refund form alignment sample");
+  assert(refundRow, "owner payment rows must expose a refund form alignment sample");
   if (requireRefundRowAlignment) {
-    for (const [index, row] of layout.refundFormControlRows.entries()) {
-      const topValues = [row.amountInputTop, row.fullAmountButtonTop, row.reasonInputTop, row.submitButtonTop];
-      const bottomValues = [row.amountInputBottom, row.fullAmountButtonBottom, row.reasonInputBottom, row.submitButtonBottom];
-      const topDelta = Math.max(...topValues) - Math.min(...topValues);
-      const bottomDelta = Math.max(...bottomValues) - Math.min(...bottomValues);
-
-      assert(topDelta <= 1, `refund form ${index + 1} controls must start on one row; got ${topDelta}px top delta`);
-      assert(bottomDelta <= 1, `refund form ${index + 1} controls must end on one row; got ${bottomDelta}px bottom delta`);
-    }
+    const topValues = [refundRow.amountInputTop, refundRow.fullAmountButtonTop, refundRow.reasonInputTop, refundRow.submitButtonTop];
+    const bottomValues = [refundRow.amountInputBottom, refundRow.fullAmountButtonBottom, refundRow.reasonInputBottom, refundRow.submitButtonBottom];
+    assert(Math.max(...topValues) - Math.min(...topValues) <= 1, "refund controls must start on one desktop row");
+    assert(Math.max(...bottomValues) - Math.min(...bottomValues) <= 1, "refund controls must end on one desktop row");
   }
-  assert.equal(layout.scrollWidth, layout.clientWidth, "collapsed owner payment create form must not overflow horizontally");
-  assert.match(layout.bodyText, /수기 결제 등록/, "owner payments must show the manual payment create affordance");
 
-  return layout;
+  if (requireRefundRowAlignment && refundToggleIndex >= 0 && refundToggleIndex !== toggleCount - 1) {
+    await toggles.nth(refundToggleIndex).click();
+  } else if (!requireRefundRowAlignment && toggleCount > 0) {
+    await toggles.nth(toggleCount - 1).click();
+  }
+
+  return { actionControlHeights, refundRow, toggleCount };
 }
 
 async function collectSearchResultLayout(page) {
@@ -557,11 +598,13 @@ try {
 
   await gotoOwnerPayments(page);
   const collapsedLayout = await collectCollapsedLayout(page);
+  const expandedManagementLayout = await collectExpandedManagementLayout(page);
   const collapsedScreenshotPath = join(outDir, "owner-payments-create-collapsed-mobile.png");
   await page.screenshot({ path: collapsedScreenshotPath, fullPage: false });
 
   await gotoOwnerPayments(desktopPage);
-  const desktopRefundLayout = await collectCollapsedLayout(desktopPage, { requireRefundRowAlignment: true });
+  const desktopRefundLayout = await collectCollapsedLayout(desktopPage);
+  const desktopExpandedManagementLayout = await collectExpandedManagementLayout(desktopPage, { requireRefundRowAlignment: true });
   const desktopRefundScreenshotPath = join(outDir, "owner-payments-refund-aligned-desktop.png");
   await desktopPage.screenshot({ path: desktopRefundScreenshotPath, fullPage: false });
 
@@ -697,6 +740,7 @@ try {
   const manualPaymentArticle = page.locator(`[data-payment-id="${manualPaymentFixture.id}"]`);
   await manualPaymentArticle.waitFor({ state: "visible", timeout: 15000 });
   await manualPaymentArticle.scrollIntoViewIfNeeded();
+  await manualPaymentArticle.getByTestId("payment-management-toggle").click();
   await manualPaymentArticle.getByTestId("manual-payment-edit-open").click();
   await manualPaymentArticle.getByTestId("manual-payment-edit-form").waitFor({ state: "visible" });
   const manualEditLayout = await collectManualPaymentManagementLayout(page, manualPaymentFixture.id, "manual-payment-edit-form");
@@ -809,7 +853,9 @@ try {
     expectedConsoleMessages,
     layouts: {
       collapsed: collapsedLayout,
+      expandedManagement: expandedManagementLayout,
       desktopRefund: desktopRefundLayout,
+      desktopExpandedManagement: desktopExpandedManagementLayout,
       search: searchLayout,
       selected: selectedLayout,
       terminalReason: terminalReasonLayout,
