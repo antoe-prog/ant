@@ -1,4 +1,5 @@
 import type { OnlinePaymentProvider, Payment, PaymentReceipt } from "@/lib/domain";
+import { getPaymentRemainingRefundableAmount } from "../lib/payment-amounts.ts";
 
 export type PaymentWebhookEvent = "paid" | "failed" | "refunded";
 
@@ -59,7 +60,7 @@ export function getOnlinePaymentProvider(env: NodeJS.ProcessEnv = process.env): 
 }
 
 export function getOnlinePaymentAmount(payment: Payment) {
-  return Math.max(payment.amount - (payment.discountAmount ?? 0) - (payment.refundedAmount ?? 0), 0);
+  return getPaymentRemainingRefundableAmount(payment);
 }
 
 export function createProviderPaymentId(paymentId: string) {

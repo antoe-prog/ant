@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Award, CalendarCheck, CheckCircle2, CircleSlash, Clock3, FileBadge, Plus, XCircle } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
+import { FinalPromotionPolicyReference } from "@/components/domain/final-promotion-policy-reference";
 import type { BeltPromotion, BeltPromotionResult } from "@/lib/domain";
 import { beltPromotionResultLabels, getNextBelt, judoBelts } from "@/lib/domain";
 import { formatDate, formatDateKey } from "@/lib/format";
@@ -207,6 +208,8 @@ export function PromotionsScreen() {
         />
       ) : null}
 
+      <FinalPromotionPolicyReference />
+
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-center">
           <p className="text-xs font-medium text-sky-700">심사 예정</p>
@@ -263,7 +266,7 @@ export function PromotionsScreen() {
                 return (
                   <option key={member.id} value={member.id}>
                     {member.name} · {member.belt}
-                    {eligibility ? ` · 출석 ${eligibility.attendanceCount}회${eligibility.eligible ? " (자격 충족)" : ""}` : ""}
+                    {eligibility ? ` · 출석 ${eligibility.attendanceCount}회` : ""}
                   </option>
                 );
               })}
@@ -271,16 +274,9 @@ export function PromotionsScreen() {
           </label>
 
           {selectedEligibility ? (
-            <p
-              className={`rounded-md border px-3 py-2 text-xs font-medium ${
-                selectedEligibility.eligible
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700"
-              }`}
-            >
-              {selectedEligibility.lastPassedAt ? "최근 승급 이후 " : ""}출석 {selectedEligibility.attendanceCount}회 / 기준{" "}
-              {selectedEligibility.requiredCount}회 —{" "}
-              {selectedEligibility.eligible ? "승급 심사 자격을 충족했습니다." : "기준 미달이지만 필요 시 등록할 수 있습니다."}
+            <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium leading-5 text-sky-800">
+              {selectedEligibility.lastPassedAt ? "최근 승급 이후 " : ""}출석 {selectedEligibility.attendanceCount}회입니다. 심사 전
+              연령·급별 최소기간, 인정 수련시간과 기술표를 함께 확인해 주세요.
             </p>
           ) : null}
 

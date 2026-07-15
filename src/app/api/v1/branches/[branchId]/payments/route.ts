@@ -14,6 +14,12 @@ import {
   type PaymentCreateSnapshot,
 } from "@/lib/payment-create-idempotency";
 import { createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
+import { getPaymentNetAmount } from "@/lib/payment-amounts";
+import {
+  finalCommonPublicServiceBenefit,
+  quoteFinalCommonFeeProduct,
+  type FinalCommonFeeBenefitCode,
+} from "@/lib/final-common-fee-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createRuntimeId } from "@/server/runtime-id";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -26,6 +32,8 @@ type PaymentBody = {
   status?: PaymentStatus;
   amount?: number;
   discountAmount?: number;
+  feeProductId?: string;
+  benefitCode?: FinalCommonFeeBenefitCode;
   dueDate?: string;
   expiresAt?: string;
   reason?: string;
@@ -95,7 +103,7 @@ async function persistPayment({
     id: paymentId,
     branchId,
     ...paymentSnapshot,
-    refundedAmount: isRefunded ? snapshot.amount : 0,
+    refundedAmount: isRefunded ? getPaymentNetAmount(snapshot) : 0,
     ...(isCancelled || isRefunded
       ? {
           refundedAt: now,
@@ -176,13 +184,40 @@ export async function POST(
 
   const body = (await request.json().catch(() => null)) as PaymentBody | null;
   const memberId = body?.memberId?.trim() ?? "";
-  const planName = body?.planName?.trim() ?? "";
+  let planName = body?.planName?.trim() ?? "";
   const status = body?.status;
-  const amount = body?.amount;
+  let amount = body?.amount;
   const discountAmount = body?.discountAmount ?? 0;
   const dueDate = body?.dueDate ?? "";
-  const expiresAt = body?.expiresAt ?? "";
+  let expiresAt = body?.expiresAt ?? "";
   const reason = body?.reason?.trim() ?? "";
+  const feeProductId = body?.feeProductId?.trim() ?? "";
+  const benefitCode = body?.benefitCode;
+  let feeQuote: ReturnType<typeof quoteFinalCommonFeeProduct> | null = null;
+
+  if (benefitCode && benefitCode !== finalCommonPublicServiceBenefit.id) {
+    return jsonError(400, "VALIDATION_ERROR", "등록 혜택이 올바르지 않습니다.");
+  }
+
+  if (benefitCode && !feeProductId) {
+    return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품을 선택해야 1+1 혜택을 적용할 수 있습니다.");
+  }
+
+  if (feeProductId) {
+    try {
+      feeQuote = quoteFinalCommonFeeProduct({
+        productId: feeProductId,
+        startDate: dueDate,
+        ...(benefitCode ? { benefitCode } : {}),
+      });
+    } catch {
+      return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품과 적용 기간을 확인해 주세요.");
+    }
+
+    planName = feeQuote.planName;
+    amount = feeQuote.amount;
+    expiresAt = feeQuote.expiresAt ?? "";
+  }
 
   if (!memberId || !planName) {
     return jsonError(400, "VALIDATION_ERROR", "회원과 회원권명이 필요합니다.");
@@ -218,6 +253,15 @@ export async function POST(
     discountAmount,
     dueDate,
     expiresAt,
+    ...(feeQuote
+      ? {
+          feeProductId,
+          policyVersion: feeQuote.policyVersion,
+          ...(feeQuote.registeredMonths ? { registeredMonths: feeQuote.registeredMonths } : {}),
+          ...(feeQuote.serviceMonths ? { serviceMonths: feeQuote.serviceMonths } : {}),
+          ...(feeQuote.benefitCode ? { benefitCode: feeQuote.benefitCode } : {}),
+        }
+      : {}),
     ...(reason ? { reason } : {}),
   });
   const idempotencyFingerprint = parsedIdempotencyKey.value

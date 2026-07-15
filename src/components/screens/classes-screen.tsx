@@ -13,11 +13,13 @@ import type {
   SaveStatus,
 } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
+import { FinalMainScheduleReference } from "@/components/domain/final-main-schedule-reference";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { formatCompactTimeRange, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import { isFinalMainBranch } from "@/lib/final-main-policy";
 import { attendanceStatusLabels, memberStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
@@ -237,6 +239,11 @@ export function ClassesScreen() {
   );
   const isCoachRole = context.user.role === "coach";
   const selectedCreateBranchId = newClassBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
+  const activePolicyBranch = context.selectedBranchId
+    ? context.db.branches.find((branch) => branch.id === context.selectedBranchId) ?? null
+    : context.user.branchIds.length === 1
+      ? context.db.branches.find((branch) => branch.id === context.user.branchIds[0]) ?? null
+      : null;
   const branchCoaches = useMemo(
     () =>
       context.db.users.filter(
@@ -549,6 +556,10 @@ export function ClassesScreen() {
 
       {context.user.role === "guardian" ? (
         <ChildSwitcher items={childSwitcherItems} selectedChildId={selectedChildId} onSelect={setSelectedChildId} />
+      ) : null}
+
+      {activePolicyBranch && isFinalMainBranch(activePolicyBranch) ? (
+        <FinalMainScheduleReference branchName={activePolicyBranch.name} />
       ) : null}
 
       {canManageClasses ? (

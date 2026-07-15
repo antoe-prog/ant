@@ -222,6 +222,11 @@ export type Payment = {
   status: PaymentStatus;
   amount: number;
   discountAmount?: number;
+  feeProductId?: string;
+  policyVersion?: string;
+  registeredMonths?: number;
+  serviceMonths?: number;
+  benefitCode?: "public-service-one-plus-one";
   dueDate: string;
   expiresAt: string;
   refundedAmount?: number;

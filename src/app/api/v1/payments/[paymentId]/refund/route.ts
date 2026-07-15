@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type { AuditLog, Payment } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
+import { canRefundPaymentAmount, getPaymentRemainingRefundableAmount } from "@/lib/payment-amounts";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { isPositiveSafeIntegerPaymentAmount } from "@/server/payment-mutation-policy";
@@ -19,7 +20,7 @@ type RefundBody = {
 function createRefundedPayment(payment: Payment, amount: number, reason: string, actorUserId: string, changedAt: string): Payment {
   const previousRefunded = payment.refundedAmount ?? 0;
   const refundedAmount = previousRefunded + amount;
-  const remainingAfterRefund = Math.max(payment.amount - refundedAmount, 0);
+  const remainingAfterRefund = getPaymentRemainingRefundableAmount({ ...payment, refundedAmount });
   const status = remainingAfterRefund === 0 ? "refunded" : "partially_refunded";
 
   return appendPaymentStatusHistory({
@@ -136,9 +137,7 @@ export async function POST(
         }
 
         const refundAmount = validatedRefundAmount;
-        const remainingRefundable = payment.amount - (payment.refundedAmount ?? 0);
-
-        if (refundAmount > remainingRefundable) {
+        if (!canRefundPaymentAmount(payment, refundAmount)) {
           return jsonError(422, "BUSINESS_RULE_FAILED", "환불 금액이 남은 결제 금액을 초과합니다.");
         }
 

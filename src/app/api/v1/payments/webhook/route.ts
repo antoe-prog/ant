@@ -2,8 +2,12 @@ import { NextRequest } from "next/server";
 import type { AuditLog, OnlinePaymentRequest, Payment, PaymentStatus } from "@/lib/domain";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import {
+  canRefundPaymentAmount,
+  getPaymentNetAmount,
+  getPaymentRemainingRefundableAmount,
+} from "@/lib/payment-amounts";
+import {
   createPaymentReceipt,
-  getOnlinePaymentAmount,
   getWebhookSecret,
   type PaymentWebhookBody,
   type PaymentWebhookEvent,
@@ -112,12 +116,12 @@ function createWebhookUpdatedPayment(payment: Payment, body: PaymentWebhookBody,
   }
 
   const previousRefunded = payment.refundedAmount ?? 0;
-  const remainingRefundable = Math.max(payment.amount - previousRefunded, 0);
+  const remainingRefundable = getPaymentRemainingRefundableAmount(payment);
   const requestedRefund = typeof body.amount === "number" && Number.isFinite(body.amount)
     ? Math.round(body.amount)
     : remainingRefundable;
   const nextRefundedAmount = previousRefunded + Math.min(Math.max(requestedRefund, 0), remainingRefundable);
-  const nextStatus: PaymentStatus = nextRefundedAmount >= payment.amount ? "refunded" : "partially_refunded";
+  const nextStatus: PaymentStatus = nextRefundedAmount >= getPaymentNetAmount(payment) ? "refunded" : "partially_refunded";
   const reason = "결제 환불 상태가 반영되었습니다.";
 
   return appendPaymentStatusHistory(
@@ -219,8 +223,16 @@ export async function POST(request: NextRequest) {
         return jsonError(400, "VALIDATION_ERROR", "후속 결제 연동 이벤트에는 유효한 발생 시각이 필요합니다.");
       }
 
-      if (event === "refunded" && getOnlinePaymentAmount(payment) <= 0 && (payment.refundedAmount ?? 0) >= payment.amount) {
-        return jsonError(422, "BUSINESS_RULE_FAILED", "이미 전액 환불된 결제입니다.");
+      if (event === "refunded") {
+        const remainingRefundable = getPaymentRemainingRefundableAmount(payment);
+
+        if (remainingRefundable <= 0) {
+          return jsonError(422, "BUSINESS_RULE_FAILED", "이미 전액 환불된 결제입니다.");
+        }
+
+        if (webhookBody.amount !== undefined && !canRefundPaymentAmount(payment, webhookBody.amount)) {
+          return jsonError(422, "BUSINESS_RULE_FAILED", "환불 금액이 남은 결제 금액을 초과합니다.");
+        }
       }
 
       const transition = validatePaymentWebhookTransition(payment, event, occurredAt);

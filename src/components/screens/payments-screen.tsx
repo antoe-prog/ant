@@ -12,7 +12,14 @@ import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { ApiClientError, apiClient } from "@/lib/api-client";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { ManualPaymentManagement } from "@/components/domain/manual-payment-management";
+import { FinalCommonFeeReference } from "@/components/domain/final-common-fee-reference";
 import { formatCurrency, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import {
+  finalCommonFeeProducts,
+  finalCommonPublicServiceBenefit,
+  getFinalCommonFeeProduct,
+  quoteFinalCommonFeeProduct,
+} from "@/lib/final-common-fee-policy";
 import {
   canManageManualPayment,
   getManualPaymentDateRangeError,
@@ -24,12 +31,21 @@ import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-mem
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentCheckoutAmount } from "@/lib/payment-checkout-access";
 import { createPaymentCreateIdempotencyKey } from "@/lib/payment-create-idempotency";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
+import { getPaymentRemainingRefundableAmount } from "@/lib/payment-amounts";
 import { memberStatusLabels, paymentStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
 const paymentStatusOptions: PaymentStatus[] = [...manualPaymentCreatableStatuses];
+const feeProductCategoryLabels = {
+  regular_membership: "정규 회원권",
+  lifetime_membership: "평생 회원권",
+  monthly_program: "전문 프로그램",
+  day_pass: "일일권",
+  uniform: "도복",
+} as const;
+const feeProductCategories = Object.keys(feeProductCategoryLabels) as Array<keyof typeof feeProductCategoryLabels>;
 const paymentFilterOptions: Array<{ label: string; value: PaymentStatus | "all" | "risk" }> = [
   { label: "전체", value: "all" },
   { label: "미납/만료 예정", value: "risk" },
@@ -217,6 +233,8 @@ export function PaymentsScreen() {
     }
   }, [searchParams]);
   const [newPaymentPlanName, setNewPaymentPlanName] = useState("월 회원권");
+  const [newPaymentFeeProductId, setNewPaymentFeeProductId] = useState("");
+  const [newPaymentPublicServiceBenefit, setNewPaymentPublicServiceBenefit] = useState(false);
   const [newPaymentStatus, setNewPaymentStatus] = useState<PaymentStatus>("paid");
   const [newPaymentAmount, setNewPaymentAmount] = useState("180000");
   const [newPaymentDiscountAmount, setNewPaymentDiscountAmount] = useState("0");
@@ -373,6 +391,40 @@ export function PaymentsScreen() {
     setPaymentCreateOpen((open) => !open);
   }
 
+  function applyCommonFeeQuote(productId: string, startDate: string, usePublicServiceBenefit: boolean) {
+    const product = getFinalCommonFeeProduct(productId);
+
+    if (!product) {
+      setNewPaymentFeeProductId("");
+      setNewPaymentPublicServiceBenefit(false);
+      return;
+    }
+
+    try {
+      const benefitEnabled = usePublicServiceBenefit && product.registeredMonths !== null;
+      const quote = quoteFinalCommonFeeProduct({
+        productId,
+        startDate,
+        ...(benefitEnabled ? { benefitCode: finalCommonPublicServiceBenefit.id } : {}),
+      });
+
+      if (!quote.expiresAt) {
+        throw new RangeError("직접 등록할 수 없는 상품입니다.");
+      }
+
+      setNewPaymentFeeProductId(productId);
+      setNewPaymentPublicServiceBenefit(benefitEnabled);
+      setNewPaymentPlanName(quote.planName);
+      setNewPaymentAmount(String(quote.amount));
+      setNewPaymentExpiresAt(quote.expiresAt);
+      setPaymentCreateFeedback(null);
+    } catch {
+      setNewPaymentFeeProductId("");
+      setNewPaymentPublicServiceBenefit(false);
+      setPaymentCreateFeedback({ message: "공통 상품의 등록 기간을 계산하지 못했습니다.", tone: "error" });
+    }
+  }
+
   async function handleCreatePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -429,6 +481,10 @@ export function PaymentsScreen() {
         discountAmount,
         dueDate: newPaymentDueDate,
         expiresAt: newPaymentExpiresAt,
+        ...(newPaymentFeeProductId ? { feeProductId: newPaymentFeeProductId } : {}),
+        ...(newPaymentFeeProductId && newPaymentPublicServiceBenefit
+          ? { benefitCode: finalCommonPublicServiceBenefit.id }
+          : {}),
         ...(requiresManualPaymentCreateReason(newPaymentStatus) ? { reason } : {}),
       },
       paymentCreateIdempotencyKeyRef.current,
@@ -441,6 +497,8 @@ export function PaymentsScreen() {
       setNewPaymentMemberId("");
       setPaymentMemberSearch("");
       setNewPaymentPlanName("월 회원권");
+      setNewPaymentFeeProductId("");
+      setNewPaymentPublicServiceBenefit(false);
       setNewPaymentStatus("paid");
       setNewPaymentAmount("180000");
       setNewPaymentDiscountAmount("0");
@@ -469,11 +527,11 @@ export function PaymentsScreen() {
   }
 
   function getRemainingRefundable(payment: Payment) {
-    return Math.max(payment.amount - (payment.refundedAmount ?? 0), 0);
+    return getPaymentRemainingRefundableAmount(payment);
   }
 
   function getOnlinePaymentAmount(payment: Payment) {
-    return Math.max(payment.amount - (payment.discountAmount ?? 0) - (payment.refundedAmount ?? 0), 0);
+    return getPaymentRemainingRefundableAmount(payment);
   }
 
   function getPaymentAdjustmentDraft(payment: Payment) {
@@ -847,7 +905,7 @@ export function PaymentsScreen() {
       >
         {showPaymentOperationsMeta ? (
           <div className="grid gap-3 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_auto] md:items-end">
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">{paymentFilterLabel}</span>
               <select
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -947,6 +1005,8 @@ export function PaymentsScreen() {
         )}
       </section>
 
+      {canManagePayments && !showPaymentSearchEmptyState ? <FinalCommonFeeReference /> : null}
+
       {canManagePayments && !showPaymentSearchEmptyState ? (
         <form
           className="mb-3 rounded-lg border border-zinc-200 bg-white p-2.5"
@@ -977,11 +1037,11 @@ export function PaymentsScreen() {
           </div>
           {paymentCreateOpen ? (
           <div
-            className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[0.9fr_1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_auto]"
+            className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-12"
             data-testid="payment-create-fields"
           >
             {context.db.branches.length > 1 ? (
-              <label>
+              <label className="xl:col-span-2">
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
                 <select
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1000,7 +1060,7 @@ export function PaymentsScreen() {
                 </select>
               </label>
             ) : null}
-            <div className="grid gap-2 md:col-span-2 xl:col-span-2" data-testid="payment-create-member-search">
+            <div className="grid gap-2 md:col-span-2 xl:col-span-4" data-testid="payment-create-member-search">
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 검색</span>
                 <input
@@ -1058,6 +1118,8 @@ export function PaymentsScreen() {
                               .filter((payment) => payment.memberId === member.id)
                               .sort((left, right) => right.dueDate.localeCompare(left.dueDate))[0];
                             if (lastPayment) {
+                              setNewPaymentFeeProductId("");
+                              setNewPaymentPublicServiceBenefit(false);
                               setNewPaymentPlanName(lastPayment.planName);
                               setNewPaymentAmount(String(lastPayment.amount));
                             }
@@ -1074,17 +1136,55 @@ export function PaymentsScreen() {
                 </div>
               ) : null}
             </div>
-            <label>
+            <label className="md:col-span-2 xl:col-span-4">
+              <span className="mb-1 block text-xs font-semibold text-zinc-500">공통 회비 상품</span>
+              <select
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                data-testid="payment-create-fee-product-select"
+                value={newPaymentFeeProductId}
+                onChange={(event) => applyCommonFeeQuote(event.target.value, newPaymentDueDate, false)}
+              >
+                <option value="">직접 입력</option>
+                {feeProductCategories.map((category) => (
+                  <optgroup key={category} label={feeProductCategoryLabels[category]}>
+                    {finalCommonFeeProducts
+                      .filter((product) => product.category === category)
+                      .map((product) => (
+                        <option disabled={!product.directlyQuoteable} key={product.id} value={product.id}>
+                          {product.label} · {formatCurrency(product.amount)}{product.directlyQuoteable ? "" : " · 별도 확인"}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {getFinalCommonFeeProduct(newPaymentFeeProductId)?.registeredMonths ? (
+              <label className="flex min-h-11 items-center gap-3 self-end rounded-md border border-zinc-200 bg-zinc-50 px-3 md:col-span-2 xl:col-span-2">
+                <input
+                  checked={newPaymentPublicServiceBenefit}
+                  className="h-5 w-5 accent-teal-700"
+                  data-testid="payment-create-public-service-benefit"
+                  type="checkbox"
+                  onChange={(event) => applyCommonFeeQuote(newPaymentFeeProductId, newPaymentDueDate, event.target.checked)}
+                />
+                <span className="text-sm font-semibold text-zinc-800">경찰·군인·소방 1+1 기간 적용</span>
+              </label>
+            ) : null}
+            <label className="xl:col-span-4">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">회원권명</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                 data-testid="payment-create-plan-input"
                 required
                 value={newPaymentPlanName}
-                onChange={(event) => setNewPaymentPlanName(event.target.value)}
+                onChange={(event) => {
+                  setNewPaymentPlanName(event.target.value);
+                  setNewPaymentFeeProductId("");
+                  setNewPaymentPublicServiceBenefit(false);
+                }}
               />
             </label>
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">상태</span>
               <select
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1107,7 +1207,7 @@ export function PaymentsScreen() {
               </select>
             </label>
             {requiresManualPaymentCreateReason(newPaymentStatus) ? (
-              <label className="md:col-span-2 xl:col-span-2">
+              <label className="md:col-span-2 xl:col-span-4">
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">취소/환불 사유</span>
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
@@ -1119,7 +1219,7 @@ export function PaymentsScreen() {
                 />
               </label>
             ) : null}
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">금액</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1129,10 +1229,14 @@ export function PaymentsScreen() {
                 step={100}
                 type="number"
                 value={newPaymentAmount}
-                onChange={(event) => setNewPaymentAmount(event.target.value)}
+                onChange={(event) => {
+                  setNewPaymentAmount(event.target.value);
+                  setNewPaymentFeeProductId("");
+                  setNewPaymentPublicServiceBenefit(false);
+                }}
               />
             </label>
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">할인</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1144,7 +1248,7 @@ export function PaymentsScreen() {
                 onChange={(event) => setNewPaymentDiscountAmount(event.target.value)}
               />
             </label>
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">납부일</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1153,10 +1257,15 @@ export function PaymentsScreen() {
                 required
                 type="date"
                 value={newPaymentDueDate}
-                onChange={(event) => setNewPaymentDueDate(event.target.value)}
+                onChange={(event) => {
+                  setNewPaymentDueDate(event.target.value);
+                  if (newPaymentFeeProductId) {
+                    applyCommonFeeQuote(newPaymentFeeProductId, event.target.value, newPaymentPublicServiceBenefit);
+                  }
+                }}
               />
             </label>
-            <label>
+            <label className="xl:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">만료일</span>
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
@@ -1165,11 +1274,15 @@ export function PaymentsScreen() {
                 required
                 type="date"
                 value={newPaymentExpiresAt}
-                onChange={(event) => setNewPaymentExpiresAt(event.target.value)}
+                onChange={(event) => {
+                  setNewPaymentExpiresAt(event.target.value);
+                  setNewPaymentFeeProductId("");
+                  setNewPaymentPublicServiceBenefit(false);
+                }}
               />
             </label>
             <button
-              className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 xl:col-span-2"
               data-testid="payment-create-submit"
               disabled={
                 paymentCreatePending ||
@@ -1569,6 +1682,9 @@ export function PaymentsScreen() {
                           만료일 {formatDate(payment.expiresAt)}
                           {(payment.discountAmount ?? 0) > 0 ? ` · 할인 ${formatCurrency(payment.discountAmount ?? 0)}` : ""}
                           {(payment.refundedAmount ?? 0) > 0 ? ` · 환불 ${formatCurrency(payment.refundedAmount ?? 0)}` : ""}
+                          {payment.benefitCode === finalCommonPublicServiceBenefit.id && payment.registeredMonths && payment.serviceMonths
+                            ? ` · 1+1 ${payment.registeredMonths}개월 등록 → ${payment.serviceMonths}개월 이용`
+                            : ""}
                           {payment.refundReason ? ` · 사유 ${payment.refundReason}` : ""}
                           {latestStatusChange
                             ? ` · 최근 변경 ${formatDateTime(latestStatusChange.changedAt)} · ${latestStatusChange.reason}`
@@ -1599,6 +1715,7 @@ export function PaymentsScreen() {
                           <p className="truncate text-sm font-semibold leading-5 text-zinc-950">{payment.member.name}</p>
                           <p className="mt-0.5 truncate text-xs leading-4 text-zinc-600" data-testid="member-payment-plan-line">
                             {familyPaymentPlanLine} · {payment.branch.name}
+                            {payment.benefitCode === finalCommonPublicServiceBenefit.id ? " · 1+1 기간 혜택" : ""}
                             {familyPaymentStatusNotes.length > 0 ? ` · ${familyPaymentStatusNotes.join(" · ")}` : ""}
                           </p>
                         </div>

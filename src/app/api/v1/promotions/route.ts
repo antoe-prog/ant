@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, BeltPromotion } from "@/lib/domain";
 import { judoBelts } from "@/lib/domain";
+import { canCoachManagePromotionMember, isExactNextCompatiblePromotionBelt } from "@/lib/final-common-promotion-policy";
 import { formatDateKey } from "@/lib/format";
 import { isSchedulablePromotionExamDate } from "@/lib/promotions";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
@@ -64,6 +65,18 @@ export async function POST(request: NextRequest) {
 
   if (selectedScope.response) {
     return selectedScope.response;
+  }
+
+  if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
+    return jsonError(403, "FORBIDDEN", "선택한 지점의 회원만 승급 심사를 등록할 수 있습니다.");
+  }
+
+  if (user.role === "coach" && !canCoachManagePromotionMember(user, db, member)) {
+    return jsonError(403, "FORBIDDEN", "담당 수업 또는 담당 회원의 승급 심사만 등록할 수 있습니다.");
+  }
+
+  if (!isExactNextCompatiblePromotionBelt(member.belt, toBelt)) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "현재 띠의 정확한 다음 단계만 승급 심사로 등록할 수 있습니다.");
   }
 
   const hasOpenExam = (db.promotions ?? []).some(

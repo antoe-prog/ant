@@ -1,4 +1,5 @@
 import type { MockDatabase } from "@/lib/domain";
+import { getPaymentRemainingRefundableAmount } from "./payment-amounts.ts";
 
 export type OwnerTrendRow = {
   attendanceRatePercent: number;
@@ -67,7 +68,7 @@ function createEmptyTrendRow(key: string): OwnerTrendRow {
 }
 
 function paymentTrendDate(payment: MockDatabase["payments"][number]) {
-  if (payment.status === "paid") {
+  if (payment.status === "paid" || payment.status === "partially_refunded") {
     const paidHistory = [...(payment.statusHistory ?? [])]
       .filter((entry) => entry.status === "paid")
       .sort((left, right) => right.changedAt.localeCompare(left.changedAt))[0];
@@ -147,8 +148,8 @@ export function buildOwnerTrendRows(db: MockDatabase, branchIds: string[], perio
       continue;
     }
 
-    if (payment.status === "paid") {
-      row.paidRevenue += payment.amount;
+    if (payment.status === "paid" || payment.status === "partially_refunded") {
+      row.paidRevenue += getPaymentRemainingRefundableAmount(payment);
     }
 
     if (payment.status === "overdue" || payment.status === "expiringSoon") {

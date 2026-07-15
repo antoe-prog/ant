@@ -17,14 +17,19 @@ function getPaymentSnapshot(payment: Payment) {
     amount: payment.amount,
     branchId: payment.branchId,
     discountAmount: payment.discountAmount ?? 0,
+    benefitCode: payment.benefitCode,
     dueDate: payment.dueDate,
     expiresAt: payment.expiresAt,
+    feeProductId: payment.feeProductId,
     memberId: payment.memberId,
     planName: payment.planName,
+    policyVersion: payment.policyVersion,
+    registeredMonths: payment.registeredMonths,
     refundedAmount: payment.refundedAmount ?? 0,
     refundedAt: payment.refundedAt,
     refundReason: payment.refundReason,
     status: payment.status,
+    serviceMonths: payment.serviceMonths,
     statusHistory: payment.statusHistory,
   };
 }
@@ -107,6 +112,11 @@ export async function PATCH(
     const { db, payment, selectedBranchId, user } = latestContext;
     const now = new Date().toISOString();
     const statusChanged = payment.status !== value.status;
+    const policyTermsChanged =
+      payment.amount !== value.amount ||
+      payment.dueDate !== value.dueDate ||
+      payment.expiresAt !== value.expiresAt ||
+      payment.planName !== value.planName;
     const updatedPaymentBase: Payment = {
       ...payment,
       amount: value.amount,
@@ -115,6 +125,15 @@ export async function PATCH(
       expiresAt: value.expiresAt,
       planName: value.planName,
       status: value.status,
+      ...(policyTermsChanged
+        ? {
+            benefitCode: undefined,
+            feeProductId: undefined,
+            policyVersion: undefined,
+            registeredMonths: undefined,
+            serviceMonths: undefined,
+          }
+        : {}),
       ...(statusChanged && value.status === "cancelled"
         ? { refundedAt: now, refundReason: value.reason }
         : statusChanged && payment.status === "cancelled"

@@ -1,4 +1,5 @@
 import type { AppUser, Member, Payment } from "@/lib/domain";
+import { getPaymentRemainingRefundableAmount } from "./payment-amounts.ts";
 
 type PaymentWithMember = Payment & {
   member?: Member;
@@ -28,7 +29,7 @@ export const familyPaymentAgeGroupLabels: Record<Member["ageGroup"], string> = {
 const planNameAgePrefixes = /^(성인|유소년|청소년)\s+/;
 
 export function getPaymentCheckoutAmount(payment: Payment) {
-  return Math.max(payment.amount - (payment.discountAmount ?? 0) - (payment.refundedAmount ?? 0), 0);
+  return getPaymentRemainingRefundableAmount(payment);
 }
 
 export function getFamilyPaymentPlanLine(planName: string, ageGroup: Member["ageGroup"]) {

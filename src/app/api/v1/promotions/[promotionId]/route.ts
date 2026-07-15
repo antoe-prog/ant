@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, BeltPromotionResult } from "@/lib/domain";
+import { canCoachManagePromotionMember } from "@/lib/final-common-promotion-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -46,6 +47,20 @@ export async function PATCH(
     return selectedScope.response;
   }
 
+  if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== promotion.branchId) {
+    return jsonError(403, "FORBIDDEN", "선택한 지점의 승급 심사만 처리할 수 있습니다.");
+  }
+
+  const member = db.members.find((candidate) => candidate.id === promotion.memberId);
+
+  if (!member || member.branchId !== promotion.branchId) {
+    return jsonError(409, "CONFLICT", "심사 회원의 현재 소속 정보를 확인할 수 없습니다.");
+  }
+
+  if (user.role === "coach" && !canCoachManagePromotionMember(user, db, member)) {
+    return jsonError(403, "FORBIDDEN", "담당 수업 또는 담당 회원의 승급 심사만 처리할 수 있습니다.");
+  }
+
   if (promotion.result !== "scheduled") {
     return jsonError(409, "CONFLICT", "이미 결과가 기록된 심사입니다.");
   }
@@ -59,6 +74,10 @@ export async function PATCH(
 
   if (body?.score !== undefined && (typeof body.score !== "number" || body.score < 0 || body.score > 100)) {
     return jsonError(400, "VALIDATION_ERROR", "심사 점수는 0~100 사이여야 합니다.");
+  }
+
+  if (result === "passed" && member.belt !== promotion.fromBelt) {
+    return jsonError(409, "CONFLICT", "심사 등록 후 회원의 띠가 변경되어 승급을 확정할 수 없습니다.");
   }
 
   const note = body?.note?.trim() || undefined;

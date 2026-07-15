@@ -8,6 +8,11 @@ export type PaymentCreateSnapshot = {
   status: PaymentStatus;
   amount: number;
   discountAmount: number;
+  feeProductId?: string;
+  policyVersion?: string;
+  registeredMonths?: number;
+  serviceMonths?: number;
+  benefitCode?: Payment["benefitCode"];
   dueDate: string;
   expiresAt: string;
   reason?: string;
@@ -52,6 +57,11 @@ export function createPaymentCreateSnapshot(input: PaymentCreateSnapshot): Payme
     status: input.status,
     amount: Math.round(input.amount),
     discountAmount: Math.round(input.discountAmount),
+    ...(input.feeProductId ? { feeProductId: input.feeProductId } : {}),
+    ...(input.policyVersion ? { policyVersion: input.policyVersion } : {}),
+    ...(input.registeredMonths ? { registeredMonths: input.registeredMonths } : {}),
+    ...(input.serviceMonths ? { serviceMonths: input.serviceMonths } : {}),
+    ...(input.benefitCode ? { benefitCode: input.benefitCode } : {}),
     dueDate: input.dueDate,
     expiresAt: input.expiresAt,
     ...(reason ? { reason } : {}),
@@ -68,6 +78,22 @@ export async function createPaymentCreateFingerprint(snapshot: PaymentCreateSnap
     snapshot.dueDate,
     snapshot.expiresAt,
   ];
+
+  if (
+    snapshot.feeProductId ||
+    snapshot.policyVersion ||
+    snapshot.registeredMonths ||
+    snapshot.serviceMonths ||
+    snapshot.benefitCode
+  ) {
+    canonicalPayloadValues.push(
+      snapshot.feeProductId ?? "",
+      snapshot.policyVersion ?? "",
+      snapshot.registeredMonths ?? 0,
+      snapshot.serviceMonths ?? 0,
+      snapshot.benefitCode ?? "",
+    );
+  }
 
   // 기존 일반 수기 등록 fingerprint는 유지하고, 사유가 필요한 신규 상태만 뒤에 추가한다.
   if (snapshot.reason) {
