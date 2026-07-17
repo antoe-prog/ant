@@ -95,11 +95,16 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const target = new URL(baseUrl);
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", target.hostname, "--port", target.port],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.CLASS_MANAGEMENT_TOUCH_TARGETS_SERVER_LOGS === "1") {
@@ -322,7 +327,10 @@ async function captureCoachAttendanceNote(context) {
   try {
     await gotoRole(page, "coach", "/app/classes");
     await page.waitForSelector('[data-testid^="coach-class-card-"]', { timeout: roleScreenTimeoutMs });
-    await page.locator('[data-testid^="coach-class-roster-toggle-"]').first().click();
+    const rosterToggle = page.locator('[data-testid^="coach-class-roster-toggle-"]').first();
+    if ((await rosterToggle.getAttribute("aria-expanded")) !== "true") {
+      await rosterToggle.click();
+    }
     await page.waitForSelector('[data-testid^="attendance-note-toggle-"]', { timeout: 15000 });
     await page.locator('[data-testid^="attendance-note-toggle-"]').first().click();
     await page.waitForSelector('[data-testid^="attendance-note-editor-"]', { timeout: 15000 });
@@ -358,6 +366,267 @@ async function captureCoachAttendanceNote(context) {
   }
 }
 
+async function captureCoachBulkAttendance(context) {
+  const page = await context.newPage();
+  const messages = collectConsoleMessages(page);
+  const confirmationScreenshotPath = join(outDir, "coach-classes-bulk-confirm-mobile.png");
+  const restoredScreenshotPath = join(outDir, "coach-classes-bulk-restored-mobile.png");
+
+  try {
+    await gotoRole(page, "coach", "/app/classes");
+    await page.waitForSelector('[data-testid^="attendance-bulk-request-"]', { timeout: roleScreenTimeoutMs });
+
+    const bulkRequest = page.locator('[data-testid^="attendance-bulk-request-"]:not([disabled])').first();
+    assert.equal(await bulkRequest.count(), 1, "coach bulk attendance check needs one actionable class");
+    const requestTestId = await bulkRequest.getAttribute("data-testid");
+    const sessionId = requestTestId?.replace("attendance-bulk-request-", "") ?? "";
+    assert(sessionId, "coach bulk attendance request must identify its class session");
+
+    const rosterToggle = page.getByTestId(`coach-class-roster-toggle-${sessionId}`);
+    if ((await rosterToggle.getAttribute("aria-expanded")) !== "true") {
+      await rosterToggle.click();
+    }
+
+    const initialStatuses = await page.evaluate((targetSessionId) => {
+      const panel = document.querySelector(`[data-testid="coach-class-roster-panel-${targetSessionId}"]`);
+      const presentButtons = Array.from(
+        panel?.querySelectorAll(`button[data-testid^="attendance-${targetSessionId}-"][data-testid$="-present"]`) ?? [],
+      );
+
+      return presentButtons.map((presentButton) => {
+        const presentTestId = presentButton.getAttribute("data-testid") ?? "";
+        const baseTestId = presentTestId.slice(0, -"-present".length);
+        const pressedButton = Array.from(panel?.querySelectorAll(`button[data-testid^="${baseTestId}-"]`) ?? [])
+          .find((button) => button.getAttribute("aria-pressed") === "true");
+
+        return {
+          presentTestId,
+          previousTestId: pressedButton?.getAttribute("data-testid") ?? null,
+        };
+      });
+    }, sessionId);
+    const changedStatuses = initialStatuses.filter((item) => item.previousTestId !== item.presentTestId);
+
+    assert(changedStatuses.length > 0, "coach bulk attendance check needs at least one non-present member");
+    assert((await readHeights(page, `[data-testid="${requestTestId}"]`))[0] >= 44, "bulk attendance request must stay 44px tall");
+
+    await bulkRequest.click();
+    await page.waitForSelector('[data-testid="attendance-bulk-confirm-dialog"]', { timeout: 15000 });
+
+    const confirmation = {
+      cancelHeight: (await readHeights(page, '[data-testid="attendance-bulk-confirm-cancel"]'))[0] ?? 0,
+      dialogCount: await page.locator('[data-testid="attendance-bulk-confirm-dialog"]').count(),
+      impactText: (await page.getByTestId("attendance-bulk-confirm-impact").innerText()).replace(/\s+/g, " ").trim(),
+      submitHeight: (await readHeights(page, '[data-testid="attendance-bulk-confirm-submit"]'))[0] ?? 0,
+      submitText: (await page.getByTestId("attendance-bulk-confirm-submit").innerText()).trim(),
+    };
+
+    assert.equal(confirmation.dialogCount, 1, "bulk attendance must require one confirmation dialog");
+    assert(confirmation.impactText.includes(`변경 인원 ${changedStatuses.length}명`), "bulk attendance confirmation must show the affected count");
+    assert(confirmation.submitText.includes(`${changedStatuses.length}명`), "bulk attendance confirmation action must repeat the affected count");
+    assert(confirmation.cancelHeight >= 44, `bulk attendance cancel must stay 44px tall; got ${confirmation.cancelHeight}px`);
+    assert(confirmation.submitHeight >= 44, `bulk attendance submit must stay 44px tall; got ${confirmation.submitHeight}px`);
+    await page.screenshot({ fullPage: false, path: confirmationScreenshotPath });
+
+    const batchResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().includes(`/api/v1/class-sessions/${sessionId}/attendance`),
+      { timeout: 15000 },
+    );
+    await page.getByTestId("attendance-bulk-confirm-submit").click();
+    const batchResponse = await batchResponsePromise;
+    const batchPayload = await batchResponse.json();
+    assert(batchResponse.ok(), `bulk attendance API must succeed; got ${batchResponse.status()} ${JSON.stringify(batchPayload)}`);
+    for (const item of changedStatuses) {
+      const memberId = item.presentTestId.slice(`attendance-${sessionId}-`.length, -"-present".length);
+      const persistedRecord = batchPayload?.data?.db?.attendance?.find(
+        (record) => record.sessionId === sessionId && record.memberId === memberId,
+      );
+      assert.equal(
+        persistedRecord?.status,
+        "present",
+        `bulk attendance response must persist ${memberId}; got ${JSON.stringify(persistedRecord)}`,
+      );
+    }
+    await page.waitForSelector('[data-testid="attendance-bulk-confirm-dialog"]', { state: "detached", timeout: 15000 });
+    await page.waitForSelector('[data-testid="attendance-bulk-undo-mobile"]', { timeout: 15000 });
+    await page.waitForFunction(() => !document.querySelector('[data-testid="attendance-bulk-undo-mobile"]')?.hasAttribute("disabled"), null, { timeout: 15000 });
+
+    const updatedClassCard = page.getByTestId(`coach-class-card-${sessionId}`);
+    if ((await updatedClassCard.getAttribute("data-coach-class-mobile-state")) === "hidden") {
+      const classListToggle = page.getByTestId("coach-class-list-toggle");
+      if ((await classListToggle.getAttribute("aria-expanded")) !== "true") {
+        await classListToggle.click();
+      }
+    }
+    const updatedRosterToggle = page.getByTestId(`coach-class-roster-toggle-${sessionId}`);
+    if ((await updatedRosterToggle.getAttribute("aria-expanded")) !== "true") {
+      await updatedRosterToggle.click();
+    }
+
+    for (const item of changedStatuses) {
+      try {
+        await page.waitForFunction(
+          (testId) => document.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-pressed") === "true",
+          item.presentTestId,
+          { timeout: 15000 },
+        );
+      } catch {
+        const diagnostic = await page.evaluate((testId) => {
+          const button = document.querySelector(`[data-testid="${testId}"]`);
+
+          return {
+            ariaPressed: button?.getAttribute("aria-pressed") ?? null,
+            operationError: document.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+            testId,
+            url: window.location.href,
+          };
+        }, item.presentTestId);
+        throw new Error(`bulk attendance UI did not refresh after a successful response: ${JSON.stringify(diagnostic)}`);
+      }
+      assert.equal(
+        await page.getByTestId(item.presentTestId).getAttribute("aria-pressed"),
+        "true",
+        `bulk attendance must mark ${item.presentTestId} present`,
+      );
+    }
+    assert.equal(await page.locator('[data-testid="attendance-undo-last-mobile"]').count(), 0, "bulk attendance must not expose the single-member undo action");
+
+    const bulkUndoHeight = (await readHeights(page, '[data-testid="attendance-bulk-undo-mobile"]'))[0] ?? 0;
+    assert(bulkUndoHeight >= 44, `bulk attendance undo must stay 44px tall; got ${bulkUndoHeight}px`);
+    await page.getByTestId("attendance-bulk-undo-mobile").click();
+    await page.waitForSelector('[data-testid="attendance-bulk-undo-mobile"]', { state: "detached", timeout: 15000 });
+
+    for (const item of changedStatuses) {
+      if (item.previousTestId) {
+        await page.waitForFunction(
+          (testId) => document.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-pressed") === "true",
+          item.previousTestId,
+          { timeout: 15000 },
+        );
+      } else {
+        await page.waitForFunction(
+          (testId) => document.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-pressed") !== "true",
+          item.presentTestId,
+          { timeout: 15000 },
+        );
+      }
+    }
+
+    const health = await collectPageHealth(page);
+    assert.equal(health.frameworkOverlayCount, 0, "coach bulk attendance flow must not show a framework overlay");
+    assert.equal(health.scrollWidth, health.clientWidth, "coach bulk attendance flow must not overflow horizontally");
+    assert.equal(messages.length, 0, `coach bulk attendance flow must not log console/page warnings: ${messages.join(" | ")}`);
+    await page.screenshot({ fullPage: false, path: restoredScreenshotPath });
+    assert(statSync(confirmationScreenshotPath).size > 10_000, "bulk attendance confirmation screenshot must be non-empty");
+    assert(statSync(restoredScreenshotPath).size > 10_000, "bulk attendance restored screenshot must be non-empty");
+
+    return {
+      bulkUndoHeight,
+      changedCount: changedStatuses.length,
+      confirmation,
+      health,
+      messages,
+      requestTestId,
+      screenshots: {
+        confirmation: confirmationScreenshotPath,
+        restored: restoredScreenshotPath,
+      },
+      url: page.url(),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+function mockBrowserTime(page, hour) {
+  const referenceTime = new Date();
+  referenceTime.setHours(hour, 0, 0, 0);
+
+  return page.addInitScript(({ now }) => {
+    const RealDate = Date;
+
+    class FixedDate extends RealDate {
+      constructor(...args) {
+        super(...(args.length === 0 ? [now] : args));
+      }
+
+      static now() {
+        return now;
+      }
+    }
+
+    window.Date = FixedDate;
+  }, { now: referenceTime.getTime() });
+}
+
+async function captureGuardianClassPeriods(context) {
+  const overviewPage = await context.newPage();
+  const missingPage = await context.newPage();
+  const overviewMessages = collectConsoleMessages(overviewPage);
+  const missingMessages = collectConsoleMessages(missingPage);
+  const overviewScreenshotPath = join(outDir, "guardian-classes-upcoming-past-mobile.png");
+  const missingScreenshotPath = join(outDir, "guardian-classes-missing-attendance-mobile.png");
+
+  try {
+    await mockBrowserTime(overviewPage, 12);
+    await gotoRole(overviewPage, "guardian", "/app/classes");
+    await overviewPage.waitForSelector('[data-testid="family-upcoming-classes-heading"]', { timeout: roleScreenTimeoutMs });
+    await overviewPage.waitForSelector('[data-testid="family-past-classes-heading"]', { timeout: roleScreenTimeoutMs });
+
+    const overview = await overviewPage.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('[data-testid^="family-class-card-"]'));
+
+      return {
+        firstCardPeriod: cards[0]?.getAttribute("data-family-class-period") ?? null,
+        health: {
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+        },
+        pastHeadingCount: document.querySelectorAll('[data-testid="family-past-classes-heading"]').length,
+        upcomingHeadingCount: document.querySelectorAll('[data-testid="family-upcoming-classes-heading"]').length,
+      };
+    });
+
+    assert.equal(overview.upcomingHeadingCount, 1, "guardian classes must render one upcoming section heading");
+    assert.equal(overview.pastHeadingCount, 1, "guardian classes must render one past section heading");
+    assert.equal(overview.firstCardPeriod, "upcoming", "guardian classes must put upcoming sessions before past sessions");
+    assert.equal(overview.health.scrollWidth, overview.health.clientWidth, "guardian class period overview must not overflow horizontally");
+    await overviewPage.screenshot({ fullPage: false, path: overviewScreenshotPath });
+
+    await mockBrowserTime(missingPage, 19);
+    await gotoRole(missingPage, "guardian", "/app/classes");
+    await missingPage.getByTestId("guardian-child-chip").filter({ hasText: "한유나" }).click();
+    await missingPage.waitForSelector('[data-testid^="family-attendance-status-"]', { timeout: roleScreenTimeoutMs });
+    const missingStatusText = (await missingPage.locator('[data-testid^="family-attendance-status-"]').first().innerText()).trim();
+    const selectedCardPeriod = await missingPage.locator('[data-testid^="family-class-card-"]').first().getAttribute("data-family-class-period");
+
+    assert.equal(selectedCardPeriod, "past", "ended guardian class must be identified as a past class");
+    assert.equal(missingStatusText, "미기록 · 확인 필요", "ended class without attendance must not be labeled scheduled");
+    assert.equal(await missingPage.locator('[data-testid="family-upcoming-classes-heading"]').count(), 0, "selected child without future classes must not show an empty upcoming section");
+    assert.equal(await missingPage.locator('[data-testid="family-past-classes-heading"]').count(), 1, "selected child past classes must keep one past section heading");
+    assert.equal(overviewMessages.length, 0, `guardian class period overview must not log console/page warnings: ${overviewMessages.join(" | ")}`);
+    assert.equal(missingMessages.length, 0, `guardian missing attendance flow must not log console/page warnings: ${missingMessages.join(" | ")}`);
+    await missingPage.screenshot({ fullPage: false, path: missingScreenshotPath });
+    assert(statSync(overviewScreenshotPath).size > 10_000, "guardian class period screenshot must be non-empty");
+    assert(statSync(missingScreenshotPath).size > 10_000, "guardian missing attendance screenshot must be non-empty");
+
+    return {
+      missingStatusText,
+      overview,
+      screenshots: {
+        missingAttendance: missingScreenshotPath,
+        upcomingPast: overviewScreenshotPath,
+      },
+      selectedCardPeriod,
+      urls: [overviewPage.url(), missingPage.url()],
+    };
+  } finally {
+    await Promise.all([overviewPage.close(), missingPage.close()]);
+  }
+}
+
 async function main() {
   mkdirSync(outDir, { recursive: true });
   const removedOutputFiles = cleanOutputDir();
@@ -378,18 +647,26 @@ async function main() {
     });
 
     try {
+      const beforeReset = await resetDevData("before");
+      const coachNote = await captureCoachAttendanceNote(context);
+      const coachBulk = await captureCoachBulkAttendance(context);
+      const familyReset = await resetDevData("before-family");
+      const family = await captureGuardianClassPeriods(context);
+      const owner = await captureOwnerClasses(context);
       const summary = {
         appServer: usingExistingAppServer ? "existing" : "managed-next-dev-webpack",
         baseUrl,
         browserExecutable: chromeExecutable,
         browserMode: "Browser runtime unavailable / Playwright with system Chrome",
-        devReset: await resetDevData("before"),
+        devReset: { before: beforeReset, beforeFamily: familyReset },
         flow:
-          "owner /app/classes create/edit controls + coach /app/classes attendance note controls keep 44px touch targets",
+          "coach bulk attendance confirmation/undo + guardian upcoming/past class states + class management controls keep 44px touch targets",
         removedOutputFiles,
         result: {
-          coach: await captureCoachAttendanceNote(context),
-          owner: await captureOwnerClasses(context),
+          coachBulk,
+          coachNote,
+          family,
+          owner,
         },
         viewport: "390x844",
       };

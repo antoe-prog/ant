@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Award, CalendarCheck, CheckCircle2, CircleSlash, Clock3, FileBadge, Plus, XCircle } from "lucide-react";
+import { Award, CalendarCheck, CheckCircle2, CircleSlash, Clock3, FileBadge, Plus, Search, XCircle } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { FinalPromotionPolicyReference } from "@/components/domain/final-promotion-policy-reference";
 import type { BeltPromotion, BeltPromotionResult } from "@/lib/domain";
@@ -10,7 +10,7 @@ import { beltPromotionResultLabels } from "@/lib/domain";
 import { getExactNextCompatiblePromotionBelt } from "@/lib/final-common-promotion-policy";
 import { formatDate, formatDateKey } from "@/lib/format";
 import { getPromotionEligibility, isSchedulablePromotionExamDate } from "@/lib/promotions";
-import { memberStatusLabels } from "@/lib/roles";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
@@ -76,6 +76,7 @@ export function PromotionsScreen() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [resultFilter, setResultFilter] = useState<BeltPromotionResult | "all">("all");
   const [memberId, setMemberId] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const [examDate, setExamDate] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
@@ -127,6 +128,18 @@ export function PromotionsScreen() {
   const selectableMembers = useMemo(
     () => db.members.filter((member) => member.status === "active" || member.status === "trial"),
     [db.members],
+  );
+  const normalizedMemberSearch = memberSearch.trim().toLocaleLowerCase("ko-KR");
+  const filteredSelectableMembers = useMemo(
+    () =>
+      normalizedMemberSearch
+        ? selectableMembers.filter((member) =>
+            [member.name, member.belt, member.level].some((value) =>
+              value.toLocaleLowerCase("ko-KR").includes(normalizedMemberSearch),
+            ),
+          )
+        : selectableMembers,
+    [normalizedMemberSearch, selectableMembers],
   );
   const selectedMember = memberId ? membersById.get(memberId) : undefined;
   const suggestedBelt = selectedMember ? getExactNextCompatiblePromotionBelt(selectedMember.belt) : null;
@@ -202,8 +215,7 @@ export function PromotionsScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
-            meta: `${member.belt} · ${member.level}`,
-            statusLabel: memberStatusLabels[member.status],
+            ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}
           onSelect={setSelectedChildId}
@@ -258,6 +270,25 @@ export function PromotionsScreen() {
           ) : null}
 
           <label>
+            <span className="text-sm font-semibold text-zinc-700">회원 검색</span>
+            <span className="relative mt-2 block">
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-500" aria-hidden />
+              <input
+                className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-teal-500"
+                data-testid="promotion-member-search"
+                placeholder="이름, 띠, 레벨 검색"
+                type="search"
+                value={memberSearch}
+                onChange={(event) => {
+                  setMemberSearch(event.target.value);
+                  setMemberId("");
+                  setError(null);
+                }}
+              />
+            </span>
+          </label>
+
+          <label>
             <span className="text-sm font-semibold text-zinc-700">회원</span>
             <select
               className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-teal-500"
@@ -268,8 +299,8 @@ export function PromotionsScreen() {
               }}
               required
             >
-              <option value="">회원 선택</option>
-              {selectableMembers.map((member) => {
+              <option value="">{filteredSelectableMembers.length > 0 ? "회원 선택" : "검색 결과 없음"}</option>
+              {filteredSelectableMembers.map((member) => {
                 const eligibility = eligibilityByMemberId.get(member.id);
 
                 return (
@@ -316,13 +347,17 @@ export function PromotionsScreen() {
           </label>
 
           <label>
-            <span className="text-sm font-semibold text-zinc-700">메모 (선택)</span>
+            <span className="text-sm font-semibold text-zinc-700">회원·학부모 공개 메모 (선택)</span>
             <input
               className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none placeholder:text-zinc-400 focus:border-teal-500"
-              placeholder="심사 항목, 준비 사항 등"
+              aria-describedby="promotion-public-note-help"
+              placeholder="가정에서도 확인할 준비 사항"
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />
+            <span className="mt-1 block text-xs leading-5 text-zinc-500" id="promotion-public-note-help">
+              입력한 내용은 해당 회원과 연결된 학부모의 승급 화면에 표시됩니다. 내부 평가는 상담 메모에 기록해 주세요.
+            </span>
           </label>
 
           <div className="flex gap-2">
@@ -397,7 +432,7 @@ export function PromotionsScreen() {
                     <p className="mt-1.5 text-xs text-zinc-500">
                       심사일 {formatDate(promotion.examDate)}
                       {evaluator ? ` · 심사자 ${evaluator.name}` : ""}
-                      {promotion.note ? ` · ${promotion.note}` : ""}
+                      {promotion.note ? ` · 공개 안내 ${promotion.note}` : ""}
                     </p>
                   </div>
                   <div className="shrink-0">{resultBadge(promotion.result)}</div>

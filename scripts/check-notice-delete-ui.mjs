@@ -619,6 +619,8 @@ async function verifyNoticesScreenDelete(browser) {
     await page.getByTestId("notice-create-title-input").fill(title);
     await page.locator('textarea[placeholder="공지 내용"]').fill("공지 삭제 UI 회귀 검증용 임시 공지입니다.");
     await page.getByTestId("notice-create-submit").click();
+    await page.getByTestId("notice-create-confirmation").waitFor({ state: "visible", timeout: 5000 });
+    await page.getByTestId("notice-create-submit").click();
 
     const createdCard = page.getByTestId("notice-delivery-compact-card").filter({ hasText: title }).first();
 
@@ -710,6 +712,12 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
 
           return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
         }).length,
+        noticeDeliveryBodyMaxHeight: Math.max(
+          0,
+          ...Array.from(document.querySelectorAll('[data-testid="notice-delivery-body"]')).map((body) =>
+            Math.round(body.getBoundingClientRect().height),
+          ),
+        ),
         scrollWidth: document.documentElement.scrollWidth,
         titleBottom: titleRect?.bottom ?? 0,
       };
@@ -726,8 +734,9 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
       layoutState.actionButtonWidths.every((width) => width <= 56),
       `admin mobile notices action buttons must stay compact; widths=${layoutState.actionButtonWidths.join(", ")}`,
     );
-    assert.equal(layoutState.noticeDeliveryBodyVisibleCount, 0, "admin mobile notices must hide operator body previews to keep cards compact");
-    assert(layoutState.cardHeight <= 132, `admin mobile notices compact card must stay at or below 132px; got ${layoutState.cardHeight}px`);
+    assert(layoutState.noticeDeliveryBodyVisibleCount > 0, "admin mobile notices must show a body preview before delivery metadata");
+    assert(layoutState.noticeDeliveryBodyMaxHeight <= 40, "admin mobile notice body previews must stay within two text lines");
+    assert(layoutState.cardHeight <= 188, `admin mobile notices card with preview must stay at or below 188px; got ${layoutState.cardHeight}px`);
     assert(layoutState.actionRight <= layoutState.cardRight + 1, "admin mobile notices action row must stay inside the card");
     assert.equal(layoutState.scrollWidth, layoutState.clientWidth, "admin mobile notices screen must not overflow horizontally");
     assert.equal(messages.length, 0, `admin mobile notices screen must not log console/page warnings: ${messages.join(" | ")}`);

@@ -1,17 +1,19 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, BellRing, CheckCheck, Pencil, Send, Trash2 } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import type { Member, Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
-import { ApiClientError, apiClient } from "@/lib/api-client";
+import { ApiClientError, apiClient, type NoticeCreatePayload } from "@/lib/api-client";
 import { userRoles } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { matchesNoticeMemberSearch, normalizeNoticeMemberSearchText } from "@/lib/notice-member-search";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
 import { getNoticeReadCount, isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
-import { memberStatusLabels, roleLabels } from "@/lib/roles";
+import { isNoticeRecipient } from "@/lib/mock-api";
+import { roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
@@ -22,13 +24,73 @@ import { Button, SectionHeader } from "@/components/ui/primitives";
 
 type NoticeFilter = "all" | "unread" | "important";
 
+type NoticeDraft = {
+  audience: NoticeAudience[];
+  body: string;
+  important: boolean;
+  title: string;
+};
+
 const familyNoticeBodyPreviewLength = 22;
+const defaultNoticeAudience: NoticeAudience[] = ["member", "guardian"];
+
+function createNoticeDraftKey(userId: string, branchId: string, targetType: NoticeTargetType, targetId: string) {
+  return ["final-judo-notice-draft:v2", userId, branchId || "no-branch", targetType, targetId || "unselected"]
+    .map(encodeURIComponent)
+    .join(":");
+}
+
+function parseNoticeDraft(raw: string | null): NoticeDraft | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<NoticeDraft>;
+    const audience = Array.isArray(parsed.audience)
+      ? [...new Set(parsed.audience)].filter(
+          (item): item is NoticeAudience => item === "all" || userRoles.includes(item as (typeof userRoles)[number]),
+        )
+      : [];
+
+    return {
+      audience: audience.length > 0 ? audience : defaultNoticeAudience,
+      body: typeof parsed.body === "string" ? parsed.body : "",
+      important: parsed.important === true,
+      title: typeof parsed.title === "string" ? parsed.title : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createNoticeRequestId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+
+  if (uuid) {
+    return `notice.${uuid}`;
+  }
+
+  return `notice.${Date.now().toString(36)}.${Math.random().toString(36).slice(2).padEnd(12, "0")}`;
+}
+
+function createNoticeRequestFingerprint(payload: Omit<NoticeCreatePayload, "clientRequestId">) {
+  return JSON.stringify({
+    audience: [...payload.audience].sort(),
+    body: payload.body,
+    important: payload.important === true,
+    targetClassIds: [...(payload.targetClassIds ?? [])].sort(),
+    targetMemberIds: [...(payload.targetMemberIds ?? [])].sort(),
+    title: payload.title,
+  });
+}
 
 function getInitialNoticeComposerState() {
   if (typeof window === "undefined") {
     return {
       memberSearch: "",
       open: false,
+      audience: defaultNoticeAudience,
       targetMemberId: "",
       targetType: "branch" as NoticeTargetType,
     };
@@ -39,6 +101,7 @@ function getInitialNoticeComposerState() {
   const normalizedTargetType: NoticeTargetType = targetType === "class" || targetType === "member" ? targetType : "branch";
 
   return {
+    audience: params.get("noticeAudience") === "guardian" ? (["guardian"] as NoticeAudience[]) : defaultNoticeAudience,
     memberSearch: params.get("noticeMemberSearch")?.trim() ?? "",
     open: params.get("noticeCompose") === "1",
     targetMemberId: params.get("noticeTargetMemberId")?.trim() ?? "",
@@ -114,7 +177,7 @@ export function NoticesScreen() {
   const [noticeTitle, setNoticeTitle] = useState("");
   const [noticeBody, setNoticeBody] = useState("");
   const [noticeImportant, setNoticeImportant] = useState(false);
-  const [noticeAudience, setNoticeAudience] = useState<NoticeAudience[]>(["member", "guardian"]);
+  const [noticeAudience, setNoticeAudience] = useState<NoticeAudience[]>(noticeComposerDefaults.audience);
   const [noticeFeedback, setNoticeFeedback] = useState<string | null>(null);
   const [readFeedback, setReadFeedback] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
@@ -126,6 +189,8 @@ export function NoticesScreen() {
   const [noticeTargetType, setNoticeTargetType] = useState<NoticeTargetType>(noticeComposerDefaults.targetType);
   const [noticeFilter, setNoticeFilter] = useState<NoticeFilter>("all");
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
+  const [pushConfirmationNoticeId, setPushConfirmationNoticeId] = useState<string | null>(null);
+  const [pushPendingNoticeId, setPushPendingNoticeId] = useState<string | null>(null);
   const [readNoticePendingId, setReadNoticePendingId] = useState<string | null>(null);
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
@@ -136,48 +201,21 @@ export function NoticesScreen() {
   const [savingNoticeEditId, setSavingNoticeEditId] = useState<string | null>(null);
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [noticeCreateOpen, setNoticeCreateOpen] = useState(noticeComposerDefaults.open);
-  const noticeDraftKey = `final-judo-notice-draft:${context.user.id}`;
-
-  // 작성 중이던 공지 제목·내용을 기기에 임시저장해 화면 이탈/새로고침에도 유실되지 않게 한다.
-  useEffect(() => {
-    if (typeof window === "undefined" || noticeTitle || noticeBody) {
-      return;
-    }
-
-    const raw = window.localStorage.getItem(noticeDraftKey);
-
-    if (!raw) {
-      return;
-    }
-
-    try {
-      const draft = JSON.parse(raw) as { title?: string; body?: string };
-
-      if (draft.title || draft.body) {
-        // 마운트 시 1회 임시저장 복원 — 의도적인 초기 상태 주입.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setNoticeTitle(draft.title ?? "");
-        setNoticeBody(draft.body ?? "");
-        setNoticeCreateOpen(true);
-      }
-    } catch {
-      window.localStorage.removeItem(noticeDraftKey);
-    }
-    // 마운트 시 1회 복원 — 이후 입력은 아래 저장 효과가 처리한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noticeDraftKey]);
+  const [noticeCreatePending, setNoticeCreatePending] = useState(false);
+  const [noticeConfirmationFingerprint, setNoticeConfirmationFingerprint] = useState<string | null>(null);
+  const loadedNoticeDraftKeyRef = useRef<string | null>(null);
+  const skipNoticeDraftSaveKeyRef = useRef<string | null>(null);
+  const noticeCreateAttemptRef = useRef<{ fingerprint: string; requestId: string } | null>(null);
+  const pushDispatchInFlightRef = useRef<string | null>(null);
+  const pushConfirmationCancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!pushConfirmationNoticeId) {
       return;
     }
 
-    if (noticeTitle.trim() || noticeBody.trim()) {
-      window.localStorage.setItem(noticeDraftKey, JSON.stringify({ title: noticeTitle, body: noticeBody }));
-    } else {
-      window.localStorage.removeItem(noticeDraftKey);
-    }
-  }, [noticeDraftKey, noticeTitle, noticeBody]);
+    queueMicrotask(() => pushConfirmationCancelRef.current?.focus());
+  }, [pushConfirmationNoticeId]);
 
   function clearNoticeFeedback() {
     setNoticeFeedback(null);
@@ -196,6 +234,7 @@ export function NoticesScreen() {
     const targetType = searchParams.get("noticeTarget");
     const targetMemberId = searchParams.get("noticeTargetMemberId")?.trim() ?? "";
     const memberSearch = searchParams.get("noticeMemberSearch")?.trim() ?? "";
+    const requestedAudience = searchParams.get("noticeAudience");
     let cancelled = false;
 
     queueMicrotask(() => {
@@ -215,6 +254,10 @@ export function NoticesScreen() {
 
       if (memberSearch) {
         setNoticeMemberSearch(memberSearch);
+      }
+
+      if (requestedAudience === "guardian") {
+        setNoticeAudience(["guardian"]);
       }
     });
 
@@ -241,6 +284,20 @@ export function NoticesScreen() {
   const noticeTargetClasses = context.db.classes.filter((session) => session.branchId === selectedNoticeBranchId);
   const noticeTargetMembers = context.db.members.filter((member) => member.branchId === selectedNoticeBranchId && member.status !== "withdrawn");
   const selectedNoticeMember = noticeTargetMembers.find((member) => member.id === noticeTargetMemberId) ?? null;
+  const selectedNoticeClassId = noticeTargetClasses.some((session) => session.id === noticeTargetClassId)
+    ? noticeTargetClassId
+    : noticeTargetClasses[0]?.id ?? "";
+  const noticeDraftTargetId = noticeTargetType === "class"
+    ? selectedNoticeClassId
+    : noticeTargetType === "member"
+      ? selectedNoticeMember?.id ?? ""
+      : "branch";
+  const noticeDraftKey = createNoticeDraftKey(
+    context.user.id,
+    selectedNoticeBranchId,
+    noticeTargetType,
+    noticeDraftTargetId,
+  );
   const noticeMemberSearchQuery = normalizeNoticeMemberSearchText(noticeMemberSearch);
   const noticeMemberSearchResults = noticeMemberSearchQuery
     ? noticeTargetMembers
@@ -260,6 +317,114 @@ export function NoticesScreen() {
     : [];
   const showNoticeMemberSearchResults =
     !selectedNoticeMember || noticeMemberSearch.trim() !== selectedNoticeMember.name;
+
+  // 범위를 알 수 없는 기존 단일 초안은 다른 회원에게 섞일 수 있어 새 범위 저장소로 이관하지 않는다.
+  useEffect(() => {
+    window.localStorage.removeItem(`final-judo-notice-draft:${context.user.id}`);
+  }, [context.user.id]);
+
+  // 작성 내용은 사용자·지점·대상 유형·대상 ID가 모두 같은 경우에만 복원한다.
+  useEffect(() => {
+    const raw = window.localStorage.getItem(noticeDraftKey);
+    const draft = parseNoticeDraft(raw);
+
+    if (raw && !draft) {
+      window.localStorage.removeItem(noticeDraftKey);
+    }
+
+    loadedNoticeDraftKeyRef.current = noticeDraftKey;
+    skipNoticeDraftSaveKeyRef.current = noticeDraftKey;
+    // 저장 범위 전환은 외부(localStorage/URL) 상태를 폼에 반영하는 의도적인 동기화다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNoticeTitle(draft?.title ?? "");
+    setNoticeBody(draft?.body ?? "");
+    setNoticeImportant(draft?.important ?? false);
+    setNoticeAudience(
+      draft?.audience ?? (searchParams.get("noticeAudience") === "guardian" ? ["guardian"] : defaultNoticeAudience),
+    );
+
+    if (draft?.title || draft?.body) {
+      setNoticeCreateOpen(true);
+    }
+  }, [noticeDraftKey, searchParams]);
+
+  function buildNoticeCreatePreview() {
+    const selectedClassId = noticeTargetClasses.some((session) => session.id === noticeTargetClassId)
+      ? noticeTargetClassId
+      : noticeTargetClasses[0]?.id ?? "";
+    const selectedMemberId = selectedNoticeMember?.id ?? "";
+
+    if (
+      !selectedNoticeBranchId ||
+      !noticeTitle.trim() ||
+      !noticeBody.trim() ||
+      noticeAudience.length === 0 ||
+      (noticeTargetType === "class" && !selectedClassId) ||
+      (noticeTargetType === "member" && !selectedMemberId)
+    ) {
+      return null;
+    }
+
+    const payload: Omit<NoticeCreatePayload, "clientRequestId"> = {
+      title: noticeTitle.trim(),
+      body: noticeBody.trim(),
+      important: noticeImportant,
+      audience: noticeAudience,
+      ...(noticeTargetType === "class" ? { targetClassIds: [selectedClassId] } : {}),
+      ...(noticeTargetType === "member" ? { targetMemberIds: [selectedMemberId] } : {}),
+    };
+    const previewNotice: Notice = {
+      id: "notice-preview",
+      branchId: selectedNoticeBranchId,
+      title: payload.title,
+      body: payload.body,
+      important: payload.important,
+      audience: payload.audience,
+      createdAt: new Date(0).toISOString(),
+      readByUserIds: [],
+      targetClassIds: payload.targetClassIds,
+      targetMemberIds: payload.targetMemberIds,
+    };
+    const branchName = context.db.branches.find((branch) => branch.id === selectedNoticeBranchId)?.name ?? "선택 지점";
+    const targetLabel = noticeTargetType === "class"
+      ? noticeTargetClasses.find((session) => session.id === selectedClassId)?.name ?? "선택 수업"
+      : noticeTargetType === "member"
+        ? selectedNoticeMember?.name ?? "선택 회원"
+        : "지점 전체";
+
+    return {
+      branchName,
+      fingerprint: createNoticeRequestFingerprint(payload),
+      payload,
+      recipientCount: context.db.users.filter((user) => isNoticeRecipient(user, context.db, previewNotice)).length,
+      targetLabel,
+    };
+  }
+
+  useEffect(() => {
+    if (loadedNoticeDraftKeyRef.current !== noticeDraftKey) {
+      return;
+    }
+
+    if (skipNoticeDraftSaveKeyRef.current === noticeDraftKey) {
+      skipNoticeDraftSaveKeyRef.current = null;
+      return;
+    }
+
+    if (noticeTitle.trim() || noticeBody.trim()) {
+      window.localStorage.setItem(
+        noticeDraftKey,
+        JSON.stringify({
+          audience: noticeAudience,
+          body: noticeBody,
+          important: noticeImportant,
+          title: noticeTitle,
+        } satisfies NoticeDraft),
+      );
+    } else {
+      window.localStorage.removeItem(noticeDraftKey);
+    }
+  }, [noticeAudience, noticeBody, noticeDraftKey, noticeImportant, noticeTitle]);
   const { data: notices, loading, error, reload } = useResource(
     () => apiClient.getNotices(context),
     [context.user.id, context.selectedBranchId, context.version],
@@ -329,44 +494,53 @@ export function NoticesScreen() {
 
   async function handleCreateNotice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (noticeCreatePending) {
+      return;
+    }
+
     clearNoticeFeedback();
 
-    const selectedClassId = noticeTargetClasses.some((session) => session.id === noticeTargetClassId)
-      ? noticeTargetClassId
-      : noticeTargetClasses[0]?.id ?? "";
-    const selectedMemberId = selectedNoticeMember?.id ?? "";
+    const preview = buildNoticeCreatePreview();
 
-    if (
-      !selectedNoticeBranchId ||
-      !noticeTitle.trim() ||
-      !noticeBody.trim() ||
-      noticeAudience.length === 0 ||
-      (noticeTargetType === "class" && !selectedClassId) ||
-      (noticeTargetType === "member" && !selectedMemberId)
-    ) {
+    if (!preview) {
       setNoticeFeedback("제목, 내용, 대상 정보를 확인해 주세요.");
       return;
     }
 
-    const result = await createNotice(selectedNoticeBranchId, {
-      title: noticeTitle.trim(),
-      body: noticeBody.trim(),
-      important: noticeImportant,
-      audience: noticeAudience,
-      ...(noticeTargetType === "class" ? { targetClassIds: [selectedClassId] } : {}),
-      ...(noticeTargetType === "member" ? { targetMemberIds: [selectedMemberId] } : {}),
-    });
+    const { fingerprint, payload } = preview;
+
+    if (noticeConfirmationFingerprint !== fingerprint) {
+      setNoticeConfirmationFingerprint(fingerprint);
+      setNoticeFeedback("발행 대상과 수신 인원을 확인한 뒤 한 번 더 눌러 발행해 주세요.");
+      return;
+    }
+
+    const requestId = noticeCreateAttemptRef.current?.fingerprint === fingerprint
+      ? noticeCreateAttemptRef.current.requestId
+      : createNoticeRequestId();
+
+    noticeCreateAttemptRef.current = { fingerprint, requestId };
+    setNoticeCreatePending(true);
+    setNoticeFeedback("공지를 발행하고 알림을 준비하는 중입니다.");
+
+    const result = await createNotice(selectedNoticeBranchId, { ...payload, clientRequestId: requestId });
+
+    setNoticeCreatePending(false);
 
     if (!result.ok) {
       setNoticeFeedback(result.message || "공지를 작성하지 못했습니다. 대상과 지점을 확인해 주세요.");
       return;
     }
 
+    noticeCreateAttemptRef.current = null;
+    setNoticeConfirmationFingerprint(null);
+    window.localStorage.removeItem(noticeDraftKey);
     setNoticeFeedback(result.message);
     setNoticeTitle("");
     setNoticeBody("");
     setNoticeImportant(false);
-    setNoticeAudience(["member", "guardian"]);
+    setNoticeAudience(defaultNoticeAudience);
     setNoticeTargetClassId("");
     setNoticeTargetMemberId("");
     setNoticeMemberSearch("");
@@ -374,7 +548,56 @@ export function NoticesScreen() {
     setNoticeCreateOpen(false);
   }
 
+  function openNoticePushConfirmation(notice: Notice) {
+    clearNoticeFeedback();
+    setPushConfirmationNoticeId(notice.id);
+  }
+
+  function closeNoticePushConfirmation() {
+    if (pushDispatchInFlightRef.current) {
+      return;
+    }
+
+    setPushConfirmationNoticeId(null);
+  }
+
+  function handlePushConfirmationKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeNoticePushConfirmation();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"),
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+
+    if (!first || !last) {
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   async function handleDispatchNoticePush(notice: Notice) {
+    if (pushDispatchInFlightRef.current) {
+      return;
+    }
+
+    pushDispatchInFlightRef.current = notice.id;
+    setPushPendingNoticeId(notice.id);
     clearNoticeFeedback();
 
     try {
@@ -382,6 +605,10 @@ export function NoticesScreen() {
       setPushFeedback(result.push.message);
     } catch (error) {
       setPushFeedback(error instanceof ApiClientError ? error.message : "공지 알림 발송 상태를 확인하지 못했습니다.");
+    } finally {
+      pushDispatchInFlightRef.current = null;
+      setPushPendingNoticeId(null);
+      setPushConfirmationNoticeId(null);
     }
   }
 
@@ -448,6 +675,18 @@ export function NoticesScreen() {
     context.user.role === "guardian" && selectedChildId
       ? notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChildId, context.db.classes))
       : notices;
+  const pushConfirmationNotice = pushConfirmationNoticeId
+    ? scopedNotices.find((notice) => notice.id === pushConfirmationNoticeId) ?? null
+    : null;
+  const pushConfirmationRecipientCount = pushConfirmationNotice
+    ? context.db.users.filter((user) => isNoticeRecipient(user, context.db, pushConfirmationNotice)).length
+    : 0;
+  const pushConfirmationBranchName = pushConfirmationNotice
+    ? context.db.branches.find((branch) => branch.id === pushConfirmationNotice.branchId)?.name ?? "선택 지점"
+    : "";
+  const pushConfirmationTargetLabel = pushConfirmationNotice
+    ? targetLabel(pushConfirmationNotice, classNameById, memberNameById)
+    : "";
   const sortedNotices = sortNoticesForDisplay(scopedNotices);
   const unreadNoticeCount = scopedNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
   const importantNoticeCount = scopedNotices.filter((notice) => notice.important).length;
@@ -540,8 +779,7 @@ export function NoticesScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
-            meta: `${member.belt} · ${member.level}`,
-            statusLabel: memberStatusLabels[member.status],
+            ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}
           onSelect={setSelectedChildId}
@@ -707,10 +945,15 @@ export function NoticesScreen() {
               {filteredNotices.map((notice) => {
                 const read = isNoticeReadByUser(notice, context.user.id);
                 const bodyExpanded = expandedNoticeIds.has(notice.id);
-                const bodyCanCollapse = !showNoticeDeliveryMeta && notice.body.replace(/\s+/g, " ").trim().length > familyNoticeBodyPreviewLength;
+                const normalizedBodyLength = notice.body.replace(/\s+/g, " ").trim().length;
+                const bodyCanCollapse = showNoticeDeliveryMeta
+                  ? normalizedBodyLength > 60
+                  : normalizedBodyLength > familyNoticeBodyPreviewLength;
                 const showCompactReadAction = !showNoticeDeliveryMeta && !read;
                 const deliveryMetaLabel = `${audienceLabel(notice.audience)} · ${targetLabel(notice, classNameById, memberNameById)} · ${formatDateTime(notice.createdAt)} · 읽음 ${getNoticeReadCount(notice)}명`;
-                const visibleBody = bodyCanCollapse && !bodyExpanded ? compactNoticeBody(notice.body) : notice.body;
+                const visibleBody = !showNoticeDeliveryMeta && bodyCanCollapse && !bodyExpanded
+                  ? compactNoticeBody(notice.body)
+                  : notice.body;
                 const readPending = readNoticePendingId === notice.id;
                 const noticeReadTone = read ? "bg-zinc-50/70" : "bg-white";
                 const noticeImportantBadgeClass = read
@@ -788,14 +1031,15 @@ export function NoticesScreen() {
                               {canPublishNotice ? (
                                 <button
                                   aria-label={`${notice.title} 알림 발송`}
-                                  className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
+                                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-teal-500"
                                   data-testid="notice-delivery-push-action"
-                                  title="알림"
+                                  disabled={pushPendingNoticeId !== null}
+                                  title="알림 발송 내용 확인"
                                   type="button"
-                                  onClick={() => void handleDispatchNoticePush(notice)}
+                                  onClick={() => openNoticePushConfirmation(notice)}
                                 >
                                   <BellRing className="h-4 w-4" aria-hidden />
-                                  <span className="sr-only">알림</span>
+                                  <span>알림 발송</span>
                                 </button>
                               ) : null}
                               {canEditCurrentNotice ? (
@@ -858,17 +1102,30 @@ export function NoticesScreen() {
                           </p>
                         ) : null}
                         {showNoticeDeliveryMeta ? (
-                          <p className="mt-1 line-clamp-1 text-xs font-medium leading-5 text-zinc-500" data-testid="notice-delivery-meta-line">
-                            {deliveryMetaLabel}
-                          </p>
-                        ) : null}
-                        {showNoticeDeliveryMeta ? (
-                          <p
-                            className="hidden break-words text-[13px] leading-5 text-zinc-600 sm:mt-0.5 sm:line-clamp-1 sm:block"
-                            data-testid="notice-delivery-body"
-                          >
-                            {visibleBody}
-                          </p>
+                          bodyCanCollapse ? (
+                            <button
+                              aria-expanded={bodyExpanded}
+                              aria-label={`${notice.title} 내용 ${bodyExpanded ? "접기" : "펼치기"}`}
+                              className="mt-1 flex min-h-11 w-full items-start rounded-md py-1 text-left text-[13px] leading-5 text-zinc-600 outline-none transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-teal-500"
+                              data-testid="notice-delivery-body-toggle"
+                              type="button"
+                              onClick={() => toggleNoticeBody(notice.id)}
+                            >
+                              <span
+                                className={`${bodyExpanded ? "" : "line-clamp-2"} block break-words`}
+                                data-testid="notice-delivery-body"
+                              >
+                                {visibleBody}
+                              </span>
+                            </button>
+                          ) : (
+                            <p
+                              className="mt-1 line-clamp-2 break-words text-[13px] leading-5 text-zinc-600"
+                              data-testid="notice-delivery-body"
+                            >
+                              {visibleBody}
+                            </p>
+                          )
                         ) : bodyCanCollapse ? (
                           <button
                             className={`mt-0.5 flex min-h-11 w-full items-center rounded-md py-1 text-left text-[13px] leading-5 outline-none transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-teal-500 ${
@@ -892,6 +1149,11 @@ export function NoticesScreen() {
                             {visibleBody}
                           </p>
                         )}
+                        {showNoticeDeliveryMeta ? (
+                          <p className="mt-1 line-clamp-1 text-xs font-medium leading-5 text-zinc-500" data-testid="notice-delivery-meta-line">
+                            {deliveryMetaLabel}
+                          </p>
+                        ) : null}
                         {!showNoticeDeliveryMeta ? (
                           <div className="mt-1 flex items-center justify-between gap-2">
                             <p className={`min-w-0 text-xs ${read ? "text-zinc-400" : "text-zinc-500"}`} data-testid="family-notice-date-line">
@@ -1022,7 +1284,14 @@ export function NoticesScreen() {
                 </p>
               ) : null}
               {noticeCreateOpen ? (
-                <form className="mt-3 grid gap-3" data-testid="notice-create-form" onSubmit={handleCreateNotice}>
+                <form
+                  aria-busy={noticeCreatePending}
+                  className="mt-3"
+                  data-testid="notice-create-form"
+                  onSubmit={handleCreateNotice}
+                >
+                  <fieldset className="grid gap-3 border-0 p-0" disabled={noticeCreatePending}>
+                    <legend className="sr-only">공지 발행 정보</legend>
                   {context.db.branches.length > 1 ? (
                     <label>
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
@@ -1243,9 +1512,39 @@ export function NoticesScreen() {
                       ) : null}
                     </div>
                   </fieldset>
+                  {(() => {
+                    const preview = buildNoticeCreatePreview();
+                    const confirmationCurrent = Boolean(preview && preview.fingerprint === noticeConfirmationFingerprint);
+
+                    return confirmationCurrent && preview ? (
+                      <div
+                        className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950"
+                        data-testid="notice-create-confirmation"
+                        role="alert"
+                      >
+                        <p className="font-semibold">발행 전 최종 확인</p>
+                        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs leading-5">
+                          <dt className="text-amber-700">지점</dt><dd className="font-semibold">{preview.branchName}</dd>
+                          <dt className="text-amber-700">대상</dt><dd className="font-semibold">{preview.targetLabel}</dd>
+                          <dt className="text-amber-700">역할</dt><dd className="font-semibold">{audienceLabel(noticeAudience)}</dd>
+                          <dt className="text-amber-700">수신자</dt><dd className="font-semibold">{preview.recipientCount}명</dd>
+                          <dt className="text-amber-700">중요</dt><dd className="font-semibold">{noticeImportant ? "중요 공지" : "일반 공지"}</dd>
+                        </dl>
+                        <p className="mt-2 text-xs leading-5">발행하면 알림함에 표시되고 연결된 기기의 푸시 발송도 시작됩니다.</p>
+                        <button
+                          className="mt-1 inline-flex min-h-11 items-center text-xs font-semibold underline underline-offset-4"
+                          type="button"
+                          onClick={() => setNoticeConfirmationFingerprint(null)}
+                        >
+                          내용 다시 수정
+                        </button>
+                      </div>
+                    ) : null;
+                  })()}
                   <Button
                     className="min-h-11"
                     disabled={
+                      noticeCreatePending ||
                       !noticeTitle.trim() ||
                       !noticeBody.trim() ||
                       noticeAudience.length === 0 ||
@@ -1258,8 +1557,13 @@ export function NoticesScreen() {
                     variant="primary"
                   >
                     <Send className="h-4 w-4" aria-hidden />
-                    발행
+                    {noticeCreatePending
+                      ? "발행 중"
+                      : buildNoticeCreatePreview()?.fingerprint === noticeConfirmationFingerprint
+                        ? "확인 후 발행"
+                        : "발행 내용 확인"}
                   </Button>
+                  </fieldset>
                 </form>
               ) : null}
             </section>
@@ -1267,6 +1571,82 @@ export function NoticesScreen() {
         </aside>
         ) : null}
       </div>
+      {pushConfirmationNotice ? (
+        <div
+          aria-labelledby="notice-push-confirmation-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 p-3 sm:items-center"
+          data-testid="notice-push-confirmation-dialog"
+          role="dialog"
+          onKeyDown={handlePushConfirmationKeyDown}
+        >
+          <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl">
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
+                <BellRing className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-zinc-950" id="notice-push-confirmation-title">
+                  공지 알림을 발송할까요?
+                </h2>
+                <p className="mt-1 text-sm leading-5 text-zinc-600">확인 후 연결된 기기로 알림 발송을 한 번 요청합니다.</p>
+              </div>
+            </div>
+
+            <dl className="mt-4 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-2 border-y border-zinc-100 py-3 text-sm leading-5">
+              <dt className="font-medium text-zinc-500">제목</dt>
+              <dd className="break-words font-semibold text-zinc-950" data-testid="notice-push-confirmation-notice-title">
+                {pushConfirmationNotice.title}
+              </dd>
+              <dt className="font-medium text-zinc-500">지점</dt>
+              <dd className="font-semibold text-zinc-800">{pushConfirmationBranchName}</dd>
+              <dt className="font-medium text-zinc-500">대상 역할</dt>
+              <dd className="font-semibold text-zinc-800" data-testid="notice-push-confirmation-audience">
+                {audienceLabel(pushConfirmationNotice.audience)}
+              </dd>
+              <dt className="font-medium text-zinc-500">대상 범위</dt>
+              <dd className="break-words font-semibold text-zinc-800" data-testid="notice-push-confirmation-target">
+                {pushConfirmationTargetLabel}
+              </dd>
+              <dt className="font-medium text-zinc-500">예상 수신</dt>
+              <dd className="font-semibold text-zinc-800" data-testid="notice-push-confirmation-recipient-count">
+                앱 알림함 {pushConfirmationRecipientCount}명
+              </dd>
+            </dl>
+
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium leading-5 text-amber-900">
+              이미 발송한 공지를 다시 보내는 동작입니다. 같은 기기에 알림이 중복 표시될 수 있습니다.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">
+              휴대폰 푸시 수신 수는 기기 연결과 알림 권한 상태에 따라 예상 인원과 다를 수 있습니다.
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-teal-500"
+                data-testid="notice-push-confirmation-cancel"
+                disabled={pushPendingNoticeId === pushConfirmationNotice.id}
+                ref={pushConfirmationCancelRef}
+                type="button"
+                onClick={closeNoticePushConfirmation}
+              >
+                취소
+              </button>
+              <button
+                aria-busy={pushPendingNoticeId === pushConfirmationNotice.id}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                data-testid="notice-push-confirmation-submit"
+                disabled={pushPendingNoticeId === pushConfirmationNotice.id}
+                type="button"
+                onClick={() => void handleDispatchNoticePush(pushConfirmationNotice)}
+              >
+                <BellRing className="h-4 w-4" aria-hidden />
+                {pushPendingNoticeId === pushConfirmationNotice.id ? "발송 요청 중" : "확인 후 발송"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div aria-hidden className="h-28 lg:hidden" data-testid="notice-bottom-safe-area" />
     </div>
   );

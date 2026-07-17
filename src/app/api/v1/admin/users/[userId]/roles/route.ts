@@ -15,6 +15,7 @@ import {
 export const runtime = "nodejs";
 
 type RoleUpdateBody = {
+  branchIds?: string[];
   role?: UserRole;
   reason?: string;
 };
@@ -44,6 +45,9 @@ export async function PUT(
   const body = (await request.json().catch(() => null)) as RoleUpdateBody | null;
   const nextRole = body?.role;
   const reason = body?.reason?.trim() ?? "";
+  const requestedBranchIds = Array.isArray(body?.branchIds)
+    ? [...new Set(body.branchIds.filter((branchId): branchId is string => typeof branchId === "string" && branchId.length > 0))]
+    : [];
 
   if (!nextRole || !userRoles.includes(nextRole)) {
     return jsonError(400, "VALIDATION_ERROR", "변경할 역할이 올바르지 않습니다.");
@@ -85,12 +89,13 @@ export async function PUT(
     return jsonError(422, "BUSINESS_RULE_FAILED", "현재 로그인한 총괄 어드민은 자신의 권한을 제거할 수 없습니다.");
   }
 
-  const fallbackBranchIds = db.branches[0]?.id ? [db.branches[0].id] : [];
-  const nextBranchIds = nextRole === "admin"
-    ? db.branches.map((branch) => branch.id)
-    : targetUser.branchIds.length > 0
-      ? targetUser.branchIds
-      : fallbackBranchIds;
+  const knownBranchIds = new Set(db.branches.map((branch) => branch.id));
+
+  if (nextRole !== "admin" && (requestedBranchIds.length === 0 || requestedBranchIds.some((branchId) => !knownBranchIds.has(branchId)))) {
+    return jsonError(422, "VALIDATION_ERROR", "변경할 역할의 담당 지점을 한 곳 이상 선택해 주세요.");
+  }
+
+  const nextBranchIds = nextRole === "admin" ? db.branches.map((branch) => branch.id) : requestedBranchIds;
   const ownerCoverageBlockers = findOwnerCoverageBlockers(targetUser, nextRole, nextBranchIds, db);
 
   if (ownerCoverageBlockers.length > 0) {

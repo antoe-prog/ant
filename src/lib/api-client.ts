@@ -9,6 +9,8 @@ import type {
   ClassSession,
   CounselingNote,
   CounselingNoteVisibility,
+  FamilyPaymentRequest,
+  FamilyPaymentRequestPayload,
   Member,
   MemberStatus,
   MockDatabase,
@@ -116,6 +118,10 @@ export type OnlinePaymentCheckoutPayload = BootstrapPayload & {
   checkout: OnlinePaymentRequest;
 };
 
+export type FamilyPaymentRequestResponse = BootstrapPayload & {
+  collectionRequest: FamilyPaymentRequest;
+};
+
 export type RecurringAgreementPayload = {
   billingDayOfMonth?: number;
   nextBillingDate?: string;
@@ -148,6 +154,7 @@ export type NoticeCreatePayload = {
   audience: NoticeAudience[];
   targetClassIds?: string[];
   targetMemberIds?: string[];
+  clientRequestId?: string;
 };
 
 export type NoticeDispatchSummaryPayload = {
@@ -184,6 +191,9 @@ export type NoticePushPayload = BootstrapPayload & {
 export type NoticeCreateResponsePayload = BootstrapPayload & {
   notice: {
     id: string;
+  };
+  idempotency: {
+    replayed: boolean;
   };
   push: NoticeDispatchSummaryPayload;
 };
@@ -622,6 +632,13 @@ export const apiClient = {
     );
   },
 
+  clearAttendance(sessionId: string, memberId: string, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/class-sessions/${encodeURIComponent(sessionId)}/attendance/${encodeURIComponent(memberId)}${selectedBranchQuery(selectedBranchId)}`,
+      { method: "DELETE" },
+    );
+  },
+
   markNoticeAsRead(noticeId: string, selectedBranchId: string | null) {
     return apiRequest<BootstrapPayload>(
       `/api/v1/me/notices/${encodeURIComponent(noticeId)}/read${selectedBranchQuery(selectedBranchId)}`,
@@ -801,6 +818,16 @@ export const apiClient = {
     );
   },
 
+  createFamilyPaymentRequest(paymentId: string, payload: FamilyPaymentRequestPayload, selectedBranchId: string | null) {
+    return apiRequest<FamilyPaymentRequestResponse>(
+      `/api/v1/payments/${encodeURIComponent(paymentId)}/collection-request${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
   createRecurringAgreement(paymentId: string, payload: RecurringAgreementPayload, selectedBranchId: string | null) {
     return apiRequest<RecurringAgreementResponse>(
       `/api/v1/payments/${encodeURIComponent(paymentId)}/recurring-agreement${selectedBranchQuery(selectedBranchId)}`,
@@ -821,12 +848,12 @@ export const apiClient = {
     );
   },
 
-  updateUserRole(userId: string, role: UserRole, reason: string, selectedBranchId: string | null) {
+  updateUserRole(userId: string, role: UserRole, branchIds: string[], reason: string, selectedBranchId: string | null) {
     return apiRequest<BootstrapPayload>(
       `/api/v1/admin/users/${encodeURIComponent(userId)}/roles${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "PUT",
-        body: JSON.stringify({ role, reason }),
+        body: JSON.stringify({ role, branchIds, reason }),
       },
     );
   },
@@ -1019,11 +1046,14 @@ export const apiClient = {
   },
 
   createNotice(branchId: string, payload: NoticeCreatePayload, selectedBranchId: string | null) {
+    const { clientRequestId, ...requestPayload } = payload;
+
     return apiRequest<NoticeCreateResponsePayload>(
       `/api/v1/branches/${encodeURIComponent(branchId)}/notices${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "POST",
-        body: JSON.stringify(payload),
+        ...(clientRequestId ? { headers: { "Idempotency-Key": clientRequestId } } : {}),
+        body: JSON.stringify(requestPayload),
       },
     );
   },

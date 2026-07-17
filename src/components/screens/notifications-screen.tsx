@@ -17,10 +17,11 @@ import {
   isUpcomingPromotionExam,
 } from "@/lib/notification-alerts";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { canDeleteNotice } from "@/lib/notice-permissions";
 import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
-import { memberStatusLabels, paymentStatusLabels, roleLabels } from "@/lib/roles";
+import { paymentStatusLabels, roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
@@ -87,6 +88,23 @@ function noticeTargetLabel(notice: Notice, context: ReturnType<typeof useApiCont
   ].join(", ");
 }
 
+function noticeMetaLabel(
+  notice: Notice,
+  context: ReturnType<typeof useApiContext>,
+  selectedChildId?: string | null,
+) {
+  const targetLabel = noticeTargetLabel(notice, context, selectedChildId);
+  const createdAtLabel = formatDateTime(notice.createdAt);
+
+  if (context.user.role === "member" || context.user.role === "guardian") {
+    const branchLabel = context.db.branches.find((branch) => branch.id === notice.branchId)?.name ?? "지점 미지정";
+
+    return `${branchLabel} · ${targetLabel} · ${createdAtLabel}`;
+  }
+
+  return `${audienceLabel(notice)} · ${targetLabel} · ${createdAtLabel}`;
+}
+
 function buildNoticeNotification(
   notice: Notice,
   context: ReturnType<typeof useApiContext>,
@@ -103,7 +121,7 @@ function buildNoticeNotification(
     kind: "notice",
     kindLabel: "공지",
     actionLabel: "보기",
-    meta: `${audienceLabel(notice)} · ${noticeTargetLabel(notice, context, selectedChildId)} · ${formatDateTime(notice.createdAt)}`,
+    meta: noticeMetaLabel(notice, context, selectedChildId),
     noticeCanDelete: canDeleteNotice(context.user, context.db, notice),
     noticeBranchId: notice.branchId,
     noticeId: notice.id,
@@ -131,14 +149,14 @@ function buildPaymentNotification(payment: EnrichedPayment, user: AppUser): Noti
     return null;
   }
 
-  const checkoutPending = payment.onlinePayment?.status === "pending";
+  const checkoutPending = payment.collectionRequest?.status === "pending" || payment.onlinePayment?.status === "pending";
   const critical = payment.status === "overdue";
   const target = paymentNotificationTarget(payment, user);
   const paymentPlanLine = getFamilyPaymentPlanLine(payment.planName, payment.member.ageGroup);
   const title = critical
     ? `${payment.member.name} 미납 결제 확인`
     : checkoutPending
-      ? `${payment.member.name} 납부 요청 필요`
+      ? `${payment.member.name} 납부 요청 접수`
       : `${payment.member.name} 회원권 만료 예정`;
 
   return {
@@ -409,7 +427,11 @@ export function NotificationsScreen() {
       ? `현재 필터의 미확인 공지 ${filteredUnreadNoticeIds.length}건 읽음 처리`
       : "현재 필터에 읽음 처리할 공지가 없습니다";
   const notificationBulkReadDone = filteredUnreadNoticeIds.length === 0;
-  const notificationBulkReadButtonLabel = bulkReadPending ? "처리 중" : notificationBulkReadDone ? "읽음 완료" : "읽음 처리";
+  const notificationBulkReadButtonLabel = bulkReadPending
+    ? "처리 중"
+    : notificationBulkReadDone
+      ? "공지 읽음 완료"
+      : "공지 읽음 처리";
 
   return (
     <div data-testid="notifications-screen">
@@ -420,8 +442,7 @@ export function NotificationsScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
-            meta: `${member.belt} · ${member.level}`,
-            statusLabel: memberStatusLabels[member.status],
+            ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}
           onSelect={setSelectedChildId}
@@ -575,14 +596,24 @@ export function NotificationsScreen() {
                           href={item.href}
                         >
                           <h2 className={`mt-1.5 line-clamp-1 text-sm font-semibold leading-5 ${readNotice ? "text-zinc-600" : "text-zinc-950"}`}>{item.title}</h2>
-                          <p className={`mt-0.5 hidden line-clamp-1 text-xs leading-5 sm:block ${readNotice ? "text-zinc-500" : "text-zinc-600"}`}>{item.body}</p>
-                          <p className={`mt-0.5 line-clamp-1 text-[11px] font-medium leading-4 ${readNotice ? "text-zinc-400" : "text-zinc-500"}`}>{item.meta}</p>
+                          <p className={`mt-0.5 text-[13px] leading-5 ${readNotice ? "line-clamp-1 text-zinc-600" : "line-clamp-2 text-zinc-700"}`}>{item.body}</p>
+                          <p
+                            className={`mt-0.5 line-clamp-1 text-xs font-medium leading-4 ${readNotice ? "text-zinc-500" : "text-zinc-600"}`}
+                            data-testid="notification-meta"
+                          >
+                            {item.meta}
+                          </p>
                         </Link>
                       ) : (
                         <>
                           <h2 className={`mt-1.5 line-clamp-1 text-sm font-semibold leading-5 ${readNotice ? "text-zinc-600" : "text-zinc-950"}`}>{item.title}</h2>
                           <p className={`mt-0.5 line-clamp-1 text-xs leading-5 ${readNotice ? "text-zinc-500" : "text-zinc-600"}`}>{item.body}</p>
-                          <p className={`mt-0.5 line-clamp-1 text-[11px] font-medium leading-4 ${readNotice ? "text-zinc-400" : "text-zinc-500"}`}>{item.meta}</p>
+                          <p
+                            className={`mt-0.5 line-clamp-1 text-xs font-medium leading-4 ${readNotice ? "text-zinc-500" : "text-zinc-600"}`}
+                            data-testid="notification-meta"
+                          >
+                            {item.meta}
+                          </p>
                         </>
                       )}
                     </div>
@@ -666,7 +697,6 @@ export function NotificationsScreen() {
           </div>
         )}
       </section>
-      <div aria-hidden className="h-28 lg:hidden" data-testid="notification-bottom-safe-area" />
     </div>
   );
 }

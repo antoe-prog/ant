@@ -13,7 +13,7 @@ import { ApiClientError, apiClient } from "@/lib/api-client";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { ManualPaymentManagement } from "@/components/domain/manual-payment-management";
 import { FinalCommonFeeReference } from "@/components/domain/final-common-fee-reference";
-import { formatCurrency, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateKey, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import {
   finalCommonFeeProducts,
   finalCommonPublicServiceBenefit,
@@ -28,11 +28,12 @@ import {
   type ManualPaymentUpdatePayload,
 } from "@/lib/manual-payment-management";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentCheckoutAmount } from "@/lib/payment-checkout-access";
 import { createPaymentCreateIdempotencyKey } from "@/lib/payment-create-idempotency";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
 import { getPaymentRemainingRefundableAmount } from "@/lib/payment-amounts";
-import { memberStatusLabels, paymentStatusLabels } from "@/lib/roles";
+import { paymentStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
@@ -137,6 +138,12 @@ type PaymentAdjustmentDraft = {
   amount: string;
   feedback?: string;
   reason: string;
+};
+
+type PaymentAdjustmentConfirmation = {
+  action: "cancel" | "refund";
+  fingerprint: string;
+  paymentId: string;
 };
 
 type PaymentCreateFeedback = {
@@ -254,16 +261,25 @@ export function PaymentsScreen() {
     syncPaymentFilterToUrl(value);
   }
 
+  const guardianPaymentChildren = useMemo(
+    () =>
+      context.user.role === "guardian"
+        ? context.db.members.filter(
+            (member) =>
+              (context.user.childMemberIds ?? []).includes(member.id) &&
+              member.guardianIds.includes(context.user.id),
+          )
+        : [],
+    [context.db.members, context.user.childMemberIds, context.user.id, context.user.role],
+  );
   const guardianChildIds =
-    context.user.role === "guardian"
-      ? context.db.members
-          .filter((member) => context.user.childMemberIds?.includes(member.id))
-          .map((member) => member.id)
-      : undefined;
+    context.user.role === "guardian" ? guardianPaymentChildren.map((member) => member.id) : undefined;
   const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id, guardianChildIds);
   const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
   const appliedRequestedMemberIdRef = useRef<string | null>(null);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
+  const [paymentAdjustmentConfirmation, setPaymentAdjustmentConfirmation] = useState<PaymentAdjustmentConfirmation | null>(null);
+  const [paymentAdjustmentPendingId, setPaymentAdjustmentPendingId] = useState<string | null>(null);
   const [paymentActionQueueOpen, setPaymentActionQueueOpen] = useState(false);
   const [activeFocusedPaymentId, setActiveFocusedPaymentId] = useState<string | null>(null);
   const [expandedManagedPaymentId, setExpandedManagedPaymentId] = useState<string | null>(null);
@@ -305,18 +321,12 @@ export function PaymentsScreen() {
   );
   const selectedPaymentMember = paymentMembers.find((member) => member.id === newPaymentMemberId) ?? null;
   const selectedPaymentMemberId = selectedPaymentMember?.id ?? "";
-  const guardianPaymentChildren = useMemo(
-    () =>
-      context.user.role === "guardian"
-        ? context.db.members.filter(
-            (member) =>
-              (context.user.childMemberIds ?? []).includes(member.id) &&
-              member.guardianIds.includes(context.user.id) &&
-              member.status !== "withdrawn",
-          )
-        : [],
-    [context.db.members, context.user.childMemberIds, context.user.id, context.user.role],
-  );
+  const requestedGuardianPaymentChild =
+    context.user.role === "guardian" && requestedMemberId
+      ? guardianPaymentChildren.find((child) => child.id === requestedMemberId) ?? null
+      : null;
+  const invalidGuardianPaymentTarget =
+    context.user.role === "guardian" && Boolean(requestedMemberId) && !requestedGuardianPaymentChild;
   useEffect(() => {
     if (!requestedMemberId) {
       appliedRequestedMemberIdRef.current = null;
@@ -326,7 +336,7 @@ export function PaymentsScreen() {
     if (
       context.user.role !== "guardian" ||
       appliedRequestedMemberIdRef.current === requestedMemberId ||
-      !guardianPaymentChildren.some((child) => child.id === requestedMemberId)
+      !requestedGuardianPaymentChild
     ) {
       return;
     }
@@ -334,25 +344,15 @@ export function PaymentsScreen() {
     appliedRequestedMemberIdRef.current = requestedMemberId;
     // URL 딥링크는 최초 진입에만 적용하고 이후 사용자의 자녀 선택은 유지한다.
     setSelectedChildId(requestedMemberId);
-  }, [context.user.role, guardianPaymentChildren, requestedMemberId, setSelectedChildId]);
-  const prioritizedGuardianPaymentChild =
-    context.user.role === "guardian"
-      ? guardianPaymentChildren.find((child) =>
-          data?.some(
-            (payment) =>
-              payment.memberId === child.id &&
-              getFamilyPaymentCheckoutAccess(context.user, payment).canOpen,
-          ),
-        )
-      : null;
+  }, [context.user.role, requestedGuardianPaymentChild, requestedMemberId, setSelectedChildId]);
   const selectedGuardianPaymentChild =
-    context.user.role === "guardian"
-      ? guardianPaymentChildren.find((member) => member.id === selectedChildId) ??
-        prioritizedGuardianPaymentChild ??
-        guardianPaymentChildren[0] ??
+    context.user.role === "guardian" && !invalidGuardianPaymentTarget
+      ? requestedGuardianPaymentChild ??
+        guardianPaymentChildren.find((member) => member.id === selectedChildId) ??
         null
       : null;
   const selectedGuardianPaymentChildId = selectedGuardianPaymentChild?.id ?? null;
+  const selectedGuardianPaymentChildIsEligible = selectedGuardianPaymentChild?.status !== "withdrawn";
   const paymentMemberSearchQuery = normalizeMemberSearchText(paymentMemberSearch);
   const paymentMemberSearchResults = useMemo(() => {
     if (!paymentMemberSearchQuery) {
@@ -587,6 +587,9 @@ export function PaymentsScreen() {
   }
 
   function updatePaymentAdjustmentDraft(payment: Payment, patch: Partial<PaymentAdjustmentDraft>) {
+    if (paymentAdjustmentConfirmation?.paymentId === payment.id) {
+      setPaymentAdjustmentConfirmation(null);
+    }
     setPaymentAdjustmentDrafts((current) => ({
       ...current,
       [payment.id]: {
@@ -597,6 +600,12 @@ export function PaymentsScreen() {
         ...patch,
       },
     }));
+  }
+
+  function getPaymentAdjustmentFingerprint(payment: Payment, action: PaymentAdjustmentConfirmation["action"]) {
+    const draft = getPaymentAdjustmentDraft(payment);
+
+    return [action, payment.id, action === "refund" ? draft.amount : "full", draft.reason.trim()].join("\u001f");
   }
 
   async function handleRefundPayment(event: FormEvent<HTMLFormElement>, payment: Payment) {
@@ -615,10 +624,22 @@ export function PaymentsScreen() {
       return;
     }
 
-    const ok = await refundPayment(payment.id, {
-      amount,
-      reason: draft.reason.trim(),
-    });
+    const fingerprint = getPaymentAdjustmentFingerprint(payment, "refund");
+
+    if (
+      paymentAdjustmentConfirmation?.paymentId !== payment.id ||
+      paymentAdjustmentConfirmation.action !== "refund" ||
+      paymentAdjustmentConfirmation.fingerprint !== fingerprint
+    ) {
+      setPaymentAdjustmentConfirmation({ action: "refund", fingerprint, paymentId: payment.id });
+      updatePaymentAdjustmentDraft(payment, { feedback: "환불 내용을 확인한 뒤 한 번 더 눌러 확정해 주세요." });
+      return;
+    }
+
+    setPaymentAdjustmentPendingId(payment.id);
+    const ok = await refundPayment(payment.id, { amount, reason: draft.reason.trim() });
+    setPaymentAdjustmentPendingId(null);
+    setPaymentAdjustmentConfirmation(null);
 
     updatePaymentAdjustmentDraft(payment, {
       amount: ok ? "0" : draft.amount,
@@ -635,10 +656,25 @@ export function PaymentsScreen() {
       return;
     }
 
+    const fingerprint = getPaymentAdjustmentFingerprint(payment, "cancel");
+
+    if (
+      paymentAdjustmentConfirmation?.paymentId !== payment.id ||
+      paymentAdjustmentConfirmation.action !== "cancel" ||
+      paymentAdjustmentConfirmation.fingerprint !== fingerprint
+    ) {
+      setPaymentAdjustmentConfirmation({ action: "cancel", fingerprint, paymentId: payment.id });
+      updatePaymentAdjustmentDraft(payment, { feedback: "취소 내용을 확인한 뒤 한 번 더 눌러 확정해 주세요." });
+      return;
+    }
+
+    setPaymentAdjustmentPendingId(payment.id);
     const ok = await refundPayment(payment.id, {
       cancel: true,
       reason: draft.reason.trim(),
     });
+    setPaymentAdjustmentPendingId(null);
+    setPaymentAdjustmentConfirmation(null);
 
     updatePaymentAdjustmentDraft(payment, {
       feedback: ok ? "결제 취소를 저장했습니다." : "결제 취소를 저장하지 못했습니다.",
@@ -730,6 +766,18 @@ export function PaymentsScreen() {
     openFamilyPaymentCheckout(paymentId);
   }
 
+  function handleGuardianPaymentChildSelect(childId: string) {
+    setSelectedChildId(childId);
+    setPaymentListSearch("");
+
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("memberId");
+    nextSearchParams.delete("focusPayment");
+    nextSearchParams.delete("q");
+    const nextSearch = nextSearchParams.toString();
+    router.replace(`/app/payments${nextSearch ? `?${nextSearch}` : ""}`, { scroll: false });
+  }
+
   if (loading) {
     return <LoadingState />;
   }
@@ -796,6 +844,7 @@ export function PaymentsScreen() {
   const refundedPaymentCount = filteredPayments.filter((payment) => (payment.refundedAmount ?? 0) > 0).length;
   const lifecycleEventCount = filteredPayments.reduce((sum, payment) => sum + (payment.statusHistory?.length ?? 0), 0);
   const onlinePaymentRequestCount = filteredPayments.filter((payment) => payment.onlinePayment).length;
+  const collectionRequestCount = filteredPayments.filter((payment) => payment.collectionRequest?.status === "pending").length;
   const recurringAgreementCount = filteredPayments.filter((payment) => payment.recurringAgreement).length;
   const paymentHistoryByMember = new Map<string, Payment[]>();
 
@@ -855,6 +904,18 @@ export function PaymentsScreen() {
           id: `${payment.id}-online-pending`,
           label: "온라인 결제 확인",
           score: 50 + Math.round(payment.onlinePayment.amount / 20000),
+          tone: "teal",
+        });
+      }
+
+      if (payment.collectionRequest?.status === "pending") {
+        actions.push({
+          ...actionContext,
+          amount: netAmount,
+          detail: `${formatDateTime(payment.collectionRequest.requestedAt)} · ${payment.collectionRequest.methodLabel}`,
+          id: `${payment.id}-collection-request-pending`,
+          label: "납부 요청 확인",
+          score: 85 + Math.round(netAmount / 20000),
           tone: "teal",
         });
       }
@@ -936,12 +997,40 @@ export function PaymentsScreen() {
           items={guardianPaymentChildren.map((child) => ({
             id: child.id,
             name: child.name,
-            meta: `${child.belt} · ${child.level}`,
-            statusLabel: memberStatusLabels[child.status],
+            ...getChildSwitcherPresentation(child),
           }))}
           selectedChildId={selectedGuardianPaymentChildId}
-          onSelect={setSelectedChildId}
+          onSelect={handleGuardianPaymentChildSelect}
         />
+      ) : null}
+
+      {invalidGuardianPaymentTarget ? (
+        <section
+          className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
+          data-testid="guardian-payment-invalid-target"
+          role="status"
+        >
+          <p className="text-sm font-semibold text-amber-900">요청한 자녀의 결제 정보를 확인할 수 없습니다.</p>
+          <p className="mt-1 text-sm leading-5 text-amber-800">
+            다른 자녀의 결제로 자동 전환하지 않았습니다. 연결된 자녀를 위에서 직접 선택해 주세요.
+          </p>
+        </section>
+      ) : selectedGuardianPaymentChild && !selectedGuardianPaymentChildIsEligible ? (
+        <section
+          className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
+          data-testid="guardian-payment-ineligible-child"
+          role="status"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-zinc-900">{selectedGuardianPaymentChild.name}</p>
+            <span className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-semibold text-zinc-700">
+              결제 대상 아님
+            </span>
+          </div>
+          <p className="mt-1 text-sm leading-5 text-zinc-600">
+            퇴회한 자녀는 새 납부 요청을 진행할 수 없으며, 등록된 결제 이력만 확인할 수 있습니다.
+          </p>
+        </section>
       ) : null}
 
       <section
@@ -1436,7 +1525,7 @@ export function PaymentsScreen() {
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold leading-5 text-zinc-950">결제/회원권 요약</h2>
                 <p className="line-clamp-1 text-[11px] font-medium leading-4 text-blue-800">
-                  온라인/정기결제 {onlinePaymentRequestCount + recurringAgreementCount}건
+                  납부 요청 {collectionRequestCount}건 · 온라인/정기결제 {onlinePaymentRequestCount + recurringAgreementCount}건
                 </p>
               </div>
             </div>
@@ -1554,13 +1643,21 @@ export function PaymentsScreen() {
             paymentSearchKeyword
               ? "검색 결과가 없습니다"
               : scopedPayments.length === 0
-              ? selectedGuardianPaymentChild
+              ? invalidGuardianPaymentTarget
+                ? "결제 대상을 확인할 수 없습니다"
+                : selectedGuardianPaymentChild
                 ? `${selectedGuardianPaymentChild.name} 결제 내역이 없습니다`
                 : "결제 내역이 없습니다"
               : "선택한 보기의 결제가 없습니다"
           }
           description={
-            paymentSearchKeyword ? `"${paymentSearchKeyword}"와 일치하는 회원 또는 회원권이 없습니다.` : undefined
+            paymentSearchKeyword
+              ? `"${paymentSearchKeyword}"와 일치하는 회원 또는 회원권이 없습니다.`
+              : invalidGuardianPaymentTarget
+                ? "연결된 자녀를 직접 선택하면 해당 자녀의 결제 내역만 표시합니다."
+                : selectedGuardianPaymentChild && !selectedGuardianPaymentChildIsEligible
+                  ? "퇴회한 자녀에게 등록된 과거 결제 내역이 없습니다."
+                  : undefined
           }
           action={
             paymentSearchKeyword ? (
@@ -1589,10 +1686,15 @@ export function PaymentsScreen() {
             {filteredPayments.map((payment) => {
               const remainingRefundable = getRemainingRefundable(payment);
               const draft = getPaymentAdjustmentDraft(payment);
+              const adjustmentPending = paymentAdjustmentPendingId === payment.id;
+              const adjustmentConfirmation = paymentAdjustmentConfirmation?.paymentId === payment.id
+                ? paymentAdjustmentConfirmation
+                : null;
               const canRefund = canManagePayments && ["paid", "partially_refunded"].includes(payment.status) && remainingRefundable > 0;
               const canCancel =
                 canManagePayments && ["scheduled", "overdue", "expiringSoon"].includes(payment.status);
               const onlinePayment = payment.onlinePayment;
+              const collectionRequest = payment.collectionRequest;
               const recurringAgreement = payment.recurringAgreement;
               const canRequestOnlineCheckout =
                 canManagePayments &&
@@ -1659,6 +1761,23 @@ export function PaymentsScreen() {
                   </div>
                 </div>
               ) : null;
+              const staffCollectionRequestDetails = collectionRequest ? (
+                <div
+                  className="mt-2 flex flex-col gap-2 rounded-md border border-teal-200 bg-teal-50/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                  data-testid="payment-collection-request-staff-details"
+                >
+                  <div className="min-w-0">
+                    <span className="inline-flex rounded-md border border-teal-200 bg-white px-2 py-0.5 text-xs font-semibold text-teal-800">
+                      납부 요청 접수
+                    </span>
+                    <p className="mt-1 text-xs font-medium text-zinc-700">
+                      {collectionRequest.payerName} · {formatPhoneNumber(collectionRequest.payerPhone)} · {collectionRequest.methodLabel}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">{formatDateTime(collectionRequest.requestedAt)}</p>
+                  </div>
+                  <span className="text-xs font-semibold text-teal-800">담당자 확인 필요</span>
+                </div>
+              ) : null;
               const staffRecurringAgreementDetails = recurringAgreement ? (
                 <div className="mt-2 flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 flex-col gap-1">
@@ -1691,6 +1810,7 @@ export function PaymentsScreen() {
                 </div>
               ) : null;
               const familyPaymentStatusNotes = [
+                collectionRequest?.status === "pending" ? "납부 요청 접수" : null,
                 onlinePayment && onlinePayment.status !== "paid" ? familyOnlinePaymentStatusLabels[onlinePayment.status] : null,
                 recurringAgreement && recurringAgreement.status !== "cancelled"
                   ? familyRecurringAgreementStatusLabels[recurringAgreement.status]
@@ -1700,7 +1820,13 @@ export function PaymentsScreen() {
               const familyCheckoutAccess = canManagePayments
                 ? null
                 : getFamilyPaymentCheckoutAccess(context.user, payment);
-              const familyCheckoutCanOpen = familyCheckoutAccess?.canOpen ?? false;
+              const familyCheckoutBlockedByMemberStatus =
+                context.user.role === "guardian" && payment.member.status === "withdrawn";
+              const familyCheckoutCanOpen =
+                !familyCheckoutBlockedByMemberStatus && (familyCheckoutAccess?.canOpen ?? false);
+              const familyCheckoutLabel = familyCheckoutBlockedByMemberStatus
+                ? "결제 대상 아님"
+                : familyCheckoutAccess?.label;
               const familyCheckoutOpenToneClass = "border-teal-200 bg-teal-50 text-teal-800";
               const familyCheckoutStateToneClass =
                 familyCheckoutAccess?.state === "guardian_required"
@@ -1709,7 +1835,11 @@ export function PaymentsScreen() {
                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                     : "border-zinc-200 bg-zinc-50 text-zinc-600";
               const familyCheckoutStateHelper =
-                familyCheckoutAccess?.state === "guardian_required" ? "학부모 계정에서 진행" : null;
+                familyCheckoutBlockedByMemberStatus
+                  ? "퇴회 회원의 결제 이력"
+                  : familyCheckoutAccess?.state === "guardian_required"
+                    ? "학부모 계정에서 진행"
+                    : null;
               const familyPaymentPlanLine = getFamilyPaymentPlanLine(payment.planName, payment.member.ageGroup);
               const isManagedPaymentExpanded = canManagePayments && expandedManagedPaymentId === payment.id;
               const managementPanelId = `payment-management-${payment.id}`;
@@ -1718,7 +1848,7 @@ export function PaymentsScreen() {
                 <article
                   aria-label={
                     familyCheckoutCanOpen
-                      ? `${payment.member.name} ${familyPaymentPlanLine} ${familyCheckoutAccess?.label}`
+                      ? `${payment.member.name} ${familyPaymentPlanLine} ${familyCheckoutLabel}`
                       : undefined
                   }
                   className={
@@ -1819,7 +1949,7 @@ export function PaymentsScreen() {
                       </div>
                       <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                         <p
-                          className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"
+                          className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[13px] font-medium leading-5 text-zinc-700"
                           data-testid="member-payment-date-line"
                         >
                           납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}
@@ -1828,12 +1958,12 @@ export function PaymentsScreen() {
                           <div className="flex min-w-0 flex-col items-end gap-1">
                             {familyCheckoutCanOpen ? (
                               <div
-                                className={`flex min-h-11 min-w-[118px] max-w-[150px] flex-col justify-center gap-0.5 rounded-md border px-2 py-1 text-[11px] font-semibold leading-4 ${familyCheckoutOpenToneClass}`}
+                                className={`flex min-h-11 min-w-[126px] max-w-[170px] flex-col justify-center gap-0.5 rounded-md border px-2 py-1 text-[13px] font-semibold leading-5 ${familyCheckoutOpenToneClass}`}
                                 data-testid="member-payment-checkout-action"
                               >
                                 <span className="inline-flex min-w-0 items-center gap-1">
                                   <CreditCard className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                  <span className="truncate">{familyCheckoutAccess.label}</span>
+                                  <span className="truncate">{familyCheckoutLabel}</span>
                                 </span>
                                 <span className="shrink-0 tabular-nums">{formatCurrency(getPaymentCheckoutAmount(payment))}</span>
                               </div>
@@ -1841,17 +1971,17 @@ export function PaymentsScreen() {
                               <div
                                 className={`inline-flex h-8 min-w-[104px] max-w-[154px] items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-semibold leading-4 ${familyCheckoutStateToneClass}`}
                                 data-testid="member-payment-checkout-state-badge"
-                                title={`${familyCheckoutAccess.label}${familyCheckoutStateHelper ? ` · ${familyCheckoutStateHelper}` : ""}`}
+                                title={`${familyCheckoutLabel}${familyCheckoutStateHelper ? ` · ${familyCheckoutStateHelper}` : ""}`}
                               >
                                 <span className="inline-flex min-w-0 items-center gap-1">
                                   <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                  <span className="truncate">{familyCheckoutAccess.label}</span>
+                                  <span className="truncate">{familyCheckoutLabel}</span>
                                 </span>
                               </div>
                             )}
                             {familyCheckoutStateHelper ? (
                               <p
-                                className="max-w-[154px] text-right text-[10px] font-medium leading-3 text-amber-700"
+                                className="max-w-[170px] text-right text-[13px] font-medium leading-5 text-amber-800"
                                 data-testid="member-payment-checkout-state-helper"
                               >
                                 {familyCheckoutStateHelper}
@@ -1898,6 +2028,7 @@ export function PaymentsScreen() {
                           </button>
                         ) : null}
                         <div className="w-full">
+                          {staffCollectionRequestDetails}
                           {staffOnlinePaymentDetails}
                           {staffRecurringAgreementDetails}
                         </div>
@@ -1951,6 +2082,7 @@ export function PaymentsScreen() {
                                 step={100}
                                 type="number"
                                 value={draft.amount}
+                                disabled={adjustmentPending}
                                 onChange={(event) =>
                                   updatePaymentAdjustmentDraft(payment, { amount: event.target.value, feedback: undefined })
                                 }
@@ -1961,6 +2093,7 @@ export function PaymentsScreen() {
                             <button
                               className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 lg:w-auto lg:whitespace-nowrap"
                               data-testid={`payment-refund-full-amount-${payment.id}`}
+                              disabled={adjustmentPending}
                               type="button"
                               onClick={() =>
                                 updatePaymentAdjustmentDraft(payment, {
@@ -1979,34 +2112,65 @@ export function PaymentsScreen() {
                               data-testid="payment-adjustment-reason-input"
                               placeholder="환불/취소 사유"
                               value={draft.reason}
+                              disabled={adjustmentPending}
                               onChange={(event) =>
                                 updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })
                               }
                             />
                           </label>
+                          {adjustmentConfirmation ? (
+                            <div
+                              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 lg:col-span-full"
+                              data-testid="payment-adjustment-confirmation"
+                              role="alert"
+                            >
+                              <p className="font-semibold">
+                                {adjustmentConfirmation.action === "refund" ? "환불" : "결제 취소"} 최종 확인
+                              </p>
+                              <p className="mt-1 leading-6">
+                                {payment.member.name} · {adjustmentConfirmation.action === "refund" ? formatCurrency(Number(draft.amount)) : "결제 전체"}
+                                {" · "}사유: {draft.reason.trim()}
+                              </p>
+                              <button
+                                className="mt-2 inline-flex min-h-11 items-center rounded-md px-2 text-xs font-semibold text-amber-900 underline underline-offset-4"
+                                type="button"
+                                onClick={() => setPaymentAdjustmentConfirmation(null)}
+                              >
+                                내용 다시 수정
+                              </button>
+                            </div>
+                          ) : null}
                           {canRefund ? (
                             <Button
                               className="self-end"
                               data-testid="payment-refund-submit"
-                              disabled={!draft.reason.trim()}
+                              disabled={!draft.reason.trim() || adjustmentPending}
                               size="lg"
                               type="submit"
                               variant="danger"
                             >
-                              환불 처리
+                              {adjustmentPending
+                                ? "처리 중"
+                                : adjustmentConfirmation?.action === "refund"
+                                  ? "환불 확정"
+                                  : "환불 처리"}
                             </Button>
                           ) : null}
                           {canCancel ? (
                             <Button
                               className="self-end"
                               data-testid="payment-cancel-submit"
-                              disabled={!draft.reason.trim()}
+                              disabled={!draft.reason.trim() || adjustmentPending}
                               size="lg"
                               type="button"
                               variant="secondary"
                               onClick={() => void handleCancelPayment(payment)}
                             >
-                              취소 처리
+                              {adjustmentPending
+                                ? "처리 중"
+                                : adjustmentConfirmation?.action === "cancel"
+                                  ? "취소 확정"
+                                  : "취소 처리"}
                             </Button>
                           ) : null}
                           {draft.feedback ? (

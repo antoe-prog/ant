@@ -99,6 +99,7 @@ export function AdminRolesScreen() {
   const inviteFormRequested = shouldOpenInviteForm(searchParams);
   const [query, setRoleSearch] = useUrlSyncedTextParam("q");
   const [roleDrafts, setRoleDrafts] = useState<Record<string, UserRole>>({});
+  const [roleBranchDrafts, setRoleBranchDrafts] = useState<Record<string, string[]>>({});
   const [roleReasons, setRoleReasons] = useState<Record<string, string>>({});
   const [roleFeedback, setRoleFeedback] = useState<string | null>(null);
   const [inviteName, setInviteName] = useState("");
@@ -175,10 +176,27 @@ export function AdminRolesScreen() {
     return roleDrafts[user.id] ?? user.role;
   }
 
+  function getDraftBranchIds(user: AppUser) {
+    return roleBranchDrafts[user.id] ?? user.branchIds;
+  }
+
+  function toggleRoleBranch(user: AppUser, branchId: string) {
+    setRoleBranchDrafts((current) => {
+      const selected = current[user.id] ?? user.branchIds;
+      return {
+        ...current,
+        [user.id]: selected.includes(branchId)
+          ? selected.filter((candidate) => candidate !== branchId)
+          : [...selected, branchId],
+      };
+    });
+  }
+
   async function handleSaveRole(event: FormEvent<HTMLFormElement>, targetUser: AppUser) {
     event.preventDefault();
 
     const nextRole = getDraftRole(targetUser);
+    const nextBranchIds = nextRole === "admin" ? context.db.branches.map((branch) => branch.id) : getDraftBranchIds(targetUser);
     const reason = roleReasons[targetUser.id]?.trim() ?? "";
 
     if (nextRole === targetUser.role || !reason) {
@@ -190,7 +208,12 @@ export function AdminRolesScreen() {
       return;
     }
 
-    const ok = await updateUserRole(targetUser.id, nextRole, reason);
+    if (nextRole !== "admin" && nextBranchIds.length === 0) {
+      setRoleFeedback("변경할 역할의 담당 지점을 한 곳 이상 선택해 주세요.");
+      return;
+    }
+
+    const ok = await updateUserRole(targetUser.id, nextRole, nextBranchIds, reason);
 
     if (!ok) {
       setRoleFeedback("권한 변경을 저장하지 못했습니다. 현재 계정 권한과 관리 정책을 확인해 주세요.");
@@ -204,6 +227,11 @@ export function AdminRolesScreen() {
       return next;
     });
     setRoleReasons((current) => {
+      const next = { ...current };
+      delete next[targetUser.id];
+      return next;
+    });
+    setRoleBranchDrafts((current) => {
       const next = { ...current };
       delete next[targetUser.id];
       return next;
@@ -494,9 +522,11 @@ export function AdminRolesScreen() {
               const visibleEmail = getVisibleUserEmail(user.email);
               const visiblePhone = user.phone ? formatPhoneNumber(user.phone) : null;
               const draftRole = getDraftRole(user);
+              const draftBranchIds = getDraftBranchIds(user);
               const reason = roleReasons[user.id]?.trim() ?? "";
               const isSelfAdminDemotion = user.id === context.user.id && user.role === "admin" && draftRole !== "admin";
-              const canSaveRole = draftRole !== user.role && Boolean(reason) && !isSelfAdminDemotion;
+              const branchScopeValid = draftRole === "admin" || draftBranchIds.length > 0;
+              const canSaveRole = draftRole !== user.role && Boolean(reason) && branchScopeValid && !isSelfAdminDemotion;
               const roleEditorOpen = roleEditorUserId === user.id;
 
               return (
@@ -530,7 +560,10 @@ export function AdminRolesScreen() {
                         data-testid="admin-role-edit-toggle"
                         title={roleEditorOpen ? "역할 변경 닫기" : "역할 변경"}
                         type="button"
-                        onClick={() => setRoleEditorUserId((current) => (current === user.id ? null : user.id))}
+                        onClick={() => {
+                          setRoleBranchDrafts((current) => ({ ...current, [user.id]: current[user.id] ?? user.branchIds }));
+                          setRoleEditorUserId((current) => (current === user.id ? null : user.id));
+                        }}
                       >
                         <Pencil className="h-4 w-4" aria-hidden />
                         <span className="sr-only md:not-sr-only md:ml-2">{roleEditorOpen ? "닫기" : "변경"}</span>
@@ -573,6 +606,34 @@ export function AdminRolesScreen() {
                           ))}
                         </select>
                       </label>
+                      <fieldset className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3" data-testid="admin-role-branch-selector">
+                        <legend className="px-1 text-xs font-semibold text-zinc-700">변경 후 담당 지점</legend>
+                        {draftRole === "admin" ? (
+                          <p className="text-sm font-semibold text-zinc-800">전체 지점</p>
+                        ) : (
+                          <div className="grid gap-1 sm:grid-cols-2">
+                            {context.db.branches.map((branch) => (
+                              <label
+                                className="flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800"
+                                key={branch.id}
+                              >
+                                <input
+                                  checked={draftBranchIds.includes(branch.id)}
+                                  data-testid={`admin-role-branch-${user.id}-${branch.id}`}
+                                  type="checkbox"
+                                  onChange={() => toggleRoleBranch(user, branch.id)}
+                                />
+                                {branch.name}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs leading-5 text-zinc-600" data-testid="admin-role-scope-summary">
+                          현재 {user.role === "admin" ? "전체 지점" : user.branchIds.map((branchId) => branchById.get(branchId)?.name).filter(Boolean).join(", ") || "지점 없음"}
+                          {" → "}
+                          변경 {draftRole === "admin" ? "전체 지점" : draftBranchIds.map((branchId) => branchById.get(branchId)?.name).filter(Boolean).join(", ") || "지점 선택 필요"}
+                        </p>
+                      </fieldset>
                       <label>
                         <span className="sr-only">권한 변경 사유</span>
                         <input

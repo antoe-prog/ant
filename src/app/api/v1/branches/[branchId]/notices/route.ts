@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import type { AuditLog, Notice, NoticeAudience } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
@@ -27,6 +28,45 @@ type NoticeCreateBody = {
   targetClassIds?: string[];
   targetMemberIds?: string[];
 };
+
+const noticeIdempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
+
+function parseNoticeIdempotencyKey(value: string | null) {
+  if (value === null) {
+    return { ok: true as const, value: null };
+  }
+
+  if (value !== value.trim() || !noticeIdempotencyKeyPattern.test(value)) {
+    return {
+      ok: false as const,
+      message: "Idempotency-Key는 16~128자의 영문, 숫자, 점, 밑줄, 콜론 또는 하이픈이어야 합니다.",
+    };
+  }
+
+  return { ok: true as const, value };
+}
+
+function digest(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function createNoticeFingerprint(input: {
+  audience: NoticeAudience[];
+  body: string;
+  important: boolean;
+  targetClassIds: string[];
+  targetMemberIds: string[];
+  title: string;
+}) {
+  return digest(JSON.stringify({
+    audience: [...input.audience].sort(),
+    body: input.body,
+    important: input.important,
+    targetClassIds: [...input.targetClassIds].sort(),
+    targetMemberIds: [...input.targetMemberIds].sort(),
+    title: input.title,
+  }));
+}
 
 function isValidAudience(value: string): value is NoticeAudience {
   return value === "all" || userRoles.includes(value as (typeof userRoles)[number]);
@@ -60,6 +100,12 @@ export async function POST(
 
   if (initialSelectedScope.selectedBranchId && initialSelectedScope.selectedBranchId !== branchId) {
     return jsonError(403, "FORBIDDEN", "선택한 지점에 공지를 작성할 수 없습니다.");
+  }
+
+  const parsedIdempotencyKey = parseNoticeIdempotencyKey(request.headers.get("idempotency-key"));
+
+  if (!parsedIdempotencyKey.ok) {
+    return jsonError(400, "INVALID_IDEMPOTENCY_KEY", parsedIdempotencyKey.message);
   }
 
   const body = (await request.json().catch(() => null)) as NoticeCreateBody | null;
@@ -150,8 +196,64 @@ export async function POST(
       }
     }
 
+    const idempotencyFingerprint = parsedIdempotencyKey.value
+      ? createNoticeFingerprint({
+          audience,
+          body: noticeBody,
+          important,
+          targetClassIds,
+          targetMemberIds,
+          title,
+        })
+      : null;
+    const idempotencyDigest = parsedIdempotencyKey.value ? digest(parsedIdempotencyKey.value) : null;
+    const replayCreationAudit = idempotencyDigest
+      ? db.auditLogs.find(
+          (auditLog) =>
+            auditLog.action === "notice.create" &&
+            auditLog.actorUserId === user.id &&
+            auditLog.branchId === branchId &&
+            auditLog.after?.idempotencyDigest === idempotencyDigest,
+        )
+      : null;
+
+    if (replayCreationAudit) {
+      if (replayCreationAudit.after?.idempotencyFingerprint !== idempotencyFingerprint) {
+        return jsonError(409, "IDEMPOTENCY_CONFLICT", "같은 요청 키에 다른 공지 내용이 전달되었습니다.");
+      }
+
+      const replayNotice = db.notices.find(
+        (notice) => notice.id === replayCreationAudit.targetId && notice.branchId === branchId,
+      );
+      const dispatchAuditLogId = typeof replayCreationAudit.after?.dispatchAuditLogId === "string"
+        ? replayCreationAudit.after.dispatchAuditLogId
+        : "";
+      const replayDispatchAudit = db.auditLogs.find(
+        (auditLog) =>
+          auditLog.id === dispatchAuditLogId &&
+          auditLog.action === "notification.dispatch" &&
+          auditLog.targetId === replayCreationAudit.targetId,
+      );
+
+      if (!replayNotice || !replayDispatchAudit) {
+        return jsonError(409, "IDEMPOTENCY_CONFLICT", "이전 공지 발행 결과가 변경되어 재사용할 수 없습니다.");
+      }
+
+      return {
+        actorUserId: user.id,
+        auditLogId: replayDispatchAudit.id,
+        candidateCount: Number(replayDispatchAudit.after?.candidateCount ?? 0),
+        noticeId: replayNotice.id,
+        recipientCount: Number(replayDispatchAudit.after?.recipientCount ?? 0),
+        replayed: true,
+        selectedBranchId: selectedScope.selectedBranchId ?? branchId,
+      };
+    }
+
     const now = new Date().toISOString();
     const noticeId = `notice-${Date.now()}`;
+    const noticeAuditLogId = `audit-${Date.now()}-${db.auditLogs.length + 1}`;
+    const dispatchAuditLogId = `audit-${Date.now()}-${db.auditLogs.length + 2}`;
     const nextNotice: Notice = {
       id: noticeId,
       branchId,
@@ -172,7 +274,7 @@ export async function POST(
     const recipientCount = getNoticeFamilyRecipientCount(dbWithNotice, nextNotice);
     const candidateCount = getNoticePushSubscriptions(dbWithNotice, nextNotice).length;
     const noticeAuditLog: AuditLog = {
-      id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+      id: noticeAuditLogId,
       branchId,
       actorUserId: user.id,
       action: "notice.create",
@@ -186,13 +288,16 @@ export async function POST(
         createdByUserId: user.id,
         targetClassIds,
         targetMemberIds,
+        ...(idempotencyDigest && idempotencyFingerprint
+          ? { dispatchAuditLogId, idempotencyDigest, idempotencyFingerprint }
+          : {}),
       },
       result: "success",
       message: "공지를 작성했습니다.",
       createdAt: now,
     };
     const dispatchRequestAuditLog = createNoticePushDispatchRequestAuditLog({
-      auditId: `audit-${Date.now()}-${db.auditLogs.length + 2}`,
+      auditId: dispatchAuditLogId,
       branchId,
       actorUserId: user.id,
       noticeId,
@@ -214,6 +319,7 @@ export async function POST(
       candidateCount,
       noticeId,
       recipientCount,
+      replayed: false,
       selectedBranchId: selectedScope.selectedBranchId ?? branchId,
     };
   });
@@ -222,10 +328,12 @@ export async function POST(
     return creation;
   }
 
-  try {
-    await processNotificationOutbox({ auditLogId: creation.auditLogId, limit: Math.max(creation.candidateCount, 1) });
-  } catch {
-    // The durable jobs remain pending or leased for the scheduled worker.
+  if (!creation.replayed) {
+    try {
+      await processNotificationOutbox({ auditLogId: creation.auditLogId, limit: Math.max(creation.candidateCount, 1) });
+    } catch {
+      // The durable jobs remain pending or leased for the scheduled worker.
+    }
   }
 
   const responseDb = await readServerDb();
@@ -236,10 +344,13 @@ export async function POST(
   return jsonOk({
     ...createBootstrapPayload(responseDb, actor, creation.selectedBranchId),
     notice: { id: creation.noticeId },
+    idempotency: { replayed: creation.replayed },
     push: {
       ...summary,
       recipientCount: creation.recipientCount,
       message: requestAudit?.message ?? "공지 알림을 대기열에 저장했습니다.",
     },
+  }, {
+    headers: { "Idempotency-Replayed": String(creation.replayed) },
   });
 }

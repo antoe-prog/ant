@@ -102,12 +102,8 @@ export function OwnerReportsScreen() {
   const revenueDelta = latestTrend && previousTrend ? latestTrend.paidRevenue - previousTrend.paidRevenue : 0;
   const attendanceDelta = latestTrend && previousTrend ? latestTrend.attendanceRatePercent - previousTrend.attendanceRatePercent : 0;
   const riskDelta = latestTrend && previousTrend ? latestTrend.paymentRiskCount - previousTrend.paymentRiskCount : 0;
-  const ownerReportActiveTrendRows = trendRows.filter(
-    (row) =>
-      row.paidRevenue > 0 ||
-      row.paymentRiskCount > 0,
-  );
-  const ownerReportTrendGraphBaseRows = (ownerReportActiveTrendRows.length > 0 ? ownerReportActiveTrendRows : trendRows.slice(-1)).slice(-6);
+  const ownerReportActiveTrendRows = trendRows.filter(() => true);
+  const ownerReportTrendGraphBaseRows = ownerReportActiveTrendRows;
   const maxTrendRevenue = Math.max(...ownerReportTrendGraphBaseRows.map((row) => row.paidRevenue), 1);
   const maxTrendActivity = Math.max(
     ...ownerReportTrendGraphBaseRows.map((row) => row.attendanceRecords + row.newMembers + row.withdrawnMembers + row.memberChangeEvents),
@@ -150,11 +146,21 @@ export function OwnerReportsScreen() {
   const ownerReportTrendGraphRows = ownerReportTrendGraphBaseRows.map((row) => {
     const activitySignal = row.attendanceRecords + row.newMembers + row.withdrawnMembers + row.memberChangeEvents;
     const riskSignal = row.paymentRiskCount;
+    const hasObservedData =
+      row.classes > 0 ||
+      row.attendanceRecords > 0 ||
+      row.paidRevenue > 0 ||
+      row.paymentRiskCount > 0 ||
+      row.newMembers > 0 ||
+      row.withdrawnMembers > 0 ||
+      row.memberChangeEvents > 0;
 
     return {
       ...row,
       activityPercent: Math.max((activitySignal / maxTrendActivity) * 100, activitySignal > 0 ? 4 : 0),
       activitySignal,
+      dataStatus: hasObservedData ? "수집됨" : "미수집",
+      hasObservedData,
       revenuePercent: Math.max((row.paidRevenue / maxTrendRevenue) * 100, row.paidRevenue > 0 ? 4 : 0),
       riskPercent: Math.max((riskSignal / maxTrendRiskSignal) * 100, riskSignal > 0 ? 4 : 0),
       riskSignal,
@@ -317,8 +323,8 @@ export function OwnerReportsScreen() {
       actionHref: "/app/owner/reports",
       actionLabel: actionQueue.length > 0 ? "우선순위 보기" : "리포트 보기",
       badge: actionQueue.length > 0 ? "먼저" : "대기",
-      helper: actionQueue[0] ? `${actionQueue[0].branchName} · ${actionQueue[0].label}` : "오늘 우선 처리 없음",
-      label: "이번 주 액션",
+      helper: actionQueue[0] ? `${actionQueue[0].branchName} · ${actionQueue[0].label}` : "현재 미처리 없음",
+      label: "전체 미처리",
       tone: actionQueue.length > 0 ? "warning" : "neutral",
       value: String(actionQueue.length),
     },
@@ -382,7 +388,7 @@ export function OwnerReportsScreen() {
   ] as const;
   const ownerReportGraphRows = ownerReportKpiCards.map((card) => {
     const progress =
-      card.label === "이번 주 액션"
+      card.label === "전체 미처리"
         ? Math.min(100, Math.round((actionQueue.length / 5) * 100))
         : card.label === "지점 건강도"
           ? percentValue(healthyBranchCount, branchRows.length)
@@ -412,7 +418,7 @@ export function OwnerReportsScreen() {
     .map((row) => (row.label === "회원 유지" ? "유지" : row.label === "공지 도달" ? "공지" : row.label))
     .join("·");
   const ownerReportPrimaryGraphSummary =
-    actionQueue.length > 0 ? `${actionQueue[0]?.branchName ?? ownerReportFocusBranchName} 우선 점검 ${actionQueue.length}건` : "이번 주 우선 처리 없음";
+    actionQueue.length > 0 ? `${actionQueue[0]?.branchName ?? ownerReportFocusBranchName} 우선 점검 ${actionQueue.length}건` : "현재 미처리 없음";
   const ownerReportRiskPaymentTotalAmount = riskPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const ownerReportTopRiskPayment = [...riskPayments].sort(
     (left, right) =>
@@ -463,29 +469,186 @@ export function OwnerReportsScreen() {
 
   return (
     <div>
-      <SectionHeader
-        title="대표 운영 리포트"
-        action={
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="inline-flex min-h-11 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              type="button"
-              onClick={() => void handleExportOperations()}
-            >
-              <Download className="h-4 w-4" aria-hidden />
-              운영 내보내기
-            </button>
-            <button
-              className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
-              type="button"
-              onClick={() => void handleExportPayments()}
-            >
-              <Download className="h-4 w-4" aria-hidden />
-              결제 내보내기
-            </button>
+      <SectionHeader title="대표 운영 리포트" />
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-2" data-testid="owner-report-action-rail">
+        <div className="flex items-center justify-between gap-2 px-1">
+          <h2 className="text-sm font-semibold text-zinc-950">미처리 조치</h2>
+          <span className="rounded-md bg-zinc-50 px-1.5 py-0.5 text-xs font-semibold text-zinc-600">3개 영역</span>
+        </div>
+
+        <div className="mt-1.5 grid gap-1.5">
+          <div className="rounded-md bg-zinc-50 px-2 py-1.5" data-testid="owner-action-queue">
+            {actionQueue.length === 0 ? (
+              <div className="flex min-h-11 items-center gap-2 text-sm text-zinc-600">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                <span className="min-w-0 truncate">먼저 처리할 미처리 항목이 없습니다.</span>
+              </div>
+            ) : (
+              <ol className="space-y-1">
+                {ownerReportVisibleActionQueue.map((action, index) => {
+                  const toneClass =
+                    action.tone === "red"
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : action.tone === "amber"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : action.tone === "teal"
+                          ? "border-teal-200 bg-teal-50 text-teal-700"
+                          : "border-zinc-200 bg-white text-zinc-700";
+
+                  return (
+                    <li className="rounded-md bg-white px-2 py-1" data-testid="owner-action-queue-item" key={action.id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <AlertTriangle className="h-4 w-4 shrink-0 text-red-700" aria-hidden />
+                          <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
+                            {index + 1}. {action.label}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-semibold ${toneClass}`}>
+                          {action.owner}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-xs font-medium tabular-nums text-zinc-600">
+                        {action.branchName} · {action.detail}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            {ownerReportHiddenActionCount > 0 ? (
+              <button
+                className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                data-testid="owner-action-queue-toggle"
+                type="button"
+                onClick={() => setShowAllOwnerActions((current) => !current)}
+              >
+                {showAllOwnerActions ? "우선순위 접기" : `우선순위 ${ownerReportHiddenActionCount}건 더 보기`}
+              </button>
+            ) : null}
           </div>
-        }
-      />
+
+          <div className="rounded-md bg-zinc-50 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-zinc-500">지점 점검</p>
+              <TrendingUp className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+            </div>
+            <div className="mt-1 grid gap-1" data-testid="owner-report-priority-branch-list">
+              {ownerReportVisiblePriorityRows.map((row) => (
+                <div className="rounded-md bg-white px-2 py-1" data-testid="owner-report-priority-branch-row" key={row.branch.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-zinc-950">{row.branch.name}</p>
+                    <span className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold ${
+                      row.riskScore > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}>
+                      점검 {row.riskScore}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-semibold text-zinc-700">
+                      출석 {row.attendancePercent}%
+                    </span>
+                    <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-semibold text-zinc-700">
+                      미처리 {row.attendanceGap}
+                    </span>
+                    <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-semibold text-zinc-700">
+                      결제 {row.riskPayments}
+                    </span>
+                    <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-semibold text-zinc-700">
+                      휴면 {row.pausedMembers}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {ownerReportHiddenPriorityCount > 0 ? (
+              <button
+                className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                data-testid="owner-report-priority-branch-toggle"
+                type="button"
+                onClick={() => setShowAllOwnerPriorityBranches((current) => !current)}
+              >
+                {showAllOwnerPriorityBranches ? "점검 지점 접기" : `점검 지점 ${ownerReportHiddenPriorityCount}곳 더 보기`}
+              </button>
+            ) : null}
+          </div>
+
+          <div className="rounded-md bg-zinc-50 px-2 py-1.5">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden />
+              <p className="text-xs font-semibold text-zinc-500">결제 위험</p>
+            </div>
+            {riskPayments.length === 0 ? (
+              <p className="mt-1 rounded-md bg-white px-2 py-1.5 text-sm text-zinc-600">위험 결제 항목이 없습니다.</p>
+            ) : (
+              <>
+                <div className="mt-1 rounded-md bg-white px-2 py-1" data-testid="owner-report-risk-payment-summary">
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-zinc-950">{riskPayments.length}건 확인 필요</p>
+                      <p className="mt-0.5 break-words text-xs leading-4 text-zinc-600">
+                        {ownerReportTopRiskMember?.name ?? "회원 확인 중"} · {formatCurrency(ownerReportRiskPaymentTotalAmount)}
+                      </p>
+                    </div>
+                    {ownerReportTopRiskPayment ? <PaymentStatusBadge status={ownerReportTopRiskPayment.status} /> : null}
+                  </div>
+                </div>
+                <button
+                  className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  data-testid="owner-report-risk-payment-toggle"
+                  type="button"
+                  onClick={() => setShowOwnerRiskPaymentList((current) => !current)}
+                >
+                  {showOwnerRiskPaymentList ? "목록 접기" : `위험 결제 ${riskPayments.length}건 보기`}
+                </button>
+                {showOwnerRiskPaymentList ? (
+                  <div className="mt-1.5 space-y-1" data-testid="owner-report-risk-payment-list">
+                    {riskPayments.slice(0, 5).map((payment) => {
+                      const member = context.db.members.find((candidate) => candidate.id === payment.memberId);
+
+                      return (
+                        <div className="rounded-md border border-zinc-200 px-2 py-1.5" key={payment.id}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-zinc-950">{member?.name ?? "회원 확인 중"}</p>
+                            <PaymentStatusBadge status={payment.status} />
+                          </div>
+                          <p className="mt-0.5 text-xs text-zinc-600">{payment.planName}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <details className="my-3 rounded-md border border-zinc-200 bg-white" data-testid="owner-report-export-controls">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-semibold text-zinc-700">
+          <Download className="h-4 w-4 text-zinc-500" aria-hidden />
+          내보내기
+        </summary>
+        <div className="grid gap-2 border-t border-zinc-100 p-2 sm:grid-cols-2">
+          <button
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            type="button"
+            onClick={() => void handleExportOperations()}
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            운영 내보내기
+          </button>
+          <button
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+            type="button"
+            onClick={() => void handleExportPayments()}
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            결제 내보내기
+          </button>
+        </div>
+      </details>
 
       {exportStatus ? (
         <p className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
@@ -510,7 +673,7 @@ export function OwnerReportsScreen() {
         <div className="mt-1.5 rounded-md bg-zinc-50 px-2 py-0.5">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-zinc-500">이번 주 우선 신호</p>
+              <p className="text-xs font-semibold text-zinc-500">전체 미처리 신호</p>
               <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4 text-zinc-600">
                 <span className="shrink-0 text-lg font-semibold tabular-nums text-zinc-950">{ownerReportPrimaryGraphRow.value}</span>
                 <span className="min-w-0 break-words">{ownerReportPrimaryGraphSummary}</span>
@@ -555,7 +718,7 @@ export function OwnerReportsScreen() {
                   <p className="min-w-0 truncate text-xs font-semibold leading-4 text-zinc-600" data-testid="owner-report-secondary-graph-label">
                     {compactLabel}
                   </p>
-                  {row.badge ? <span className={`shrink-0 text-[10px] font-semibold ${row.toneClass.guide}`}>{row.badge}</span> : null}
+                  {row.badge ? <span className={`shrink-0 text-xs font-semibold ${row.toneClass.guide}`}>{row.badge}</span> : null}
                 </div>
                 <div className="mt-0.5 flex min-w-0 items-center justify-between gap-1">
                   <span className="min-w-0 truncate text-sm font-semibold tabular-nums text-zinc-950">{row.value}</span>
@@ -633,7 +796,7 @@ export function OwnerReportsScreen() {
               data-testid="owner-report-trend-summary-row"
               key={row.label}
             >
-              <span className="text-[11px] font-semibold leading-4 text-zinc-500">{row.label}</span>
+              <span className="text-xs font-semibold leading-4 text-zinc-500">{row.label}</span>
               <span className="min-w-0">
                 <span className="block h-1.5 overflow-hidden rounded-full bg-white" aria-hidden>
                   <span className={`block h-full rounded-full ${row.tone}`} style={{ width: `${row.percent}%` }} />
@@ -658,7 +821,16 @@ export function OwnerReportsScreen() {
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-zinc-950">{row.label}</p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-sm font-semibold text-zinc-950">{row.label}</p>
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${
+                          row.hasObservedData ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-500"
+                        }`}
+                      >
+                        {row.dataStatus}
+                      </span>
+                    </div>
                     <p className="mt-1 text-xs text-zinc-500">출석 {row.attendanceRatePercent}% · 순증 {signedValue(row.netMemberChange, "명")}</p>
                   </div>
                   <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-zinc-950">{formatCurrency(row.paidRevenue)}</span>
@@ -702,7 +874,7 @@ export function OwnerReportsScreen() {
               type="button"
               onClick={() => setShowAllOwnerTrendGraphRows((current) => !current)}
             >
-              {showAllOwnerTrendGraphRows ? "추세 접기" : `추세 ${ownerReportHiddenTrendGraphCount}개 더 보기`}
+              {showAllOwnerTrendGraphRows ? "최근 2개월만 보기" : `최근 ${trendPeriodMonths}개월 전체 보기`}
             </button>
           ) : null}
         </div>
@@ -716,7 +888,7 @@ export function OwnerReportsScreen() {
             <span>회원 순증</span>
           </div>
           <div className="divide-y divide-zinc-100">
-            {trendRows.map((row) => {
+            {ownerReportTrendGraphRows.map((row) => {
               const activityWidth = Math.max(
                 ((row.attendanceRecords + row.newMembers + row.withdrawnMembers + row.memberChangeEvents) / maxTrendActivity) * 100,
                 4,
@@ -726,7 +898,16 @@ export function OwnerReportsScreen() {
               return (
                 <article className="grid gap-3 px-3 py-3 md:grid-cols-[0.7fr_1fr_0.75fr_0.75fr_0.75fr] md:items-center" key={row.key}>
                   <div>
-                    <p className="text-sm font-semibold text-zinc-950">{row.label}</p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-sm font-semibold text-zinc-950">{row.label}</p>
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${
+                          row.hasObservedData ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-500"
+                        }`}
+                      >
+                        {row.dataStatus}
+                      </span>
+                    </div>
                     <p className="mt-1 text-xs text-zinc-500">수업 {row.classes} · 슬롯 {row.enrolledSlots}</p>
                   </div>
                   <div className="min-w-0">
@@ -774,7 +955,7 @@ export function OwnerReportsScreen() {
                       <span className="ml-1 text-xs font-medium text-zinc-500">{row.branch.district}</span>
                     </p>
                   </div>
-                  <p className="shrink-0 rounded-md bg-zinc-50 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-600 md:mt-1 md:inline-block">
+                  <p className="shrink-0 rounded-md bg-zinc-50 px-1.5 py-0.5 text-xs font-semibold text-zinc-600 md:mt-1 md:inline-block">
                     수업 {row.classes}
                   </p>
                 </div>
@@ -785,11 +966,11 @@ export function OwnerReportsScreen() {
                       data-testid="owner-report-branch-graph-row"
                       key={`${row.branch.id}-${graph.label}`}
                     >
-                      <p className="truncate text-[11px] font-semibold text-zinc-600">{graph.label}</p>
+                      <p className="truncate text-xs font-semibold text-zinc-600">{graph.label}</p>
                       <div className="h-1.5 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className={`h-full rounded-full ${graph.tone}`} style={{ width: `${graph.percent}%` }} />
                       </div>
-                      <p className="shrink-0 truncate text-[11px] font-semibold tabular-nums text-zinc-950">{graph.value}</p>
+                      <p className="shrink-0 truncate text-xs font-semibold tabular-nums text-zinc-950">{graph.value}</p>
                     </div>
                   ))}
                 </div>
@@ -810,159 +991,6 @@ export function OwnerReportsScreen() {
           ) : null}
         </div>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-2" data-testid="owner-report-action-rail">
-          <div className="flex items-center justify-between gap-2 px-1">
-            <h2 className="text-sm font-semibold text-zinc-950">오늘 조치</h2>
-            <span className="rounded-md bg-zinc-50 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-600">3개 영역</span>
-          </div>
-
-          <div className="mt-1.5 grid gap-1.5">
-            <div className="rounded-md bg-zinc-50 px-2 py-1.5" data-testid="owner-action-queue">
-              {actionQueue.length === 0 ? (
-                <div className="flex min-h-11 items-center gap-2 text-sm text-zinc-600">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-                  <span className="min-w-0 truncate">오늘 먼저 처리할 항목이 없습니다.</span>
-                </div>
-              ) : (
-                <ol className="space-y-1">
-                  {ownerReportVisibleActionQueue.map((action, index) => {
-                    const toneClass =
-                      action.tone === "red"
-                        ? "border-red-200 bg-red-50 text-red-700"
-                        : action.tone === "amber"
-                          ? "border-amber-200 bg-amber-50 text-amber-700"
-                          : action.tone === "teal"
-                            ? "border-teal-200 bg-teal-50 text-teal-700"
-                            : "border-zinc-200 bg-white text-zinc-700";
-
-                    return (
-                      <li className="rounded-md bg-white px-2 py-1" data-testid="owner-action-queue-item" key={action.id}>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <AlertTriangle className="h-4 w-4 shrink-0 text-red-700" aria-hidden />
-                            <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
-                              {index + 1}. {action.label}
-                            </p>
-                          </div>
-                          <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${toneClass}`}>
-                            {action.owner}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 truncate text-xs font-medium tabular-nums text-zinc-600">
-                          {action.branchName} · {action.detail}
-                        </p>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-              {ownerReportHiddenActionCount > 0 ? (
-                <button
-                  className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                  data-testid="owner-action-queue-toggle"
-                  type="button"
-                  onClick={() => setShowAllOwnerActions((current) => !current)}
-                >
-                  {showAllOwnerActions ? "우선순위 접기" : `우선순위 ${ownerReportHiddenActionCount}건 더 보기`}
-                </button>
-              ) : null}
-            </div>
-
-            <div className="rounded-md bg-zinc-50 px-2 py-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-zinc-500">지점 점검</p>
-                <TrendingUp className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
-              </div>
-              <div className="mt-1 grid gap-1" data-testid="owner-report-priority-branch-list">
-                {ownerReportVisiblePriorityRows.map((row) => (
-                  <div className="rounded-md bg-white px-2 py-1" data-testid="owner-report-priority-branch-row" key={row.branch.id}>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-zinc-950">{row.branch.name}</p>
-                      <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${
-                        row.riskScore > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      }`}>
-                        점검 {row.riskScore}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">
-                        출석 {row.attendancePercent}%
-                      </span>
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">
-                        미처리 {row.attendanceGap}
-                      </span>
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">
-                        결제 {row.riskPayments}
-                      </span>
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">
-                        휴면 {row.pausedMembers}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {ownerReportHiddenPriorityCount > 0 ? (
-                <button
-                  className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                  data-testid="owner-report-priority-branch-toggle"
-                  type="button"
-                  onClick={() => setShowAllOwnerPriorityBranches((current) => !current)}
-                >
-                  {showAllOwnerPriorityBranches ? "점검 지점 접기" : `점검 지점 ${ownerReportHiddenPriorityCount}곳 더 보기`}
-                </button>
-              ) : null}
-            </div>
-
-            <div className="rounded-md bg-zinc-50 px-2 py-1.5">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden />
-                <p className="text-xs font-semibold text-zinc-500">결제 위험</p>
-              </div>
-              {riskPayments.length === 0 ? (
-                <p className="mt-1 rounded-md bg-white px-2 py-1.5 text-sm text-zinc-600">위험 결제 항목이 없습니다.</p>
-              ) : (
-                <>
-                  <div className="mt-1 rounded-md bg-white px-2 py-1" data-testid="owner-report-risk-payment-summary">
-                    <div className="flex min-w-0 items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-semibold text-zinc-950">{riskPayments.length}건 확인 필요</p>
-                        <p className="mt-0.5 break-words text-xs leading-4 text-zinc-600">
-                          {ownerReportTopRiskMember?.name ?? "회원 확인 중"} · {formatCurrency(ownerReportRiskPaymentTotalAmount)}
-                        </p>
-                      </div>
-                      {ownerReportTopRiskPayment ? <PaymentStatusBadge status={ownerReportTopRiskPayment.status} /> : null}
-                    </div>
-                  </div>
-                  <button
-                    className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                    data-testid="owner-report-risk-payment-toggle"
-                    type="button"
-                    onClick={() => setShowOwnerRiskPaymentList((current) => !current)}
-                  >
-                    {showOwnerRiskPaymentList ? "목록 접기" : `위험 결제 ${riskPayments.length}건 보기`}
-                  </button>
-                  {showOwnerRiskPaymentList ? (
-                    <div className="mt-1.5 space-y-1" data-testid="owner-report-risk-payment-list">
-                      {riskPayments.slice(0, 5).map((payment) => {
-                        const member = context.db.members.find((candidate) => candidate.id === payment.memberId);
-
-                        return (
-                          <div className="rounded-md border border-zinc-200 px-2 py-1.5" key={payment.id}>
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-zinc-950">{member?.name ?? "회원 확인 중"}</p>
-                              <PaymentStatusBadge status={payment.status} />
-                            </div>
-                            <p className="mt-0.5 text-xs text-zinc-600">{payment.planName}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </div>
-        </section>
       </section>
     </div>
   );

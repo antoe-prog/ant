@@ -49,7 +49,12 @@ export function ErrorState({ title = "화면을 불러오지 못했습니다", d
   onRetry?: () => void;
 }) {
   return (
-    <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-red-200 bg-red-50 p-4 text-center sm:min-h-[220px] sm:p-6">
+    <div
+      aria-atomic="true"
+      aria-live="assertive"
+      className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-red-200 bg-red-50 p-4 text-center sm:min-h-[220px] sm:p-6"
+      role="alert"
+    >
       <AlertTriangle className="h-7 w-7 text-red-600 sm:h-8 sm:w-8" aria-hidden />
       <h2 className="mt-2 text-base font-semibold text-red-950 sm:mt-3">{title}</h2>
       <p className="mt-1 max-w-md text-sm leading-6 text-red-700">{description}</p>

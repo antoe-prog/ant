@@ -27,6 +27,23 @@ const chromeCandidates = [
 let managedAppServer = null;
 let usingExistingAppServer = false;
 
+function signalManagedAppServer(signal) {
+  if (!managedAppServer || managedAppServer.exitCode !== null) {
+    return;
+  }
+
+  if (process.platform !== "win32" && managedAppServer.pid) {
+    try {
+      process.kill(-managedAppServer.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct child when a process group is unavailable.
+    }
+  }
+
+  managedAppServer.kill(signal);
+}
+
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
 }
@@ -89,11 +106,17 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const target = new URL(baseUrl);
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", target.hostname, "--port", target.port],
+    {
+      cwd: process.cwd(),
+      detached: process.platform !== "win32",
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.ADMIN_USER_MANAGEMENT_TOUCH_TARGETS_SERVER_LOGS === "1") {
@@ -118,13 +141,13 @@ async function stopManagedAppServer() {
     managedAppServer.once("close", resolve);
   });
 
-  managedAppServer.kill("SIGINT");
+  signalManagedAppServer("SIGINT");
 
   await Promise.race([
     closed,
     sleep(5000).then(() => {
       if (managedAppServer?.exitCode === null) {
-        managedAppServer.kill("SIGTERM");
+        signalManagedAppServer("SIGTERM");
       }
     }),
   ]);
@@ -218,11 +241,18 @@ function assertStaticContracts() {
     'data-testid={`admin-user-password-reset-reason-input-${user.id}`}',
     'data-testid={`admin-user-member-link-search-input-${user.id}`}',
     'data-testid={`admin-user-guardian-child-search-input-${user.id}`}',
+    'data-testid={`admin-user-approved-password-dismiss-${user.id}`}',
+    'data-testid={`admin-user-issued-password-dismiss-${user.id}`}',
+    "clearSensitivePasswordState();",
+    "requestId !== sensitivePasswordRequestRef.current",
+    'className="divide-y divide-zinc-100"',
   ]) {
     assert(adminUsersScreen.includes(snippet), `admin users screen must include ${snippet}`);
   }
 
   for (const forbidden of [
+    'className="max-h-36 divide-y',
+    "overflow-y-auto overscroll-contain",
     'className="h-10 w-full',
     'className="inline-flex h-10',
     'className="inline-flex min-h-10',
@@ -330,12 +360,28 @@ async function captureAdminUsers(context) {
       inviteToggleHeights: await readHeights(page, '[data-testid="admin-user-invite-toggle"]'),
       listActionHeights: await readHeights(page, '[data-testid^="admin-user-action-stack-"] button'),
       pendingInviteActionHeights: await readHeights(page, '[data-testid^="admin-user-pending-invite-link-"]'),
+      listFlow: await page.locator('[data-testid="admin-user-list-scroll-region"]').evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        overflowY: window.getComputedStyle(element).overflowY,
+        rowCount: element.querySelectorAll('[data-testid="admin-user-list-row"]').length,
+        scrollHeight: element.scrollHeight,
+      })),
+      listStatus: await page.getByTestId("admin-user-list-status-label").textContent(),
     };
 
     assert.equal(collapsedLayout.health.frameworkOverlayCount, 0, "admin users collapsed state must not show a framework overlay");
     assert(collapsedLayout.health.bodyTextLength > 100, "admin users collapsed state must not render a blank page");
     assert.equal(collapsedLayout.health.horizontalOverflow, 0, "admin users collapsed state must not overflow horizontally");
     assert.equal(collapsedLayout.inviteFormCount, 0, "admin user invite form must stay collapsed by default");
+    assert.equal(collapsedLayout.listFlow.overflowY, "visible", "admin user list must use page flow instead of nested scrolling");
+    assert(
+      collapsedLayout.listFlow.scrollHeight <= collapsedLayout.listFlow.clientHeight + 1,
+      `admin user list must not have clipped rows; got ${collapsedLayout.listFlow.clientHeight}/${collapsedLayout.listFlow.scrollHeight}px`,
+    );
+    const listStatusMatch = collapsedLayout.listStatus?.match(/(\d+)\/(\d+)명 표시/);
+    assert(listStatusMatch, `admin user list status must expose visible/total counts; got ${collapsedLayout.listStatus}`);
+    assert.equal(Number.parseInt(listStatusMatch[1], 10), collapsedLayout.listFlow.rowCount, "visible count must match rendered rows");
+    assert.equal(Number.parseInt(listStatusMatch[2], 10), collapsedLayout.listFlow.rowCount, "unfiltered total must match rendered rows");
     assertHeightsAtLeast("admin user invite toggle", collapsedLayout.inviteToggleHeights);
     assertHeightsAtLeast("admin user row action controls", collapsedLayout.listActionHeights);
     if (collapsedLayout.pendingInviteActionHeights.length > 0) {
@@ -361,7 +407,12 @@ async function captureAdminUsers(context) {
       { timeout: 10000 },
     );
 
-    await openFirstVisible(page, '[data-testid^="admin-user-password-reset-toggle-"]', '[id^="admin-user-password-reset-"]');
+    // Reset another user's password so revoking that account's sessions cannot invalidate the admin test session.
+    await openFirstVisible(
+      page,
+      '[data-testid^="admin-user-password-reset-toggle-"]:not([data-testid="admin-user-password-reset-toggle-user-admin"])',
+      '[id^="admin-user-password-reset-"]',
+    );
     await page.waitForSelector('[data-testid^="admin-user-password-reset-reason-input-"]', { timeout: 15000 });
     await page.locator('[data-testid^="admin-user-password-reset-reason-input-"]').first().fill("모바일 터치 검증");
     const passwordResetHeights = {
@@ -372,12 +423,51 @@ async function captureAdminUsers(context) {
     const resetFormId = await page.locator('[id^="admin-user-password-reset-"]').first().getAttribute("id");
     assert(resetFormId, "admin user password reset form must expose an id");
     const resetUserId = resetFormId.replace("admin-user-password-reset-", "");
-    await page.locator(`[data-testid="admin-user-password-reset-toggle-${resetUserId}"]`).click();
+    await page.locator(`#${resetFormId} button[type="submit"]`).click();
+    const issuedPasswordDismiss = page.getByTestId(`admin-user-issued-password-dismiss-${resetUserId}`);
+    await issuedPasswordDismiss.waitFor({ state: "visible", timeout: 15000 });
+    assert.equal(await page.getByText("새 비밀번호:", { exact: false }).count(), 1, "issued password must be shown once after reset");
+    assertHeightsAtLeast(
+      "admin user issued password confirmation",
+      await readHeights(page, `[data-testid="admin-user-issued-password-dismiss-${resetUserId}"]`),
+    );
+    await issuedPasswordDismiss.click();
     await page.waitForFunction(
-      (userId) => document.querySelectorAll(`#admin-user-password-reset-${userId}`).length === 0,
+      (userId) =>
+        document.querySelectorAll(`[data-testid="admin-user-issued-password-dismiss-${userId}"]`).length === 0 &&
+        !document.body.innerText.includes("새 비밀번호:"),
       resetUserId,
       { timeout: 10000 },
     );
+
+    await page.locator(`[data-testid="admin-user-password-reset-toggle-${resetUserId}"]`).click();
+    await page.waitForSelector(`#admin-user-password-reset-${resetUserId}`, { timeout: 10000 });
+    assert.equal(
+      await page.getByTestId(`admin-user-issued-password-dismiss-${resetUserId}`).count(),
+      0,
+      "dismissed issued password must not reappear when the panel reopens",
+    );
+    await page.getByTestId(`admin-user-password-reset-reason-input-${resetUserId}`).fill("닫기 상태 폐기 검증");
+    await page.locator(`#admin-user-password-reset-${resetUserId} button[type="submit"]`).click();
+    await page.getByTestId(`admin-user-issued-password-dismiss-${resetUserId}`).waitFor({ state: "visible", timeout: 15000 });
+    await page.locator(`[data-testid="admin-user-password-reset-toggle-${resetUserId}"]`).click();
+    await page.waitForFunction(
+      (userId) =>
+        document.querySelectorAll(`#admin-user-password-reset-${userId}`).length === 0 &&
+        document.querySelectorAll(`[data-testid="admin-user-issued-password-dismiss-${userId}"]`).length === 0 &&
+        !document.body.innerText.includes("새 비밀번호:"),
+      resetUserId,
+      { timeout: 10000 },
+    );
+
+    await page.locator(`[data-testid="admin-user-password-reset-toggle-${resetUserId}"]`).click();
+    await page.waitForSelector(`#admin-user-password-reset-${resetUserId}`, { timeout: 10000 });
+    assert.equal(
+      await page.getByTestId(`admin-user-issued-password-dismiss-${resetUserId}`).count(),
+      0,
+      "closed issued password must not reappear when the panel reopens",
+    );
+    await page.locator(`[data-testid="admin-user-password-reset-toggle-${resetUserId}"]`).click();
 
     const deleteToggle = page.locator('[data-testid^="admin-user-delete-toggle-"]').first();
     let deleteHeights = {};
@@ -409,6 +499,7 @@ async function captureAdminUsers(context) {
       editControls: await readHeights(page, "[data-admin-user-edit-control='true']"),
       memberShortcut: await readHeights(page, '[data-testid^="admin-user-member-link-create-shortcut-"]'),
     };
+    await page.locator('[data-testid^="admin-user-edit-action-bar-"]').scrollIntoViewIfNeeded();
     const openHealth = await collectPageHealth(page);
 
     assert.equal(openHealth.frameworkOverlayCount, 0, "admin users opened forms must not show a framework overlay");
@@ -428,6 +519,41 @@ async function captureAdminUsers(context) {
     }
     await page.screenshot({ fullPage: false, path: openScreenshotPath });
 
+    const inviteFields = page.getByTestId("admin-user-invite-field");
+    await inviteFields.nth(0).fill("초대 비밀번호 검증");
+    await inviteFields.nth(1).fill("01099998888");
+    await page.locator('#admin-user-invite-form input[type="checkbox"]').first().check();
+    await page.locator('#admin-user-invite-form button[type="submit"]').click();
+    await page.getByText("초대 링크가 준비됐습니다.").waitFor({ state: "visible", timeout: 15000 });
+
+    const pendingInviteRow = page.locator('[data-admin-user-invitation-status="pending"]').first();
+    const approvalToggle = pendingInviteRow.locator('[data-admin-user-action="approve-invitation"]');
+    const approvalToggleTestId = await approvalToggle.getAttribute("data-testid");
+    assert(approvalToggleTestId, "pending invitation must expose an approval control");
+    const approvalUserId = approvalToggleTestId.replace("admin-user-approve-invitation-", "");
+    await approvalToggle.click();
+    await page.getByTestId(`admin-user-confirm-approve-invitation-${approvalUserId}`).click();
+    const approvedPasswordDismiss = page.getByTestId(`admin-user-approved-password-dismiss-${approvalUserId}`);
+    await approvedPasswordDismiss.waitFor({ state: "visible", timeout: 15000 });
+    assertHeightsAtLeast(
+      "admin user approved invitation password confirmation",
+      await readHeights(page, `[data-testid="admin-user-approved-password-dismiss-${approvalUserId}"]`),
+    );
+    await approvedPasswordDismiss.click();
+    await page.waitForFunction(
+      (userId) =>
+        document.querySelectorAll(`[data-testid="admin-user-approved-password-dismiss-${userId}"]`).length === 0 &&
+        !document.body.innerText.includes("첫 접속 비밀번호:"),
+      approvalUserId,
+      { timeout: 10000 },
+    );
+
+    await page.goto(new URL("/app/dashboard", baseUrl).toString(), { waitUntil: "networkidle" });
+    await page.goto(new URL("/app/admin/users", baseUrl).toString(), { waitUntil: "networkidle" });
+    await page.waitForSelector('[data-testid="admin-user-list-scroll-region"]', { timeout: 15000 });
+    assert.equal(await page.getByText("첫 접속 비밀번호:", { exact: false }).count(), 0, "approved password must not survive a route change");
+    assert.equal(await page.getByText("새 비밀번호:", { exact: false }).count(), 0, "issued password must not survive a route change");
+
     assert.deepEqual(messages, [], "admin user management touch-target flow must not emit console warnings/errors");
 
     return {
@@ -440,6 +566,68 @@ async function captureAdminUsers(context) {
         { label: "admin users collapsed", path: collapsedScreenshotPath, sizeBytes: statSync(collapsedScreenshotPath).size },
         { label: "admin users open", path: openScreenshotPath, sizeBytes: statSync(openScreenshotPath).size },
       ],
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function captureMemberDialogAccessibility(context) {
+  const page = await context.newPage();
+  const messages = collectConsoleMessages(page);
+  const screenshotPath = join(outDir, "member-detail-dialog-mobile.png");
+
+  try {
+    await page.goto(new URL("/app/members", baseUrl).toString(), { waitUntil: "networkidle" });
+    const toggle = page.locator('[data-testid^="member-detail-toggle-"]').first();
+    await toggle.waitFor({ state: "visible", timeout: 15000 });
+    const toggleTestId = await toggle.getAttribute("data-testid");
+    assert(toggleTestId, "member detail trigger must expose a test id");
+    const memberId = toggleTestId.replace("member-detail-toggle-", "");
+
+    await toggle.click();
+    const dialog = page.getByTestId(`member-detail-dialog-${memberId}`);
+    await dialog.waitFor({ state: "visible", timeout: 10000 });
+    await page.waitForFunction(
+      (targetMemberId) => document.activeElement?.getAttribute("data-testid") === `member-detail-close-${targetMemberId}`,
+      memberId,
+      { timeout: 10000 },
+    );
+
+    const openState = await dialog.evaluate((element) => ({
+      activeElementInside: element.contains(document.activeElement),
+      isModal: element.matches(":modal"),
+      open: element instanceof HTMLDialogElement && element.open,
+    }));
+    assert.deepEqual(
+      openState,
+      { activeElementInside: true, isModal: true, open: true },
+      "member detail must use a native modal dialog with focus inside",
+    );
+    await page.screenshot({ fullPage: false, path: screenshotPath });
+
+    await page.keyboard.press("Shift+Tab");
+    assert(
+      await dialog.evaluate((element) => element.contains(document.activeElement)),
+      "member detail modal must keep keyboard focus inside after reverse tabbing",
+    );
+
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      ({ targetMemberId, targetToggleTestId }) =>
+        document.querySelectorAll(`[data-testid="member-detail-dialog-${targetMemberId}"]`).length === 0 &&
+        document.activeElement?.getAttribute("data-testid") === targetToggleTestId,
+      { targetMemberId: memberId, targetToggleTestId: toggleTestId },
+      { timeout: 10000 },
+    );
+
+    assert.deepEqual(messages, [], "member detail modal flow must not emit console warnings/errors");
+
+    return {
+      messages,
+      openState,
+      returnFocusTestId: await page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? null),
+      screenshot: { label: "member detail dialog", path: screenshotPath, sizeBytes: statSync(screenshotPath).size },
     };
   } finally {
     await page.close();
@@ -463,6 +651,7 @@ async function main() {
 
   try {
     const adminUsers = await captureAdminUsers(context);
+    const memberDialog = await captureMemberDialogAccessibility(context);
     const iosSimulator = readIosSimulatorProof();
     const minOpenTouchHeight = minMeasuredHeight({
       ...adminUsers.openControlHeights,
@@ -485,10 +674,14 @@ async function main() {
         inviteFormCollapsedByDefault: adminUsers.collapsedLayout.inviteFormCount === 0,
         iosSimulatorNoBrowserChrome: iosSimulator.ok === true,
         minOpenTouchHeight,
+        memberDialogFocusContained: memberDialog.openState.activeElementInside,
+        memberDialogModal: memberDialog.openState.isModal,
+        memberDialogReturnFocus: memberDialog.returnFocusTestId,
         rowActionsAtLeast44: Math.min(...adminUsers.collapsedLayout.listActionHeights) >= 44,
       },
       adminUsers,
-      screenshots: adminUsers.screenshots,
+      memberDialog,
+      screenshots: [...adminUsers.screenshots, memberDialog.screenshot],
       iosSimulator,
       resetBefore,
       resetAfter: await resetDevData("after"),

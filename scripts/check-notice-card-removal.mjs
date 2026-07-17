@@ -108,9 +108,9 @@ assert(
 );
 assert(
   noticesScreenSource.includes('data-testid="notice-delivery-body"') &&
-    noticesScreenSource.includes("hidden break-words") &&
-    noticesScreenSource.includes("sm:block"),
-  "notices screen must keep operator notice body previews hidden on mobile so delete cards stay compact",
+    noticesScreenSource.includes('data-testid="notice-delivery-body-toggle"') &&
+    noticesScreenSource.includes("line-clamp-2"),
+  "notices screen must keep a bounded, expandable operator body preview on mobile",
 );
 assert(
   noticesScreenSource.includes("handleDeleteNotice") &&
@@ -187,13 +187,13 @@ assert(
 );
 assert(
   visibleCopyTestSource.includes("noticeDeliveryBodyVisibleCount") &&
-    visibleCopyTestSource.includes("must hide operator notice body previews on mobile"),
-  "visible copy stability test must keep the operator notice body preview mobile-density guard",
+    visibleCopyTestSource.includes("must show one bounded operator notice preview per card on mobile"),
+  "visible copy stability test must keep the operator notice body preview visibility guard",
 );
 assert(
   noticeDeleteUiSource.includes("noticeDeliveryBodyVisibleCount") &&
-    noticeDeleteUiSource.includes("compact card must stay at or below 132px"),
-  "notice delete UI test must keep operator notice compact-card height proof",
+    noticeDeleteUiSource.includes("card with preview must stay at or below 188px"),
+  "notice delete UI test must keep operator notice preview-card height proof",
 );
 assert(
   visibleCopyTestSource.includes("layout.noticeOperationsMetricCount, 0"),

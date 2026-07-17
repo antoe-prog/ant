@@ -9,6 +9,7 @@ const note = `Mobile E2E attendance ${Date.now()}`;
 const offlineNote = `Mobile E2E offline queue ${Date.now()}`;
 const coachPhone = "01031967428";
 const coachPassword = process.env.SMOKE_COACH_PASSWORD ?? "FinalJudoPilot!2026";
+const attendanceQueueKeyPrefix = "final-judo-pending-attendance:";
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -67,6 +68,19 @@ async function logoutWithApi(page) {
   });
   await page.context().clearCookies();
   await page.goto("about:blank");
+}
+
+async function getCurrentUserId(page) {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/v1/me/bootstrap");
+    const payload = await response.json();
+
+    return payload.data?.user?.id ?? null;
+  });
+}
+
+function getAttendanceQueueKey(userId) {
+  return `${attendanceQueueKeyPrefix}${encodeURIComponent(userId)}`;
 }
 
 async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
@@ -201,6 +215,26 @@ async function run() {
     isMobile: true,
   });
   const page = await context.newPage();
+  let attendanceFailureBudget = 0;
+
+  await page.route(/\/api\/v1\/class-sessions\/[^/]+\/attendance(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === "PUT" && attendanceFailureBudget > 0) {
+      attendanceFailureBudget -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "TEST_ATTENDANCE_SAVE_FAILURE",
+            message: "출석 저장 테스트 실패",
+          },
+        }),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
 
   try {
     await loginWithRoleShortcut(page, "member");
@@ -212,6 +246,10 @@ async function run() {
     await logoutWithApi(page);
 
     await loginWithCredentials(page, coachPhone);
+    const coachUserId = await getCurrentUserId(page);
+
+    assert(coachUserId, "credential login must expose the current coach user id");
+    const coachAttendanceQueueKey = getAttendanceQueueKey(coachUserId);
     const mainContent = page.getByRole("main");
     await mainContent.getByRole("heading", { name: "대시보드", exact: true }).waitFor({ timeout: 10000 });
     const coachDashboardFollowUpPanel = page.getByTestId("coach-dashboard-follow-up-panel");
@@ -746,7 +784,59 @@ async function run() {
     assert(wholeClassButtonBox, "whole-class attendance button must have a visible bounding box");
     assert(wholeClassButtonBox.height >= 44, `whole-class attendance button height must be at least 44px, got ${wholeClassButtonBox.height}`);
 
+    attendanceFailureBudget = 1;
     await firstWholeClassButton.click();
+    await page.waitForFunction(
+      (queueKey) => {
+        const sync = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
+        const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+
+        return sync?.getAttribute("data-attendance-sync-state") === "failed" && Array.isArray(queue) && queue.length > 1;
+      },
+      coachAttendanceQueueKey,
+      { timeout: 10000 },
+    );
+
+    const batchFailureVerification = await page.evaluate(async (queueKey) => {
+      const response = await fetch("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+      const payload = await response.json();
+      const db = payload.data?.db;
+      const session = db?.classes?.find((item) => item.id === "class-kids-am");
+      const records = db?.attendance?.filter(
+        (record) => record.sessionId === "class-kids-am" && session?.enrolledMemberIds?.includes(record.memberId),
+      ) ?? [];
+      const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+
+      return {
+        enrolledCount: session?.enrolledMemberIds?.length ?? 0,
+        serverPresentCount: records.filter((record) => record.status === "present").length,
+        queuedCount: Array.isArray(queue)
+          ? queue.filter((item) => item.sessionId === "class-kids-am" && item.status === "present").length
+          : 0,
+        localJunPresent:
+          document.querySelector('[data-testid="attendance-class-kids-am-member-jun-present"]')?.getAttribute("aria-pressed") === "true",
+        localSeoPresent:
+          document.querySelector('[data-testid="attendance-class-kids-am-member-seo-present"]')?.getAttribute("aria-pressed") === "true",
+        failureCopyVisible: document.body.innerText.includes("저장 실패") && document.body.innerText.includes("건 대기"),
+      };
+    }, coachAttendanceQueueKey);
+
+    assert(
+      batchFailureVerification.serverPresentCount < batchFailureVerification.enrolledCount,
+      "failed whole-class attendance must not appear persisted in the server snapshot",
+    );
+    assert.equal(
+      batchFailureVerification.queuedCount,
+      batchFailureVerification.enrolledCount,
+      "failed whole-class attendance must retain every member in the retry queue",
+    );
+    assert.equal(batchFailureVerification.localJunPresent, true, "failed whole-class attendance must keep the queued local state explicit");
+    assert.equal(batchFailureVerification.localSeoPresent, true, "failed whole-class attendance must keep all queued members explicit");
+    assert.equal(batchFailureVerification.failureCopyVisible, true, "failed whole-class attendance must show failure and pending copy");
+
+    const batchRetryButton = page.getByTestId("attendance-retry-mobile");
+    await batchRetryButton.waitFor({ timeout: 10000 });
+    await batchRetryButton.click();
     await page.waitForFunction(
       () => {
         const junPresent = document.querySelector('[data-testid="attendance-class-kids-am-member-jun-present"]');
@@ -848,7 +938,48 @@ async function run() {
       "attendance quick note presets must not overflow horizontally",
     );
 
+    attendanceFailureBudget = 1;
     await lateAttendanceButton.click();
+    await page.waitForFunction(
+      (queueKey) => {
+        const sync = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
+        const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+
+        return sync?.getAttribute("data-attendance-sync-state") === "failed" && Array.isArray(queue) && queue.length === 1;
+      },
+      coachAttendanceQueueKey,
+      { timeout: 10000 },
+    );
+
+    const singleFailureVerification = await page.evaluate(async ({ expectedNote, queueKey }) => {
+      const response = await fetch("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+      const payload = await response.json();
+      const db = payload.data?.db;
+      const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+      const serverAttendanceRecord = db?.attendance?.find(
+        (record) => record.sessionId === "class-kids-am" && record.memberId === "member-jun",
+      );
+
+      return {
+        serverHasFailedValue: serverAttendanceRecord?.status === "late" && serverAttendanceRecord?.note === expectedNote,
+        queuedCount: Array.isArray(queue) ? queue.length : 0,
+        localLatePressed:
+          document.querySelector('[data-testid="attendance-class-kids-am-member-jun-late"]')?.getAttribute("aria-pressed") === "true",
+        failureCopyVisible: document.body.innerText.includes("저장 실패") && document.body.innerText.includes("1건 대기"),
+      };
+    }, { expectedNote: noteWithPreset, queueKey: coachAttendanceQueueKey });
+
+    assert.equal(singleFailureVerification.serverHasFailedValue, false, "failed single attendance must not look persisted on the server");
+    assert.equal(singleFailureVerification.queuedCount, 1, "failed single attendance must remain in the retry queue");
+    assert.equal(singleFailureVerification.localLatePressed, true, "failed single attendance must keep its queued local value explicit");
+    assert.equal(singleFailureVerification.failureCopyVisible, true, "failed single attendance must show failure and pending copy");
+
+    const singleRetryButton = page.getByTestId("attendance-retry-mobile");
+    await singleRetryButton.waitFor({ timeout: 10000 });
+    const singleRetryButtonBox = await singleRetryButton.boundingBox();
+    assert(singleRetryButtonBox, "failed single attendance retry action must be visible");
+    assert(singleRetryButtonBox.height >= 44, `failed single attendance retry action must be 44px high, got ${singleRetryButtonBox.height}`);
+    await singleRetryButton.click();
     let verification = null;
     for (let attempt = 0; attempt < 30; attempt += 1) {
       verification = await page.evaluate(async (expectedNote) => {
@@ -957,11 +1088,11 @@ async function run() {
       { timeout: 10000 },
     );
 
-    const queuedBeforeSync = await page.evaluate(async (expectedNote) => {
+    const queuedBeforeSync = await page.evaluate(async ({ expectedNote, queueKey }) => {
       const response = await fetch("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
       const payload = await response.json();
       const db = payload.data?.db;
-      const queue = JSON.parse(window.localStorage.getItem("final-judo-pending-attendance") ?? "[]");
+      const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
       const serverAttendanceRecord = db?.attendance?.find(
         (record) => record.sessionId === "class-kids-am" && record.memberId === "member-jun" && record.note === expectedNote,
       );
@@ -976,12 +1107,89 @@ async function run() {
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       };
-    }, offlineNote);
+    }, { expectedNote: offlineNote, queueKey: coachAttendanceQueueKey });
 
     assert.equal(queuedBeforeSync.persistedQueueCount, 1, "offline attendance queue must survive a page reload");
     assert.equal(queuedBeforeSync.serverAttendanceSaved, false, "offline attendance must remain client queued before retry");
     assert.equal(queuedBeforeSync.serverAuditLogged, false, "offline attendance must not create audit log before retry");
     assert.equal(queuedBeforeSync.scrollWidth, queuedBeforeSync.clientWidth, "offline queue state must not overflow horizontally");
+
+    await loginWithRoleShortcut(page, "guardian");
+    await page.getByRole("main").getByRole("heading").first().waitFor({ timeout: 10000 });
+    const guardianUserId = await getCurrentUserId(page);
+
+    assert(guardianUserId, "account switch must expose the guardian user id");
+    const guardianAttendanceQueueKey = getAttendanceQueueKey(guardianUserId);
+    const guardianIsolation = await page.evaluate(({ coachQueueKey, guardianQueueKey }) => {
+      const coachQueue = JSON.parse(window.localStorage.getItem(coachQueueKey) ?? "[]");
+      const guardianQueue = JSON.parse(window.localStorage.getItem(guardianQueueKey) ?? "[]");
+
+      return {
+        coachQueueCount: Array.isArray(coachQueue) ? coachQueue.length : 0,
+        guardianQueueCount: Array.isArray(guardianQueue) ? guardianQueue.length : 0,
+        hasCoachPendingCopy: document.body.innerText.includes("대기 1건"),
+      };
+    }, { coachQueueKey: coachAttendanceQueueKey, guardianQueueKey: guardianAttendanceQueueKey });
+
+    assert.equal(guardianIsolation.coachQueueCount, 1, "account switch must preserve the previous coach queue");
+    assert.equal(guardianIsolation.guardianQueueCount, 0, "account switch must not copy a coach queue into the guardian account");
+    assert.equal(guardianIsolation.hasCoachPendingCopy, false, "another account must not render the coach pending attendance state");
+
+    await page.getByTestId("mobile-account-menu-toggle").click();
+    await page.getByTestId("mobile-session-logout-button").click();
+    await page.waitForURL("**/login?next=**", { timeout: 10000 });
+    assert.equal(
+      await page.getByTestId("attendance-logout-warning-dialog").count(),
+      0,
+      "an account without queued attendance must log out without seeing another user's warning",
+    );
+
+    await loginWithCredentials(page, coachPhone);
+    await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
+    await page.getByRole("main").getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.waitForFunction(
+      () => document.body.innerText.includes("저장되지 않은 출석 1건을 복구했습니다.") && document.body.innerText.includes("대기 1건"),
+      null,
+      { timeout: 10000 },
+    );
+
+    await page.getByTestId("mobile-account-menu-toggle").click();
+    await page.getByTestId("mobile-session-logout-button").click();
+    const logoutWarningDialog = page.getByTestId("attendance-logout-warning-dialog");
+    await logoutWarningDialog.waitFor({ timeout: 10000 });
+    await logoutWarningDialog.getByText("저장 대기 출석이 있습니다", { exact: true }).waitFor({ timeout: 10000 });
+    await logoutWarningDialog.getByText(/출석 1건/).waitFor({ timeout: 10000 });
+
+    for (const actionTestId of ["attendance-sync-before-logout", "attendance-preserve-and-logout"]) {
+      const actionBox = await page.getByTestId(actionTestId).boundingBox();
+
+      assert(actionBox, `${actionTestId} must have a visible bounding box`);
+      assert(actionBox.height >= 44, `${actionTestId} must keep a 44px touch target, got ${actionBox.height}`);
+    }
+
+    await page.screenshot({ path: "/tmp/final-judo-attendance-logout-warning-mobile.png", fullPage: false });
+    await page.getByTestId("attendance-sync-before-logout").click();
+    await logoutWarningDialog.getByRole("alert").waitFor({ timeout: 10000 });
+    assert.equal(await logoutWarningDialog.isVisible(), true, "failed pre-logout sync must keep the safe-choice dialog open");
+
+    await page.getByTestId("attendance-preserve-and-logout").click();
+    await page.waitForURL("**/login?next=**", { timeout: 10000 });
+    const preservedAfterLogout = await page.evaluate((queueKey) => {
+      const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+
+      return Array.isArray(queue) ? queue.length : 0;
+    }, coachAttendanceQueueKey);
+
+    assert.equal(preservedAfterLogout, 1, "explicit preserve logout must retain the current user's queue");
+
+    await loginWithCredentials(page, coachPhone);
+    await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
+    await page.getByRole("main").getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.waitForFunction(
+      () => document.body.innerText.includes("저장되지 않은 출석 1건을 복구했습니다.") && document.body.innerText.includes("대기 1건"),
+      null,
+      { timeout: 10000 },
+    );
 
     await page.evaluate(() => window.localStorage.removeItem("final-judo-force-offline"));
     await page.getByRole("button", { name: /대기 출석 (저장 )?재시도/ }).last().click();
@@ -991,11 +1199,11 @@ async function run() {
       { timeout: 10000 },
     );
 
-    const offlineVerification = await page.evaluate(async (expectedNote) => {
+    const offlineVerification = await page.evaluate(async ({ expectedNote, queueKey }) => {
       const response = await fetch("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
       const payload = await response.json();
       const db = payload.data?.db;
-      const queue = JSON.parse(window.localStorage.getItem("final-judo-pending-attendance") ?? "[]");
+      const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
       const attendanceRecord = db?.attendance?.find(
         (record) => record.sessionId === "class-kids-am" && record.memberId === "member-jun" && record.note === expectedNote,
       );
@@ -1011,7 +1219,7 @@ async function run() {
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       };
-    }, offlineNote);
+    }, { expectedNote: offlineNote, queueKey: coachAttendanceQueueKey });
 
     assert.equal(offlineVerification.attendanceSaved, true, "retry sync must persist queued offline attendance");
     assert.equal(offlineVerification.auditLogged, true, "retry sync must create attendance audit log");
@@ -1071,12 +1279,18 @@ async function main() {
           "sticky save state",
           "whole-class attendance button",
           "whole-class attendance progress update",
+          "whole-class attendance failure retry queue",
           "whole-class attendance persistence",
+          "single attendance failure retry queue",
           "attendance persistence",
           "mobile attendance undo last change",
           "attendance audit log",
           "offline attendance queue",
           "offline queue reload recovery",
+          "attendance queue account isolation",
+          "attendance queue logout warning",
+          "attendance queue logout preservation",
+          "attendance queue same-user login recovery",
           "pending attendance retry sync",
           "coach payment redaction",
           "demo data reset",

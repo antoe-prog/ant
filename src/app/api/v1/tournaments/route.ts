@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Tournament } from "@/lib/domain";
+import { getTournamentCreateAccess } from "@/lib/tournament-policy";
 import { canManageTournaments, validateTournamentBody, type TournamentBody } from "@/server/tournaments";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -24,6 +25,14 @@ export async function POST(request: NextRequest) {
     return selectedScope.response;
   }
 
+  const existingBranchIds = new Set(db.branches.map((branch) => branch.id));
+  const accessibleTournamentBranchIds = selectedScope.branchIds.filter((branchId) => existingBranchIds.has(branchId));
+  const tournamentAccess = getTournamentCreateAccess(user, selectedScope.selectedBranchId, accessibleTournamentBranchIds);
+
+  if (!tournamentAccess.ok) {
+    return jsonError(tournamentAccess.status, tournamentAccess.status === 403 ? "FORBIDDEN" : "VALIDATION_ERROR", tournamentAccess.error);
+  }
+
   const body = (await request.json().catch(() => null)) as TournamentBody | null;
 
   if (!body) {
@@ -39,19 +48,27 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
   const tournament: Tournament = {
     id: `tournament-${Date.now()}`,
+    scope: tournamentAccess.scope,
+    branchId: tournamentAccess.branchId,
     ...validated.value,
     createdByUserId: user.id,
     createdAt: now,
   };
   const auditLog: AuditLog = {
     id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId: null,
+    branchId: tournament.branchId ?? null,
     actorUserId: user.id,
     action: "tournament.create",
     targetType: "tournament",
     targetId: tournament.id,
     before: null,
-    after: { title: tournament.title, organizer: tournament.organizer, eventDate: tournament.eventDate },
+    after: {
+      title: tournament.title,
+      organizer: tournament.organizer,
+      eventDate: tournament.eventDate,
+      scope: tournament.scope,
+      branchId: tournament.branchId,
+    },
     result: "success",
     message: "대회 공지를 등록했습니다.",
     createdAt: now,

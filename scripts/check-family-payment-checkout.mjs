@@ -161,6 +161,23 @@ const otherPaidAccess = getFamilyPaymentCheckoutAccess(adultUser, {
 assert.equal(otherPaidAccess.canOpen, false, "unauthorized paid payment must not open checkout preparation");
 assert.equal(otherPaidAccess.state, "forbidden", "unauthorized payment status must not be disclosed before ownership checks");
 
+const pendingCollectionAccess = getFamilyPaymentCheckoutAccess(adultUser, {
+  ...adultPayment,
+  collectionRequest: {
+    id: "payment-request-a",
+    method: "card",
+    methodLabel: "우리카드",
+    payerName: "최민재",
+    payerPhone: "01012345678",
+    requestedAt: "2026-07-16T10:00:00+09:00",
+    requestedByUserId: adultUser.id,
+    status: "pending",
+  },
+  member: adultMember,
+});
+assert.equal(pendingCollectionAccess.state, "pending", "persisted family payment requests must reopen as pending");
+assert.equal(pendingCollectionAccess.label, "납부 확인 중", "persisted family payment requests must use staff follow-up copy");
+
 const [
   paymentCheckoutAccessSource,
   mockApiSource,
@@ -169,6 +186,7 @@ const [
   dashboardScreenSource,
   checkoutScreenSource,
   checkoutPageSource,
+  collectionRequestRouteSource,
 ] = await Promise.all([
   readFile("src/lib/payment-checkout-access.ts", "utf8"),
   readFile("src/lib/mock-api.ts", "utf8"),
@@ -177,11 +195,27 @@ const [
   readFile("src/components/screens/dashboard-screen.tsx", "utf8"),
   readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
   readFile("src/app/(app)/app/payments/checkout/page.tsx", "utf8"),
+  readFile("src/app/api/v1/payments/[paymentId]/collection-request/route.ts", "utf8"),
 ]);
 const paymentNotificationTargetSource = notificationsScreenSource.slice(
   notificationsScreenSource.indexOf("function paymentNotificationTarget"),
   notificationsScreenSource.indexOf("function buildPaymentNotification"),
 );
+const guardianPaymentChildrenSource = paymentsScreenSource.slice(
+  paymentsScreenSource.indexOf("const guardianPaymentChildren"),
+  paymentsScreenSource.indexOf("const guardianChildIds"),
+);
+const guardianPaymentSelectionSource = paymentsScreenSource.slice(
+  paymentsScreenSource.indexOf("const requestedGuardianPaymentChild"),
+  paymentsScreenSource.indexOf("const paymentMemberSearchQuery"),
+);
+
+function openingTagWithTestId(source, testId) {
+  const testIdIndex = source.indexOf(`data-testid="${testId}"`);
+  assert.notEqual(testIdIndex, -1, `${testId} must remain rendered`);
+
+  return source.slice(source.lastIndexOf("<", testIdIndex), source.indexOf(">", testIdIndex) + 1);
+}
 
 assert(
   mockApiSource.includes("member.guardianIds.includes(user.id)") &&
@@ -189,14 +223,36 @@ assert(
   "guardian data scope must enforce bidirectional guardian-child links before returning payments",
 );
 assert(
-    paymentsScreenSource.includes("guardianPaymentChildren") &&
-    paymentsScreenSource.includes("prioritizedGuardianPaymentChild") &&
+    guardianPaymentChildrenSource.includes("member.guardianIds.includes(context.user.id)") &&
+    !guardianPaymentChildrenSource.includes('member.status !== "withdrawn"') &&
     paymentsScreenSource.includes("selectedGuardianPaymentChildId") &&
     paymentsScreenSource.includes("<ChildSwitcher") &&
     paymentsScreenSource.includes("scopedPayments") &&
     paymentsScreenSource.includes("data.filter((payment) => payment.memberId === selectedGuardianPaymentChildId)") &&
     paymentsScreenSource.includes("${selectedGuardianPaymentChild.name} 결제 내역이 없습니다"),
-  "guardian payments screen must expose child switching and filter payment cards/counts to the selected child",
+  "guardian payments screen must keep linked withdrawn children visible and scope cards/counts to the selected child",
+);
+assert(
+  guardianPaymentSelectionSource.includes("requestedGuardianPaymentChild ??") &&
+    guardianPaymentSelectionSource.includes("setSelectedChildId(requestedMemberId)") &&
+    !paymentsScreenSource.includes("prioritizedGuardianPaymentChild"),
+  "valid guardian memberId deep links must select the requested child without prioritizing a payable sibling",
+);
+assert(
+  guardianPaymentSelectionSource.includes("invalidGuardianPaymentTarget") &&
+    guardianPaymentSelectionSource.includes('context.user.role === "guardian" && !invalidGuardianPaymentTarget') &&
+    paymentsScreenSource.includes('data-testid="guardian-payment-invalid-target"') &&
+    paymentsScreenSource.includes("다른 자녀의 결제로 자동 전환하지 않았습니다"),
+  "invalid guardian memberId deep links must render an explicit failure state without another child's payments",
+);
+assert(
+  paymentsScreenSource.includes("function handleGuardianPaymentChildSelect") &&
+    paymentsScreenSource.includes('nextSearchParams.delete("memberId")') &&
+    paymentsScreenSource.includes("onSelect={handleGuardianPaymentChildSelect}") &&
+    paymentsScreenSource.includes('data-testid="guardian-payment-ineligible-child"') &&
+    paymentsScreenSource.includes("결제 대상 아님") &&
+    paymentsScreenSource.includes('payment.member.status === "withdrawn"'),
+  "multi-child selection must change only on explicit input and keep withdrawn history non-payable",
 );
 assert(
   paymentsScreenSource.includes("/app/payments/checkout?paymentId="),
@@ -207,8 +263,10 @@ assert(
   "family payment cards must render a checkout action affordance",
 );
 assert(
-  paymentsScreenSource.includes("{familyCheckoutAccess.label}") && !paymentsScreenSource.includes("결제하기"),
-  "family payment card action copy must come from the shared checkout access label and avoid live payment wording",
+  paymentsScreenSource.includes("{familyCheckoutLabel}") &&
+    paymentsScreenSource.includes("familyCheckoutAccess?.label") &&
+    !paymentsScreenSource.includes("결제하기"),
+  "family payment card action copy must respect member eligibility and avoid live payment wording",
 );
 assert(
   paymentsScreenSource.includes("member-payment-checkout-state-badge"),
@@ -234,12 +292,27 @@ assert(
     !/className="sr-only"[\s\S]{0,120}data-testid="member-payment-checkout-state-helper"/.test(paymentsScreenSource),
   "family payment guardian-required helper must remain visible, not screen-reader-only",
 );
+const paymentDateTag = openingTagWithTestId(paymentsScreenSource, "member-payment-date-line");
+const paymentActionTag = openingTagWithTestId(paymentsScreenSource, "member-payment-checkout-action");
+const paymentHelperTag = openingTagWithTestId(paymentsScreenSource, "member-payment-checkout-state-helper");
+assert(
+  paymentDateTag.includes("text-[13px]") &&
+    paymentDateTag.includes("break-words") &&
+    paymentActionTag.includes("text-[13px]") &&
+    paymentActionTag.includes("max-w-[170px]") &&
+    paymentHelperTag.includes("text-[13px]") &&
+    paymentHelperTag.includes("max-w-[170px]") &&
+    ![paymentDateTag, paymentActionTag, paymentHelperTag].some(
+      (tag) => tag.includes("text-[10px]") || tag.includes("text-[11px]"),
+    ),
+  "family payment dates, amounts, and guardian guidance must stay at 13px or larger without losing narrow-card wrapping",
+);
 assert(
   paymentCheckoutAccessSource.includes("getFamilyPaymentPlanLine") &&
     paymentCheckoutAccessSource.includes("planNameAgePrefixes") &&
     paymentCheckoutAccessSource.includes("familyPaymentAgeGroupLabels[ageGroup]") &&
     paymentsScreenSource.includes('data-testid="member-payment-plan-line"') &&
-    paymentsScreenSource.includes("${payment.member.name} ${familyPaymentPlanLine} ${familyCheckoutAccess?.label}"),
+    paymentsScreenSource.includes("${payment.member.name} ${familyPaymentPlanLine} ${familyCheckoutLabel}"),
   "family payment display helper must show the member age group separately from age-prefixed plan names",
 );
 assert(
@@ -382,6 +455,20 @@ assert(
   checkoutPageSource.includes("PaymentCheckoutScreen"),
   "checkout route must render the payment checkout screen",
 );
+assert(
+  checkoutScreenSource.includes('data-testid="payment-collection-request-submit"') &&
+    checkoutScreenSource.includes('data-testid="payment-collection-request-pending"') &&
+    checkoutScreenSource.includes("createFamilyPaymentRequest"),
+  "family checkout must persist the reviewed request and render its pending state",
+);
+assert(
+  collectionRequestRouteSource.includes('user.role !== "member" && user.role !== "guardian"') &&
+    collectionRequestRouteSource.includes("getFamilyPaymentCheckoutAccess") &&
+    collectionRequestRouteSource.includes("withServerDbLock") &&
+    collectionRequestRouteSource.includes("payment.collectionRequest?.status === \"pending\"") &&
+    collectionRequestRouteSource.includes('action: "payment.update"'),
+  "family payment request API must enforce role scope, lock duplicate submissions, and audit the request",
+);
 
 console.log(
   JSON.stringify(
@@ -392,6 +479,10 @@ console.log(
         "guardian child checkout preparation",
         "guardian bidirectional child scope",
         "guardian payment child switcher scope",
+        "guardian valid deep-link selection",
+        "guardian invalid deep-link isolation",
+        "guardian multi-child explicit selection and withdrawn history",
+        "family payment financial information mobile typography and wrapping",
         "youth member direct checkout block",
         "youth member direct checkout detail suppression",
         "forbidden direct checkout route hides payment details",
@@ -400,6 +491,7 @@ console.log(
         "payment notification checkout entry",
         "dashboard payment checkout entry",
         "payment card route and checkout preparation page",
+        "family payment request persistence and staff follow-up pending state",
         "checkout page avoids duplicated bottom status row",
       ],
     },

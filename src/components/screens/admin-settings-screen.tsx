@@ -800,13 +800,20 @@ export function AdminSettingsScreen() {
       {settingsView === "operations" ? (
       <div aria-labelledby="admin-settings-operations-tab" data-testid="admin-settings-operations-view" id="admin-settings-operations-view" role="tabpanel">
 
-      <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby="pilot-operator-support-heading">
+      <section
+        className="mt-3 rounded-lg border border-teal-200 bg-teal-50/40 p-4 shadow-sm"
+        aria-labelledby="pilot-operator-support-heading"
+        data-testid="admin-settings-priority-work"
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-center gap-2">
             <ListChecks className="h-4 w-4 text-teal-700" aria-hidden />
-            <h2 id="pilot-operator-support-heading" className="text-base font-semibold text-zinc-950">
-              현장 운영 관제
-            </h2>
+            <div>
+              <p className="text-xs font-semibold text-teal-700">현장 운영 관제</p>
+              <h2 id="pilot-operator-support-heading" className="mt-0.5 text-lg font-semibold text-zinc-950">
+                우선 작업
+              </h2>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
             <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-zinc-700">다음 액션 {pilotNextActions.length}개</span>
@@ -841,11 +848,25 @@ export function AdminSettingsScreen() {
           </article>
         </div>
 
-        <div className="mt-3 grid gap-2">
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm leading-6 text-zinc-600">
-            <span className="font-semibold text-zinc-950">다음 행동</span>{" "}
-            {pilotNextActions[0] ? `${pilotNextActions[0].label} · ${pilotNextActions[0].detail}` : "추가 확인 항목이 없습니다."}
-          </div>
+        <div className="mt-3 grid gap-3">
+          <ol className="grid gap-2" data-testid="admin-settings-priority-action-list">
+            {pilotNextActions.slice(0, 3).map((action, index) => (
+              <li
+                className={`rounded-md border px-3 py-2.5 ${pilotNextActionStyles[action.tone]}`}
+                key={`${action.label}-${action.targetLabel}`}
+              >
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/80 text-xs font-bold tabular-nums text-zinc-700">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{action.label}</p>
+                    <p className="mt-0.5 text-sm leading-5">{action.detail}</p>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ol>
           <button
             aria-controls="admin-settings-operator-detail"
             aria-expanded={operatorDetailOpen}
@@ -854,7 +875,7 @@ export function AdminSettingsScreen() {
             type="button"
             onClick={() => setOperatorDetailOpen((current) => !current)}
           >
-            {operatorDetailOpen ? "관제 상세 닫기" : "관제 상세 보기"}
+            {operatorDetailOpen ? "전체 관제 상세 닫기" : "전체 관제 상세 보기"}
           </button>
         </div>
 
@@ -902,7 +923,11 @@ export function AdminSettingsScreen() {
         ) : null}
       </section>
 
-      <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby="pilot-readiness-heading">
+      <section
+        className="mt-5 border-t border-zinc-200 px-1 py-4"
+        aria-labelledby="pilot-readiness-heading"
+        data-operation-tier="secondary"
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-center gap-2">
             <FileCheck2 className="h-4 w-4 text-teal-700" aria-hidden />
@@ -1050,7 +1075,11 @@ export function AdminSettingsScreen() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby="pilot-operation-heading">
+      <section
+        className="border-t border-zinc-200 px-1 py-4"
+        aria-labelledby="pilot-operation-heading"
+        data-operation-tier="secondary"
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-center gap-2">
             <CalendarCheck className="h-4 w-4 text-teal-700" aria-hidden />
@@ -1364,7 +1393,11 @@ export function AdminSettingsScreen() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby="pilot-incident-heading">
+      <section
+        className="border-t border-zinc-200 px-1 py-4"
+        aria-labelledby="pilot-incident-heading"
+        data-operation-tier="secondary"
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-red-700" aria-hidden />

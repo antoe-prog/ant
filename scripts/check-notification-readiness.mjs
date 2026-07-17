@@ -128,6 +128,40 @@ function assertOrdered(source, snippets, label) {
 }
 
 assert(noticesScreen.includes("apiClient.dispatchNoticePush"), "notices screen must expose notice push dispatch");
+assert(
+  noticesScreen.includes('data-testid="notice-push-confirmation-dialog"') &&
+    noticesScreen.includes('data-testid="notice-push-confirmation-notice-title"') &&
+    noticesScreen.includes('data-testid="notice-push-confirmation-audience"') &&
+    noticesScreen.includes('data-testid="notice-push-confirmation-target"') &&
+    noticesScreen.includes('data-testid="notice-push-confirmation-recipient-count"'),
+  "notice push must show title, audience, target, and estimated recipients before dispatch",
+);
+assert(
+  noticesScreen.includes("같은 기기에 알림이 중복 표시될 수 있습니다."),
+  "notice push confirmation must explain duplicate delivery risk",
+);
+assert(
+  noticesScreen.includes('data-testid="notice-push-confirmation-cancel"') &&
+    noticesScreen.includes('data-testid="notice-push-confirmation-submit"'),
+  "notice push confirmation must expose explicit cancel and confirm actions",
+);
+assert(
+  noticesScreen.includes("pushDispatchInFlightRef.current") && noticesScreen.includes("if (pushDispatchInFlightRef.current)"),
+  "notice push dispatch must guard against duplicate in-flight requests",
+);
+assert(
+  noticesScreen.includes('onClick={() => openNoticePushConfirmation(notice)}'),
+  "notice list push action must open confirmation instead of dispatching immediately",
+);
+assertExcludes(
+  noticesScreen,
+  'onClick={() => void handleDispatchNoticePush(notice)}',
+  "notice list immediate push dispatch action",
+);
+assert(
+  /data-testid="notice-delivery-push-action"[\s\S]*?<span>알림 발송<\/span>/.test(noticesScreen),
+  "mobile notice push action must expose a visible command label",
+);
 assert(noticesScreen.includes("const showNoticeAside = canPublishNotice;"), "notice screen must keep publisher composer separate from removed notification settings cards");
 for (const removedNoticeSettingsContract of [
   "NotificationPermissionPanel",
@@ -185,7 +219,16 @@ assert(
     noticePermissions.includes('export const noticePublisherRoles = new Set<UserRole>(["owner", "admin", "coach"]);'),
   "coach notices must allow scoped publishing roles",
 );
-assert(noticesScreen.includes('useState<NoticeAudience[]>(["member", "guardian"])'), "notice composer must default to member and guardian recipients");
+assert(
+  noticesScreen.includes('const defaultNoticeAudience: NoticeAudience[] = ["member", "guardian"]') &&
+    noticesScreen.includes("useState(getInitialNoticeComposerState)") &&
+    noticesScreen.includes("audience: defaultNoticeAudience"),
+  "notice composer must default to member and guardian recipients",
+);
+assert(
+  noticesScreen.includes('params.get("noticeAudience") === "guardian"'),
+  "guardian follow-up composer links must narrow recipients to guardians",
+);
 assert(noticesScreen.includes("setNoticeFeedback(result.message)"), "notice composer must show the publish-time delivery result from the server");
 assert(
   /data-testid="notice-create-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(noticesScreen),
@@ -278,9 +321,13 @@ assert(notificationsScreen.includes("getFamilyPaymentCheckoutAccess"), "notifica
 assert(notificationsScreen.includes("paymentNotificationTarget"), "notification inbox payment alerts must choose a role-safe payment target");
 assert(notificationsScreen.includes("/app/payments/checkout?paymentId="), "notification inbox must deep-link payable family payment alerts to checkout preparation");
 assert(notificationsScreen.includes('actionLabel: checkoutAccess.label'), "notification inbox payment alerts must reuse checkout action copy for payable family users");
-assert(notificationsScreen.includes("납부 요청 필요"), "notification inbox pending payment copy must ask for a payment request");
+assert(notificationsScreen.includes("납부 요청 접수"), "notification inbox pending payment copy must reflect the persisted request state");
 assert(notificationsScreen.includes("납부 확인"), "notification inbox fallback payment action must use payment confirmation copy");
-assert(paymentCheckoutAccess.includes('label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청"'), "payable family checkout action must use request copy before provider integration");
+assert(
+  paymentCheckoutAccess.includes('const requestPending = payment.collectionRequest?.status === "pending" || payment.onlinePayment?.status === "pending"') &&
+    paymentCheckoutAccess.includes('label: requestPending ? "납부 확인 중" : "납부 요청"'),
+  "payable family checkout action must reflect persisted and online pending requests",
+);
 assertExcludes(paymentCheckoutAccess, "결제하기", "family checkout live-payment action copy");
 assertExcludes(notificationsScreen, "결제 진행 필요", "notification inbox live-payment implication copy");
 assertExcludes(notificationsScreen, "apiClient.getRequests(context)", "notification inbox request alert fetch");
@@ -297,10 +344,20 @@ assertExcludes(notificationsScreen, 'label: "공지 미확인"', "notification i
 assert(notificationsScreen.includes('item.kind === "notice" && !item.read'), "notification inbox unread filter must only count unread notices");
 assert(notificationsScreen.includes("notification-bulk-read-filtered"), "notification inbox must expose a filtered read action");
 assert(notificationsScreen.includes("notificationBulkReadAriaLabel"), "notification inbox bulk read action must explain notice-only scope");
-assert(notificationsScreen.includes("읽음 처리"), "notification inbox bulk read action must use compact visible copy");
-assert(notificationsScreen.includes("읽음 완료"), "notification inbox bulk read action must show done copy when no unread notices remain");
+assert(notificationsScreen.includes('"공지 읽음 처리"'), "notification inbox bulk action must stay distinct from per-card read actions");
+assert(notificationsScreen.includes('"공지 읽음 완료"'), "notification inbox bulk action must name its completed notice scope");
 assert(notificationsScreen.includes("data-notification-bulk-read-state"), "notification inbox bulk read action must expose active/done state for regression checks");
-assertExcludes(notificationsScreen, "공지 읽음 처리", "notification inbox repeated bulk read copy");
+assert(
+  notificationsScreen.includes('text-[13px] leading-5 ${readNotice ? "line-clamp-1 text-zinc-600" : "line-clamp-2 text-zinc-700"}'),
+  "notification inbox must keep notice bodies visible and readable on mobile",
+);
+assert(notificationsScreen.includes('data-testid="notification-meta"'), "notification inbox must expose notice metadata for visual regression checks");
+assert(
+  notificationsScreen.includes('text-xs font-medium leading-4 ${readNotice ? "text-zinc-500" : "text-zinc-600"}'),
+  "notification inbox confirmed metadata must retain readable size and contrast",
+);
+assertExcludes(notificationsScreen, "hidden line-clamp-1 text-xs leading-5 sm:block", "notification inbox mobile-hidden notice body");
+assertExcludes(notificationsScreen, "text-[11px] font-medium leading-4", "notification inbox undersized metadata");
 assert(notificationsScreen.includes('data-testid="notification-filter-toolbar"'), "notification inbox must expose a flat filter toolbar");
 assert(notificationsScreen.includes("flex min-w-0 flex-wrap gap-1.5"), "notification inbox filters must wrap as a flat toolbar");
 assertExcludes(
@@ -395,6 +452,7 @@ assert(notificationAlerts.includes('return role !== "coach";'), "shared notifica
 assert(notificationAlerts.includes('payment.status === "overdue"'), "shared notification alert policy must include overdue payments");
 assert(notificationAlerts.includes('payment.status === "expiringSoon"'), "shared notification alert policy must include expiring payments");
 assert(notificationAlerts.includes('payment.onlinePayment?.status === "pending"'), "shared notification alert policy must include pending checkout payments");
+assert(notificationAlerts.includes('payment.collectionRequest?.status === "pending"'), "shared notification alert policy must include persisted family payment requests");
 assertExcludes(notificationAlerts, "isRequestNotificationCandidate", "shared notification alert policy deleted request alerts");
 assertExcludes(notificationAlerts, 'request.status === "pending"', "shared notification alert policy pending request alerts");
 assert(notificationsAliasRoute.includes("NotificationsScreen"), "notifications route must render the dedicated notification inbox");

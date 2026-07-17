@@ -1,14 +1,38 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { AppUser, CounselingNote, MockDatabase } from "@/lib/domain";
+import type { AppUser, CounselingNote, MemberMembershipSummary, MockDatabase, Payment } from "@/lib/domain";
 import {
   canReadNotice,
   getAccessibleBranchIds,
   getAccessibleMemberIds,
   getSelectedBranchIds,
 } from "@/lib/mock-api";
+import { canViewTournament } from "@/lib/tournament-policy";
+import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { findAuthSessionUser } from "@/server/auth-session";
 
 export const sessionCookieName = "final-judo-session";
+
+function createCoachMembershipSummary(payments: Payment[]): MemberMembershipSummary {
+  const current = getCurrentMemberPayment(payments);
+
+  if (!current) {
+    return { status: "none" };
+  }
+
+  if (current.expiresAt < new Date().toISOString().slice(0, 10)) {
+    return { status: "inactive", expiresAt: current.expiresAt };
+  }
+
+  const status = current.status === "paid"
+    ? "active"
+    : current.status === "expiringSoon"
+      ? "expiring"
+      : current.status === "cancelled" || current.status === "refunded"
+        ? "inactive"
+        : "attention";
+
+  return { status, expiresAt: current.expiresAt };
+}
 
 function createEndpointHint(endpoint: string) {
   return endpoint.length <= 16 ? endpoint : `...${endpoint.slice(-16)}`;
@@ -98,7 +122,12 @@ export function requireSelectedBranchScope(request: NextRequest, user: AppUser, 
   };
 }
 
-function createSafeUser(user: AppUser, db?: MockDatabase, viewerRole: AppUser["role"] = user.role) {
+function createSafeUser(
+  user: AppUser,
+  db?: MockDatabase,
+  viewerRole: AppUser["role"] = user.role,
+  viewerUserId: string = user.id,
+) {
   const safeUser = { ...user };
 
   delete safeUser.passwordHash;
@@ -109,6 +138,13 @@ function createSafeUser(user: AppUser, db?: MockDatabase, viewerRole: AppUser["r
     delete safeUser.acceptedAt;
     delete safeUser.passwordResetRequestedAt;
     delete safeUser.passwordUpdatedAt;
+  }
+
+  if ((viewerRole === "member" || viewerRole === "guardian") && safeUser.id !== viewerUserId) {
+    delete safeUser.email;
+    delete safeUser.phone;
+    delete safeUser.memberIds;
+    delete safeUser.childMemberIds;
   }
 
   if (db && safeUser.role === "guardian") {
@@ -150,7 +186,21 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
   const classIds = new Set(classes.map((session) => session.id));
   const classesMemberIds = new Set(classes.flatMap((session) => session.enrolledMemberIds));
   const allowedMemberIds = new Set([...memberIds, ...classesMemberIds]);
-  const members = db.members.filter((member) => allowedMemberIds.has(member.id) && branchIds.includes(member.branchId));
+  const scopedPayments = db.payments.filter((payment) => branchIds.includes(payment.branchId) && allowedMemberIds.has(payment.memberId));
+  const members = db.members
+    .filter((member) => allowedMemberIds.has(member.id) && branchIds.includes(member.branchId))
+    .map((member) =>
+      user.role === "member" || user.role === "guardian"
+        ? { ...member, alerts: [] }
+        : user.role === "coach"
+          ? {
+              ...member,
+              membershipSummary: createCoachMembershipSummary(
+                scopedPayments.filter((payment) => payment.memberId === member.id),
+              ),
+            }
+          : member,
+    );
   const attendance = db.attendance.filter((record) => classIds.has(record.sessionId) && allowedMemberIds.has(record.memberId));
   const counselingNotes = (db.counselingNotes ?? [])
     .filter((note) => branchIds.includes(note.branchId) && allowedMemberIds.has(note.memberId))
@@ -158,8 +208,22 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
   const promotions = (db.promotions ?? []).filter(
     (promotion) => branchIds.includes(promotion.branchId) && allowedMemberIds.has(promotion.memberId),
   );
-  const scopedPayments = db.payments.filter((payment) => branchIds.includes(payment.branchId) && allowedMemberIds.has(payment.memberId));
-  const payments = user.role === "coach" ? [] : scopedPayments;
+  const payments = user.role === "coach"
+    ? []
+    : user.role === "member" || user.role === "guardian"
+      ? scopedPayments.map((payment) =>
+          payment.collectionRequest && payment.collectionRequest.requestedByUserId !== user.id
+            ? {
+                ...payment,
+                collectionRequest: {
+                  ...payment.collectionRequest,
+                  payerName: "다른 보호자",
+                  payerPhone: "",
+                },
+              }
+            : payment,
+        )
+      : scopedPayments;
   const notices = db.notices.filter((notice) => canReadNotice(user, db, notice, branchIds));
   const referencedUserIds = new Set<string>([user.id]);
 
@@ -179,7 +243,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
             candidate.branchIds.some((branchId) => branchIds.includes(branchId)),
         )
       : db.users.filter((candidate) => referencedUserIds.has(candidate.id));
-  const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role));
+  const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role, user.id));
   const auditLogs = user.role === "admin"
     ? db.auditLogs
     : user.role === "owner"
@@ -214,7 +278,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     attendance,
     counselingNotes,
     promotions,
-    tournaments: db.tournaments ?? [],
+    tournaments: (db.tournaments ?? []).filter((tournament) => canViewTournament(tournament, branchIds)),
     payments,
     notices,
     authSessions: [],
@@ -243,7 +307,7 @@ export function createBootstrapPayload(db: MockDatabase, user: AppUser, requeste
   const selectedBranchId = createSelectedBranchId(user, db, requestedBranchId);
 
   return {
-    user: createSafeUser(user, db, user.role),
+    user: createSafeUser(user, db, user.role, user.id),
     selectedBranchId,
     db: createSafeSnapshot(db, user, selectedBranchId),
   };

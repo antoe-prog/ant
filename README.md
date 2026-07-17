@@ -123,6 +123,7 @@ npm audit --audit-level=moderate
 npm run test:next-build-readiness
 npm run test:release-smoke-isolation
 npm run test:unit
+npm run test:adversarial-design-fixes
 npm run test:final-common-fee-policy
 npm run test:final-main-schedule-policy
 npm run test:final-common-promotion-policy
@@ -213,6 +214,7 @@ npm run test:payment-lifecycle
 npm run test:online-payments
 npm run test:family-payment-checkout
 npm run test:payment-checkout-method-flow
+npm run test:tournament-access
 npm run test:payment-create-touch-targets
 npm run test:class-management-touch-targets
 npm run test:member-management-touch-targets
@@ -238,6 +240,7 @@ npm run test:p3-operations
 npm run test:visible-app-copy-stability
 npm run test:p5-p10-internal-readiness
 npm run test:notice-delete-ui
+npm run test:notice-compose-safety
 npm run test:routes
 npm run test:e2e
 npm run test:smoke
@@ -279,7 +282,7 @@ npm run test:release
 `test:notification-readiness`는 `/app/notices`의 알림 권한 상태 UI, PushSubscription API, 공지 발행/배지/푸시 제목, 공지함 읽음 처리와 서비스 워커 경로를 정적으로 검증합니다. `test:notification-outbox`와 `test:notification-outbox-integration`은 구독별 durable 작업, lease/revision/backoff/dead letter, 수동 재발송 멱등 digest, 공지 변경 취소 경계, provider timeout·불확실 전송·stale settlement 감사, 발송 직전 대상 재검증과 `CRON_SECRET` 보호를 검증합니다. 실제 발송은 VAPID 변수와 cron secret을 운영 환경에 넣으면 활성화됩니다.
 `notification-push:handoff:draft`는 운영 origin, VAPID env, Android 기기/공지 발송 증빙 인자에서 `.data/notification-push-handoff.json` 초안을 생성합니다. VAPID private key는 값이 아니라 `FINAL_JUDO_VAPID_PRIVATE_KEY` secret 이름과 저장 여부만 기록합니다. `test:notification-push-handoff-draft`는 pending 초안 strict 차단, env 추론, 원문 private key 미기록, 운영자 완료 초안 strict 통과를 검증합니다. 실제 푸시 파일럿 전에는 증빙을 채운 뒤 `npm run notification-push:handoff -- --file=.data/notification-push-handoff.json --out=.data/notification-push-handoff.report.json`로 ready/blocked 리포트를 보관합니다.
 `test:notification-push-handoff`는 `docs/notification-push-handoff.template.json` 기준 운영 HTTPS origin, VAPID public key 구성, private key secret store 보관, Android 실기기 권한/구독/공지 push 수신/클릭, 공지 대상 발송/만료 구독 처리/변경 기록, 권한 차단/미지원 상태, ISO 생성/승인 시각, 생성 이후 승인 순서, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO production origin과 예시 VAPID subject 차단, 원문 secret 미보관 fixture를 검증합니다.
-`test:team-agent-prompts`는 [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md)가 P0 완료 후 P1 운영/모바일 배포 단계 기준으로 유지되는지 검증합니다. Android APK artifact와 iOS Simulator/IPA release 상태 분리, iOS Team ID/bundle id, 7개 외부 blocker, P1 필수 검증 명령을 누락하면 release gate에서 차단합니다.
+`test:team-agent-prompts`는 [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md)가 1~10팀 각 5명과 11팀 유도장 현장 운영 10명으로 구성된 60명 하위 에이전트 책임 체계, P0 완료 후 P1 운영/모바일 배포 기준, 기존 P1 6개 handoff lane 호환성을 유지하는지 검증합니다. Android APK artifact와 iOS Simulator/IPA release 상태 분리, iOS Team ID/bundle id, 7개 외부 blocker, P1 필수 검증 명령을 누락하면 release gate에서 차단합니다.
 `test:routes`도 로컬 서버가 실행 중이어야 하며, 보호 앱 경로, 대표/어드민 전용 IA 경로, `/app/notices`, `/app/account`, 호환 리다이렉트를 확인합니다.
 `postgres:doctor`는 `npm run test:db`와 `npm run test:postgres-store`를 실행하기 전 Docker CLI/daemon 상태, `FINAL_JUDO_DB_DRIVER`, `FINAL_JUDO_POSTGRES_URL` redaction, runtime state key/table, 다음 액션을 JSON/Markdown으로 남깁니다. 예: `npm run postgres:doctor -- --strict --out=.data/postgres-docker-readiness.json --markdown=.data/postgres-docker-readiness.md`. 운영 DB 환경값까지 함께 차단하려면 `--require-postgres-env`를 붙입니다. 이 명령은 Postgres URL 비밀번호를 `REDACTED`로만 기록하며, `test:postgres-doctor`는 ready/daemon-down/CLI-missing/production env fixture를 Docker 실행 없이 검증합니다.
 `test:db`는 Docker Desktop이 실행 중이어야 하며, 임시 PostgreSQL 16 컨테이너에 migration과 seed를 적용한 뒤 핵심 row count와 `app_runtime_state` 테이블을 검증합니다.

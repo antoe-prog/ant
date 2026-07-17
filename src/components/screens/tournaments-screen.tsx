@@ -4,6 +4,7 @@ import { type FormEvent, useMemo, useState } from "react";
 import { CalendarDays, ExternalLink, MapPin, Pencil, PlusCircle, Trash2, Trophy, X } from "lucide-react";
 import type { Tournament } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
+import { canMutateTournament, canViewTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useAppStore } from "@/store/app-store";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -32,6 +33,16 @@ export function TournamentsScreen() {
   const context = useApiContext();
   const { createTournament, updateTournament, deleteTournament } = useAppStore();
   const canManage = context.user.role === "coach" || context.user.role === "owner" || context.user.role === "admin";
+  const visibleBranchIds = useMemo(
+    () => context.selectedBranchId
+      ? [context.selectedBranchId]
+      : context.db.branches.map((branch) => branch.id),
+    [context.db.branches, context.selectedBranchId],
+  );
+  const selectedBranch = context.selectedBranchId
+    ? context.db.branches.find((branch) => branch.id === context.selectedBranchId) ?? null
+    : null;
+  const canCreate = context.user.role === "admin" || (canManage && selectedBranch !== null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingTournamentId, setEditingTournamentId] = useState<string | null>(null);
@@ -45,22 +56,25 @@ export function TournamentsScreen() {
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [deletingTournamentId, setDeletingTournamentId] = useState<string | null>(null);
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
 
   const tournaments = useMemo(() => {
     const todayKey = new Date().toISOString().slice(0, 10);
 
-    return [...(context.db.tournaments ?? [])].sort((a, b) => {
-      const aUpcoming = a.eventDate >= todayKey;
-      const bUpcoming = b.eventDate >= todayKey;
+    return [...(context.db.tournaments ?? [])]
+      .filter((tournament) => canViewTournament(tournament, visibleBranchIds))
+      .sort((a, b) => {
+        const aUpcoming = a.eventDate >= todayKey;
+        const bUpcoming = b.eventDate >= todayKey;
 
-      if (aUpcoming !== bUpcoming) {
-        return aUpcoming ? -1 : 1;
-      }
+        if (aUpcoming !== bUpcoming) {
+          return aUpcoming ? -1 : 1;
+        }
 
-      // 예정 대회는 가까운 순, 지난 대회는 최근 순
-      return aUpcoming ? a.eventDate.localeCompare(b.eventDate) : b.eventDate.localeCompare(a.eventDate);
-    });
-  }, [context.db.tournaments]);
+        // 예정 대회는 가까운 순, 지난 대회는 최근 순
+        return aUpcoming ? a.eventDate.localeCompare(b.eventDate) : b.eventDate.localeCompare(a.eventDate);
+      });
+  }, [context.db.tournaments, visibleBranchIds]);
   const upcomingCount = tournaments.filter((tournament) => tournament.eventDate >= new Date().toISOString().slice(0, 10)).length;
 
   function resetComposer() {
@@ -75,6 +89,7 @@ export function TournamentsScreen() {
   }
 
   function startEdit(tournament: Tournament) {
+    setDeleteConfirmationId(null);
     setComposerOpen(true);
     setEditingTournamentId(tournament.id);
     setTitle(tournament.title);
@@ -122,7 +137,7 @@ export function TournamentsScreen() {
     }
   }
 
-  async function handleDelete(tournament: Tournament) {
+  async function confirmDelete(tournament: Tournament) {
     if (deletingTournamentId) {
       return;
     }
@@ -130,6 +145,7 @@ export function TournamentsScreen() {
     setDeletingTournamentId(tournament.id);
     const removed = await deleteTournament(tournament.id);
     setDeletingTournamentId(null);
+    setDeleteConfirmationId(null);
     setFeedback(removed ? "대회 공지를 삭제했습니다." : "대회 공지를 삭제하지 못했습니다.");
 
     if (removed && editingTournamentId === tournament.id) {
@@ -143,7 +159,7 @@ export function TournamentsScreen() {
       <SectionHeader
         title="대회"
         action={
-          canManage ? (
+          canCreate ? (
             <Button
               size="md"
               type="button"
@@ -177,9 +193,20 @@ export function TournamentsScreen() {
         대한유도회 등 외부 단체의 대회 공지를 확인하세요. 예정 대회 {upcomingCount}건 · 전체 {tournaments.length}건
       </p>
 
-      {canManage && composerOpen ? (
+      {canManage && !canCreate ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          대회를 등록하려면 상단에서 담당 지점을 선택해 주세요.
+        </p>
+      ) : null}
+
+      {canCreate && composerOpen ? (
         <form className="mb-4 grid gap-3 rounded-lg border border-zinc-200 bg-white p-4" onSubmit={(event) => void handleSubmit(event)}>
-          <p className="text-sm font-semibold text-zinc-950">{editingTournamentId ? "대회 공지 수정" : "새 대회 공지"}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-zinc-950">{editingTournamentId ? "대회 공지 수정" : "새 대회 공지"}</p>
+            <span className="rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-800">
+              {selectedBranch?.name ?? "전 지점"}
+            </span>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="sm:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-zinc-500">대회명</span>
@@ -270,7 +297,7 @@ export function TournamentsScreen() {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="min-h-5 text-xs font-medium text-zinc-500" aria-live="polite" role="status">
-              {feedback ?? "저장하면 모든 회원·학부모가 확인할 수 있습니다."}
+              {feedback ?? `${selectedBranch?.name ?? "모든 지점"}의 회원·학부모에게 표시됩니다.`}
             </p>
             <Button data-testid="tournament-submit" disabled={pending} size="lg" type="submit" variant="primary">
               {pending ? "저장 중" : editingTournamentId ? "수정 저장" : "등록"}
@@ -289,7 +316,7 @@ export function TournamentsScreen() {
         <EmptyState
           title="등록된 대회 공지가 없습니다"
           description={
-            canManage
+            canCreate
               ? "대회 등록 버튼으로 대한유도회 등 단체의 대회 공지를 추가해 보세요."
               : "도장에서 대회 공지를 등록하면 여기에 표시됩니다."
           }
@@ -298,6 +325,11 @@ export function TournamentsScreen() {
         <ul className="grid gap-3">
           {tournaments.map((tournament) => {
             const dday = getDdayLabel(tournament.eventDate);
+            const access = resolveTournamentAccess(tournament);
+            const branchName = access.branchId
+              ? context.db.branches.find((branch) => branch.id === access.branchId)?.name ?? "지점 공지"
+              : "전 지점";
+            const canEditTournament = canMutateTournament(context.user, tournament, visibleBranchIds);
             const deadlinePassed = tournament.registrationDeadline
               ? tournament.registrationDeadline < new Date().toISOString().slice(0, 10)
               : false;
@@ -315,6 +347,9 @@ export function TournamentsScreen() {
                       <span className="min-w-0 break-words">{tournament.title}</span>
                     </p>
                     <p className="mt-1.5 text-xs font-medium text-zinc-500">{tournament.organizer}</p>
+                    <span className="mt-2 inline-flex rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
+                      {branchName}
+                    </span>
                   </div>
                   {dday ? (
                     <span
@@ -361,7 +396,7 @@ export function TournamentsScreen() {
                       단체 공지 보기
                     </a>
                   ) : null}
-                  {canManage ? (
+                  {canEditTournament ? (
                     <>
                       <button
                         className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
@@ -375,13 +410,50 @@ export function TournamentsScreen() {
                       <button
                         className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
                         data-testid={`tournament-delete-${tournament.id}`}
+                        aria-expanded={deleteConfirmationId === tournament.id}
                         disabled={deletingTournamentId === tournament.id}
                         type="button"
-                        onClick={() => void handleDelete(tournament)}
+                        onClick={() => setDeleteConfirmationId(tournament.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         삭제
                       </button>
+                      {deleteConfirmationId === tournament.id ? (
+                        <div
+                          aria-labelledby={`tournament-delete-title-${tournament.id}`}
+                          className="mt-2 grid w-full gap-3 rounded-md border border-red-200 bg-red-50 p-3"
+                          data-testid={`tournament-delete-confirmation-${tournament.id}`}
+                          role="alertdialog"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-red-900" id={`tournament-delete-title-${tournament.id}`}>
+                              이 대회 공지를 삭제할까요?
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-red-700">삭제하면 모든 대상 화면에서 즉시 사라집니다.</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              data-testid={`tournament-delete-cancel-${tournament.id}`}
+                              disabled={deletingTournamentId === tournament.id}
+                              size="lg"
+                              type="button"
+                              onClick={() => setDeleteConfirmationId(null)}
+                            >
+                              취소
+                            </Button>
+                            <Button
+                              data-testid={`tournament-delete-confirm-${tournament.id}`}
+                              disabled={deletingTournamentId === tournament.id}
+                              size="lg"
+                              type="button"
+                              variant="danger"
+                              onClick={() => void confirmDelete(tournament)}
+                            >
+                              {deletingTournamentId === tournament.id ? "삭제 중" : "삭제 확인"}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </>
                   ) : null}
                 </div>

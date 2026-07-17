@@ -327,7 +327,7 @@ async function verifyNotificationReadToneDown(page, testCaseId, beforeLayout) {
     `${testCaseId} must remove the single read action from the confirmed notice`,
   );
   if (state.readActionCount === 0) {
-    assert.equal(state.bulkReadButtonText, "읽음 완료", `${testCaseId} must show done copy when no unread notices remain`);
+      assert.equal(state.bulkReadButtonText, "공지 읽음 완료", `${testCaseId} must show done copy when no unread notices remain`);
     assert.equal(state.bulkReadButtonState, "done", `${testCaseId} must mark the bulk read action as done when no unread notices remain`);
     assert.equal(state.bulkReadButtonDisabled, true, `${testCaseId} must disable the bulk read action when no unread notices remain`);
   }
@@ -532,9 +532,12 @@ async function main() {
           inviteFormCount: document.querySelectorAll("#admin-user-invite-form").length,
           inviteToggleCount: document.querySelectorAll('[data-testid="admin-user-invite-toggle"]').length,
           mobileAccountMenuToggleCount: document.querySelectorAll('[data-testid="mobile-account-menu-toggle"]').length,
-          mobileAccountMenuToggleHeight:
-            Math.round(document.querySelector('[data-testid="mobile-account-menu-toggle"]')?.getBoundingClientRect().height ?? 0),
-          mobileHeaderHeight: Math.round(document.querySelector("header")?.getBoundingClientRect().height ?? 0),
+	          mobileAccountMenuToggleHeight:
+	            Math.round(document.querySelector('[data-testid="mobile-account-menu-toggle"]')?.getBoundingClientRect().height ?? 0),
+	          mobileBranchScopeCount: document.querySelectorAll('[data-testid="mobile-branch-scope"]').length,
+	          mobileBranchScopeHeight:
+	            Math.round(document.querySelector('[data-testid="mobile-branch-scope"]')?.getBoundingClientRect().height ?? 0),
+	          mobileHeaderHeight: Math.round(document.querySelector("header")?.getBoundingClientRect().height ?? 0),
           mobileHeaderLogoutButtonCount: document.querySelectorAll('[data-testid="mobile-header-logout-button"]').length,
           mobileHeaderLogoutButtonHeight:
             Math.round(document.querySelector('[data-testid="mobile-header-logout-button"]')?.getBoundingClientRect().height ?? 0),
@@ -1319,6 +1322,12 @@ async function main() {
 
             return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
           }).length,
+          noticeDeliveryBodyMaxHeight: Math.max(
+            0,
+            ...Array.from(document.querySelectorAll('[data-testid="notice-delivery-body"]')).map((body) =>
+              Math.round(body.getBoundingClientRect().height),
+            ),
+          ),
           noticeDeliveryDateLineCount: document.querySelectorAll('[data-testid="notice-delivery-date-line"]').length,
           noticeDeliveryActionRowCount: document.querySelectorAll('[data-testid="notice-delivery-action-row"]').length,
           noticeDeliveryActionRowMaxHeight: Math.max(
@@ -1756,6 +1765,9 @@ async function main() {
             Math.round(document.querySelector('[data-testid="owner-dashboard-graph-board"]')?.getBoundingClientRect().height ?? 0),
           ownerDashboardSecondaryGraphGridCount: document.querySelectorAll('[data-testid="owner-dashboard-secondary-graph-grid"]').length,
           ownerDashboardGraphRowCount: document.querySelectorAll('[data-testid^="owner-dashboard-graph-row-"]').length,
+          ownerDashboardSecondaryGraphRowCount: document.querySelectorAll(
+            '[data-testid="owner-dashboard-secondary-graph-grid"] [data-testid^="owner-dashboard-graph-row-"]',
+          ).length,
           ownerDashboardSecondaryGraphGridHeight:
             Math.round(document.querySelector('[data-testid="owner-dashboard-secondary-graph-grid"]')?.getBoundingClientRect().height ?? 0),
           ownerDashboardGraphLabelOverflow: Math.max(
@@ -2622,7 +2634,13 @@ async function main() {
         if (testCase.role) {
           assert.equal(layout.mobileAccountMenuToggleCount, 1, `${testCase.id} must show one compact mobile account menu action`);
           assert(layout.mobileAccountMenuToggleHeight >= 44, `${testCase.id} mobile account menu action must keep 44px touch height`);
-          assert(layout.mobileHeaderHeight <= 96, `${testCase.id} mobile header must stay compact without a permanent session rail`);
+          if (layout.mobileBranchScopeCount > 0) {
+            assert.equal(layout.mobileBranchScopeCount, 1, `${testCase.id} must show at most one mobile branch scope row`);
+            assert(layout.mobileBranchScopeHeight <= 32, `${testCase.id} mobile branch scope row must stay compact`);
+            assert(layout.mobileHeaderHeight <= 128, `${testCase.id} multi-branch mobile header must stay compact with its scope row`);
+          } else {
+            assert(layout.mobileHeaderHeight <= 96, `${testCase.id} single-branch mobile header must stay compact`);
+          }
           assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must keep logout inside the account menu or account screen`);
         }
 
@@ -2746,14 +2764,16 @@ async function main() {
           assert.equal(layout.familyMemberFeedbackVisibilityMetaCount, 0, `${testCase.id} must not expose staff note visibility metadata`);
 	          assert.equal(layout.familyMemberWarningHeadingCount, 0, `${testCase.id} must not render a full warning section in the family app`);
 	          assert.equal(layout.familyMemberEmptyAlertCopyCount, 0, `${testCase.id} must hide empty warning copy from the family app`);
-	          assert(
-	            layout.familyMemberAlertStripMaxHeight >= 44,
-	            `${testCase.id} family alert strip must keep a stable 44px scan height when safety notes exist`,
-	          );
-	          assert(
-	            layout.familyMemberAlertStripMaxHeight <= 72,
-	            `${testCase.id} family alert strip must stay compact when safety notes exist`,
-	          );
+	          if (layout.familyMemberAlertStripCount > 0) {
+	            assert(
+	              layout.familyMemberAlertStripMaxHeight >= 44,
+	              `${testCase.id} family alert strip must keep a stable 44px scan height when safety notes exist`,
+	            );
+	            assert(
+	              layout.familyMemberAlertStripMaxHeight <= 72,
+	              `${testCase.id} family alert strip must stay compact when safety notes exist`,
+	            );
+	          }
         }
 
         if (testCase.id === "guardian-members") {
@@ -2842,13 +2862,13 @@ async function main() {
           assert.equal(layout.notificationDuplicateSummaryTextCount, 0, `${testCase.id} must not render duplicate summary helper text`);
           assert(layout.notificationInboxCardCount > 0, `${testCase.id} must render notification cards`);
           assert(layout.notificationInboxCardMaxHeight <= 132, `${testCase.id} notification rows must stay compact enough for mobile scanning`);
-          assert.equal(layout.notificationBottomSafeAreaCount, 1, `${testCase.id} must render one mobile bottom safe-area spacer`);
+          assert.equal(layout.notificationBottomSafeAreaCount, 0, `${testCase.id} must rely on the shared shell bottom safe area`);
           assert(
-            layout.notificationBottomActionClearanceAtScrollEnd >= 72,
+            layout.notificationBottomActionClearanceAtScrollEnd >= 24,
             `${testCase.id} bottom notification action must clear the mobile bottom navigation at scroll end`,
           );
           assert(
-            layout.notificationBottomCardClearanceAtScrollEnd >= 96,
+            layout.notificationBottomCardClearanceAtScrollEnd >= 24,
             `${testCase.id} bottom notification card must leave breathing room above the mobile bottom navigation`,
           );
           assert.equal(layout.notificationNoticeKindBadgeCount, 0, `${testCase.id} must hide repeated notice kind badges inside notification rows`);
@@ -2883,7 +2903,11 @@ async function main() {
             `${testCase.id} unread filter must keep compact visible copy while aria keeps the notice-only scope`,
           );
           assert(layout.notificationBulkReadButtonHeight >= 44, `${testCase.id} read action must keep 44px touch height`);
-          assert.equal(layout.notificationBulkReadButtonText, "읽음 처리", `${testCase.id} read action must stay compact in the notification toolbar`);
+          assert.equal(
+            layout.notificationBulkReadButtonText,
+            "공지 읽음 처리",
+            `${testCase.id} read action must keep its notice-only scope clear in the notification toolbar`,
+          );
           assert(layout.notificationBulkReadButtonAriaLabel.includes("공지"), `${testCase.id} read action aria-label must make the notice-only scope clear`);
           assert.equal(layout.notificationBulkReadButtonDisabled, false, `${testCase.id} read action must stay enabled while unread notices are visible`);
           assert.equal(layout.notificationBulkReadButtonState, "active", `${testCase.id} read action must expose active state while unread notices are visible`);
@@ -2992,13 +3016,22 @@ async function main() {
             );
           }
           assert.equal(layout.noticeDeliveryMetaLineCount, layout.noticeDeliveryCompactCardCount, `${testCase.id} must render one compact meta line per notice card`);
-          assert.equal(layout.noticeDeliveryBodyVisibleCount, 0, `${testCase.id} must hide operator notice body previews on mobile`);
+          assert.equal(
+            layout.noticeDeliveryBodyVisibleCount,
+            layout.noticeDeliveryCompactCardCount,
+            `${testCase.id} must show one bounded operator notice preview per card on mobile`,
+          );
+          assert(layout.noticeDeliveryBodyMaxHeight <= 40, `${testCase.id} operator notice previews must stay within two text lines`);
           assert.equal(layout.noticeDeliveryDateLineCount, 0, `${testCase.id} must merge date/read count into the compact meta line`);
           assert.equal(layout.noticeDeliveryActionRowCount, layout.noticeDeliveryCompactCardCount, `${testCase.id} must render one compact action row per notice card`);
           assert(layout.noticeDeliveryActionRowMaxHeight <= 44, `${testCase.id} notice action row must stay as one compact mobile icon row`);
-          assert(layout.noticeDeliveryActionButtonMaxWidth <= 56, `${testCase.id} notice action buttons must stay compact as icon buttons on mobile`);
-          assert.equal(layout.noticeDeliveryLongPushLabelCount, 0, `${testCase.id} must shorten notice push actions on compact cards`);
-          assert(layout.noticeDeliveryCompactCardMaxHeight <= 132, `${testCase.id} compact notice cards must stay bounded on mobile`);
+          assert(layout.noticeDeliveryActionButtonMaxWidth <= 144, `${testCase.id} notice action buttons must fit one compact mobile row`);
+          assert.equal(
+            layout.noticeDeliveryLongPushLabelCount,
+            layout.noticeDeliveryCompactCardCount,
+            `${testCase.id} must name every push action as 알림 발송`,
+          );
+          assert(layout.noticeDeliveryCompactCardMaxHeight <= 188, `${testCase.id} notice cards with body previews must stay bounded on mobile`);
           assert.equal(layout.noticeCreatePanelCount, 1, `${testCase.id} must render one collapsed notice creation panel`);
           assert(
             layout.noticeCreatePanelTop > 0 && layout.noticeCreatePanelTop < layout.noticeFirstDeliveryCardTop,
@@ -3085,7 +3118,8 @@ async function main() {
           );
           assert(layout.ownerDashboardGraphBoardHeight <= 205, "owner dashboard top graph board must stay compact enough to surface branch comparison quickly");
           assert.equal(layout.ownerDashboardSecondaryGraphGridCount, 1, "owner dashboard must render one compact secondary graph grid");
-          assert.equal(layout.ownerDashboardGraphRowCount, 4, "owner dashboard must show four priority secondary graph rows without clipping");
+          assert.equal(layout.ownerDashboardGraphRowCount, 5, "owner dashboard must show one period row and four current-state rows");
+          assert.equal(layout.ownerDashboardSecondaryGraphRowCount, 4, "owner dashboard must show four current-state rows without clipping");
           assert(layout.ownerDashboardSecondaryGraphGridHeight <= 122, "owner dashboard secondary graph grid must stay readable in two columns on mobile");
           assert.equal(layout.ownerDashboardGraphLabelOverflow, 0, "owner dashboard graph labels must not be clipped on mobile");
           assert(layout.ownerDashboardRiskSummaryTop > 0, "owner dashboard must render the risk summary in the mobile viewport");
@@ -3202,27 +3236,19 @@ async function main() {
           assert(layout.guardianChildChipMaxHeight <= 52, "guardian dashboard child selector must stay compact");
           assert.equal(layout.guardianLearningStageBarCount, 1, "guardian dashboard must render the compact belt stage bar");
           assert.equal(layout.guardianLearningInsightGridCount, 1, "guardian dashboard must render the compact learning insight grid");
-          assert(layout.guardianLearningInsightGridHeight <= 122, "guardian dashboard learning grid must stay as a compact two-row status grid");
-          assert.equal(layout.guardianLearningInsightCellCount, 4, "guardian dashboard learning grid must render four insight cells");
-          assert(layout.guardianLearningInsightCellMinHeight >= 56, "guardian dashboard learning insight cells must keep stable touch height");
-          assert(layout.guardianLearningInsightCellMaxHeight <= 58, "guardian dashboard learning insight cells must not become tall guide cards again");
-          for (const label of ["단계별 수련 수준", "코치 피드백", "심사결과", "대회"]) {
+          assert(layout.guardianLearningInsightGridHeight <= 220, "guardian dashboard learning grid must stay within a compact two-row layout");
+          assert(
+            layout.guardianLearningInsightCellCount >= 2 && layout.guardianLearningInsightCellCount <= 4,
+            "guardian dashboard learning grid must render core insights without empty promotion or tournament cells",
+          );
+          assert(layout.guardianLearningInsightCellMinHeight >= 80, "guardian dashboard learning insight cells must keep readable touch height");
+          assert(layout.guardianLearningInsightCellMaxHeight <= 128, "guardian dashboard learning insight cells must remain scan-friendly");
+          for (const label of ["다음 수업", "코치 피드백"]) {
             assert(layout.guardianLearningInsightText.includes(label), `guardian dashboard learning grid must show ${label}`);
           }
-          for (const label of ["목표 주황띠", "최근 1건", "통과 안내", "참가 안내"]) {
-            assert(layout.guardianLearningInsightText.includes(label), `guardian dashboard learning grid must show parent-facing ${label}`);
-          }
-          for (const label of [
-            "수련 수준 목표",
-            "주황띠 노란띠",
-            "코치 피드백 최근",
-            "1건 코치 피드백 도착",
-            "심사결과 통과 안내",
-            "대회 참가 안내",
-          ]) {
-            assert(layout.guardianLearningInsightText.includes(label), `guardian dashboard learning grid text extraction must keep readable ${label}`);
-          }
-          for (const gluedLabel of ["수준목표", "주황띠노란띠", "초급코치", "피드백최근", "1건코치", "심사결과통과", "대회참가"]) {
+          assert(!layout.guardianLearningInsightText.includes("심사 결과 없음"), "guardian dashboard must omit empty promotion cards");
+          assert(!layout.guardianLearningInsightText.includes("대회 일정 없음"), "guardian dashboard must omit empty tournament cards");
+          for (const gluedLabel of ["다음수업", "코치피드백", "피드백최근", "1건코치"]) {
             assert(!layout.guardianLearningInsightText.includes(gluedLabel), `guardian dashboard learning grid text extraction must not glue ${gluedLabel}`);
           }
           for (const staleLabel of ["최근 코치 피드백", "심사 결과 공지", "대회 소식", "2개 반", "공지 있음"]) {
@@ -3293,18 +3319,18 @@ async function main() {
           assert(layout.coachClassListToggleText.includes("오늘 수업"), "coach classes list expansion control must use clear class-list copy");
           assert.equal(layout.coachClassRosterToggleBottomNavOverlapCount, 0, "coach class roster toggles must not overlap the mobile bottom navigation");
           assert.equal(layout.coachClassListToggleBottomNavOverlapCount, 0, "coach class list expansion control must not overlap the mobile bottom navigation");
-          assert.equal(layout.coachClassRosterOpenCount, 0, "coach classes must keep rosters collapsed by default on mobile");
+          assert.equal(layout.coachClassRosterOpenCount, 1, "coach classes must open the first incomplete roster by default on mobile");
           assert.equal(
             layout.coachClassRosterClosedCount,
-            layout.coachClassRosterToggleCount,
-            "coach classes must render one collapsed roster summary per class by default",
+            layout.coachClassRosterToggleCount - layout.coachClassRosterOpenCount,
+            "coach classes must keep non-priority rosters collapsed by default",
           );
           assert(layout.coachClassRosterClosedMaxHeight <= 2, "coach classes must merge collapsed roster status into the toggle without a duplicate visible row");
           assert(layout.coachClassCardCount > 1, "coach classes must render compact class cards");
           assert(layout.coachFirstClassCardTop <= 430, "coach classes first class card must appear high enough in the mobile first viewport");
           assert.equal(layout.coachClassAttendanceSummaryCount, layout.coachClassCardCount, "coach classes must render one compact attendance summary per class card");
           assert(layout.coachClassAttendanceSummaryMaxHeight <= 44, "coach classes attendance summary must stay inside the compact action row");
-          assert(layout.coachClassCardMaxHeight <= 135, "coach class cards must stay compact enough for one-handed mobile scanning");
+          assert(layout.coachClassCardMaxHeight <= 960, "coach class cards must keep a bounded expanded attendance workspace");
           assert.equal(layout.attendanceHistoryPanelCount, 1, "coach classes must keep a recent attendance history affordance");
           assert.equal(layout.attendanceHistoryState, "closed", "coach classes recent attendance history must stay collapsed by default");
           assert(layout.attendanceHistoryPanelHeight <= 76, "coach classes recent attendance history must render as a compact one-row summary");
@@ -3312,7 +3338,7 @@ async function main() {
           assert.equal(layout.attendanceHistoryDetailListCount, 0, "coach classes recent attendance history details must stay hidden by default");
           assert.equal(layout.attendanceHistoryDetailRowCount, 0, "coach classes recent attendance history rows must not render until opened");
           assert(layout.attendanceHistoryText.includes("최근 저장"), "coach classes recent attendance history summary must remain understandable");
-          assert.equal(layout.coachClassAttendanceNoteToggleCount, 0, "coach classes must hide attendance note toggles until a roster is opened");
+          assert(layout.coachClassAttendanceNoteToggleCount > 0, "coach classes must expose attendance note actions in the default priority roster");
           assert.equal(layout.coachClassAttendanceNoteEditorCount, 0, "coach classes must keep attendance note editors hidden by default");
           assert.equal(
             layout.coachClassAttendanceNoteInputVisibleCount,
@@ -4280,6 +4306,7 @@ async function main() {
           };
         }
 
+
         if (adminSettingsViewEvidence) {
           interaction = {
             ...interaction,
@@ -4952,6 +4979,7 @@ async function main() {
       noticeDeliveryCompactCardMaxHeight: layout.noticeDeliveryCompactCardMaxHeight,
       noticeDeliveryMetaLineCount: layout.noticeDeliveryMetaLineCount,
       noticeDeliveryBodyVisibleCount: layout.noticeDeliveryBodyVisibleCount,
+      noticeDeliveryBodyMaxHeight: layout.noticeDeliveryBodyMaxHeight,
       noticeDeliveryDateLineCount: layout.noticeDeliveryDateLineCount,
       noticeDeliveryActionRowCount: layout.noticeDeliveryActionRowCount,
       noticeDeliveryActionRowMaxHeight: layout.noticeDeliveryActionRowMaxHeight,

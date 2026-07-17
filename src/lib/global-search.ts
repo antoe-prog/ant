@@ -113,7 +113,13 @@ export function buildGlobalSearchResults({ db, query, selectedBranchId, user }: 
             const guardianDetails = member.guardianIds.flatMap((guardianId) => {
               const guardian = usersById.get(guardianId);
 
-              return guardian ? [guardian.name, guardian.phone, guardian.email] : [];
+              if (!guardian) {
+                return [];
+              }
+
+              return user.role === "member" || user.role === "guardian"
+                ? [guardian.name]
+                : [guardian.name, guardian.phone, guardian.email];
             });
 
             return matchesMemberSearch(keyword, [
@@ -128,7 +134,7 @@ export function buildGlobalSearchResults({ db, query, selectedBranchId, user }: 
           .sort((left, right) => left.name.localeCompare(right.name, "ko"))
           .map((member) => ({
             description: `${branchesById.get(member.branchId)?.name ?? "지점 미지정"} · ${member.belt} · ${member.level}`,
-            href: appendQuery("/app/members", { q: member.name }),
+            href: appendQuery("/app/members", { q: member.name, memberId: member.id }),
             id: `member-${member.id}`,
             kind: "member" as const,
             title: member.name,

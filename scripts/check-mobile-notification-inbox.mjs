@@ -137,6 +137,11 @@ async function collectInboxState(page) {
       noticeCardHeights: Array.from(document.querySelectorAll('[data-notification-kind="notice"][data-testid="notification-inbox-card"]'))
         .map((card) => Math.round(card.getBoundingClientRect().height))
         .filter((height) => height > 0),
+      noticeMetaLabels: Array.from(
+        document.querySelectorAll('[data-notification-kind="notice"] [data-testid="notification-meta"]'),
+      )
+        .map((meta) => meta.textContent?.replace(/\s+/g, " ").trim() ?? "")
+        .filter(Boolean),
       paymentActionLabels: Array.from(document.querySelectorAll('[data-notification-kind="payment"] [data-testid="notification-detail-link"]'))
         .map((link) => link.getAttribute("data-notification-action-label") ?? link.textContent?.replace(/\s+/g, " ").trim() ?? "")
         .filter(Boolean),
@@ -218,9 +223,23 @@ async function verifyFamilyCase(browser, testCase) {
     const loginUrl = new URL("/login", baseUrl);
     loginUrl.searchParams.set("autoLogin", "1");
     loginUrl.searchParams.set("role", testCase.role);
-    loginUrl.searchParams.set("next", "/app/notifications");
+    loginUrl.searchParams.set(
+      "next",
+      testCase.role === "guardian" ? "/app/notifications?memberId=member-yuna" : "/app/notifications",
+    );
     await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="notifications-screen"]', { timeout: 10000 });
+    if (testCase.role === "guardian") {
+      const targetChild = page.getByTestId("guardian-child-chip").filter({ hasText: "한유나" });
+      await targetChild.click();
+      await page.waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('[data-testid="guardian-child-chip"]'))
+            .some((element) => element.getAttribute("aria-pressed") === "true" && element.textContent?.includes("한유나")),
+        null,
+        { timeout: 10000 },
+      );
+    }
     await page.screenshot({ path: beforeScreenshotPath, fullPage: true });
     const beforeState = await collectInboxState(page);
 
@@ -229,28 +248,57 @@ async function verifyFamilyCase(browser, testCase) {
     assert.equal(beforeState.heading, "알림함", `${testCase.id} notifications must render the inbox heading`);
     assert(beforeState.cardCount > 0, `${testCase.id} notifications must render at least one inbox card`);
     assert(
-      Math.max(0, ...beforeState.noticeCardHeights) <= 112,
+      Math.max(0, ...beforeState.noticeCardHeights) <= 132,
       `${testCase.id} notifications must keep mobile notice cards compact: ${JSON.stringify(beforeState.noticeCardHeights)}`,
     );
     assert(beforeState.readActionCount > 0, `${testCase.id} notifications must start with at least one unread notice action`);
     assert.equal(beforeState.deleteActionCount, 0, `${testCase.id} notifications must not expose notice delete actions to family roles`);
+    assert(
+      beforeState.noticeMetaLabels.every(
+        (label) =>
+          !/(^| · |, )(대표|코치|학부모|회원|총괄 어드민)( · |, |$)/.test(label) &&
+          /(본관|관|지점 미지정) · /.test(label),
+      ),
+      `${testCase.id} notice metadata must show branch/target/time without internal audience roles: ${JSON.stringify(beforeState.noticeMetaLabels)}`,
+    );
     assert.doesNotMatch(
       beforeState.inboxText,
       /결제 진행 필요|결제 진행 중|결제하기/,
       `${testCase.id} notifications must not imply live payment progress before provider connection`,
     );
-    assert(
-      beforeState.paymentActionLabels.includes("납부 요청"),
-      `${testCase.id} payable payment notification action must use request copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
-    );
     if (testCase.role === "guardian") {
+      const guardianPaymentDiagnostic = await page.evaluate(async () => {
+        const response = await fetch("/api/v1/me/bootstrap");
+        const payload = await response.json().catch(() => null);
+        const payment = payload?.data?.db?.payments?.find((item) => item.id === "pay-yuna");
+        const selectedChild = Array.from(document.querySelectorAll('[data-testid="guardian-child-chip"]'))
+          .find((element) => element.getAttribute("aria-pressed") === "true");
+
+        return {
+          payment: payment
+            ? {
+                collectionRequestStatus: payment.collectionRequest?.status ?? null,
+                id: payment.id,
+                memberId: payment.memberId,
+                onlinePaymentStatus: payment.onlinePayment?.status ?? null,
+                status: payment.status,
+              }
+            : null,
+          selectedChild: selectedChild?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        };
+      });
       assert(
-        beforeState.paymentTitles.some((title) => title.includes("한유나 납부 요청 필요")),
-        `guardian notifications must show pending payment request copy: ${JSON.stringify(beforeState.paymentTitles)}`,
+        beforeState.paymentTitles.some((title) => title.includes("한유나 납부 요청 접수")),
+        `guardian notifications must show pending payment request copy: ${JSON.stringify({ paymentTitles: beforeState.paymentTitles, guardianPaymentDiagnostic })}`,
       );
       assert(
         beforeState.paymentActionLabels.includes("납부 확인 중"),
         `guardian pending payment action must use payment-confirmation copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
+      );
+    } else {
+      assert(
+        beforeState.paymentActionLabels.includes("납부 요청"),
+        `${testCase.id} payable payment notification action must use request copy: ${JSON.stringify(beforeState.paymentActionLabels)}`,
       );
     }
     assert(
@@ -266,8 +314,8 @@ async function verifyFamilyCase(browser, testCase) {
     );
     assert(beforeState.filterToolbarHeight <= 112, `${testCase.id} notifications filter toolbar must stay compact: ${beforeState.filterToolbarHeight}`);
     assert(beforeState.filterToolbarOverflow <= 0, `${testCase.id} notifications filter toolbar must not overflow horizontally: ${beforeState.filterToolbarOverflow}`);
-    assert.equal(beforeState.safeAreaCount, 1, `${testCase.id} notifications must keep the mobile bottom safe area spacer`);
-    assert.equal(beforeState.safeAreaHeight, 112, `${testCase.id} notifications must keep enough mobile bottom breathing room`);
+    assert.equal(beforeState.safeAreaCount, 0, `${testCase.id} notifications must not duplicate the shell mobile safe area`);
+    assert.equal(beforeState.safeAreaHeight, 0, `${testCase.id} notifications must avoid a second bottom spacer`);
     assert.equal(beforeState.scrollWidth, beforeState.clientWidth, `${testCase.id} notifications must not overflow horizontally`);
     assert.equal(
       beforeState.undersizedVisibleTargets.length,
@@ -320,11 +368,11 @@ async function verifyFamilyCase(browser, testCase) {
     const scrollEndState = await collectInboxState(page);
 
     assert(
-      scrollEndState.bottomCardClearance !== null && scrollEndState.bottomCardClearance >= 128,
+      scrollEndState.bottomCardClearance !== null && scrollEndState.bottomCardClearance >= 24,
       `${testCase.id} bottom notification card must clear the mobile bottom navigation at scroll end: ${scrollEndState.bottomCardClearance}`,
     );
     assert(
-      scrollEndState.bottomActionClearance !== null && scrollEndState.bottomActionClearance >= 160,
+      scrollEndState.bottomActionClearance !== null && scrollEndState.bottomActionClearance >= 24,
       `${testCase.id} bottom notification action must clear the mobile bottom navigation at scroll end: ${scrollEndState.bottomActionClearance}`,
     );
     assert(statSync(scrollEndScreenshotPath).size > 10_000, `${testCase.id} scroll-end screenshot must be non-empty`);

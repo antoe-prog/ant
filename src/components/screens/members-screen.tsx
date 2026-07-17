@@ -1,8 +1,9 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, ChevronDown, Copy, CreditCard, ExternalLink, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Bell, ChevronDown, CircleAlert, Copy, CreditCard, ExternalLink, MapPin, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, Payment, UserRole } from "@/lib/domain";
 import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
@@ -14,6 +15,7 @@ import { apiClient } from "@/lib/api-client";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
@@ -30,6 +32,20 @@ const statusClasses: Record<MemberStatus, string> = {
 };
 const memberStatusOptions: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
 const memberGenderOptions: MemberGender[] = ["male", "female"];
+const coachMembershipStatusLabels = {
+  active: "회원권 활성",
+  attention: "회원권 확인 필요",
+  expiring: "회원권 만료 예정",
+  inactive: "회원권 비활성",
+  none: "등록된 회원권 없음",
+} as const;
+const coachMembershipStatusClasses = {
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  attention: "border-amber-200 bg-amber-50 text-amber-700",
+  expiring: "border-amber-200 bg-amber-50 text-amber-700",
+  inactive: "border-zinc-200 bg-zinc-50 text-zinc-600",
+  none: "border-zinc-200 bg-zinc-50 text-zinc-600",
+} as const;
 
 function getInitialMemberStatusFilter(): MemberStatus | "all" {
   if (typeof window === "undefined") {
@@ -175,37 +191,98 @@ function MemberDetailContainer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (inline) {
       return;
     }
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
+    const dialog = dialogRef.current;
+
+    if (!dialog) {
+      return;
     }
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [inline, onClose]);
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+
+      if (dialog.open) {
+        dialog.close();
+      }
+
+      const returnTarget = returnFocusRef.current?.isConnected
+        ? returnFocusRef.current
+        : document.querySelector<HTMLElement>(`[data-testid="member-detail-toggle-${member.id}"]`);
+
+      window.requestAnimationFrame(() => returnTarget?.focus());
+    };
+  }, [inline, member.id]);
 
   if (inline) {
     return <>{children}</>;
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/40 sm:items-center sm:p-6"
+    <dialog
+      aria-labelledby={`member-detail-title-${member.id}`}
+      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-0 backdrop:bg-zinc-950/40 open:flex open:items-end open:justify-center sm:open:items-center sm:p-6"
       data-testid={`member-detail-dialog-${member.id}`}
-      role="presentation"
-      onClick={onClose}
+      ref={dialogRef}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCloseRef.current();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onCloseRef.current();
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") {
+          return;
+        }
+
+        const focusableElements = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((element) => element.getClientRects().length > 0);
+        const first = focusableElements[0];
+        const last = focusableElements.at(-1);
+
+        if (!first || !last) {
+          event.preventDefault();
+          closeButtonRef.current?.focus();
+          return;
+        }
+
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
     >
       <div
-        aria-label={`${member.name} 상세 정보`}
-        aria-modal="true"
         className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
-        role="dialog"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3">
@@ -214,7 +291,9 @@ function MemberDetailContainer({
               <UserRound className="h-4 w-4" aria-hidden />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-base font-semibold text-zinc-950">{member.name}</span>
+              <h2 className="block truncate text-base font-semibold text-zinc-950" id={`member-detail-title-${member.id}`}>
+                {member.name} 상세 정보
+              </h2>
               <span className="block text-xs text-zinc-500">
                 {member.belt} · {member.level}
               </span>
@@ -226,8 +305,9 @@ function MemberDetailContainer({
               aria-label="상세 닫기"
               className="inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
               data-testid={`member-detail-close-${member.id}`}
+              ref={closeButtonRef}
               type="button"
-              onClick={onClose}
+              onClick={() => onCloseRef.current()}
             >
               <X className="h-5 w-5" aria-hidden />
             </button>
@@ -235,11 +315,12 @@ function MemberDetailContainer({
         </div>
         <div className="overflow-y-auto px-4 pb-6">{children}</div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
 export function MembersScreen() {
+  const searchParams = useSearchParams();
   const context = useApiContext();
   const {
     createCounselingNote,
@@ -259,15 +340,7 @@ export function MembersScreen() {
 
   function toggleMemberDetail(memberId: string) {
     setExpandedMemberIds((current) => {
-      const next = new Set(current);
-
-      if (next.has(memberId)) {
-        next.delete(memberId);
-      } else {
-        next.add(memberId);
-      }
-
-      return next;
+      return current.has(memberId) ? new Set() : new Set([memberId]);
     });
   }
 
@@ -275,13 +348,21 @@ export function MembersScreen() {
     setStatusFilterState(value);
     syncMemberStatusFilterToUrl(value === "all" ? null : value);
   }
-  const guardianChildIds =
-    context.user.role === "guardian"
-      ? context.db.members
-          .filter((member) => context.user.childMemberIds?.includes(member.id))
-          .map((member) => member.id)
-      : undefined;
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id, guardianChildIds);
+  const guardianChildIds = useMemo(
+    () =>
+      context.user.role === "guardian"
+        ? context.db.members
+            .filter((member) => context.user.childMemberIds?.includes(member.id))
+            .map((member) => member.id)
+        : undefined,
+    [context.db.members, context.user.childMemberIds, context.user.role],
+  );
+  const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
+  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+    context.user.id,
+    guardianChildIds,
+    context.user.role === "guardian" ? requestedMemberId : null,
+  );
   const [inviteBranchId, setInviteBranchId] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -321,6 +402,20 @@ export function MembersScreen() {
   const showMembersScreenHeader = !isFamilyRole;
   const selectedInviteBranchId = inviteBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const selectedCreateBranchId = newMemberBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
+  const showMemberBranchIdentity = canManageMembers && !context.selectedBranchId && context.db.branches.length > 1;
+
+  useEffect(() => {
+    if (
+      context.user.role !== "guardian" ||
+      !requestedMemberId ||
+      !guardianChildIds?.includes(requestedMemberId) ||
+      selectedChildId === requestedMemberId
+    ) {
+      return;
+    }
+
+    setSelectedChildId(requestedMemberId);
+  }, [context.user.role, guardianChildIds, requestedMemberId, selectedChildId, setSelectedChildId]);
 
   useEffect(() => {
     if (!canManageMembers || new URLSearchParams(window.location.search).get("create") !== "1") {
@@ -342,8 +437,7 @@ export function MembersScreen() {
         ? (data ?? []).map((member) => ({
             id: member.id,
             name: member.name,
-            meta: `${member.belt} · ${member.level}`,
-            statusLabel: memberStatusLabels[member.status],
+            ...getChildSwitcherPresentation(member),
           }))
         : [],
     [context.user.role, data],
@@ -351,6 +445,10 @@ export function MembersScreen() {
   const authorNamesById = useMemo(
     () => new Map(context.db.users.map((user) => [user.id, user.name])),
     [context.db.users],
+  );
+  const branchNamesById = useMemo(
+    () => new Map(context.db.branches.map((branch) => [branch.id, branch.name])),
+    [context.db.branches],
   );
   const guardianUsers = useMemo(
     () => context.db.users.filter((user) => user.role === "guardian" && user.invitationStatus !== "pending"),
@@ -1265,6 +1363,15 @@ export function MembersScreen() {
                       <span className="mt-1 block text-sm text-zinc-600">
                         {member.belt} · {member.level}
                       </span>
+                      {showMemberBranchIdentity ? (
+                        <span
+                          className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700"
+                          data-testid={`member-branch-identity-${member.id}`}
+                        >
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+                          <span className="truncate">{branchNamesById.get(member.branchId) ?? "지점 미지정"}</span>
+                        </span>
+                      ) : null}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
@@ -1292,6 +1399,23 @@ export function MembersScreen() {
                     <p className="mt-1 text-sm text-zinc-600">
                       {member.belt} · {member.level}
                     </p>
+	                  {isCoachRole ? (
+	                    <div
+	                      className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-zinc-600"
+	                      data-testid={`coach-member-membership-summary-${member.id}`}
+	                    >
+	                      <span
+	                        className={`inline-flex rounded-md border px-2 py-1 font-semibold ${coachMembershipStatusClasses[member.membershipSummary?.status ?? "none"]}`}
+	                      >
+	                        {coachMembershipStatusLabels[member.membershipSummary?.status ?? "none"]}
+	                      </span>
+	                      <span className="truncate">
+	                        {member.membershipSummary?.expiresAt
+	                          ? `만료 ${formatDate(member.membershipSummary.expiresAt)}`
+	                          : "만료일 확인 필요"}
+	                      </span>
+	                    </div>
+	                  ) : null}
 	                  </div>
 	                </div>
 	                <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${statusClasses[member.status]}`}>
@@ -1299,18 +1423,6 @@ export function MembersScreen() {
 	                </span>
 	              </div>
               )}
-
-		              {isFamilyRole && member.alerts.length > 0 ? (
-		                <div
-		                  className="mt-3 flex min-h-11 min-w-0 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-950"
-		                  data-testid="family-member-alert-strip"
-		                >
-	                  <span className="shrink-0 rounded bg-white px-2 py-0.5 text-xs font-semibold text-amber-700">확인 필요</span>
-	                  <p className="min-w-0 break-words">
-	                    {member.alerts.slice(0, 2).join(" · ")}
-	                  </p>
-	                </div>
-	              ) : null}
 
               <dl
                 className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-zinc-100 pt-4 text-sm"
@@ -1367,6 +1479,16 @@ export function MembersScreen() {
                   </div>
                 ) : null}
               </dl>
+
+              {isFamilyRole && member.alerts.length > 0 ? (
+                <div
+                  className="mt-3 flex min-h-11 min-w-0 items-center gap-2 max-h-[72px] overflow-hidden rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950"
+                  data-testid="family-member-alert-strip"
+                >
+                  <CircleAlert className="h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+                  <p className="line-clamp-2 min-w-0 text-xs font-medium leading-5">{member.alerts.join(" · ")}</p>
+                </div>
+              ) : null}
 
               {memberDetailExpanded ? (
               <MemberDetailContainer

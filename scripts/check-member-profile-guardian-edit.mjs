@@ -101,6 +101,7 @@ assert(
 );
 assert(
   membersScreenSource.includes("const showAlertSection = !isFamilyRole && member.alerts.length > 0;") &&
+    !membersScreenSource.includes('data-testid="family-member-alert-strip"') &&
     !membersScreenSource.includes("등록된 주의사항 없음") &&
     !membersScreenSource.includes("아직 상담/주의 메모가 없습니다.") &&
     !membersScreenSource.includes("아직 코치 피드백이 없습니다."),

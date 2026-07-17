@@ -42,8 +42,8 @@ const buttonVariants = {
 } as const;
 
 const buttonSizes = {
-  sm: "h-8 px-2.5 text-xs",
-  md: "h-10 px-3 text-sm",
+  sm: "min-h-11 px-2.5 text-xs lg:min-h-8",
+  md: "min-h-11 px-3 text-sm lg:min-h-10",
   lg: "h-11 px-4 text-sm",
   touch: "min-h-12 px-3 text-sm",
 } as const;

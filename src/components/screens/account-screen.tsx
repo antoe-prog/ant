@@ -7,14 +7,14 @@ import { useApiContext } from "@/hooks/use-api-context";
 import { formatPhoneNumber } from "@/lib/format";
 import { roleLabels } from "@/lib/roles";
 import { getVisibleUserEmail } from "@/lib/user-display";
-import { useAppStore } from "@/store/app-store";
 import { InstallAppAction } from "@/components/pwa/install-app-action";
+import { useSafeSignOut } from "@/components/shell/app-shell";
 import { SectionHeader, RoleBadge } from "@/components/ui/primitives";
 
 export function AccountScreen() {
   const context = useApiContext();
   const pathname = usePathname();
-  const { signOut } = useAppStore();
+  const requestSignOut = useSafeSignOut();
   const branches = context.user.role === "admin"
     ? context.db.branches
     : context.db.branches.filter((branch) => context.user.branchIds.includes(branch.id));
@@ -93,7 +93,7 @@ export function AccountScreen() {
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
             data-testid="account-logout-button"
             type="button"
-            onClick={signOut}
+            onClick={requestSignOut}
           >
             <LogOut className="h-4 w-4" aria-hidden />
             로그아웃

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
 import {
+  assertOwnedSmokeServer,
   prepareStandaloneSmokeEnvironment,
   resetOwnedSmokeServer,
 } from "./lib/release-smoke-environment.mjs";
@@ -85,15 +86,25 @@ async function ensureLocalAppServer() {
   });
 
   if (await canReachAppServer()) {
+    await assertOwnedSmokeServer({
+      baseUrl,
+      env: process.env,
+      label: "coach classes bottom safe-area check",
+    });
     usingExistingAppServer = true;
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const target = new URL(baseUrl);
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", target.hostname, "--port", target.port],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.COACH_CLASSES_BOTTOM_SAFE_AREA_SERVER_LOGS === "1") {
@@ -178,7 +189,17 @@ async function loginTo(page, role, nextPath) {
 async function clickExistingAttendanceChange(page) {
   const targetTestId = await page.evaluate(() => {
     const statuses = ["present", "late", "absent", "excused"];
-    const pressedButtons = Array.from(document.querySelectorAll('button[data-testid^="attendance-"][aria-pressed="true"]'));
+    const isVisible = (button) => {
+      const rect = button.getBoundingClientRect();
+      const style = window.getComputedStyle(button);
+
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const pressedButtons = Array.from(
+      document.querySelectorAll(
+        '[data-testid^="coach-class-roster-panel-"] button[data-testid^="attendance-"][aria-pressed="true"]',
+      ),
+    ).filter(isVisible);
 
     for (const button of pressedButtons) {
       const currentTestId = button.getAttribute("data-testid") ?? "";
@@ -196,10 +217,21 @@ async function clickExistingAttendanceChange(page) {
       }
     }
 
+    const firstUncheckedPresentButton = Array.from(
+      document.querySelectorAll('[data-testid^="coach-class-roster-panel-"] button[data-testid^="attendance-"]'),
+    ).find((button) => {
+      const testId = button.getAttribute("data-testid") ?? "";
+      return isVisible(button) && testId.endsWith("-present") && button.getAttribute("aria-pressed") !== "true";
+    });
+
+    if (firstUncheckedPresentButton) {
+      return firstUncheckedPresentButton.getAttribute("data-testid") ?? "";
+    }
+
     return "";
   });
 
-  assert(targetTestId, "coach classes check needs at least one existing attendance status to modify");
+  assert(targetTestId, "coach classes check needs at least one visible attendance status action");
   await page.getByTestId(targetTestId).click();
 
   return targetTestId;
@@ -213,6 +245,12 @@ async function collectCoachClassesLayout(page) {
     const retryButton = document.querySelector('[data-testid="attendance-retry-mobile"]');
     const statusChip = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
     const undoButton = document.querySelector('[data-testid="attendance-undo-last-mobile"]');
+    const visibleBulkRequests = Array.from(document.querySelectorAll('[data-testid^="attendance-bulk-request-"]')).filter((button) => {
+      const rect = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    });
     const panelRect = panel?.getBoundingClientRect();
     const navRect = nav?.getBoundingClientRect();
     const listToggleRect = listToggle?.getBoundingClientRect();
@@ -239,6 +277,12 @@ async function collectCoachClassesLayout(page) {
 
     return {
       bodyTextLength: document.body?.innerText.length ?? 0,
+      bulkRequestBottomNavOverlapCount: visibleBulkRequests.filter((button) => {
+        const rect = button.getBoundingClientRect();
+
+        return rect.top < window.innerHeight && rect.bottom > navTop;
+      }).length,
+      bulkRequestHeights: visibleBulkRequests.map((button) => Math.round(button.getBoundingClientRect().height)),
       clientWidth: document.documentElement.clientWidth,
       frameworkOverlayCount,
       listToggleBottom: Math.round(listToggleBottom),
@@ -298,8 +342,14 @@ async function captureCoachClassesBottomSafeArea(browser) {
       `coach classes list expansion control must keep at least 96px bottom-nav clearance before roster open; got ${initialLayout.listToggleBottomClearance}px`,
     );
     assert.equal(initialLayout.rosterToggleBottomNavOverlapCount, 0, "coach class roster toggles must not overlap the bottom navigation before roster open");
+    assert.equal(initialLayout.bulkRequestBottomNavOverlapCount, 0, "coach bulk attendance controls must not overlap the bottom navigation before roster open");
+    assert(initialLayout.bulkRequestHeights.length > 0, "coach classes must expose at least one bulk attendance control");
+    assert(initialLayout.bulkRequestHeights.every((height) => height >= 44), `coach bulk attendance controls must stay 44px tall; got ${initialLayout.bulkRequestHeights.join(", ")}px`);
 
-    await page.locator('[data-testid^="coach-class-roster-toggle-"]').first().click();
+    const rosterToggle = page.locator('[data-testid^="coach-class-roster-toggle-"]').first();
+    if ((await rosterToggle.getAttribute("aria-expanded")) !== "true") {
+      await rosterToggle.click();
+    }
     const changedAttendanceTestId = await clickExistingAttendanceChange(page);
     await page.waitForSelector('[data-testid="coach-mobile-save-status-panel"]', { timeout: 15000 });
     await page.waitForSelector('[data-testid="mobile-bottom-navigation"]', { timeout: 15000 });
@@ -324,6 +374,7 @@ async function captureCoachClassesBottomSafeArea(browser) {
       `coach classes mobile retry action must keep a 44px touch height when visible; got ${layout.retryButtonHeight}px`,
     );
     assert.equal(layout.rosterToggleBottomNavOverlapCount, 0, "coach class roster toggles must not overlap the bottom navigation");
+    assert.equal(layout.bulkRequestBottomNavOverlapCount, 0, "coach bulk attendance controls must not overlap the bottom navigation");
     assert.equal(messages.length, 0, `coach classes screen must not log console/page warnings: ${messages.join(" | ")}`);
 
     await page.screenshot({ fullPage: false, path: screenshotPath });

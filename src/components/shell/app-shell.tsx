@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -27,6 +27,7 @@ import type { AppRouteId } from "@/lib/roles";
 import {
   getMobileSecondaryRoutes,
   getMobileVisibleRoutes,
+  getRouteByPath,
   getRouteLabel,
   getVisibleRoutes,
   isRouteActive,
@@ -57,6 +58,18 @@ const navIcons: Record<AppRouteId, React.ComponentType<{ className?: string }>> 
   adminSettings: Settings2,
 };
 
+const SafeSignOutContext = createContext<(() => void) | null>(null);
+
+export function useSafeSignOut() {
+  const requestSignOut = useContext(SafeSignOutContext);
+
+  if (!requestSignOut) {
+    throw new Error("useSafeSignOut must be used inside AppShell.");
+  }
+
+  return requestSignOut;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const {
     user,
@@ -65,16 +78,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     accessibleBranchIds,
     branchSelectionPending,
     operationError,
+    attendanceSync,
     clearOperationError,
     selectBranch,
     signOut,
+    syncPendingAttendance,
   } = useAppStore();
   const pathname = usePathname();
   const mobileNavScrollRef = useRef<HTMLDivElement | null>(null);
   const activeMobileNavRef = useRef<HTMLAnchorElement | null>(null);
   const mobileAccountMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileAccountMenuToggleRef = useRef<HTMLButtonElement | null>(null);
+  const logoutDialogRef = useRef<HTMLElement | null>(null);
+  const logoutDialogPrimaryRef = useRef<HTMLButtonElement | null>(null);
+  const logoutSyncPendingRef = useRef(false);
   const [mobileAccountMenuPath, setMobileAccountMenuPath] = useState<string | null>(null);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [logoutSyncPending, setLogoutSyncPending] = useState(false);
+  const [logoutSyncError, setLogoutSyncError] = useState<string | null>(null);
   const guardianChildIds =
     user?.role === "guardian"
       ? db.members.filter((member) => user.childMemberIds?.includes(member.id)).map((member) => member.id)
@@ -131,6 +152,107 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [mobileAccountMenuPath]);
 
+  useEffect(() => {
+    if (!logoutDialogOpen) {
+      return;
+    }
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const dialog = logoutDialogRef.current;
+    const backgroundElements = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-app-shell-background]"),
+    );
+    const previousInertValues = backgroundElements.map((element) => element.inert);
+
+    backgroundElements.forEach((element) => {
+      element.inert = true;
+    });
+    logoutDialogPrimaryRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !logoutSyncPendingRef.current) {
+        event.preventDefault();
+        setLogoutDialogOpen(false);
+        setLogoutSyncError(null);
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialog) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      const first = focusableElements[0];
+      const last = focusableElements.at(-1);
+
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      backgroundElements.forEach((element, index) => {
+        element.inert = previousInertValues[index];
+      });
+      previouslyFocused?.focus();
+    };
+  }, [logoutDialogOpen]);
+
+  const requestSignOut = useCallback(() => {
+    setMobileAccountMenuPath(null);
+
+    if (attendanceSync.queue.length === 0) {
+      signOut();
+      return;
+    }
+
+    setLogoutSyncError(null);
+    setLogoutDialogOpen(true);
+  }, [attendanceSync.queue.length, signOut]);
+
+  function preserveQueueAndSignOut() {
+    setLogoutDialogOpen(false);
+    setLogoutSyncError(null);
+    signOut();
+  }
+
+  async function syncThenSignOut() {
+    logoutSyncPendingRef.current = true;
+    setLogoutSyncPending(true);
+    setLogoutSyncError(null);
+
+    const synced = await syncPendingAttendance();
+
+    logoutSyncPendingRef.current = false;
+    setLogoutSyncPending(false);
+
+    if (synced) {
+      setLogoutDialogOpen(false);
+      signOut();
+      return;
+    }
+
+    setLogoutSyncError("아직 동기화되지 않았습니다. 네트워크를 확인하거나 대기열을 보존한 채 로그아웃하세요.");
+  }
+
   if (!user) {
     return children;
   }
@@ -149,7 +271,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isAccountRoute = pathname === "/app/account" || pathname.startsWith("/app/account/");
   const mobileSecondaryRouteActive =
     isAccountRoute || mobileSecondaryRoutes.some((route) => isRouteActive(route, pathname));
-  const isNotificationRoute = pathname === "/app/notifications" || pathname.startsWith("/app/notifications/");
+  const isFamilyNoticeRoute =
+    (user.role === "member" || user.role === "guardian") &&
+    (pathname === "/app/notices" || pathname.startsWith("/app/notices/"));
+  const isNotificationRoute =
+    pathname === "/app/notifications" || pathname.startsWith("/app/notifications/") || isFamilyNoticeRoute;
+  const currentRoute = getRouteByPath(pathname);
+  const mobileContextLabel = mobileSecondaryRouteActive || isNotificationRoute
+    ? isAccountRoute
+      ? "내 계정"
+      : pathname === "/app/notifications" || pathname.startsWith("/app/notifications/")
+        ? "알림함"
+        : currentRoute
+          ? getRouteLabel(currentRoute, user.role)
+          : null
+    : null;
   const mobileSecondaryGroupLabel = user.role === "member" || user.role === "guardian" ? "추가 메뉴" : "관리 메뉴";
   const notificationScopeUser =
     user.role === "guardian" && selectedGuardianChildId
@@ -186,8 +322,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
+    <SafeSignOutContext.Provider value={requestSignOut}>
     <div className="min-h-screen bg-zinc-100 text-zinc-950 lg:flex">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-zinc-200 bg-white lg:flex lg:flex-col">
+      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-zinc-200 bg-white lg:flex lg:flex-col" data-app-shell-background>
         <div className="border-b border-zinc-200 px-5 py-5">
           <Link className="inline-flex min-h-11 items-center" href="/app/dashboard" aria-label="FINAL 대시보드로 이동">
             <FinalWordmark size="sm" ariaHidden />
@@ -196,7 +333,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="주요 메뉴">
           {routes.map((route) => {
             const Icon = navIcons[route.id];
-            const active = isNotificationRoute && route.id === "notices" ? false : isRouteActive(route, pathname);
+            const active = (route.id === "notices" && isNotificationRoute) || isRouteActive(route, pathname);
             const routeLabel = getRouteLabel(route, user.role);
 
             return (
@@ -217,11 +354,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="shrink-0 border-t border-zinc-200 p-4">
           <Link
             aria-label={`내 계정 보기: ${user.name}`}
-            className="block rounded-lg border border-zinc-200 bg-zinc-50 p-3 transition hover:border-teal-200 hover:bg-teal-50"
+            aria-current={isAccountRoute ? "page" : undefined}
+            className={`block rounded-lg border p-3 transition ${
+              isAccountRoute
+                ? "border-teal-700 bg-teal-700 text-white"
+                : "border-zinc-200 bg-zinc-50 hover:border-teal-200 hover:bg-teal-50"
+            }`}
             href="/app/account"
           >
-            <p className="text-sm font-semibold text-zinc-950">{user.name}</p>
-            <p className="mt-1 text-xs text-zinc-500">{user.title}</p>
+            <p className={`text-sm font-semibold ${isAccountRoute ? "text-white" : "text-zinc-950"}`}>{user.name}</p>
+            <p className={`mt-1 text-xs ${isAccountRoute ? "text-teal-50" : "text-zinc-500"}`}>{user.title}</p>
             <div className="mt-3">
               <RoleBadge role={user.role} />
             </div>
@@ -229,7 +371,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
             type="button"
-            onClick={signOut}
+            onClick={requestSignOut}
           >
             <LogOut className="h-4 w-4" aria-hidden />
             로그아웃
@@ -238,7 +380,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur lg:pt-0">
+        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur lg:pt-0" data-app-shell-background>
           <div className="flex min-h-14 items-center justify-between gap-3 px-4 sm:min-h-16 sm:px-6 lg:px-8">
             <div className="min-w-0">
               <Link className="inline-flex min-h-11 items-center" href="/app/dashboard" aria-label="FINAL 대시보드로 이동">
@@ -292,6 +434,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     aria-controls="mobile-account-menu"
                     aria-expanded={mobileAccountMenuOpen}
                     aria-label="더보기 메뉴"
+                    aria-current={mobileSecondaryRouteActive ? "page" : undefined}
                     className={`inline-flex h-11 w-11 items-center justify-center rounded-md border transition ${
                       mobileSecondaryRouteActive
                         ? "border-teal-700 bg-teal-700 text-white"
@@ -392,10 +535,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
                         data-testid="mobile-session-logout-button"
                         type="button"
-                        onClick={() => {
-                          setMobileAccountMenuPath(null);
-                          signOut();
-                        }}
+                        onClick={requestSignOut}
                       >
                         <LogOut className="h-4 w-4 text-zinc-500" aria-hidden />
                         로그아웃
@@ -409,9 +549,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
+          {branches.length > 1 || mobileContextLabel ? (
+            <div
+              className="flex min-h-8 items-center gap-1.5 border-t border-zinc-100 px-4 text-xs sm:hidden"
+              data-testid="mobile-branch-scope"
+            >
+              {branches.length > 1 ? (
+                <>
+                  <span className="shrink-0 font-medium text-zinc-500">조회 범위</span>
+                  <span aria-hidden className="text-zinc-300">·</span>
+                  <span className="min-w-0 truncate font-semibold text-zinc-800" data-testid="mobile-branch-scope-label">
+                    {branchScopeLabel}
+                  </span>
+                </>
+              ) : null}
+              {branches.length > 1 && mobileContextLabel ? <span aria-hidden className="text-zinc-300">·</span> : null}
+              {mobileContextLabel ? (
+                <span className="min-w-0 truncate font-semibold text-teal-800" data-testid="mobile-current-route-context">
+                  {roleLabels[user.role]} · {mobileContextLabel}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
-        <main className="flex-1 px-4 pb-[calc(6.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:px-8 lg:pb-8">
+        <main className="flex-1 px-4 pb-[calc(6.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:px-8 lg:pb-8" data-app-shell-background>
           {operationError ? (
             <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-900" role="alert">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden />
@@ -434,9 +596,80 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
 
+        {logoutDialogOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/50 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:items-center"
+            data-testid="attendance-logout-warning-overlay"
+          >
+            <section
+              aria-describedby="attendance-logout-warning-description"
+              aria-labelledby="attendance-logout-warning-title"
+              aria-modal="true"
+              className="w-full max-w-md rounded-lg border border-amber-200 bg-white p-5 shadow-2xl"
+              data-testid="attendance-logout-warning-dialog"
+              ref={logoutDialogRef}
+              role="dialog"
+              tabIndex={-1}
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+                  <AlertTriangle className="h-5 w-5" aria-hidden />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-zinc-950" id="attendance-logout-warning-title">
+                    저장 대기 출석이 있습니다
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-zinc-600" id="attendance-logout-warning-description">
+                    아직 서버에 저장되지 않은 출석 {attendanceSync.queue.length}건이 있습니다. 대기열을 보존하면 같은 계정으로 다시
+                    로그인해 재시도할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+              {logoutSyncError ? (
+                <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-700" role="alert">
+                  {logoutSyncError}
+                </p>
+              ) : null}
+              <div className="mt-5 grid gap-2">
+                <button
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid="attendance-sync-before-logout"
+                  disabled={logoutSyncPending}
+                  onClick={() => void syncThenSignOut()}
+                  ref={logoutDialogPrimaryRef}
+                  type="button"
+                >
+                  {logoutSyncPending ? "출석 동기화 중" : "출석 동기화 후 로그아웃"}
+                </button>
+                <button
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid="attendance-preserve-and-logout"
+                  disabled={logoutSyncPending}
+                  onClick={preserveQueueAndSignOut}
+                  type="button"
+                >
+                  대기열 보존하고 로그아웃
+                </button>
+                <button
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-md px-3 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={logoutSyncPending}
+                  onClick={() => {
+                    setLogoutDialogOpen(false);
+                    setLogoutSyncError(null);
+                  }}
+                  type="button"
+                >
+                  취소
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
         <nav
           className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white px-2 py-2 shadow-[0_-8px_20px_rgba(24,24,27,0.08)] lg:hidden"
           aria-label="모바일 메뉴"
+          data-app-shell-background
           data-testid="mobile-bottom-navigation"
           style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
         >
@@ -452,10 +685,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             {mobileRoutes.map((route) => {
               const Icon = navIcons[route.id];
-              const active =
-                route.id === "notices" && pathname.startsWith("/app/notifications")
-                  ? false
-                  : isRouteActive(route, pathname);
+              const active = (route.id === "notices" && isNotificationRoute) || isRouteActive(route, pathname);
               const routeLabel = getRouteLabel(route, user.role);
               const mobileRouteHref = route.href;
               const mobileRouteLabel = routeLabel;
@@ -469,10 +699,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ref={active ? activeMobileNavRef : undefined}
                   className={`relative flex h-14 flex-col items-center justify-center gap-1 rounded-md font-semibold transition ${
                     fixedMobileNav
-                      ? "min-w-0 px-0.5 text-[11px]"
+                      ? "min-w-0 px-0.5 text-xs"
                       : denseMobileNav
-                        ? "min-w-12 shrink-0 snap-center px-0.5 text-[10px]"
-                        : "min-w-[3.5rem] shrink-0 snap-center px-1 text-[11px]"
+                        ? "min-w-12 shrink-0 snap-center px-0.5 text-[11px]"
+                        : "min-w-[3.5rem] shrink-0 snap-center px-1 text-xs"
                   } ${
                     active ? "bg-teal-700 text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
                   }`}
@@ -493,5 +723,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </div>
     </div>
+    </SafeSignOutContext.Provider>
   );
 }

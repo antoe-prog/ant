@@ -146,6 +146,43 @@ function checkStatusRegions(file, content) {
   }
 }
 
+function checkSharedA11yContracts(file, content) {
+  if (file === "src/components/ui/state-blocks.tsx") {
+    for (const snippet of ['role="alert"', 'aria-live="assertive"', 'aria-atomic="true"']) {
+      if (!content.includes(snippet)) {
+        errors.push(`${file}: ErrorState must include ${snippet}`);
+      }
+    }
+  }
+
+  if (file === "src/components/screens/members-screen.tsx") {
+    for (const snippet of [
+      "<dialog",
+      "dialog.showModal();",
+      "onCancel={(event) =>",
+      "closeButtonRef.current?.focus()",
+      "returnTarget?.focus()",
+      'event.key !== "Tab"',
+      "focusableElements.at(-1)",
+    ]) {
+      if (!content.includes(snippet)) {
+        errors.push(`${file}: member detail modal must include ${snippet}`);
+      }
+    }
+  }
+
+  if (file === "src/components/ui/primitives.tsx") {
+    for (const snippet of [
+      'sm: "min-h-11 px-2.5 text-xs lg:min-h-8"',
+      'md: "min-h-11 px-3 text-sm lg:min-h-10"',
+    ]) {
+      if (!content.includes(snippet)) {
+        errors.push(`${file}: shared mobile buttons must include ${snippet}`);
+      }
+    }
+  }
+}
+
 async function main() {
   const allFiles = (await Promise.all(roots.map((root) => listFiles(root)))).flat();
 
@@ -158,6 +195,7 @@ async function main() {
     checkImages(file, content);
     checkTabIndex(file, content);
     checkStatusRegions(file, content);
+    checkSharedA11yContracts(file, content);
   }
 
   if (errors.length > 0) {

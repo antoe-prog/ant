@@ -1,8 +1,8 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Copy, ExternalLink, KeyRound, Pencil, RefreshCw, Save, Search, Trash2, UserCheck, UserCog, UserPlus, X } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { userRoles, type AppUser, type Member, type MockDatabase, type UserRole } from "@/lib/domain";
@@ -150,6 +150,7 @@ function clearUserPanelHash(userId: string) {
 }
 
 export function AdminUsersScreen() {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const context = useApiContext();
   const { approveInvitation, createInvitation, deleteUser, reissueInvitationLink, resetUserPassword, updateUser } = useAppStore();
@@ -177,6 +178,8 @@ export function AdminUsersScreen() {
   const [passwordPendingUserId, setPasswordPendingUserId] = useState<string | null>(null);
   const [passwordResetOpenUserId, setPasswordResetOpenUserId] = useState<string | null>(null);
   const [issuedPassword, setIssuedPassword] = useState<{ userId: string; value: string } | null>(null);
+  const sensitivePasswordRequestRef = useRef(0);
+  const sensitivePasswordScopeRef = useRef(`${pathname}:${context.user.id}`);
   const [editOpenUserId, setEditOpenUserId] = useState<string | null>(null);
   const [deleteOpenUserId, setDeleteOpenUserId] = useState<string | null>(null);
   const [userEditDrafts, setUserEditDrafts] = useState<Record<string, UserEditDraft>>({});
@@ -240,7 +243,32 @@ export function AdminUsersScreen() {
     Boolean(invitePhone.trim()) &&
     (inviteRole === "admin" || inviteBranchIds.length > 0);
 
+  const clearSensitivePasswordState = useCallback(() => {
+    sensitivePasswordRequestRef.current += 1;
+    setApprovedInvitationPassword(null);
+    setIssuedPassword(null);
+  }, []);
+
+  useEffect(() => {
+    const nextScope = `${pathname}:${context.user.id}`;
+
+    if (sensitivePasswordScopeRef.current === nextScope) {
+      return;
+    }
+
+    sensitivePasswordScopeRef.current = nextScope;
+    clearSensitivePasswordState();
+  }, [clearSensitivePasswordState, context.user.id, pathname]);
+
+  useEffect(
+    () => () => {
+      sensitivePasswordRequestRef.current += 1;
+    },
+    [],
+  );
+
   function resetListFilters() {
+    clearSensitivePasswordState();
     setQuery("");
     setSelectedRoleFilter("all");
   }
@@ -257,6 +285,7 @@ export function AdminUsersScreen() {
       return;
     }
 
+    clearSensitivePasswordState();
     setUserEditDrafts((current) => ({
       ...current,
       [user.id]: current[user.id] ?? createUserEditDraft(user),
@@ -283,6 +312,8 @@ export function AdminUsersScreen() {
       if (!targetUser) {
         return;
       }
+
+      clearSensitivePasswordState();
 
       if (hashAction === "approve") {
         if (targetUser.invitationStatus !== "pending") {
@@ -314,7 +345,7 @@ export function AdminUsersScreen() {
     return () => {
       window.removeEventListener("hashchange", openHashTarget);
     };
-  }, [context.db.users]);
+  }, [clearSensitivePasswordState, context.db.users]);
 
   useEffect(() => {
     if (
@@ -408,6 +439,7 @@ export function AdminUsersScreen() {
   }
 
   function openUserDelete(user: AppUser) {
+    clearSensitivePasswordState();
     const blockers = deleteBlockersByUserId.get(user.id) ?? [];
 
     if (blockers.length > 0) {
@@ -418,7 +450,7 @@ export function AdminUsersScreen() {
     }
 
     if (deleteOpenUserId === user.id) {
-      setDeleteOpenUserId(null);
+      closeUserPanels(user.id);
       return;
     }
 
@@ -430,6 +462,7 @@ export function AdminUsersScreen() {
   }
 
   function closeUserPanels(userId: string) {
+    clearSensitivePasswordState();
     clearUserPanelHash(userId);
     setEditOpenUserId((current) => (current === userId ? null : current));
     setDeleteOpenUserId((current) => (current === userId ? null : current));
@@ -600,12 +633,12 @@ export function AdminUsersScreen() {
 
   function openInvitationApprovalConfirm(targetUser: AppUser) {
     if (approvalConfirmUserId === targetUser.id) {
-      setApprovalConfirmUserId(null);
+      closeUserPanels(targetUser.id);
       return;
     }
 
+    clearSensitivePasswordState();
     setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "" }));
-    setApprovedInvitationPassword((current) => (current?.userId === targetUser.id ? null : current));
     setEditOpenUserId(null);
     setDeleteOpenUserId(null);
     setPasswordResetOpenUserId(null);
@@ -614,6 +647,7 @@ export function AdminUsersScreen() {
   }
 
   async function handleApproveInvitation(targetUser: AppUser) {
+    const requestId = ++sensitivePasswordRequestRef.current;
     setApprovalConfirmUserId(null);
     setApprovalPendingUserId(targetUser.id);
     setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "" }));
@@ -622,6 +656,16 @@ export function AdminUsersScreen() {
     const approval = await approveInvitation(targetUser.id);
 
     setApprovalPendingUserId(null);
+
+    if (requestId !== sensitivePasswordRequestRef.current) {
+      if (approval?.temporaryPassword) {
+        setApprovalFeedbacks((current) => ({
+          ...current,
+          [targetUser.id]: "초대를 승인했지만 화면이 전환되어 첫 접속 비밀번호를 표시하지 않습니다. 비밀번호를 다시 발급해 전달하세요.",
+        }));
+      }
+      return;
+    }
 
     if (!approval) {
       setApprovalFeedbacks((current) => ({ ...current, [targetUser.id]: "초대를 승인하지 못했습니다. 권한과 담당 지점을 확인해 주세요." }));
@@ -652,6 +696,7 @@ export function AdminUsersScreen() {
       return;
     }
 
+    const requestId = ++sensitivePasswordRequestRef.current;
     setPasswordResetOpenUserId(targetUser.id);
     setPasswordPendingUserId(targetUser.id);
     setPasswordFeedbacks((current) => ({ ...current, [targetUser.id]: "" }));
@@ -659,6 +704,16 @@ export function AdminUsersScreen() {
     const temporaryPassword = await resetUserPassword(targetUser.id, { reason });
 
     setPasswordPendingUserId(null);
+
+    if (requestId !== sensitivePasswordRequestRef.current) {
+      if (temporaryPassword) {
+        setPasswordFeedbacks((current) => ({
+          ...current,
+          [targetUser.id]: "비밀번호가 재발급되었지만 화면이 전환되어 표시하지 않습니다. 전달하려면 다시 발급하세요.",
+        }));
+      }
+      return;
+    }
 
     if (!temporaryPassword) {
       setPasswordResetOpenUserId(targetUser.id);
@@ -689,7 +744,10 @@ export function AdminUsersScreen() {
                 id="admin-user-search"
                 placeholder="사용자, 휴대폰, 역할, 회원 검색"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  clearSensitivePasswordState();
+                  setQuery(event.target.value);
+                }}
               />
               {query ? (
                 <button
@@ -697,7 +755,10 @@ export function AdminUsersScreen() {
                   className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
                   data-testid="admin-user-search-clear"
                   type="button"
-                  onClick={() => setQuery("")}
+                  onClick={() => {
+                    clearSensitivePasswordState();
+                    setQuery("");
+                  }}
                 >
                   <X className="h-4 w-4" aria-hidden />
                 </button>
@@ -767,7 +828,10 @@ export function AdminUsersScreen() {
                 data-role-filter={role}
                 key={role}
                 type="button"
-                onClick={() => setSelectedRoleFilter(role)}
+                onClick={() => {
+                  clearSensitivePasswordState();
+                  setSelectedRoleFilter(role);
+                }}
               >
                 <span className={`truncate text-xs font-semibold ${active ? "text-teal-700" : "text-zinc-500"}`}>
                   {roleLabels[role]}
@@ -931,7 +995,7 @@ export function AdminUsersScreen() {
           <span>담당 지점</span>
         </div>
         <div
-          className="max-h-36 divide-y divide-zinc-100 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] sm:max-h-72 lg:max-h-none lg:overflow-visible"
+          className="divide-y divide-zinc-100"
           data-testid="admin-user-list-scroll-region"
         >
           {filteredUsers.map((user) => {
@@ -1143,10 +1207,11 @@ export function AdminUsersScreen() {
                     type="button"
                     onClick={() => {
                       if (resetPanelOpen) {
-                        setPasswordResetOpenUserId(null);
+                        closeUserPanels(user.id);
                         return;
                       }
 
+                      clearSensitivePasswordState();
                       setEditOpenUserId(null);
                       setDeleteOpenUserId(null);
                       setApprovalConfirmUserId(null);
@@ -1199,9 +1264,19 @@ export function AdminUsersScreen() {
                   >
                     {approvalFeedback ? <p className="text-xs font-semibold text-teal-800">{approvalFeedback}</p> : null}
                     {approvedPassword ? (
-                      <p className="break-all rounded-md border border-teal-200 bg-white px-3 py-2 text-xs font-semibold text-teal-800">
-                        첫 접속 비밀번호: <span className="font-mono">{approvedPassword}</span>
-                      </p>
+                      <div className="grid gap-2 rounded-md border border-teal-200 bg-white p-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                        <p className="break-all px-1 text-xs font-semibold text-teal-800">
+                          첫 접속 비밀번호: <span className="font-mono">{approvedPassword}</span>
+                        </p>
+                        <button
+                          className="inline-flex min-h-11 items-center justify-center rounded-md border border-teal-200 px-3 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
+                          data-testid={`admin-user-approved-password-dismiss-${user.id}`}
+                          type="button"
+                          onClick={clearSensitivePasswordState}
+                        >
+                          확인 완료
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -1612,9 +1687,22 @@ export function AdminUsersScreen() {
                         />
                       </label>
                       {userIssuedPassword ? (
-                        <p className="mt-2 break-all rounded-md border border-teal-200 bg-white px-3 py-2 text-xs font-semibold text-teal-800">
-                          새 비밀번호: <span className="font-mono">{userIssuedPassword}</span>
-                        </p>
+                        <div className="mt-2 grid gap-2 rounded-md border border-teal-200 bg-white p-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                          <p className="break-all px-1 text-xs font-semibold text-teal-800">
+                            새 비밀번호: <span className="font-mono">{userIssuedPassword}</span>
+                          </p>
+                          <button
+                            className="inline-flex min-h-11 items-center justify-center rounded-md border border-teal-200 px-3 text-xs font-semibold text-teal-800 transition hover:bg-teal-50"
+                            data-testid={`admin-user-issued-password-dismiss-${user.id}`}
+                            type="button"
+                            onClick={() => {
+                              clearSensitivePasswordState();
+                              setPasswordResetOpenUserId(null);
+                            }}
+                          >
+                            확인 완료
+                          </button>
+                        </div>
                       ) : null}
                       {resetFeedback ? <p className="mt-2 text-xs font-semibold text-zinc-600">{resetFeedback}</p> : null}
                     </div>

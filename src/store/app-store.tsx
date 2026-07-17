@@ -14,6 +14,7 @@ import {
 import type {
   AppUser,
   AttendanceStatus,
+  FamilyPaymentRequestPayload,
   Member,
   MemberStatus,
   MockDatabase,
@@ -77,7 +78,8 @@ type PendingAttendanceUpdate = {
   id: string;
   sessionId: string;
   memberId: string;
-  status: AttendanceStatus;
+  operation?: "clear" | "upsert";
+  status?: AttendanceStatus;
   note?: string;
   actorUserId: string;
   queuedAt: string;
@@ -94,13 +96,12 @@ type OperationError = {
 };
 
 type AppAction =
-  | { type: "bootstrap"; payload: BootstrapPayload }
+  | { type: "bootstrap"; payload: BootstrapPayload; attendanceQueue?: PendingAttendanceUpdate[] }
   | { type: "login"; user: AppUser; selectedBranchId: string | null }
   | { type: "logout" }
   | { type: "selectBranch"; branchId: string | null }
   | { type: "setOperationError"; error: OperationError }
   | { type: "clearOperationError" }
-  | { type: "restoreAttendanceQueue"; queue: PendingAttendanceUpdate[] }
   | {
       type: "serverSnapshot";
       payload: BootstrapPayload;
@@ -122,6 +123,15 @@ type AppAction =
       status: AttendanceStatus;
       note?: string;
       actorUserId: string;
+      syncStatus: SaveStatus;
+      message: string;
+      pendingCount: number;
+      queuedUpdate?: PendingAttendanceUpdate;
+    }
+  | {
+      type: "clearAttendance";
+      sessionId: string;
+      memberId: string;
       syncStatus: SaveStatus;
       message: string;
       pendingCount: number;
@@ -157,6 +167,7 @@ type AppStore = AppState & {
   clearOperationError: () => void;
   selectBranch: (branchId: string | null) => Promise<boolean>;
   markAttendance: (sessionId: string, memberId: string, status: AttendanceStatus, note?: string) => void;
+  clearAttendance: (sessionId: string, memberId: string) => void;
   markSessionAttendance: (sessionId: string, memberIds: string[], status: AttendanceStatus, note?: string) => void;
   saveAttendanceReason: (sessionId: string, memberId: string, reason: string) => Promise<boolean>;
   syncPendingAttendance: () => Promise<boolean>;
@@ -185,10 +196,11 @@ type AppStore = AppState & {
   updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
   deleteManualPayment: (paymentId: string, payload: PaymentDeletePayload) => Promise<boolean>;
   createOnlinePaymentCheckout: (paymentId: string) => Promise<boolean>;
+  createFamilyPaymentRequest: (paymentId: string, payload: FamilyPaymentRequestPayload) => Promise<boolean>;
   createRecurringAgreement: (paymentId: string, payload: RecurringAgreementPayload) => Promise<boolean>;
   cancelRecurringAgreement: (paymentId: string, payload: RecurringAgreementPayload) => Promise<boolean>;
   refundPayment: (paymentId: string, payload: PaymentRefundPayload) => Promise<boolean>;
-  updateUserRole: (userId: string, role: UserRole, reason: string) => Promise<boolean>;
+  updateUserRole: (userId: string, role: UserRole, branchIds: string[], reason: string) => Promise<boolean>;
   updateUser: (userId: string, payload: AdminUserUpdatePayload) => Promise<boolean>;
   deleteUser: (userId: string, payload: AdminUserDeletePayload) => Promise<boolean>;
   createInvitation: (payload: InvitationCreatePayload) => Promise<string | null>;
@@ -217,7 +229,8 @@ type AppStore = AppState & {
 };
 
 const sessionKey = "final-judo-mvp-session";
-const attendanceQueueKey = "final-judo-pending-attendance";
+const legacyAttendanceQueueKey = "final-judo-pending-attendance";
+const attendanceQueueKeyPrefix = `${legacyAttendanceQueueKey}:`;
 const publicAuthPathnames = new Set(["/signup", "/reset-password"]);
 
 const AppStoreContext = createContext<AppStore | null>(null);
@@ -271,35 +284,92 @@ function isPendingAttendanceUpdate(value: unknown): value is PendingAttendanceUp
     typeof update.memberId === "string" &&
     typeof update.actorUserId === "string" &&
     typeof update.queuedAt === "string" &&
-    ["present", "absent", "late", "excused"].includes(update.status ?? "") &&
+    (update.operation === "clear" || ["present", "absent", "late", "excused"].includes(update.status ?? "")) &&
     (typeof update.selectedBranchId === "string" || update.selectedBranchId === null)
   );
 }
 
-function readPendingAttendanceQueue(userId?: string) {
-  const raw = window.localStorage.getItem(attendanceQueueKey);
+function getAttendanceQueueKey(userId: string) {
+  return `${attendanceQueueKeyPrefix}${encodeURIComponent(userId)}`;
+}
 
+function parsePendingAttendanceQueue(raw: string | null, userId: string) {
   if (!raw) {
     return [];
   }
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    const queue = Array.isArray(parsed) ? parsed.filter(isPendingAttendanceUpdate) : [];
 
-    return userId ? queue.filter((item) => item.actorUserId === userId) : queue;
+    return Array.isArray(parsed)
+      ? parsed.filter(isPendingAttendanceUpdate).filter((item) => item.actorUserId === userId)
+      : [];
   } catch {
     return [];
   }
 }
 
-function persistPendingAttendanceQueue(queue: PendingAttendanceUpdate[]) {
-  if (queue.length === 0) {
-    window.localStorage.removeItem(attendanceQueueKey);
+function migrateLegacyAttendanceQueues() {
+  const raw = window.localStorage.getItem(legacyAttendanceQueueKey);
+
+  if (!raw) {
     return;
   }
 
-  window.localStorage.setItem(attendanceQueueKey, JSON.stringify(queue));
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    window.localStorage.removeItem(legacyAttendanceQueueKey);
+    return;
+  }
+
+  const queue = Array.isArray(parsed) ? parsed.filter(isPendingAttendanceUpdate) : [];
+  const queuesByUser = new Map<string, PendingAttendanceUpdate[]>();
+
+  for (const item of queue) {
+    const userQueue = queuesByUser.get(item.actorUserId) ?? [];
+    userQueue.push(item);
+    queuesByUser.set(item.actorUserId, userQueue);
+  }
+
+  try {
+    for (const [userId, legacyQueue] of queuesByUser) {
+      const key = getAttendanceQueueKey(userId);
+      const existingQueue = parsePendingAttendanceQueue(window.localStorage.getItem(key), userId);
+      const mergedQueue = new Map(existingQueue.map((item) => [item.id, item]));
+
+      for (const item of legacyQueue) {
+        mergedQueue.set(item.id, item);
+      }
+
+      window.localStorage.setItem(key, JSON.stringify([...mergedQueue.values()]));
+    }
+  } catch {
+    // Keep the legacy queue when per-user persistence is unavailable.
+    return;
+  }
+
+  window.localStorage.removeItem(legacyAttendanceQueueKey);
+}
+
+function readPendingAttendanceQueue(userId: string) {
+  migrateLegacyAttendanceQueues();
+
+  return parsePendingAttendanceQueue(window.localStorage.getItem(getAttendanceQueueKey(userId)), userId);
+}
+
+function persistPendingAttendanceQueue(userId: string, queue: PendingAttendanceUpdate[]) {
+  const userQueue = queue.filter((item) => item.actorUserId === userId);
+  const key = getAttendanceQueueKey(userId);
+
+  if (userQueue.length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(userQueue));
 }
 
 function toUserFacingErrorMessage(error: unknown, fallbackMessage: string) {
@@ -378,17 +448,46 @@ function upsertLocalAttendance(
   };
 }
 
+function clearLocalAttendance(db: MockDatabase, sessionId: string, memberId: string): MockDatabase {
+  return {
+    ...db,
+    attendance: db.attendance.filter((record) => record.sessionId !== sessionId || record.memberId !== memberId),
+  };
+}
+
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case "bootstrap":
+    case "bootstrap": {
+      const attendanceQueue = action.attendanceQueue ?? [];
+      const restoredDb = attendanceQueue.reduce(
+        (nextDb, item) =>
+          item.operation === "clear"
+            ? clearLocalAttendance(nextDb, item.sessionId, item.memberId)
+            : item.status
+              ? upsertLocalAttendance(nextDb, item.sessionId, item.memberId, item.status, item.note)
+              : nextDb,
+        action.payload.db,
+      );
+
       return {
         ...state,
-        db: action.payload.db,
+        db: restoredDb,
         user: action.payload.user,
         selectedBranchId: action.payload.selectedBranchId,
         operationError: null,
+        attendanceSync: {
+          status: attendanceQueue.length > 0 ? "offline" : "idle",
+          message:
+            attendanceQueue.length > 0
+              ? `저장되지 않은 출석 ${attendanceQueue.length}건을 복구했습니다.`
+              : "아직 변경된 출석 기록이 없습니다.",
+          updatedAt: attendanceQueue.at(-1)?.queuedAt ?? null,
+          pendingCount: attendanceQueue.length,
+          queue: attendanceQueue,
+        },
         version: state.version + 1,
       };
+    }
     case "login":
       return {
         ...state,
@@ -426,25 +525,6 @@ function reducer(state: AppState, action: AppAction): AppState {
         operationError: null,
         version: state.version + 1,
       };
-    case "restoreAttendanceQueue": {
-      const restoredDb = action.queue.reduce(
-        (nextDb, item) => upsertLocalAttendance(nextDb, item.sessionId, item.memberId, item.status, item.note),
-        state.db,
-      );
-
-      return {
-        ...state,
-        db: restoredDb,
-        attendanceSync: {
-          status: "offline",
-          message: `저장되지 않은 출석 ${action.queue.length}건을 복구했습니다.`,
-          updatedAt: action.queue.at(-1)?.queuedAt ?? new Date().toISOString(),
-          pendingCount: action.queue.length,
-          queue: action.queue,
-        },
-        version: state.version + 1,
-      };
-    }
     case "serverSnapshot": {
       const nextQueue = action.clearAttendanceQueue ? [] : state.attendanceSync.queue;
 
@@ -479,7 +559,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         version: state.version + 1,
       };
     case "markAttendance": {
-      if (action.syncStatus === "conflict" || action.syncStatus === "failed") {
+      if (action.syncStatus === "conflict" || (action.syncStatus === "failed" && !action.queuedUpdate)) {
         return {
           ...state,
           attendanceSync: {
@@ -505,7 +585,45 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         db: upsertLocalAttendance(state.db, action.sessionId, action.memberId, action.status, action.note),
-        operationError: null,
+        operationError: action.syncStatus === "failed" ? state.operationError : null,
+        attendanceSync: {
+          status: action.syncStatus,
+          message: action.message,
+          updatedAt: new Date().toISOString(),
+          pendingCount: action.queuedUpdate ? nextQueue.length : action.pendingCount,
+          queue: nextQueue,
+        },
+        version: state.version + 1,
+      };
+    }
+    case "clearAttendance": {
+      if (action.syncStatus === "conflict" || (action.syncStatus === "failed" && !action.queuedUpdate)) {
+        return {
+          ...state,
+          attendanceSync: {
+            ...state.attendanceSync,
+            status: action.syncStatus,
+            message: action.message,
+            updatedAt: new Date().toISOString(),
+            pendingCount: Math.max(action.pendingCount, state.attendanceSync.queue.length),
+          },
+          version: state.version + 1,
+        };
+      }
+
+      const nextQueue = action.queuedUpdate
+        ? [
+            ...state.attendanceSync.queue.filter(
+              (update) => update.sessionId !== action.sessionId || update.memberId !== action.memberId,
+            ),
+            action.queuedUpdate,
+          ]
+        : state.attendanceSync.queue;
+
+      return {
+        ...state,
+        db: clearLocalAttendance(state.db, action.sessionId, action.memberId),
+        operationError: action.syncStatus === "failed" ? state.operationError : null,
         attendanceSync: {
           status: action.syncStatus,
           message: action.message,
@@ -517,7 +635,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       };
     }
     case "markAttendanceBatch": {
-      if (action.syncStatus === "conflict" || action.syncStatus === "failed") {
+      if (action.syncStatus === "conflict" || (action.syncStatus === "failed" && !action.queuedUpdates)) {
         return {
           ...state,
           attendanceSync: {
@@ -548,7 +666,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         db: nextBatchDb,
-        operationError: null,
+        operationError: action.syncStatus === "failed" ? state.operationError : null,
         attendanceSync: {
           status: action.syncStatus,
           message: action.message,
@@ -570,6 +688,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [branchSelectionPending, setBranchSelectionPending] = useState(false);
+  const signedInUserId = state.user?.id;
   const branchSelectionPendingRef = useRef(false);
   const branchSelectionRequestRef = useRef(0);
   const confirmedBranchIdRef = useRef<string | null>(null);
@@ -606,12 +725,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
 
         if (active) {
-          dispatch({ type: "bootstrap", payload });
           const pendingAttendanceQueue = readPendingAttendanceQueue(payload.user.id);
-          persistPendingAttendanceQueue(pendingAttendanceQueue);
-          if (pendingAttendanceQueue.length > 0) {
-            dispatch({ type: "restoreAttendanceQueue", queue: pendingAttendanceQueue });
-          }
+          dispatch({ type: "bootstrap", payload, attendanceQueue: pendingAttendanceQueue });
           persistSession({ userId: payload.user.id, selectedBranchId: payload.selectedBranchId });
         }
       } catch {
@@ -635,8 +750,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    persistPendingAttendanceQueue(state.attendanceSync.queue);
-  }, [hydrated, state.attendanceSync.queue]);
+    if (!signedInUserId) {
+      return;
+    }
+
+    persistPendingAttendanceQueue(signedInUserId, state.attendanceSync.queue);
+  }, [hydrated, signedInUserId, state.attendanceSync.queue]);
 
   useEffect(() => {
     if (!branchSelectionPendingRef.current) {
@@ -673,7 +792,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (!disposed && error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
           persistSession(null);
-          persistPendingAttendanceQueue([]);
           dispatch({ type: "logout" });
         }
       } finally {
@@ -711,15 +829,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setAuthPending(true);
       setAuthError(null);
 
+      if (signedInUserId) {
+        persistPendingAttendanceQueue(signedInUserId, state.attendanceSync.queue);
+      }
+
       try {
         const nextPayload = await apiClient.signIn(payload);
         const pendingAttendanceQueue = readPendingAttendanceQueue(nextPayload.user.id);
 
-        dispatch({ type: "bootstrap", payload: nextPayload });
-        persistPendingAttendanceQueue(pendingAttendanceQueue);
-        if (pendingAttendanceQueue.length > 0) {
-          dispatch({ type: "restoreAttendanceQueue", queue: pendingAttendanceQueue });
-        }
+        dispatch({ type: "bootstrap", payload: nextPayload, attendanceQueue: pendingAttendanceQueue });
         persistSession({ userId: nextPayload.user.id, selectedBranchId: nextPayload.selectedBranchId });
         return true;
       } catch (error) {
@@ -729,7 +847,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         setAuthPending(false);
       }
     },
-    [],
+    [signedInUserId, state.attendanceSync.queue],
   );
 
   const signOut = useCallback(() => {
@@ -737,11 +855,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     branchSelectionPendingRef.current = false;
     confirmedBranchIdRef.current = null;
     setBranchSelectionPending(false);
+    if (signedInUserId) {
+      persistPendingAttendanceQueue(signedInUserId, state.attendanceSync.queue);
+    }
     void apiClient.signOut().catch(() => undefined);
     persistSession(null);
-    persistPendingAttendanceQueue([]);
     dispatch({ type: "logout" });
-  }, []);
+  }, [signedInUserId, state.attendanceSync.queue]);
 
   const selectBranch = useCallback(
     async (branchId: string | null) => {
@@ -800,6 +920,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const actorUserId = state.user.id;
       const forcedConflict = window.localStorage.getItem("final-judo-force-conflict") === "1";
       const forcedOffline = window.localStorage.getItem("final-judo-force-offline") === "1";
       const offline = forcedOffline || !window.navigator.onLine;
@@ -819,7 +940,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                 memberId,
                 status,
                 note,
-                actorUserId: state.user.id,
+                actorUserId,
                 queuedAt: new Date().toISOString(),
                 selectedBranchId: state.selectedBranchId,
               }
@@ -831,7 +952,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           memberId,
           status,
           note,
-          actorUserId: state.user.id,
+          actorUserId,
           syncStatus,
           message,
           pendingCount: offline ? 1 : 0,
@@ -858,6 +979,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           });
         })
         .catch((error) => {
+          const queuedUpdate: PendingAttendanceUpdate = {
+            id: `attendance-queue-${Date.now()}-${sessionId}-${memberId}`,
+            sessionId,
+            memberId,
+            status,
+            note,
+            actorUserId,
+            queuedAt: new Date().toISOString(),
+            selectedBranchId: state.selectedBranchId,
+          };
+
           reportOperationError(error, "출석 저장에 실패했습니다.");
           dispatch({
             type: "markAttendance",
@@ -865,10 +997,98 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             memberId,
             status,
             note,
-            actorUserId: state.user?.id ?? "",
+            actorUserId,
             syncStatus: "failed",
-            message: toUserFacingErrorMessage(error, "출석 저장에 실패했습니다."),
+            message: `${toUserFacingErrorMessage(error, "출석 저장에 실패했습니다.")} 재시도할 수 있게 저장 대기에 남겼습니다.`,
+            pendingCount: 1,
+            queuedUpdate,
+          });
+        });
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const clearAttendance = useCallback(
+    (sessionId: string, memberId: string) => {
+      if (!state.user) {
+        return;
+      }
+
+      const actorUserId = state.user.id;
+      const forcedConflict = window.localStorage.getItem("final-judo-force-conflict") === "1";
+      const forcedOffline = window.localStorage.getItem("final-judo-force-offline") === "1";
+      const offline = forcedOffline || !window.navigator.onLine;
+
+      if (forcedConflict) {
+        dispatch({
+          type: "clearAttendance",
+          sessionId,
+          memberId,
+          syncStatus: "conflict",
+          message: "다른 기기에서 먼저 수정된 출석 기록이 있어 미처리로 되돌리지 않았습니다.",
+          pendingCount: 0,
+        });
+        return;
+      }
+
+      if (offline) {
+        dispatch({
+          type: "clearAttendance",
+          sessionId,
+          memberId,
+          syncStatus: "offline",
+          message: "미처리 복원을 이 기기에 저장했고 다시 저장을 기다리고 있습니다.",
+          pendingCount: 1,
+          queuedUpdate: {
+            id: `attendance-queue-${Date.now()}-${sessionId}-${memberId}`,
+            sessionId,
+            memberId,
+            operation: "clear",
+            actorUserId,
+            queuedAt: new Date().toISOString(),
+            selectedBranchId: state.selectedBranchId,
+          },
+        });
+        return;
+      }
+
+      dispatch({
+        type: "setAttendanceSync",
+        syncStatus: "saving",
+        message: "출석 상태를 미처리로 되돌리고 있습니다.",
+        pendingCount: 0,
+      });
+      void apiClient
+        .clearAttendance(sessionId, memberId, state.selectedBranchId)
+        .then((payload) => {
+          dispatch({
+            type: "serverSnapshot",
+            payload,
+            syncStatus: "saved",
+            message: "출석 상태를 미처리로 되돌렸습니다.",
             pendingCount: 0,
+          });
+        })
+        .catch((error) => {
+          const queuedUpdate: PendingAttendanceUpdate = {
+            id: `attendance-queue-${Date.now()}-${sessionId}-${memberId}`,
+            sessionId,
+            memberId,
+            operation: "clear",
+            actorUserId,
+            queuedAt: new Date().toISOString(),
+            selectedBranchId: state.selectedBranchId,
+          };
+
+          reportOperationError(error, "출석 상태를 미처리로 되돌리지 못했습니다.");
+          dispatch({
+            type: "clearAttendance",
+            sessionId,
+            memberId,
+            syncStatus: "failed",
+            message: `${toUserFacingErrorMessage(error, "미처리 복원에 실패했습니다.")} 재시도할 수 있게 저장 대기에 남겼습니다.`,
+            pendingCount: 1,
+            queuedUpdate,
           });
         });
     },
@@ -945,6 +1165,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           });
         })
         .catch((error) => {
+          const queuedAt = new Date().toISOString();
+          const queuedUpdates: PendingAttendanceUpdate[] = memberIds.map((memberId) => ({
+            id: `attendance-queue-${Date.now()}-${sessionId}-${memberId}`,
+            sessionId,
+            memberId,
+            status,
+            note,
+            actorUserId,
+            queuedAt,
+            selectedBranchId: state.selectedBranchId,
+          }));
+
           reportOperationError(error, "출석 일괄 저장에 실패했습니다.");
           dispatch({
             type: "markAttendanceBatch",
@@ -953,8 +1185,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             status,
             note,
             syncStatus: "failed",
-            message: toUserFacingErrorMessage(error, "출석 일괄 저장에 실패했습니다."),
-            pendingCount: 0,
+            message: `${toUserFacingErrorMessage(error, "출석 일괄 저장에 실패했습니다.")} ${memberIds.length}건을 재시도할 수 있게 저장 대기에 남겼습니다.`,
+            pendingCount: memberIds.length,
+            queuedUpdates,
           });
         });
     },
@@ -995,16 +1228,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       let nextPayload: BootstrapPayload | null = null;
 
       for (const item of queue) {
-        nextPayload = await apiClient.updateAttendance(
-          item.sessionId,
-          item.memberId,
-          item.status,
-          item.selectedBranchId ?? state.selectedBranchId,
-          item.note,
-        );
+        nextPayload = item.operation === "clear"
+          ? await apiClient.clearAttendance(item.sessionId, item.memberId, item.selectedBranchId ?? state.selectedBranchId)
+          : item.status
+            ? await apiClient.updateAttendance(
+                item.sessionId,
+                item.memberId,
+                item.status,
+                item.selectedBranchId ?? state.selectedBranchId,
+                item.note,
+              )
+            : nextPayload;
       }
 
       if (nextPayload) {
+        persistPendingAttendanceQueue(state.user.id, []);
         dispatch({
           type: "serverSnapshot",
           payload: nextPayload,
@@ -1347,6 +1585,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const createFamilyPaymentRequest = useCallback(
+    async (paymentId: string, payload: FamilyPaymentRequestPayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.createFamilyPaymentRequest(paymentId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "납부 요청을 접수하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const createRecurringAgreement = useCallback(
     async (paymentId: string, payload: RecurringAgreementPayload) => {
       if (!state.user) {
@@ -1386,13 +1643,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const updateUserRole = useCallback(
-    async (userId: string, role: UserRole, reason: string) => {
+    async (userId: string, role: UserRole, branchIds: string[], reason: string) => {
       if (!state.user) {
         return false;
       }
 
       try {
-        const nextPayload = await apiClient.updateUserRole(userId, role, reason, state.selectedBranchId);
+        const nextPayload = await apiClient.updateUserRole(userId, role, branchIds, reason, state.selectedBranchId);
 
         dispatch({ type: "serverSnapshot", payload: nextPayload });
         return true;
@@ -1521,8 +1778,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const acceptInvitation = useCallback(async (token: string, password: string): Promise<InvitationAcceptResult> => {
     try {
       const payload = await apiClient.acceptInvitation(token, password);
+      const pendingAttendanceQueue = readPendingAttendanceQueue(payload.user.id);
 
-      dispatch({ type: "bootstrap", payload });
+      dispatch({ type: "bootstrap", payload, attendanceQueue: pendingAttendanceQueue });
       persistSession({ userId: payload.user.id, selectedBranchId: payload.selectedBranchId });
       return { ok: true };
     } catch (error) {
@@ -1843,6 +2101,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       clearOperationError,
       selectBranch,
       markAttendance,
+      clearAttendance,
       markSessionAttendance,
       saveAttendanceReason,
       syncPendingAttendance,
@@ -1861,6 +2120,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateManualPayment,
       deleteManualPayment,
       createOnlinePaymentCheckout,
+      createFamilyPaymentRequest,
       createRecurringAgreement,
       cancelRecurringAgreement,
       refundPayment,
@@ -1906,6 +2166,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createClassSession,
       createNotice,
       createOnlinePaymentCheckout,
+      createFamilyPaymentRequest,
       createPayment,
       deleteManualPayment,
       createPilotIncident,
@@ -1922,6 +2183,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       unlinkGuardian,
       replaceGuardian,
       markAttendance,
+      clearAttendance,
       markSessionAttendance,
       saveAttendanceReason,
       markNoticeAsRead,

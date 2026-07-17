@@ -219,10 +219,10 @@ const mobileNavRouteIdsByRole: Record<UserRole, AppRouteId[]> = {
 
 const mobileSecondaryRouteIdsByRole: Record<UserRole, AppRouteId[]> = {
   admin: ["members", "adminRoles", "adminAuditLogs"],
-  coach: [],
+  coach: ["tournaments"],
   guardian: ["promotions"],
   member: ["promotions"],
-  owner: ["ownerBranches"],
+  owner: ["classes", "promotions", "tournaments", "ownerBranches"],
 };
 
 export function getMobileVisibleRoutes(role: UserRole, pathname?: string) {

@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
-import { formatCurrency, formatDate, formatPhoneNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import {
   familyPaymentAgeGroupLabels,
   getFamilyPaymentCheckoutAccess,
@@ -27,6 +27,7 @@ import {
   getPaymentCheckoutAmount,
 } from "@/lib/payment-checkout-access";
 import { roleLabels } from "@/lib/roles";
+import { useAppStore } from "@/store/app-store";
 import { ErrorState } from "@/components/ui/state-blocks";
 import { PaymentStatusBadge } from "@/components/ui/primitives";
 
@@ -89,10 +90,6 @@ function splitPhoneNumber(value?: string) {
   return ["010", "", ""] as const;
 }
 
-function compactPhone(parts: readonly string[]) {
-  return parts.filter(Boolean).join("-");
-}
-
 function getSelectedPaymentMethodSummary(method: PaymentMethod, cardIssuer: string, bank: string) {
   if (method === "card") {
     return cardIssuer;
@@ -107,6 +104,7 @@ function getSelectedPaymentMethodSummary(method: PaymentMethod, cardIssuer: stri
 
 export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: PaymentCheckoutScreenProps) {
   const context = useApiContext();
+  const { createFamilyPaymentRequest } = useAppStore();
   const payment = context.db.payments.find((candidate) => candidate.id === paymentId);
   const member = payment ? context.db.members.find((candidate) => candidate.id === payment.memberId) : undefined;
   const payerPhoneSource = context.user.phone || member?.emergencyContact;
@@ -134,6 +132,8 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
   const [wooriPayTab, setWooriPayTab] = useState<"primary" | "other">("primary");
   const [confirmationMessage, setConfirmationMessage] = useState("");
   const [confirmedInputFingerprint, setConfirmedInputFingerprint] = useState("");
+  const [collectionRequestError, setCollectionRequestError] = useState("");
+  const [requestPending, setRequestPending] = useState(false);
   const [cardGuideMessage, setCardGuideMessage] = useState("");
   const [addressSearchMessage, setAddressSearchMessage] = useState("");
   const wooriPayDialogRef = useRef<HTMLDivElement>(null);
@@ -161,6 +161,31 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
     installment,
   ].join("\u001f");
   const confirmationIsCurrent = Boolean(confirmationMessage && confirmedInputFingerprint === inputFingerprint);
+
+  async function handleCreateCollectionRequest() {
+    if (!payerName.trim() || !mobilePhoneValid || requestPending) {
+      return;
+    }
+
+    setRequestPending(true);
+    setCollectionRequestError("");
+    const ok = await createFamilyPaymentRequest(paymentId, {
+      method: selectedPaymentMethod,
+      methodLabel: getSelectedPaymentMethodSummary(selectedPaymentMethod, selectedCardIssuer, selectedBank),
+      payerName: payerName.trim(),
+      payerPhone: mobilePhoneDigits,
+    });
+    setRequestPending(false);
+
+    if (!ok) {
+      setCollectionRequestError("납부 요청을 접수하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.");
+      return;
+    }
+
+    setConfirmedInputFingerprint(inputFingerprint);
+    setCollectionRequestError("");
+    setConfirmationMessage("납부 요청을 접수했습니다. 담당자가 확인한 뒤 안내합니다.");
+  }
 
   useEffect(() => {
     if (window.location.hash === "#payment-payer-address") {
@@ -291,6 +316,55 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
 
   if (!member || !branch) {
     return <ErrorState description="결제 대상 정보를 확인할 수 없습니다." />;
+  }
+
+  if (checkoutAccess.state === "pending" && payment.collectionRequest) {
+    return (
+      <div className="mx-auto max-w-2xl" data-testid="payment-collection-request-pending">
+        <div className="mb-3">
+          <Link
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            href="/app/payments"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            목록
+          </Link>
+        </div>
+        <section className="rounded-lg border border-teal-200 bg-white p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
+              <CheckCircle2 className="h-5 w-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-teal-700">접수 완료</p>
+              <h1 className="mt-1 text-xl font-semibold text-zinc-950">납부 요청을 확인하고 있습니다</h1>
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                {member.name} · {branch.name} · {payment.collectionRequest.methodLabel}
+              </p>
+            </div>
+          </div>
+          <dl className="mt-4 grid gap-2 rounded-md bg-zinc-50 p-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-semibold text-zinc-500">요청자</dt>
+              <dd className="mt-1 font-semibold text-zinc-900">{payment.collectionRequest.payerName}</dd>
+            </div>
+            {payment.collectionRequest.payerPhone ? (
+              <div>
+                <dt className="text-xs font-semibold text-zinc-500">연락처</dt>
+                <dd className="mt-1 font-semibold text-zinc-900">{formatPhoneNumber(payment.collectionRequest.payerPhone)}</dd>
+              </div>
+            ) : null}
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-semibold text-zinc-500">접수 시각</dt>
+              <dd className="mt-1 font-semibold text-zinc-900">{formatDateTime(payment.collectionRequest.requestedAt)}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-sm leading-6 text-zinc-600">
+            실제 결제나 출금은 진행되지 않았습니다. 담당자가 확인 후 안내합니다.
+          </p>
+        </section>
+      </div>
+    );
   }
 
   const familyPaymentPlanLine = getFamilyPaymentPlanLine(payment.planName, member.ageGroup);
@@ -784,9 +858,10 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
             disabled={!payerName.trim() || !mobilePhoneValid}
             type="button"
             onClick={() => {
+              setCollectionRequestError("");
               setConfirmedInputFingerprint(inputFingerprint);
               setConfirmationMessage(
-                `${payerName.trim()}님 ${formatPhoneNumber(compactPhone([mobilePrefix, mobileMiddle, mobileLast]))} 정보와 ${getSelectedPaymentMethodSummary(
+                `${payerName.trim()}님 ${formatPhoneNumber(mobilePhoneDigits)} 정보와 ${getSelectedPaymentMethodSummary(
                   selectedPaymentMethod,
                   selectedCardIssuer,
                   selectedBank,
@@ -817,6 +892,29 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
             >
               {confirmationIsCurrent ? confirmationMessage : "입력 내용이 변경되었습니다. 현재 내용으로 다시 확인해 주세요."}
             </p>
+          ) : null}
+          {confirmationIsCurrent ? (
+            <button
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-teal-700 bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="payment-collection-request-submit"
+              disabled={requestPending}
+              type="button"
+              onClick={() => void handleCreateCollectionRequest()}
+            >
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              {requestPending ? "접수 중" : "납부 요청 접수"}
+            </button>
+          ) : null}
+          {collectionRequestError ? (
+            <div
+              aria-live="assertive"
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium leading-6 text-red-700"
+              data-testid="payment-collection-request-error"
+              role="alert"
+            >
+              <p>{collectionRequestError}</p>
+              <p className="mt-1 text-xs">입력 내용은 유지되었습니다. 같은 내용으로 다시 접수할 수 있습니다.</p>
+            </div>
           ) : null}
         </div>
 

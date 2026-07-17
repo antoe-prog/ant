@@ -357,7 +357,7 @@ export function AdminAuditLogsScreen() {
             {filterPanelOpen ? "필터 닫기" : "필터 열기"}
           </button>
         </div>
-        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5" data-testid="admin-audit-active-filter-summary">
+        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="admin-audit-active-filter-summary">
           {appliedFilterLabels.slice(0, 5).map((label) => (
             <span
               className="inline-flex min-h-7 shrink-0 items-center rounded-md border border-zinc-200 bg-zinc-50 px-2 text-xs font-semibold text-zinc-700"

@@ -31,6 +31,8 @@ const guardian = {
   title: "학부모",
   branchIds: ["branch-a"],
   childMemberIds: ["member-a"],
+  email: "guardian@example.com",
+  phone: "010-9999-8888",
 };
 
 const admin = {
@@ -161,6 +163,23 @@ assert(initialSearch.some((result) => result.id === "member-member-a"), "회원 
 const guardianPaymentSearch = search(guardian, "주3회");
 assert(guardianPaymentSearch.some((result) => result.id === "payment-payment-a"), "학부모는 연결 자녀 결제를 검색할 수 있어야 합니다.");
 assert(!guardianPaymentSearch.some((result) => result.id === "payment-payment-b"), "학부모에게 다른 회원 결제를 노출하면 안 됩니다.");
+const guardianMemberResult = search(guardian, "김하늘").find((result) => result.id === "member-member-a");
+assert(guardianMemberResult, "학부모는 연결 자녀 회원 결과를 검색할 수 있어야 합니다.");
+assert.equal(
+  guardianMemberResult.href,
+  "/app/members?q=%EA%B9%80%ED%95%98%EB%8A%98&memberId=member-a",
+  "학부모 회원 검색 결과는 이름과 접근 검증된 memberId를 함께 전달해야 합니다.",
+);
+assert.equal(
+  search(guardian, "010-9999-8888").some((result) => result.id === "member-member-a"),
+  false,
+  "가족 역할은 보호자 연락처를 회원 검색 키로 사용하면 안 됩니다.",
+);
+assert.equal(
+  search(owner, "010-9999-8888").some((result) => result.id === "member-member-a"),
+  true,
+  "운영 역할은 회원 관리에 필요한 보호자 연락처 검색을 유지해야 합니다.",
+);
 
 const guardianNoticeSearch = search(guardian, "여름방학");
 assert(guardianNoticeSearch.some((result) => result.id === "notice-notice-a"), "학부모 대상 공지를 검색해야 합니다.");
@@ -183,9 +202,10 @@ assert.equal(
   "빈 검색어는 q 파라미터만 제거해야 합니다.",
 );
 
-const [appShellSource, globalSearchSource, membersSource, noticesSource, paymentsSource, rolesSource] = await Promise.all([
+const [appShellSource, globalSearchSource, globalSearchDataSource, membersSource, noticesSource, paymentsSource, rolesSource] = await Promise.all([
   readFile(path.join(projectRoot, "src/components/shell/app-shell.tsx"), "utf8"),
   readFile(path.join(projectRoot, "src/components/shell/global-search.tsx"), "utf8"),
+  readFile(path.join(projectRoot, "src/lib/global-search.ts"), "utf8"),
   readFile(path.join(projectRoot, "src/components/screens/members-screen.tsx"), "utf8"),
   readFile(path.join(projectRoot, "src/components/screens/notices-screen.tsx"), "utf8"),
   readFile(path.join(projectRoot, "src/components/screens/payments-screen.tsx"), "utf8"),
@@ -196,6 +216,11 @@ assert(appShellSource.includes("<GlobalSearch"), "앱 상단 셸에 통합 검�
 assert(globalSearchSource.includes('event.key.toLowerCase() === "k"'), "키보드 검색 단축키를 유지해야 합니다.");
 assert(globalSearchSource.includes('aria-modal="true"'), "검색 대화상자는 모달 접근성을 제공해야 합니다.");
 assert(globalSearchSource.includes('data-testid="global-search-trigger"'), "통합 검색 진입점 회귀 검증 식별자가 필요합니다.");
+assert(
+  globalSearchDataSource.includes('user.role === "member" || user.role === "guardian"') &&
+    globalSearchDataSource.includes("? [guardian.name]"),
+  "가족 역할 전역 검색은 제3자 연락처를 회원 검색 키로 사용하면 안 됩니다.",
+);
 for (const [label, source] of [
   ["회원", membersSource],
   ["공지", noticesSource],
@@ -206,5 +231,10 @@ for (const [label, source] of [
 }
 assert(noticesSource.includes("highlightedNoticeAvailable"), "공지 딥링크 강조는 항목 존재 여부의 원시 값에만 의존해야 합니다.");
 assert(!noticesSource.includes("[highlightNoticeId, notices]"), "공지 데이터 갱신이 딥링크 강조를 반복 실행하면 안 됩니다.");
+assert(
+  membersSource.includes("guardianChildIds?.includes(requestedMemberId)") &&
+    membersSource.includes("setSelectedChildId(requestedMemberId)"),
+  "회원 화면은 URL memberId가 연결 자녀일 때만 선택 자녀를 전환해야 합니다.",
+);
 
 console.log("Global search scope, Korean initials, navigation, and accessibility checks passed.");

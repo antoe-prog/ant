@@ -88,7 +88,10 @@ async function ensureLocalAppServer() {
 
   managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
     cwd: process.cwd(),
-    env: process.env,
+    env: {
+      ...process.env,
+      PORT: new URL(baseUrl).port || "3000",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -655,6 +658,14 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   const guardianScreenshotPath = join(outDir, "guardian-child-card-method-mobile.png");
   await page.screenshot({ path: guardianScreenshotPath, fullPage: false });
+  await page.getByTestId("payment-confirm-draft-button").click();
+  await page.getByTestId("payment-collection-request-submit").click();
+  await page.waitForSelector('[data-testid="payment-collection-request-pending"]', { timeout: 10000 });
+  const collectionRequestText = await page.getByTestId("payment-collection-request-pending").innerText();
+  assert.match(collectionRequestText, /접수 완료/, "family payment request must persist and render a pending state");
+  assert.match(collectionRequestText, /담당자가 확인 후 안내합니다/, "family payment request must explain the staff follow-up");
+  const collectionRequestScreenshotPath = join(outDir, "guardian-collection-request-pending-mobile.png");
+  await page.screenshot({ path: collectionRequestScreenshotPath, fullPage: false });
 
   assert.deepEqual(messages, [], "payment checkout method flow must not emit console warnings/errors");
 
@@ -678,6 +689,7 @@ try {
       "bank transfer method renders bank and depositor inputs",
       "virtual account and account transfer panels avoid internal setup copy",
       "guardian child checkout uses the same payment input flow",
+      "guardian payment request persists and returns as a staff follow-up pending state",
       "payer email placeholder avoids sample/test account copy",
       "checkout summary stays compact before payer information",
       "optional payer address landline and email details stay collapsed until requested",
@@ -741,6 +753,10 @@ try {
       guardianChildCardMethod: {
         path: guardianScreenshotPath,
         sizeBytes: screenshotSize(guardianScreenshotPath),
+      },
+      guardianCollectionRequestPending: {
+        path: collectionRequestScreenshotPath,
+        sizeBytes: screenshotSize(collectionRequestScreenshotPath),
       },
     },
   };

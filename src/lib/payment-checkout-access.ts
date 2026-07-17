@@ -68,11 +68,13 @@ function authorizedPaymentCheckoutAccess(payment: Payment, reason: string): Fami
     return closedAccess;
   }
 
+  const requestPending = payment.collectionRequest?.status === "pending" || payment.onlinePayment?.status === "pending";
+
   return {
     canOpen: true,
-    label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청",
+    label: requestPending ? "납부 확인 중" : "납부 요청",
     reason,
-    state: payment.onlinePayment?.status === "pending" ? "pending" : "ready",
+    state: requestPending ? "pending" : "ready",
   };
 }
 

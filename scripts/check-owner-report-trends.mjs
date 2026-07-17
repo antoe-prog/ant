@@ -231,6 +231,17 @@ const latestTrend = trendRows.at(-1);
 
 assert.equal(trendRows.length, 3, "owner trend helper must return requested period count");
 assert.equal(expandedTrendRows.length, 12, "owner trend helper must support expanded P2 period filters");
+assert(
+  trendRows.some((row) =>
+    row.classes === 0 &&
+    row.attendanceRecords === 0 &&
+    row.paidRevenue === 0 &&
+    row.paymentRiskCount === 0 &&
+    row.newMembers === 0 &&
+    row.withdrawnMembers === 0
+  ),
+  "owner trend helper must preserve empty months in the selected period",
+);
 assert(latestTrend, "owner trend helper must return a latest period");
 assert.equal(latestTrend.key, dateOnlyWithMonthOffset(0, 1).slice(0, 7), "owner trend latest period must not move into future payment months");
 assert.equal(latestTrend.classes, 1, "owner trend must count scoped classes by class start month");
@@ -296,6 +307,18 @@ const packageJson = JSON.parse(packageJsonSource);
 assert(ownerReportsSource.includes("기간별 운영 추세"), "owner reports screen must show the trend section");
 assert(ownerReportsSource.includes("buildOwnerTrendRows"), "owner reports screen must use the shared trend helper");
 assert(ownerReportsSource.includes("trendPeriodMonths"), "owner reports screen must keep an interactive period filter");
+assert(
+  ownerReportsSource.includes("const ownerReportTrendGraphBaseRows = ownerReportActiveTrendRows;") &&
+    !ownerReportsSource.includes("ownerReportActiveTrendRows.length > 0 ? ownerReportActiveTrendRows : trendRows.slice(-1)"),
+  "owner reports screen must keep every selected month instead of dropping zero months",
+);
+for (const snippet of ['dataStatus: hasObservedData ? "수집됨" : "미수집"', "row.hasObservedData", "row.dataStatus"]) {
+  assert(ownerReportsSource.includes(snippet), `owner reports screen must distinguish observed zero values from missing months: ${snippet}`);
+}
+assert(
+  ownerReportsSource.includes("`최근 ${trendPeriodMonths}개월 전체 보기`"),
+  "owner reports mobile trend must expose the complete selected period",
+);
 assert(ownerReportsSource.includes("대표 리포트 기간 필터"), "owner reports screen must label the period filter");
 assert(ownerReportsSource.includes("최근 3개월"), "owner reports screen must expose the 3 month period filter");
 assert(ownerReportsSource.includes("최근 12개월"), "owner reports screen must expose the 12 month period filter");
@@ -303,7 +326,14 @@ assert(ownerReportsSource.includes("회원 순증"), "owner reports screen must 
 assert(ownerReportsSource.includes("newMembers"), "owner reports screen must keep new member trend values");
 assert(ownerReportsSource.includes("withdrawnMembers"), "owner reports screen must keep withdrawn member trend values");
 assert(ownerReportsSource.includes("netMemberChange"), "owner reports screen must keep net member trend values");
-assert(ownerReportsSource.includes("owner-report-graph-board"), "owner reports screen must expose the graph board as the primary owner report view");
+assert(ownerReportsSource.includes("owner-report-graph-board"), "owner reports screen must expose the graph board after the action queue");
+assert(
+  ownerReportsSource.indexOf('data-testid="owner-report-action-rail"') <
+    ownerReportsSource.indexOf('data-testid="owner-report-export-controls"') &&
+    ownerReportsSource.indexOf('data-testid="owner-report-export-controls"') <
+      ownerReportsSource.indexOf('data-testid="owner-report-graph-board"'),
+  "owner reports screen must prioritize pending actions before exports and graphs",
+);
 assert(ownerReportsSource.includes("ownerReportPrimaryGraphRow"), "owner reports screen must render the primary owner report graph row");
 assert(ownerReportsSource.includes("ownerReportVisibleSecondaryGraphRows.map"), "owner reports screen must render secondary owner report graph rows");
 assert(ownerReportsSource.includes("data-owner-report-graph-row"), "owner reports screen must expose owner report graph row hooks");
@@ -330,7 +360,12 @@ assert(ownerReportsSource.includes("getRecognizedPaymentRevenue"), "owner branch
 assert(ownerReportsSource.includes("owner-action-queue"), "owner reports screen must expose the owner action queue test hook");
 assert(ownerReportsSource.includes("우선순위 보기"), "owner reports screen must show the owner daily priority entry point");
 assert(ownerReportsSource.includes("우선순위 ${ownerReportHiddenActionCount}건 더 보기"), "owner reports screen must keep the owner daily priority expansion action");
-assert(ownerReportsSource.includes("오늘 먼저 처리할 항목이 없습니다."), "owner action queue must keep an empty state");
+for (const snippet of ["전체 미처리", "전체 미처리 신호", "미처리 조치", "먼저 처리할 미처리 항목이 없습니다."]) {
+  assert(ownerReportsSource.includes(snippet), `owner action queue must use truthful all-pending copy: ${snippet}`);
+}
+for (const retiredSnippet of ["이번 주 액션", "이번 주 우선 신호", "오늘 조치", "오늘 먼저 처리할 항목이 없습니다."]) {
+  assert(!ownerReportsSource.includes(retiredSnippet), `owner action queue must remove inaccurate period copy: ${retiredSnippet}`);
+}
 assert(ownerReportsSource.includes("출석 미처리 정리"), "owner action queue must include attendance follow-up actions");
 assert(ownerReportsSource.includes("결제 위험 확인"), "owner action queue must include payment risk actions");
 assert(!ownerReportsSource.includes("보강 요청 승인"), "owner action queue must not include deleted request actions");
@@ -373,7 +408,7 @@ console.log(
         "shared owner trend helper calculates new/withdrawn/net member change",
         "shared owner trend helper supports P2 period filters",
         "owner reports screen shows period trend section",
-        "owner reports screen uses graph board as the primary view and keeps legacy owner decision board hidden",
+        "owner reports screen prioritizes actions before exports and graphs while keeping the legacy decision board hidden",
         "owner reports screen keeps CSV exports owner/admin scoped",
         "owner reports screen shows daily owner priority list",
         "member lifecycle fields are documented in API/DB docs",

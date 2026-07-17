@@ -6,8 +6,13 @@ export function canShowPaymentNotificationForRole(role: UserRole) {
   return role !== "coach";
 }
 
-export function isPaymentNotificationCandidate(payment: Pick<Payment, "onlinePayment" | "status">) {
-  return payment.status === "overdue" || payment.status === "expiringSoon" || payment.onlinePayment?.status === "pending";
+export function isPaymentNotificationCandidate(payment: Pick<Payment, "collectionRequest" | "onlinePayment" | "status">) {
+  return (
+    payment.status === "overdue" ||
+    payment.status === "expiringSoon" ||
+    payment.collectionRequest?.status === "pending" ||
+    payment.onlinePayment?.status === "pending"
+  );
 }
 
 export function getNotificationScopeBranchIds(user: AppUser, db: MockDatabase, selectedBranchId: string | null) {

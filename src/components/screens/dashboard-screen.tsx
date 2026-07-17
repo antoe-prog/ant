@@ -26,9 +26,10 @@ import { apiClient } from "@/lib/api-client";
 import { beltPromotionResultLabels } from "@/lib/domain";
 import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format";
 import { isNoticeReadByUser, isNoticeRelevantToMember } from "@/lib/notices";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
-import { memberStatusLabels, paymentStatusLabels } from "@/lib/roles";
+import { paymentStatusLabels } from "@/lib/roles";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { MetricCard, OperationalKpiCard, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
@@ -137,7 +138,7 @@ function CoachDashboardFlowGraph({
 }) {
   return (
     <div
-      className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-4"
+      className="rounded-lg border border-zinc-200 bg-white p-2 shadow-sm sm:col-span-2 xl:col-span-4"
       data-testid="coach-dashboard-flow-graph"
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -145,7 +146,7 @@ function CoachDashboardFlowGraph({
         <span className="shrink-0 rounded-md bg-zinc-950 px-2 py-1 text-xs font-semibold text-white">현장 우선</span>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-1.5 xl:grid-cols-4">
+      <div className="mt-2 grid grid-cols-2 gap-1.5 xl:grid-cols-4 max-[420px]:grid-cols-1">
         {rows.map((row) => {
           const Icon = row.icon;
           const tone = coachDashboardFlowToneClasses[row.tone];
@@ -171,7 +172,7 @@ function CoachDashboardFlowGraph({
               </div>
               <div className="shrink-0 text-right">
                 <p className={`text-base font-semibold tabular-nums leading-none ${tone.value}`}>{row.value}</p>
-                <p className="mt-1 text-[11px] font-semibold leading-none text-zinc-500">{row.status}</p>
+                <p className="mt-1 text-xs font-semibold leading-none text-zinc-500">{row.status}</p>
               </div>
             </Link>
           );
@@ -274,11 +275,11 @@ function GuardianLearningSummaryPanel({
   selectedBelt: string;
 }) {
   const currentBeltIndex = beltProgression.findIndex((belt) => selectedBelt.includes(belt));
-  const currentBeltProgress = percentValue(currentBeltIndex + 1, beltProgression.length);
+  const previousBelt = currentBeltIndex > 0 ? beltProgression[currentBeltIndex - 1] : null;
   const nextBelt =
     currentBeltIndex >= 0 && currentBeltIndex < beltProgression.length - 1
       ? beltProgression[currentBeltIndex + 1]
-      : "현재 단계 안정화";
+      : null;
 
   return (
     <section
@@ -296,42 +297,79 @@ function GuardianLearningSummaryPanel({
       </div>
 
       <div
-        aria-label="띠별 수련 단계"
-        className="mt-2 rounded-md border border-teal-100 bg-teal-50/70 p-1.5 sm:mt-3 sm:p-2"
+        aria-label="띠 단계 순서. 실제 승급 진척률이 아닙니다."
+        className="mt-2 rounded-md bg-teal-50/70 p-2 sm:mt-3 sm:p-2.5"
         data-testid="guardian-learning-stage-bar"
       >
-        <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-teal-700">현재 단계</p>
-            <p className="mt-1 break-words text-sm font-semibold text-zinc-950">{selectedBelt}</p>
+            <p className="text-xs font-semibold text-teal-700">띠 단계</p>
+            <p className="mt-1 break-words text-sm font-semibold text-zinc-950">현재 {selectedBelt}</p>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="text-xs font-semibold text-zinc-500">다음 목표</p>
-            <p className="mt-1 text-sm font-semibold text-zinc-950">{nextBelt}</p>
-          </div>
+          <p className="max-w-32 text-right text-xs leading-4 text-zinc-500">승급 진척률이 아닌 단계 순서입니다.</p>
         </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white ring-1 ring-inset ring-teal-100 sm:mt-2 sm:h-2">
-          <div className="h-full rounded-full bg-teal-500" style={{ width: `${currentBeltProgress}%` }} />
-        </div>
+        <ol className="mt-2 grid grid-cols-3 gap-1.5" data-testid="guardian-learning-belt-steps">
+          <li className="min-w-0 rounded-md bg-white px-2 py-1.5 text-center">
+            <p className="text-xs font-semibold text-zinc-500">이전</p>
+            <p className="mt-0.5 truncate text-xs text-zinc-700">{previousBelt ?? "시작"}</p>
+          </li>
+          <li aria-current="step" className="min-w-0 rounded-md border border-teal-300 bg-teal-100 px-2 py-1.5 text-center">
+            <p className="text-xs font-semibold text-teal-800">현재</p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-zinc-950">{selectedBelt}</p>
+          </li>
+          <li className="min-w-0 rounded-md bg-white px-2 py-1.5 text-center">
+            <p className="text-xs font-semibold text-zinc-500">다음</p>
+            <p className="mt-0.5 truncate text-xs text-zinc-700">{nextBelt ?? "단계 유지"}</p>
+          </li>
+        </ol>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:mt-3 sm:grid-cols-4" data-testid="guardian-learning-insight-grid">
+      <div
+        className="mt-3 grid min-w-0 grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-white p-2"
+        data-testid="guardian-learning-action-strip"
+      >
+        {actions.map((action, index) => {
+          const Icon = action.icon;
+          const displayValue = action.value.startsWith(action.label)
+            ? action.value.slice(action.label.length).trim()
+            : action.value;
+
+          return (
+            <Fragment key={action.label}>
+              {index > 0 ? <span className="sr-only"> </span> : null}
+              <Link
+                aria-label={action.ariaLabel}
+                className="flex min-h-11 min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-teal-50 hover:text-teal-800"
+                data-testid="guardian-learning-action-link"
+                href={action.href}
+              >
+                <Icon className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                <span className="min-w-0 truncate">
+                  {action.label}
+                  {displayValue ? <span className="text-zinc-500"> {displayValue}</span> : null}
+                </span>
+              </Link>
+            </Fragment>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-2" data-testid="guardian-learning-insight-grid">
         {insights.map((insight, index) => {
           const Icon = insight.icon;
           const cellClassName =
-            "min-h-14 rounded-md border border-zinc-200 bg-zinc-50/60 p-1.5 text-left transition hover:border-teal-200 hover:bg-teal-50/50";
+            "min-h-20 rounded-md bg-zinc-50 p-2.5 text-left transition hover:bg-teal-50/60";
           const content = (
             <>
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${guardianLearningToneClasses[insight.tone]}`}>
                   <Icon className="h-3 w-3" aria-hidden />
                 </span>
-                <p className="min-w-0 truncate text-[10px] font-semibold leading-3 text-zinc-500">{insight.eyebrow}</p>
+                <p className="min-w-0 truncate text-xs font-semibold leading-4 text-zinc-500">{insight.eyebrow}</p>
               </div>
-              <span className="sr-only"> </span>
-              <p className="mt-0.5 truncate text-xs font-semibold leading-4 text-zinc-950">{insight.value}</p>
-              <span className="sr-only"> </span>
-              <p className="sr-only">{insight.title}</p>
+              <p className="mt-1 truncate text-sm font-semibold leading-5 text-zinc-950">{insight.title}</p>
+              <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-zinc-600">{insight.detail}</p>
+              <p className="mt-1 text-xs font-semibold text-teal-700">{insight.value}</p>
             </>
           );
           const node = insight.actionHref && insight.actionLabel ? (
@@ -357,36 +395,6 @@ function GuardianLearningSummaryPanel({
             <Fragment key={insight.eyebrow}>
               {index > 0 ? <span className="sr-only"> </span> : null}
               {node}
-            </Fragment>
-          );
-        })}
-      </div>
-
-      <div
-        className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-zinc-50 px-2 py-1 text-xs text-zinc-600"
-        data-testid="guardian-learning-action-strip"
-      >
-        {actions.map((action, index) => {
-          const Icon = action.icon;
-          const displayValue = action.value.startsWith(action.label)
-            ? action.value.slice(action.label.length).trim()
-            : action.value;
-
-          return (
-            <Fragment key={action.label}>
-              {index > 0 ? <span className="sr-only"> </span> : null}
-              <Link
-                aria-label={action.ariaLabel}
-                className="inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-md px-1.5 font-semibold transition hover:bg-white hover:text-teal-700"
-                data-testid="guardian-learning-action-link"
-                href={action.href}
-              >
-                <Icon className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
-                <span className="truncate">
-                  {action.label}
-                  {displayValue ? <span className="text-zinc-500"> {displayValue}</span> : null}
-                </span>
-              </Link>
             </Fragment>
           );
         })}
@@ -709,76 +717,88 @@ export function DashboardScreen() {
       ? context.db.users.find((user) => user.id === latestChildFeedback.authorUserId)
       : null;
     const selectedChildCoachLabel = selectedChildCoach?.name ? `${selectedChildCoach.name} 코치` : "담당 코치";
-    const selectedChildBeltIndex = selectedChild
-      ? beltProgression.findIndex((belt) => selectedChild.belt.includes(belt))
-      : -1;
-    const selectedChildNextBelt =
-      selectedChildBeltIndex >= 0 && selectedChildBeltIndex < beltProgression.length - 1
-        ? beltProgression[selectedChildBeltIndex + 1]
-        : null;
     const selectedChildVisibleNotices = selectedChild
       ? data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChild.id, context.db.classes))
       : [];
-    const promotionResultNotice = selectedChildVisibleNotices.find((notice) =>
-      /심사\s*결과|승급\s*결과|통과|합격|불합격/.test(`${notice.title} ${notice.body}`),
-    );
-    const tournamentNotice = selectedChildVisibleNotices.find((notice) => /대회|시합|토너먼트/.test(`${notice.title} ${notice.body}`));
-    const promotionResultStatus = promotionResultNotice
-      ? /통과|합격/.test(`${promotionResultNotice.title} ${promotionResultNotice.body}`)
-        ? "통과 안내"
-        : "결과 안내"
-      : "준비";
+    const nextChildClass = [...selectedChildClasses]
+      .filter((session) => new Date(session.endsAt).getTime() > currentTime)
+      .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
+    const latestChildAttendance = [...selectedChildAttendance]
+      .map((record) => ({
+        record,
+        session: selectedChildClasses.find((session) => session.id === record.sessionId),
+      }))
+      .filter((item) => item.session)
+      .sort((left, right) => (right.session?.startsAt ?? "").localeCompare(left.session?.startsAt ?? ""))[0];
+    const latestChildPromotion = selectedChild
+      ? [...(context.db.promotions ?? [])]
+          .filter((promotion) => promotion.memberId === selectedChild.id)
+          .sort((left, right) =>
+            Number(right.result === "scheduled") - Number(left.result === "scheduled") ||
+            right.examDate.localeCompare(left.examDate),
+          )[0]
+      : null;
+    const nextTournament = [...(context.db.tournaments ?? [])]
+      .filter((tournament) => tournament.eventDate >= new Date().toISOString().slice(0, 10))
+      .sort((left, right) => left.eventDate.localeCompare(right.eventDate))[0];
     const selectedChildUnreadNoticeCount = selectedChildVisibleNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
-    const guardianLearningInsights: GuardianLearningInsight[] = selectedChild
-      ? [
-          {
-            actionHref: "/app/classes",
-            actionLabel: "수업 보기",
-            detail: `수련 ${selectedChildAttendance.length}회 · 수업 ${selectedChildClasses.length}개`,
-            eyebrow: "단계별 수련 수준",
-            icon: Award,
-            title: `${selectedChild.belt} · ${selectedChild.level}`,
-            tone: "teal",
-            value: selectedChildNextBelt ? `목표 ${selectedChildNextBelt}` : "단계 유지",
-          },
-          {
-            actionHref: "/app/members",
-            actionLabel: "자세히 보기",
-            detail: latestChildFeedback
-              ? `${latestChildFeedbackAuthor?.name ?? "코치"} · ${formatDate(latestChildFeedback.createdAt)}`
-              : `${selectedChildCoachLabel} 수업 후 확인`,
-            eyebrow: "코치 피드백",
-            icon: MessageSquareText,
-            title: latestChildFeedback ? "코치 피드백 도착" : "다음 피드백 예정",
-            tone: "blue",
-            value: latestChildFeedback ? `최근 ${selectedChildPublicNotes.length}건` : "예정",
-          },
-          {
-            actionHref: promotionResultNotice ? "/app/notices" : undefined,
-            actionLabel: promotionResultNotice ? "공지 보기" : undefined,
-            detail: promotionResultNotice
-              ? compactText(promotionResultNotice.body, 32)
-              : `${selectedChild.belt} ${selectedChild.level} · 기본기 점검 중`,
-            eyebrow: "심사결과",
-            icon: Medal,
-            title: promotionResultNotice ? "승급 심사 결과" : "다음 심사 준비",
-            tone: "amber",
-            value: promotionResultStatus,
-          },
-          {
-            actionHref: tournamentNotice ? "/app/notices" : undefined,
-            actionLabel: tournamentNotice ? "공지 보기" : undefined,
-            detail: tournamentNotice
-              ? compactText(tournamentNotice.body, 32)
-              : "출전 일정 확인 중",
-            eyebrow: "대회",
-            icon: Trophy,
-            title: tournamentNotice ? "대회 참가 안내" : "대회 일정 준비",
-            tone: "violet",
-            value: tournamentNotice ? "참가 안내" : "예정",
-          },
-        ]
-      : [];
+    const guardianLearningInsights: GuardianLearningInsight[] = [];
+    if (selectedChild) {
+      guardianLearningInsights.push(
+        {
+          actionHref: "/app/classes",
+          actionLabel: "수업 보기",
+          detail: nextChildClass
+            ? formatMobileClassSchedule(nextChildClass.name, nextChildClass.startsAt, nextChildClass.endsAt)
+            : latestChildAttendance?.session
+              ? `최근 ${formatDate(latestChildAttendance.session.startsAt)} · ${latestChildAttendance.session.name}`
+              : "확인할 수련 일정이 없습니다.",
+          eyebrow: "다음 수업",
+          icon: CalendarCheck,
+          title: nextChildClass?.name ?? "예정된 수업 없음",
+          tone: "teal",
+          value: nextChildClass ? formatDate(nextChildClass.startsAt) : "일정 확인",
+        },
+        {
+          actionHref: "/app/members",
+          actionLabel: "자세히 보기",
+          detail: latestChildFeedback
+            ? `${latestChildFeedbackAuthor?.name ?? "코치"} · ${formatDate(latestChildFeedback.createdAt)}`
+            : `${selectedChildCoachLabel} 수업 후 확인`,
+          eyebrow: "코치 피드백",
+          icon: MessageSquareText,
+          title: latestChildFeedback ? "코치 피드백 도착" : "다음 피드백 예정",
+          tone: "blue",
+          value: latestChildFeedback ? `최근 ${selectedChildPublicNotes.length}건` : "예정",
+        },
+      );
+
+      if (latestChildPromotion) {
+        guardianLearningInsights.push({
+          actionHref: "/app/promotions",
+          actionLabel: "심사 보기",
+          detail: `${latestChildPromotion.fromBelt} → ${latestChildPromotion.toBelt} · ${formatDate(latestChildPromotion.examDate)}`,
+          eyebrow: "심사결과",
+          icon: Medal,
+          title: "승급 심사 상태",
+          tone: "amber",
+          value: beltPromotionResultLabels[latestChildPromotion.result],
+        });
+      }
+
+      if (nextTournament) {
+        guardianLearningInsights.push({
+          actionHref: "/app/tournaments",
+          actionLabel: "대회 보기",
+          detail: `${nextTournament.organizer} · ${formatDate(nextTournament.eventDate)}`,
+          eyebrow: "대회",
+          icon: Trophy,
+          title: nextTournament.title,
+          tone: "violet",
+          value: "일정 있음",
+        });
+      }
+    }
     const guardianLearningActions: GuardianLearningAction[] = selectedChild
       ? [
           {
@@ -806,8 +826,7 @@ export function DashboardScreen() {
           items={guardianChildren.map((child) => ({
             id: child.id,
             name: child.name,
-            meta: child.status === "trial" && child.level.includes("체험") ? child.belt : `${child.belt} · ${child.level}`,
-            statusLabel: memberStatusLabels[child.status],
+            ...getChildSwitcherPresentation(child),
           }))}
           selectedChildId={selectedChild?.id ?? null}
           onSelect={setSelectedChildId}
@@ -886,19 +905,13 @@ export function DashboardScreen() {
     const activeMembersCount = scopedMembers.filter((member) => member.status === "active").length;
     const scopedPaidPayments = scopedPayments.filter((payment) => payment.status === "paid");
     const riskAmount = paymentRisks.reduce((sum, payment) => sum + payment.amount, 0);
-    const ownerHealthIssueBranches = branchRows.filter((row) => row.attendanceGap > 0 || row.riskPayments > 0);
     const ownerNoticeRows = context.db.notices.filter((notice) => scopedBranchIds.includes(notice.branchId));
     const ownerUnreadNoticeCount = ownerNoticeRows.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
-    const ownerActionCount = lowAttendanceClasses.length + overduePayments.length;
-    const ownerHealthyBranchCount = Math.max(branchRows.length - ownerHealthIssueBranches.length, 0);
+    const ownerActionCount = lowAttendanceClasses.length;
+    const ownerCurrentIssueBranches = branchRows.filter((row) => row.riskPayments > 0);
+    const ownerHealthyBranchCount = Math.max(branchRows.length - ownerCurrentIssueBranches.length, 0);
     const ownerReadNoticeCount = Math.max(ownerNoticeRows.length - ownerUnreadNoticeCount, 0);
-    const ownerPriorityBranch = [...branchRows].sort(
-      (left, right) =>
-        right.riskPayments * 4 +
-        right.attendanceGap * 3 +
-        Math.round(right.riskAmount / 100000) -
-          (left.riskPayments * 4 + left.attendanceGap * 3 + Math.round(left.riskAmount / 100000)),
-    )[0];
+    const ownerPriorityBranch = [...branchRows].sort((left, right) => right.attendanceGap - left.attendanceGap)[0];
     const ownerPriorityBranchLabel = ownerActionCount > 0 && ownerPriorityBranch ? ownerPriorityBranch.branch.name : branchScopeLabel;
     const ownerActionLabel = period.id === "today" ? "오늘 액션" : period.id === "7d" ? "7일 액션" : "30일 액션";
     const ownerActionButtonLabel = period.id === "today" ? "오늘 순서" : `${period.label} 순서`;
@@ -930,12 +943,14 @@ export function DashboardScreen() {
     const riskAlerts = [
       {
         id: "overdue",
+        scope: "현재 상태",
         title: `미납 ${overduePayments.length}건`,
         body: overduePayments.length > 0 ? `${formatCurrency(overduePayments.reduce((sum, payment) => sum + payment.amount, 0))} 확인 필요` : "미납 결제 없음",
         tone: overduePayments.length > 0 ? "text-red-700 bg-red-50 border-red-200" : "text-emerald-700 bg-emerald-50 border-emerald-200",
       },
       {
         id: "attendance",
+        scope: period.label,
         title: `출석 미처리 수업 ${lowAttendanceClasses.length}개`,
         body: lowAttendanceClasses.length > 0 ? "코치별 출석 확정 상태 확인 필요" : "기간 내 출석 처리 완료",
         tone: lowAttendanceClasses.length > 0 ? "text-amber-700 bg-amber-50 border-amber-200" : "text-emerald-700 bg-emerald-50 border-emerald-200",
@@ -947,10 +962,7 @@ export function DashboardScreen() {
         actionHref: "/app/owner/reports",
         actionLabel: ownerActionCount > 0 ? ownerActionButtonLabel : "리포트",
         guide: ownerActionCount > 0 ? "처리량" : "대기",
-        helper:
-          ownerActionCount > 0
-            ? `${ownerPriorityBranchLabel} · 출석 ${lowAttendanceClasses.length} · 미납 ${overduePayments.length}`
-            : ownerNoActionLabel,
+        helper: ownerActionCount > 0 ? `${ownerPriorityBranchLabel} · 출석 ${lowAttendanceClasses.length}개 마감 필요` : ownerNoActionLabel,
         id: "actions",
         label: ownerActionLabel,
         progress: ownerActionCount > 0 ? percentValue(ownerActionCount, Math.max(ownerActionCount, 5)) : 0,
@@ -958,18 +970,18 @@ export function DashboardScreen() {
         value: String(ownerActionCount),
       },
       {
-        accentClass: ownerHealthIssueBranches.length > 0 ? "bg-amber-500" : "bg-emerald-500",
+        accentClass: ownerCurrentIssueBranches.length > 0 ? "bg-amber-500" : "bg-emerald-500",
         actionHref: "/app/owner/branches",
-        actionLabel: ownerHealthIssueBranches.length > 0 ? "지점 점검" : "지점 보기",
-        guide: ownerHealthIssueBranches.length > 0 ? "주의" : "안정",
+        actionLabel: ownerCurrentIssueBranches.length > 0 ? "지점 점검" : "지점 보기",
+        guide: ownerCurrentIssueBranches.length > 0 ? "주의" : "안정",
         helper:
-          ownerHealthIssueBranches.length > 0
-            ? `${ownerPriorityBranchLabel} 포함 ${ownerHealthIssueBranches.length}곳 확인`
+          ownerCurrentIssueBranches.length > 0
+            ? `현재 결제 위험 ${ownerCurrentIssueBranches.length}곳 확인`
             : `${branchRows.length}개 지점 모두 안정`,
         id: "branches",
-        label: "지점 건강도",
+        label: "현재 지점 상태",
         progress: percentValue(ownerHealthyBranchCount, branchRows.length),
-        toneClass: ownerHealthIssueBranches.length > 0 ? "text-amber-700" : "text-emerald-700",
+        toneClass: ownerCurrentIssueBranches.length > 0 ? "text-amber-700" : "text-emerald-700",
         value: `${ownerHealthyBranchCount}/${branchRows.length || 0}`,
       },
       {
@@ -1022,6 +1034,10 @@ export function DashboardScreen() {
       },
     ] as const;
     const ownerPrimaryGraphRow = ownerOperationalGraphRows[0];
+    const ownerPeriodAttendanceRow = ownerOperationalGraphRows.find((row) => row.id === "attendance");
+    const ownerCurrentGraphRows = ownerOperationalGraphRows.filter((row) =>
+      ["branches", "payments", "members", "notices"].includes(row.id),
+    );
     const ownerPrimaryGraphSummary =
       ownerActionCount > 0 ? `${ownerPriorityBranchLabel} 우선 점검 ${ownerActionCount}건` : ownerNoActionLabel;
     const ownerVisibleBranchComparisonRows = showOwnerDashboardDetails ? ownerBranchComparisonRows : ownerBranchComparisonRows.slice(0, 1);
@@ -1040,7 +1056,7 @@ export function DashboardScreen() {
           action={
             <div
               className="inline-flex rounded-md border border-zinc-200 bg-white p-1"
-              aria-label="조회 기간"
+              aria-label="수업·출석 조회 기간"
               data-testid="owner-dashboard-period-filter"
             >
               {ownerPeriodOptions.map((option) => (
@@ -1066,51 +1082,70 @@ export function DashboardScreen() {
           aria-label="대표 운영 KPI 그래프"
           data-testid="owner-dashboard-graph-board"
         >
-          <div className="rounded-md bg-zinc-50 px-2 py-1">
-            <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-zinc-500">운영 그래프 · {ownerPrioritySignalLabel}</p>
-                <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4 text-zinc-600">
-                  <span className={`shrink-0 text-lg font-semibold tabular-nums ${ownerPrimaryGraphRow.toneClass}`}>
-                    {ownerPrimaryGraphRow.value}
-                  </span>
-                  <span className="min-w-0 break-words">{ownerPrimaryGraphSummary}</span>
-                </p>
+          <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2" data-testid="owner-dashboard-period-scope">
+            <p className="text-xs font-semibold text-zinc-700">선택 기간 · {period.label}</p>
+            <p className="text-xs text-zinc-500">수업·출석에 적용</p>
+          </div>
+          <div className="grid min-w-0 grid-cols-2 gap-1.5">
+            <Link
+              aria-label={ownerPrimaryGraphRow.actionLabel}
+              className="group flex min-h-14 min-w-0 flex-col justify-center rounded-md bg-zinc-50 px-2 py-1.5 transition hover:bg-zinc-100"
+              href={ownerPrimaryGraphRow.actionHref}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-1.5">
+                <p className="truncate text-xs font-semibold text-zinc-500">{ownerPrioritySignalLabel}</p>
+                <ArrowRight className="h-3.5 w-3.5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5" aria-hidden />
               </div>
+              <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+                <span className={`shrink-0 text-lg font-semibold tabular-nums ${ownerPrimaryGraphRow.toneClass}`}>
+                  {ownerPrimaryGraphRow.value}
+                </span>
+                <span className="min-w-0 truncate text-[11px] leading-4 text-zinc-600">{ownerPrimaryGraphSummary}</span>
+              </div>
+            </Link>
+
+            {ownerPeriodAttendanceRow ? (
               <Link
-                aria-label={ownerPrimaryGraphRow.actionLabel}
-                className="inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white transition hover:bg-zinc-800"
-                href={ownerPrimaryGraphRow.actionHref}
+                className="group flex min-h-14 min-w-0 flex-col justify-center rounded-md bg-teal-50 px-2 py-1.5 transition hover:bg-teal-100/70"
+                data-testid={`owner-dashboard-graph-row-${ownerPeriodAttendanceRow.id}`}
+                href={ownerPeriodAttendanceRow.actionHref}
               >
-                <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
+                <div className="flex min-w-0 items-center justify-between gap-1.5">
+                  <p className="truncate text-xs font-semibold text-teal-800">{period.label} 출석</p>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-teal-800">{ownerPeriodAttendanceRow.value}</span>
+                </div>
+                <p className="mt-0.5 truncate text-[11px] leading-4 text-teal-700">{ownerPeriodAttendanceRow.helper}</p>
               </Link>
-            </div>
+            ) : null}
           </div>
 
-          <div className="mt-1.5 grid min-w-0 grid-cols-2 gap-1 sm:grid-cols-3" data-testid="owner-dashboard-secondary-graph-grid">
-            {ownerOperationalGraphRows.slice(1, 5).map((row) => (
-              <Link
-                className="group block min-h-11 min-w-0 rounded-md bg-zinc-50 px-2 py-0.5 transition hover:bg-zinc-100"
-                data-testid={`owner-dashboard-graph-row-${row.id}`}
-                href={row.actionHref}
-                key={row.id}
-              >
-                <div className="flex min-w-0 items-start justify-between gap-2">
-                  <p className="min-w-0 break-words text-xs font-semibold leading-4 text-zinc-600" data-testid="owner-dashboard-graph-label">
+          <div className="mt-2 border-t border-zinc-200 pt-2" data-testid="owner-dashboard-current-scope">
+            <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-zinc-700">현재 상태</p>
+              <p className="text-xs text-zinc-500">기간 필터 미적용</p>
+            </div>
+            <div className="grid min-w-0 grid-cols-4 gap-1" data-testid="owner-dashboard-secondary-graph-grid">
+              {ownerCurrentGraphRows.map((row) => (
+                <Link
+                  className="group block min-h-12 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1 transition hover:bg-zinc-100"
+                  data-testid={`owner-dashboard-graph-row-${row.id}`}
+                  href={row.actionHref}
+                  key={row.id}
+                >
+                  <p className="truncate text-[11px] font-semibold leading-4 text-zinc-600" data-testid="owner-dashboard-graph-label">
                     {row.label}
                   </p>
-                  <span className={`shrink-0 text-[11px] font-semibold ${row.toneClass}`}>{row.guide}</span>
-                </div>
-                <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-                  <span className="min-w-0 break-words text-sm font-semibold tabular-nums text-zinc-950">{row.value}</span>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" aria-hidden />
-                </div>
-                <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
-                  <div className={`h-full rounded-full ${row.accentClass}`} style={{ width: `${row.progress}%` }} />
-                </div>
-                <p className="mt-1 hidden truncate text-[11px] leading-4 text-zinc-500 sm:block">{row.helper}</p>
-              </Link>
-            ))}
+                  <div className="mt-0.5 flex min-w-0 items-center justify-between gap-1">
+                    <span className="min-w-0 truncate text-xs font-semibold tabular-nums text-zinc-950">{row.value}</span>
+                    <span className={`shrink-0 text-[10px] font-semibold ${row.toneClass}`}>{row.guide}</span>
+                  </div>
+                  <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
+                    <div className={`h-full rounded-full ${row.accentClass}`} style={{ width: `${row.progress}%` }} />
+                  </div>
+                  <p className="sr-only">{row.helper}</p>
+                </Link>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -1119,9 +1154,7 @@ export function DashboardScreen() {
             <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-3 py-2.5">
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-zinc-950">지점 비교</h2>
-                <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-                  {ownerPriorityBranch ? `${ownerPriorityBranch.branch.name} 우선 확인` : `${branchScopeLabel} 기준`}
-                </p>
+                <p className="mt-0.5 text-xs leading-5 text-zinc-500">{period.label} 출석 · 현재 회원/결제</p>
               </div>
               <button
                 className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
@@ -1140,8 +1173,8 @@ export function DashboardScreen() {
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="break-words font-semibold text-zinc-950">{row.branch.name}</p>
-                      <p className="mt-0.5 truncate text-[11px] leading-4 text-zinc-500">
-                        {row.branch.district} · 활성 {row.activeMembers}명 · 수업 {row.classes}개
+                      <p className="mt-0.5 truncate text-xs leading-4 text-zinc-500">
+                        {row.branch.district} · 현재 활성 {row.activeMembers}명 · {period.label} 수업 {row.classes}개
                       </p>
                     </div>
                     <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-semibold ${row.statusClass}`}>
@@ -1151,8 +1184,8 @@ export function DashboardScreen() {
                   <div className="mt-1 grid grid-cols-3 gap-1" data-testid="owner-dashboard-branch-metric-grid">
                     <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[10px] font-semibold text-zinc-500">회원</p>
-                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.activeMembers}명</p>
+                        <p className="truncate text-xs font-semibold text-zinc-500">현재 회원</p>
+                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.activeMembers}명</p>
                       </div>
                       <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${row.memberPercent}%` }} />
@@ -1160,8 +1193,8 @@ export function DashboardScreen() {
                     </div>
                     <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[10px] font-semibold text-zinc-500">출석</p>
-                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.attendanceRate}</p>
+                        <p className="truncate text-xs font-semibold text-zinc-500">{period.label} 출석</p>
+                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.attendanceRate}</p>
                       </div>
                       <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-teal-500" style={{ width: `${row.attendancePercent}%` }} />
@@ -1169,8 +1202,8 @@ export function DashboardScreen() {
                     </div>
                     <div className="min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="truncate text-[10px] font-semibold text-zinc-500">결제 위험</p>
-                        <p className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-950">{row.riskPayments}건</p>
+                        <p className="truncate text-xs font-semibold text-zinc-500">결제 위험</p>
+                        <p className="shrink-0 text-xs font-semibold tabular-nums text-zinc-950">{row.riskPayments}건</p>
                       </div>
                       <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white" aria-hidden>
                         <div className="h-full rounded-full bg-red-500" style={{ width: `${row.riskPercent}%` }} />
@@ -1193,6 +1226,7 @@ export function DashboardScreen() {
               <div className="mt-1.5 grid grid-cols-2 gap-1 xl:mt-2 xl:gap-1.5">
                 {riskAlerts.map((alert) => (
                   <div className={`min-w-0 rounded-md border px-2 py-1 ${alert.tone} xl:py-1.5`} key={alert.id}>
+                    <p className="text-xs font-semibold opacity-75">{alert.scope}</p>
                     <p className="break-words text-[11px] font-semibold leading-4 xl:text-xs">{alert.title}</p>
                     <p className="mt-1 hidden text-xs leading-4 sm:block">{alert.body}</p>
                   </div>

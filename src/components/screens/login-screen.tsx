@@ -197,7 +197,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
                 <button
                   aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}
                   aria-pressed={showPassword}
-                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-800"
                   data-testid="login-password-visibility-toggle"
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}

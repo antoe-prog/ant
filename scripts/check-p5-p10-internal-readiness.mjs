@@ -39,6 +39,7 @@ const files = {
   inviteAcceptScreen: "src/components/screens/invite-accept-screen.tsx",
   invitationLinkCopy: "src/lib/invitation-link-copy.ts",
   loginScreen: "src/components/screens/login-screen.tsx",
+  memberPresentation: "src/lib/member-presentation.ts",
   signupPage: "src/app/(auth)/signup/page.tsx",
   signupScreen: "src/components/screens/signup-screen.tsx",
   memberUpdateRoute: "src/app/api/v1/members/[memberId]/route.ts",
@@ -1014,9 +1015,14 @@ assertExcludes(sources.accountScreen, '<h2 className="text-sm font-semibold text
 assertIncludes(sources.roles, 'trial: "체험중"', "member trial status app-safe label");
 assertExcludes(sources.roles, 'trial: "체험"', "member trial status duplicate-prone label");
 assertIncludes(
-  sources.dashboardScreen,
-  'meta: child.status === "trial" && child.level.includes("체험") ? child.belt : `${child.belt} · ${child.level}`',
-  "guardian child switcher avoids duplicate trial copy",
+  sources.memberPresentation,
+  'member.status === "trial" && level.includes("체험")',
+  "shared child presentation detects duplicate trial copy",
+);
+assertIncludes(
+  sources.memberPresentation,
+  "hideDuplicateTrialLevel || !level ? member.belt",
+  "shared child presentation avoids duplicate trial copy",
 );
 for (const snippet of [
   "export function isNoticeRelevantToMember",
@@ -1029,16 +1035,16 @@ for (const snippet of [
   "isNoticeRelevantToMember",
   "const selectedChildVisibleNotices = selectedChild",
   "data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChild.id, context.db.classes))",
-  "const promotionResultNotice = selectedChildVisibleNotices.find",
-  "/심사\\s*결과|승급\\s*결과|통과|합격|불합격/.test",
-  "selectedChildVisibleNotices.find((notice) => /대회|시합|토너먼트/.test",
-  'title: promotionResultNotice ? "승급 심사 결과" : "다음 심사 준비"',
-  'title: tournamentNotice ? "대회 참가 안내" : "대회 일정 준비"',
-  'actionHref: promotionResultNotice ? "/app/notices" : undefined',
-  'actionHref: tournamentNotice ? "/app/notices" : undefined',
+  "const latestChildPromotion = selectedChild",
+  ".filter((promotion) => promotion.memberId === selectedChild.id)",
+  "const nextTournament = [...(context.db.tournaments ?? [])]",
+  'actionHref: "/app/promotions"',
+  'actionHref: "/app/tournaments"',
 ]) {
-  assertIncludes(sources.dashboardScreen, snippet, "guardian learning notices stay scoped to selected child");
+  assertIncludes(sources.dashboardScreen, snippet, "guardian learning status uses scoped domain records");
 }
+assertExcludes(sources.dashboardScreen, "promotionResultNotice", "guardian promotion status must not be inferred from notice copy");
+assertExcludes(sources.dashboardScreen, "tournamentNotice", "guardian tournament status must not be inferred from notice copy");
 for (const snippet of [
   'data-testid="guardian-child-switcher"',
   'data-testid="guardian-child-chip"',
@@ -1056,8 +1062,8 @@ assertIncludes(
 assertExcludes(sources.childSwitcher, "overflow-x-auto", "guardian child switcher mobile horizontal crop");
 for (const snippet of [
   'actionLabel: "자세히 보기"',
-  'actionLabel: promotionResultNotice ? "공지 보기" : undefined',
-  'actionLabel: tournamentNotice ? "공지 보기" : undefined',
+  'actionLabel: "심사 보기"',
+  'actionLabel: "대회 보기"',
 ]) {
   assertIncludes(sources.dashboardScreen, snippet, "guardian learning action copy avoids duplicate aria names");
 }
@@ -1066,13 +1072,13 @@ for (const snippet of ['actionLabel: "피드백 보기"', 'actionLabel: "심사 
 }
 for (const snippet of [
   'title: latestChildFeedback ? "코치 피드백 도착" : "다음 피드백 예정"',
-  'title: tournamentNotice ? "대회 참가 안내" : "대회 일정 준비"',
-  "const promotionResultStatus = promotionResultNotice",
-  "value: selectedChildNextBelt ? `목표 ${selectedChildNextBelt}` : \"단계 유지\"",
-  "detail: `수련 ${selectedChildAttendance.length}회 · 수업 ${selectedChildClasses.length}개`",
   "value: latestChildFeedback ? `최근 ${selectedChildPublicNotes.length}건` : \"예정\"",
-  "value: promotionResultStatus",
-  'value: tournamentNotice ? "참가 안내" : "예정"',
+  "if (latestChildPromotion)",
+  'title: "승급 심사 상태"',
+  "value: beltPromotionResultLabels[latestChildPromotion.result]",
+  "if (nextTournament)",
+  "title: nextTournament.title",
+  'value: "일정 있음"',
   '"다음 피드백 예정"',
   "수업 후 확인",
 ]) {
@@ -1085,8 +1091,8 @@ for (const snippet of [
   'data-testid="guardian-learning-stage-bar"',
   'data-testid="guardian-learning-insight-grid"',
   'data-testid="guardian-learning-insight-cell"',
-  "grid grid-cols-2 gap-1.5",
-  "min-h-14 rounded-md border border-zinc-200 bg-zinc-50/60",
+  "grid grid-cols-2 gap-2",
+  "min-h-20 rounded-md bg-zinc-50",
   "sr-only",
   "현재 단계",
   "다음 목표",
@@ -1377,8 +1383,8 @@ assertIncludes(sources.noticesScreen, 'aria-label={`${notice.title} 확인 완�
 assertIncludes(sources.noticesScreen, '"현재 공지를 읽음 처리하지 못했습니다."', "member and guardian notice bulk read failure app copy");
 assertIncludes(sources.noticesScreen, "function compactNoticeBody", "member and guardian compact notice body helper");
 assertIncludes(sources.noticesScreen, "const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());", "member and guardian notice body expansion state");
-assertIncludes(sources.noticesScreen, "const bodyCanCollapse = !showNoticeDeliveryMeta", "member and guardian notice body collapse guard");
-assertIncludes(sources.noticesScreen, "bodyCanCollapse && !bodyExpanded ? compactNoticeBody(notice.body) : notice.body", "member and guardian notice body compact rendering");
+assertIncludes(sources.noticesScreen, "const bodyCanCollapse = showNoticeDeliveryMeta", "operator and family notice body collapse guard");
+assertIncludes(sources.noticesScreen, "!showNoticeDeliveryMeta && bodyCanCollapse && !bodyExpanded", "member and guardian notice body compact rendering");
 assertIncludes(sources.noticesScreen, 'aria-expanded={bodyExpanded}', "member and guardian notice body expansion accessibility");
 assertIncludes(sources.noticesScreen, 'data-testid={showNoticeDeliveryMeta ? "notice-delivery-compact-card" : "family-notice-card"}', "member and guardian compact notice card hook");
 assertIncludes(sources.noticesScreen, 'data-testid="family-notice-body"', "member and guardian compact notice body hook");
@@ -1558,23 +1564,22 @@ assertIncludes(sources.notificationsScreen, 'label: "미확인"', "notifications
 assertExcludes(sources.notificationsScreen, 'label: "공지 미확인"', "notifications screen unread filter avoids repeated visible notice wording");
 assertIncludes(sources.notificationsScreen, 'const showKindBadge = item.kind !== "notice";', "notifications screen hides repeated notice kind badges");
 assertIncludes(sources.notificationsScreen, 'data-testid="notification-kind-badge"', "notifications screen marks remaining kind badges");
-assertIncludes(sources.notificationsScreen, 'data-testid="notification-bottom-safe-area"', "notifications screen keeps mobile bottom safe-area spacer");
+assertExcludes(sources.notificationsScreen, 'data-testid="notification-bottom-safe-area"', "notifications screen relies on the shared shell safe area instead of duplicating bottom whitespace");
 assertIncludes(sources.notificationsScreen, 'item.kind === "notice" && !item.read', "notifications screen unread filter only targets unread notices");
 assertIncludes(sources.notificationsScreen, "notification-bulk-read-filtered", "notifications screen exposes filtered read action");
 assertIncludes(sources.notificationsScreen, "notificationBulkReadAriaLabel", "notifications screen bulk read action explains notice-only scope");
-assertIncludes(sources.notificationsScreen, "읽음 처리", "notifications screen bulk read action uses compact visible copy");
-assertIncludes(sources.notificationsScreen, "읽음 완료", "notifications screen bulk read action shows done copy when no unread notices remain");
+assertIncludes(sources.notificationsScreen, "공지 읽음 처리", "notifications screen names the notice-only bulk read action explicitly");
+assertIncludes(sources.notificationsScreen, "공지 읽음 완료", "notifications screen names the completed notice-only bulk read state explicitly");
 assertIncludes(sources.notificationsScreen, 'className="sr-only sm:not-sr-only"', "notifications screen hides bulk read text on narrow mobile while preserving accessible text");
 assertIncludes(sources.notificationsScreen, "data-notification-bulk-read-state", "notifications screen exposes active/done bulk read state");
-assertExcludes(sources.notificationsScreen, "공지 읽음 처리", "notifications screen bulk read action avoids repeated visible notice wording");
 assertIncludes(sources.notificationsScreen, "공지 읽음 상태를 저장하지 못했습니다.", "notifications screen bulk read failure copy stays notice-scoped");
 assertIncludes(sources.notificationsScreen, 'data-notification-read-state={readNotice ? "read" : "active"}', "notifications screen marks confirmed notice cards for tone-down styling");
 assertIncludes(sources.notificationsScreen, "const importantBadgeClass = readNotice", "notifications screen tones down important badges after confirmation");
 assertIncludes(sources.notificationsScreen, "const readStateBadgeClass = item.read", "notifications screen tones down confirmed state badges");
 assertIncludes(sources.notificationsScreen, "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2", "notifications screen keeps per-row actions beside notification copy on mobile");
 assertIncludes(sources.notificationsScreen, "flex shrink-0 flex-col items-end gap-1.5", "notifications screen keeps per-row action buttons from expanding notification height");
-assertIncludes(sources.notificationsScreen, "line-clamp-1 text-xs leading-5", "notifications screen keeps notification body previews to one compact line");
-assertIncludes(sources.notificationsScreen, "line-clamp-1 text-[11px] font-medium leading-4", "notifications screen keeps notification metadata to one compact line");
+assertIncludes(sources.notificationsScreen, 'readNotice ? "line-clamp-1 text-zinc-600" : "line-clamp-2 text-zinc-700"', "notifications screen keeps unread notice body previews visible on mobile");
+assertIncludes(sources.notificationsScreen, "line-clamp-1 text-xs font-medium leading-4", "notifications screen keeps readable metadata to one bounded line");
 assertExcludes(sources.notificationsScreen, "PaymentStatusBadge", "notifications screen must not restore duplicate payment status badges inside notification cards");
 assertIncludes(sources.notificationsScreen, "border-zinc-200 bg-zinc-50 text-zinc-500", "notifications screen confirmed badges use muted zinc styling");
 assertIncludes(sources.appStore, "markNoticeAsRead: (noticeId: string) => Promise<boolean>", "single notification read action reports persistence result");
@@ -1681,10 +1686,11 @@ const notificationPaymentTargetSource = sources.notificationsScreen.slice(
 assertIncludes(notificationPaymentTargetSource, 'actionLabel: checkoutAccess.label', "notifications screen reuses checkout action label for payable family users");
 assertIncludes(notificationPaymentTargetSource, 'checkoutAccess.state === "guardian_required" ? "학부모 확인" : "납부 확인"', "notifications screen uses specific non-payable payment action labels");
 assertExcludes(notificationPaymentTargetSource, 'actionLabel: "보기"', "payment notification fallback must not restore generic view copy");
-assertIncludes(sources.notificationsScreen, "납부 요청 필요", "notifications screen pending payment copy asks for a payment request");
+assertIncludes(sources.notificationsScreen, "납부 요청 접수", "notifications screen pending payment copy reflects the persisted request state");
 assertIncludes(
   sources.paymentCheckoutAccess,
-  'label: payment.onlinePayment?.status === "pending" ? "납부 확인 중" : "납부 요청"',
+  'const requestPending = payment.collectionRequest?.status === "pending" || payment.onlinePayment?.status === "pending"',
+  'label: requestPending ? "납부 확인 중" : "납부 요청"',
   "family checkout ready action uses request copy before provider integration",
 );
 assertExcludes(sources.paymentCheckoutAccess, "결제하기", "family checkout ready action must not imply live payment approval");
@@ -1722,7 +1728,11 @@ assertIncludes(
 );
 assertIncludes(sources.roles, "mobileSecondaryRouteIdsByRole", "role-specific mobile secondary navigation contract");
 assertIncludes(sources.roles, 'admin: ["members", "adminRoles", "adminAuditLogs"]', "admin mobile secondary navigation route set");
-assertIncludes(sources.roles, 'owner: ["ownerBranches"]', "owner mobile secondary navigation route set");
+assertIncludes(
+  sources.roles,
+  'owner: ["classes", "promotions", "tournaments", "ownerBranches"]',
+  "owner mobile secondary navigation route set",
+);
 assertIncludes(sources.roles, "export function getMobileSecondaryRoutes(role: UserRole)", "mobile secondary route selector");
 for (const snippet of [
   'coach: ["dashboard", "classes", "members", "promotions", "notices"]',
@@ -2240,8 +2250,10 @@ assert.equal(
   "guardian payment copy evidence must seed a pending checkout",
 );
 assert(
-  (guardianNotificationPaymentCopyCase.beforeState?.paymentTitles ?? []).includes("한유나 납부 요청 필요"),
-  "guardian payment copy evidence must show pending payment request title",
+  (guardianNotificationPaymentCopyCase.beforeState?.paymentTitles ?? []).some((title) =>
+    /^한유나 납부 요청 (접수|필요)$/.test(title),
+  ),
+  "guardian payment copy evidence must identify the pending payment request",
 );
 assert(
   (guardianNotificationPaymentCopyCase.beforeState?.paymentActionLabels ?? []).includes("납부 확인 중"),
@@ -3255,7 +3267,7 @@ assertExcludes(sources.runtimeDb, "실제 시간표, 회원권, 결제 상태 �
 for (const snippet of [
   "coach-mobile-save-status-panel",
   "shouldShowMobileSaveStatusPanel",
-  "hasPendingAttendance || attendanceSyncPending || Boolean(lastAttendanceChange)",
+  "hasPendingAttendance || attendanceSyncPending || attendanceSyncFailed || Boolean(lastAttendanceChange)",
   'relative ${canEditAttendance ? "pb-36 lg:pb-0" : ""}',
   "bottom-[calc(6.5rem+env(safe-area-inset-bottom))]",
   "출석 {totalChecked}/{totalEnrolled} · 미처리 {totalUnchecked}",
@@ -3363,9 +3375,9 @@ for (const snippet of [
   "coach class roster toggles must not overlap the mobile bottom navigation",
 		  "coachFieldFlowPanelHeight <= 64",
 		  "coachFirstClassCardTop <= 430",
-		  "coachClassCardMaxHeight <= 135",
-		  "coach classes must hide attendance note toggles until a roster is opened",
-	  "coach classes must keep rosters collapsed by default on mobile",
+		  "coachClassCardMaxHeight <= 960",
+		  "coach classes must expose attendance note actions in the default priority roster",
+	  "coach classes must open the first incomplete roster by default on mobile",
 	  "coach classes must merge collapsed roster status into the toggle without a duplicate visible row",
   "coach classes must not expose internal P3 operation panels in the app UI",
   "coach classes must not render code-style internal closeout text in the app UI",
@@ -3623,7 +3635,6 @@ for (const snippet of [
   "수업 전 준비 큐",
   "회원/학부모 다음 행동 큐",
   "재방문 약속 큐",
-  "lifecycle",
   "예시",
   "캡처",
   "SLA",
@@ -4511,8 +4522,8 @@ for (const [source, snippet, label] of [
   [sources.noticesScreen, 'data-testid="family-notice-filter-grid"', "family notice toolbar stays as a fixed grid"],
   [sources.noticesScreen, 'data-testid="family-notice-detail-toggle"', "family notice details open from the content area"],
   [sources.visibleAppCopyScript, "familyNoticeDateLineCount", "visible copy compact family notice date row guard"],
-  [sources.visibleAppCopyScript, "noticeDeliveryCompactCardMaxHeight <= 132", "visible copy compact operator notice card guard"],
-  [sources.visibleAppCopyScript, "noticeDeliveryBodyVisibleCount, 0", "visible copy hidden operator notice body guard"],
+  [sources.visibleAppCopyScript, "noticeDeliveryCompactCardMaxHeight <= 188", "visible copy bounded operator notice preview-card guard"],
+  [sources.visibleAppCopyScript, "noticeDeliveryBodyMaxHeight <= 40", "visible copy bounded operator notice body guard"],
   [sources.visibleAppCopyScript, "noticeDeliveryReadCardToneDownCount", "visible copy read operator notice card tone-down guard"],
   [sources.visibleAppCopyScript, "noticeDeliveryReadBadgeToneDownCount", "visible copy read operator notice badge tone-down guard"],
   [sources.visibleAppCopyScript, "noticeDeliveryActionButtonMaxWidth <= 56", "visible copy compact operator notice action guard"],
@@ -4522,9 +4533,9 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "guardianChildChipMaxHeight <= 52", "visible copy guardian child chip compact height guard"],
   [sources.visibleAppCopyScript, "guardianChildChipMinHeight >= 44", "visible copy guardian child chip touch guard"],
   [sources.visibleAppCopyScript, "guardianChildChipStatusTextCount", "visible copy guardian child chip status-label guard"],
-  [sources.visibleAppCopyScript, "guardianLearningInsightGridHeight <= 122", "visible copy guardian learning compact grid height guard"],
-  [sources.visibleAppCopyScript, "guardianLearningInsightCellMinHeight >= 56", "visible copy guardian learning touch guard"],
-  [sources.visibleAppCopyScript, "guardianLearningInsightCellMaxHeight <= 58", "visible copy guardian learning compact card guard"],
+  [sources.visibleAppCopyScript, "guardianLearningInsightGridHeight <= 220", "visible copy guardian learning compact grid height guard"],
+  [sources.visibleAppCopyScript, "guardianLearningInsightCellMinHeight >= 80", "visible copy guardian learning touch guard"],
+  [sources.visibleAppCopyScript, "guardianLearningInsightCellMaxHeight <= 128", "visible copy guardian learning readable card guard"],
   [sources.visibleAppCopyScript, "guardianLearningActionStripCount", "visible copy guardian learning action strip guard"],
   [sources.visibleAppCopyScript, "guardianLearningActionLinkMinHeight >= 44", "visible copy guardian action strip touch guard"],
   [sources.visibleAppCopyScript, "guardianLearningActionHrefs.includes(href)", "visible copy guardian action strip href guard"],
@@ -5066,8 +5077,8 @@ for (const snippet of [
   "function compactText(value: string, maxLength = 56)",
   'title: latestChildFeedback ? "코치 피드백 도착" : "다음 피드백 예정"',
   "formatDate(latestChildFeedback.createdAt)",
-  "compactText(promotionResultNotice.body, 32)",
-  "compactText(tournamentNotice.body, 32)",
+  "formatDate(latestChildPromotion.examDate)",
+  "formatDate(nextTournament.eventDate)",
   'aria-label={`${childName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}',
   "${formatDate(personalPrimaryPayment.expiresAt)} 만료",
 ]) {
@@ -5203,10 +5214,7 @@ assertExcludes(sources.runtimeDb, "만료 7일 전부터 결제 상태 화면에
 assertExcludes(sources.runtimeDb, "만료 7일 전부터 결제 상태 화면에 알림이 표시됩니다.", "runtime passive payment notice copy");
 
 for (const snippet of [
-  "다음 심사 준비",
-  "기본기 점검 중",
-  "대회 일정 준비",
-  "출전 일정 확인 중",
+  "등록된 승급 심사가 없습니다.",
   "예정된 수업 없음",
   "결제 정보 없음",
   '<EmptyState title="연결된 자녀가 없습니다" />',
@@ -5295,7 +5303,7 @@ for (const snippet of [
   "지점 건강도",
   "회원 유지",
   "결제 회수",
-  "이번 주 액션",
+  "전체 미처리",
 ]) {
   assertIncludes(`${sources.dashboardScreen}\n${sources.ownerReportsScreen}`, snippet, "owner operational KPI and graph surfaces");
 }
@@ -5399,7 +5407,7 @@ const ownerReportKpiSource = sources.ownerReportsScreen.slice(
   sources.ownerReportsScreen.indexOf("const ownerReportKpiCards = ["),
   sources.ownerReportsScreen.indexOf("  ] as const;", sources.ownerReportsScreen.indexOf("const ownerReportKpiCards = [")),
 );
-assertAppearsBefore(ownerReportKpiSource, 'label: "이번 주 액션"', 'label: "지점 건강도"', "owner report KPI priority order");
+assertAppearsBefore(ownerReportKpiSource, 'label: "전체 미처리"', 'label: "지점 건강도"', "owner report KPI priority order");
 assertAppearsBefore(ownerReportKpiSource, 'label: "결제 회수"', 'label: "회원 유지"', "owner report KPI priority order");
 assertIncludes(ownerReportKpiSource, "ownerReportFocusBranchName", "owner report branch-first KPI helper");
 assertIncludes(ownerReportKpiSource, "먼저", "owner report priority copy");
@@ -5511,7 +5519,7 @@ for (const snippet of ["row.newMembers > 0", "row.withdrawnMembers > 0", "row.me
 }
 assertIncludes(sources.ownerReportsScreen, "운영 내보내기", "owner reports service-facing operations export label");
 assertIncludes(sources.ownerReportsScreen, "결제 내보내기", "owner reports service-facing payments export label");
-assertIncludes(sources.ownerReportsScreen, "inline-flex min-h-11 items-center gap-2", "owner reports export actions keep 44px touch height");
+assertIncludes(sources.ownerReportsScreen, "inline-flex min-h-11 items-center justify-center gap-2", "owner reports export actions keep 44px touch height");
 assertIncludes(sources.ownerReportsScreen, "className={`min-h-11 rounded-md border px-3", "owner reports period filters keep 44px touch height");
 assertExcludes(sources.ownerReportsScreen, ">운영 CSV", "owner reports file-format-first operations export label");
 assertExcludes(sources.ownerReportsScreen, ">결제 CSV", "owner reports file-format-first payments export label");
@@ -7724,8 +7732,13 @@ for (const id of [
         `${id} visible app copy scan must tone down every read notice delivery badge`,
       );
     }
-    assert(page.noticeDeliveryCompactCardMaxHeight <= 132, `${id} visible app copy scan must keep operator notice delivery cards compact`);
-    assert.equal(page.noticeDeliveryBodyVisibleCount, 0, `${id} visible app copy scan must hide operator notice body previews on mobile`);
+    assert(page.noticeDeliveryCompactCardMaxHeight <= 188, `${id} visible app copy scan must keep operator notice preview cards bounded`);
+    assert.equal(
+      page.noticeDeliveryBodyVisibleCount,
+      page.noticeDeliveryCompactCardCount,
+      `${id} visible app copy scan must show one operator notice preview per card on mobile`,
+    );
+    assert(page.noticeDeliveryBodyMaxHeight <= 40, `${id} visible app copy scan must keep operator notice previews within two lines`);
     assert.equal(page.noticeDeliveryActionRowCount, page.noticeDeliveryCompactCardCount, `${id} visible app copy scan must keep one compact action row per notice`);
     assert(page.noticeDeliveryActionRowMaxHeight <= 44, `${id} visible app copy scan must keep notice actions in one compact mobile icon row`);
     assert(page.noticeDeliveryActionButtonMaxWidth <= 56, `${id} visible app copy scan must keep notice actions compact as icon buttons on mobile`);
@@ -7778,8 +7791,10 @@ for (const id of [
 	    assert.equal(page.familyMemberFeedbackVisibilityMetaCount, 0, `${id} visible app copy scan must hide staff note visibility metadata`);
 	    assert.equal(page.familyMemberWarningHeadingCount, 0, `${id} visible app copy scan must hide the full warning section in family views`);
 	    assert.equal(page.familyMemberEmptyAlertCopyCount, 0, `${id} visible app copy scan must hide empty warning copy in family views`);
-	    assert(page.familyMemberAlertStripMaxHeight >= 44, `${id} visible app copy scan must keep family alert strips at a stable scan height`);
-	    assert(page.familyMemberAlertStripMaxHeight <= 72, `${id} visible app copy scan must keep family alert strips compact`);
+	    if (page.familyMemberAlertStripCount > 0) {
+	      assert(page.familyMemberAlertStripMaxHeight >= 44, `${id} visible app copy scan must keep family alert strips at a stable scan height`);
+	      assert(page.familyMemberAlertStripMaxHeight <= 72, `${id} visible app copy scan must keep family alert strips compact`);
+	    }
 	  }
   if (id === "guardian-members") {
     assert(page.familyMemberFeedbackCardCount > 0, "guardian members visible app copy scan must keep guardian-visible coach feedback");
@@ -7813,10 +7828,13 @@ for (const id of [
 	      "guardian dashboard visible app copy scan must keep the normal active state implicit",
 	    );
     assert.equal(page.guardianLearningInsightGridCount, 1, "guardian dashboard visible app copy scan must render one learning insight grid");
-    assert(page.guardianLearningInsightGridHeight <= 122, "guardian dashboard visible app copy scan must keep learning grid dense");
-    assert.equal(page.guardianLearningInsightCellCount, 4, "guardian dashboard visible app copy scan must render four learning insight cells");
-    assert(page.guardianLearningInsightCellMinHeight >= 56, "guardian dashboard visible app copy scan must keep learning cells tappable");
-    assert(page.guardianLearningInsightCellMaxHeight <= 58, "guardian dashboard visible app copy scan must keep learning cells compact");
+    assert(page.guardianLearningInsightGridHeight <= 220, "guardian dashboard visible app copy scan must keep learning grid bounded");
+    assert(
+      page.guardianLearningInsightCellCount >= 2 && page.guardianLearningInsightCellCount <= 4,
+      "guardian dashboard visible app copy scan must render core insights without empty promotion or tournament cells",
+    );
+    assert(page.guardianLearningInsightCellMinHeight >= 80, "guardian dashboard visible app copy scan must keep learning cells readable");
+    assert(page.guardianLearningInsightCellMaxHeight <= 128, "guardian dashboard visible app copy scan must keep learning cells scan-friendly");
     assert.equal(page.guardianLearningActionStripCount, 1, "guardian dashboard visible app copy scan must render one learning action strip");
     assert.equal(page.guardianLearningActionLinkCount, 2, "guardian dashboard visible app copy scan must render payment and notification action links");
     assert(page.guardianLearningActionLinkMinHeight >= 44, "guardian dashboard visible app copy scan must keep action links tappable");
@@ -7830,17 +7848,12 @@ for (const id of [
     for (const label of ["결제", "공지"]) {
       assert(page.guardianLearningActionText.includes(label), `guardian dashboard visible app copy scan must show ${label}`);
     }
-    for (const label of [
-      "수련 수준 목표",
-      "주황띠 노란띠",
-      "코치 피드백 최근",
-      "1건 코치 피드백 도착",
-      "심사결과 통과 안내",
-      "대회 참가 안내",
-    ]) {
+    for (const label of ["다음 수업", "코치 피드백"]) {
       assert(page.guardianLearningInsightText.includes(label), `guardian dashboard visible app copy scan must keep readable learning text ${label}`);
     }
-    for (const gluedLabel of ["수준목표", "주황띠노란띠", "초급코치", "피드백최근", "1건코치", "심사결과통과", "대회참가"]) {
+    assert(!page.guardianLearningInsightText.includes("심사 결과 없음"), "guardian dashboard visible app copy scan must omit empty promotion cards");
+    assert(!page.guardianLearningInsightText.includes("대회 일정 없음"), "guardian dashboard visible app copy scan must omit empty tournament cards");
+    for (const gluedLabel of ["다음수업", "코치피드백", "피드백최근", "1건코치"]) {
       assert(!page.guardianLearningInsightText.includes(gluedLabel), `guardian dashboard visible app copy scan must not glue learning text ${gluedLabel}`);
     }
     for (const label of ["결제 완료"]) {
@@ -7931,24 +7944,24 @@ for (const id of [
     assert(page.coachClassListToggleText.includes("오늘 수업"), "coach classes visible app copy scan must keep class-list expansion copy readable");
     assert.equal(page.coachClassRosterToggleBottomNavOverlapCount, 0, "coach classes visible app copy scan must keep roster toggles clear of the mobile bottom navigation");
     assert.equal(page.coachClassListToggleBottomNavOverlapCount, 0, "coach classes visible app copy scan must keep list expansion clear of the mobile bottom navigation");
-    assert.equal(page.coachClassRosterOpenCount, 0, "coach classes visible app copy scan must keep rosters collapsed by default");
+    assert.equal(page.coachClassRosterOpenCount, 1, "coach classes visible app copy scan must open the first incomplete roster by default");
     assert.equal(
       page.coachClassRosterClosedCount,
-      page.coachClassRosterToggleCount,
-      "coach classes visible app copy scan must render one collapsed roster summary per class by default",
+      page.coachClassRosterToggleCount - page.coachClassRosterOpenCount,
+      "coach classes visible app copy scan must keep non-priority roster summaries collapsed",
     );
     assert(page.coachClassRosterClosedMaxHeight <= 2, "coach classes visible app copy scan must not render a duplicate collapsed roster row");
     assert(page.coachClassCardCount > 1, "coach classes visible app copy scan must render compact class cards");
 	    assert.equal(page.coachClassAttendanceSummaryCount, page.coachClassCardCount, "coach classes visible app copy scan must render one compact attendance summary per class card");
 		    assert(page.coachClassAttendanceSummaryMaxHeight <= 44, "coach classes visible app copy scan must keep attendance summary inside the compact action row");
-		    assert(page.coachClassCardMaxHeight <= 135, "coach classes visible app copy scan must keep class cards compact for one-handed use");
+		    assert(page.coachClassCardMaxHeight <= 960, "coach classes visible app copy scan must keep the expanded attendance workspace bounded");
     assert.equal(page.attendanceHistoryPanelCount, 1, "coach classes visible app copy scan must keep a recent attendance history affordance");
     assert.equal(page.attendanceHistoryState, "closed", "coach classes visible app copy scan must collapse recent attendance history by default");
     assert(page.attendanceHistoryPanelHeight <= 76, "coach classes visible app copy scan must keep recent attendance history as one compact row");
     assert(page.attendanceHistoryToggleHeight >= 44, "coach classes visible app copy scan must keep recent attendance history toggle tappable");
     assert.equal(page.attendanceHistoryDetailListCount, 0, "coach classes visible app copy scan must hide attendance history details by default");
     assert.equal(page.attendanceHistoryDetailRowCount, 0, "coach classes visible app copy scan must not render attendance history rows until opened");
-	    assert.equal(page.coachClassAttendanceNoteToggleCount, 0, "coach classes visible app copy scan must hide note toggles until a roster is opened");
+	    assert(page.coachClassAttendanceNoteToggleCount > 0, "coach classes visible app copy scan must expose note actions in the priority roster");
     assert.equal(page.coachClassAttendanceNoteEditorCount, 0, "coach classes visible app copy scan must keep note editors hidden by default");
     assert.equal(
       page.coachClassAttendanceNoteInputVisibleCount,
@@ -8498,9 +8511,10 @@ for (const screenshotFile of [
 
 assertIncludes(sources.format, "hour12: false", "shared date-time formatter uses compact 24-hour time");
 
-assertIncludes(sources.dashboardScreen, 'title: promotionResultNotice ? "승급 심사 결과" : "다음 심사 준비"', "guardian learning notice preview compact title");
-assertIncludes(sources.dashboardScreen, "compactText(promotionResultNotice.body, 32)", "guardian learning notice preview compact body");
-assertIncludes(sources.dashboardScreen, "compactText(tournamentNotice.body, 32)", "guardian learning tournament preview compact body");
+assertIncludes(sources.dashboardScreen, "if (latestChildPromotion)", "guardian learning promotion record is rendered only when available");
+assertIncludes(sources.dashboardScreen, 'title: "승급 심사 상태"', "guardian learning promotion record title");
+assertIncludes(sources.dashboardScreen, "formatDate(latestChildPromotion.examDate)", "guardian learning promotion record date");
+assertIncludes(sources.dashboardScreen, "formatDate(nextTournament.eventDate)", "guardian learning tournament record date");
 assert.equal(guardianLearningPreviewCompactReport.ok, true, "guardian learning preview compact evidence must pass");
 assert.equal(guardianLearningPreviewCompactReport.browserPath, "iab", "guardian learning preview evidence must use in-app browser");
 assert.deepEqual(
@@ -8509,8 +8523,6 @@ assert.deepEqual(
   "guardian learning preview evidence must use mobile viewport",
 );
 assert.equal(guardianLearningPreviewCompactReport.longLearningBlocks?.length ?? 0, 0, "guardian learning preview must not render long notice blocks");
-assert.equal(guardianLearningPreviewCompactReport.hasPromotionPreview, true, "guardian learning preview must keep promotion result preview");
-assert.equal(guardianLearningPreviewCompactReport.hasTournamentPreview, true, "guardian learning preview must keep tournament preview");
 assert.equal(guardianLearningPreviewCompactReport.hasLearningReport, true, "guardian learning preview must keep learning report sections");
 assert.equal(guardianLearningPreviewCompactReport.hasLoadingCopy, false, "guardian learning preview evidence must reach service content");
 assert.equal(guardianLearningPreviewCompactReport.hasFrameworkOverlay, false, "guardian learning preview evidence must not show a framework overlay");
@@ -8814,9 +8826,9 @@ for (const snippet of [
 	  'data-testid={isFamilyRole ? `family-class-card-${session.id}` : isCoachRole ? `coach-class-card-${session.id}` : undefined}',
 	  'data-testid={`family-attendance-chip-grid-${session.id}`}',
 	  'data-testid={`family-attendance-chip-${session.id}-${member.id}`}',
-	  '"flex flex-col gap-1.5 pb-1.5"',
-	  '"grid grid-cols-[minmax(0,1fr)_11rem] items-start gap-2 border-b border-zinc-100 pb-1.5"',
-	  '"flex flex-col gap-2 border-b border-zinc-100 pb-3"',
+	  '"flex flex-col gap-1.5 pb-1.5 sm:flex-row sm:items-start sm:justify-between"',
+	  '"grid grid-cols-1 items-start gap-2 border-b border-zinc-100 pb-1.5 sm:grid-cols-[minmax(0,1fr)_11rem]"',
+	  '"flex flex-col gap-2 border-b border-zinc-100 pb-3 sm:flex-row sm:items-start sm:justify-between"',
 	  'isFamilyRole || isCoachRole ? "text-[11px] leading-4" : "text-sm leading-5"',
 	  'truncate text-[11px] leading-4 text-zinc-600',
 	  'visibleMembers.length > 1 ? "grid-cols-2" : "grid-cols-1"',

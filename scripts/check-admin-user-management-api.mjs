@@ -675,14 +675,25 @@ async function runAssertions(baseUrl) {
   const reissuedBootstrap = await loginCredentials(reissuedLogin, updatedPhone, reissuedPassword);
   assert.equal(reissuedBootstrap.user.id, invitedUserId, "admin-reissued password must allow login");
 
+  const missingRoleBranchScope = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
+    method: "PUT",
+    body: JSON.stringify({ role: "coach", reason: `missing branch assignment ${stamp}` }),
+  }, { allowError: true });
+  assert.equal(missingRoleBranchScope.response.status, 422, "non-admin role updates must require an explicit branch assignment");
+
   result = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
     method: "PUT",
-    body: JSON.stringify({ role: "coach", reason: `temporary coach assignment ${stamp}` }),
+    body: JSON.stringify({ role: "coach", branchIds: ["branch-songpa"], reason: `temporary coach assignment ${stamp}` }),
   });
   assert.equal(
     result.payload.data.db.users.find((candidate) => candidate.id === invitedUserId)?.role,
     "coach",
     "role update must allow an assigned branch user to become a coach",
+  );
+  assert.deepEqual(
+    result.payload.data.db.users.find((candidate) => candidate.id === invitedUserId)?.branchIds,
+    ["branch-songpa"],
+    "role update must persist the explicitly reviewed branch scope",
   );
   const classStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const classEnd = new Date(classStart.getTime() + 60 * 60 * 1000);
@@ -709,7 +720,7 @@ async function runAssertions(baseUrl) {
   assert(assignedClassId, "role reassignment test must create a class for the temporary coach");
   result = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
     method: "PUT",
-    body: JSON.stringify({ role: "member", reason: `temporary coach removal ${stamp}` }),
+    body: JSON.stringify({ role: "member", branchIds: ["branch-songpa"], reason: `temporary coach removal ${stamp}` }),
   });
   assert.notEqual(
     result.payload.data.db.classes.find((session) => session.id === assignedClassId)?.coachId,
@@ -729,7 +740,7 @@ async function runAssertions(baseUrl) {
     "/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-songpa",
     {
       method: "PUT",
-      body: JSON.stringify({ role: "member", reason: `sole owner protection ${stamp}` }),
+      body: JSON.stringify({ role: "member", branchIds: ["branch-gangnam", "branch-songpa"], reason: `sole owner protection ${stamp}` }),
     },
     { allowError: true },
   );
@@ -930,7 +941,7 @@ async function runAssertions(baseUrl) {
     `/api/v1/admin/users/${isolatedCoachId}/roles`,
     {
       method: "PUT",
-      body: JSON.stringify({ role: "member", reason: `no fallback role block ${stamp}` }),
+      body: JSON.stringify({ role: "member", branchIds: [isolatedBranchId], reason: `no fallback role block ${stamp}` }),
     },
     { allowError: true },
   );
@@ -1103,7 +1114,7 @@ async function runAssertions(baseUrl) {
       "/api/v1/admin/users/user-owner/roles",
       {
         method: "PUT",
-        body: JSON.stringify({ role: "coach", reason: `concurrent original owner demotion ${stamp}` }),
+        body: JSON.stringify({ role: "coach", branchIds: ["branch-gangnam", "branch-songpa"], reason: `concurrent original owner demotion ${stamp}` }),
       },
       { allowError: true },
     ),
@@ -1111,7 +1122,7 @@ async function runAssertions(baseUrl) {
       `/api/v1/admin/users/${concurrentOwnerId}/roles`,
       {
         method: "PUT",
-        body: JSON.stringify({ role: "coach", reason: `concurrent second owner demotion ${stamp}` }),
+        body: JSON.stringify({ role: "coach", branchIds: ["branch-gangnam", "branch-songpa"], reason: `concurrent second owner demotion ${stamp}` }),
       },
       { allowError: true },
     ),
@@ -1146,7 +1157,7 @@ async function runAssertions(baseUrl) {
       `/api/v1/admin/users/${secondAdmin.userId}/roles`,
       {
         method: "PUT",
-        body: JSON.stringify({ role: "owner", reason: `concurrent role demotion ${stamp}` }),
+        body: JSON.stringify({ role: "owner", branchIds: ["branch-gangnam", "branch-songpa"], reason: `concurrent role demotion ${stamp}` }),
       },
       { allowError: true },
     ),

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useMemo, useState } from "react";
 import { AlertTriangle, CalendarPlus, CheckCheck, ChevronDown, ChevronUp, ClipboardList, RefreshCw, Save, Search, Undo2, X } from "lucide-react";
 import type {
   AttendanceRecord,
@@ -20,7 +20,8 @@ import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { formatCompactTimeRange, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
 import { isFinalMainBranch } from "@/lib/final-main-policy";
-import { attendanceStatusLabels, memberStatusLabels } from "@/lib/roles";
+import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { attendanceStatusLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { AttendanceStatusBadge, AttendanceStatusButton, Button, SectionHeader } from "@/components/ui/primitives";
@@ -50,9 +51,24 @@ type AttendanceUndoSnapshot = {
   memberId: string;
   sessionName: string;
   memberName: string;
-  previousStatus: AttendanceStatus;
+  previousStatus: AttendanceStatus | null;
   previousNote: string;
   nextStatus: AttendanceStatus;
+  changedAt: string;
+};
+
+type AttendanceBatchChangeSnapshot = {
+  memberId: string;
+  memberName: string;
+  previousStatus: AttendanceStatus | null;
+  previousNote: string;
+};
+
+type AttendanceBatchSnapshot = {
+  sessionId: string;
+  sessionName: string;
+  changes: AttendanceBatchChangeSnapshot[];
+  alreadyPresentCount: number;
   changedAt: string;
 };
 
@@ -95,6 +111,25 @@ function getAttendanceProgress(session: EnrichedClassSession) {
   const checkedPercent = enrolledCount > 0 ? Math.round((checkedCount / enrolledCount) * 100) : 0;
 
   return { checkedCount, checkedPercent, enrolledCount, uncheckedCount };
+}
+
+function isPastClassSession(session: EnrichedClassSession, referenceTime: number) {
+  return new Date(session.endsAt).getTime() < referenceTime;
+}
+
+function sortFamilyClassSessions(sessions: EnrichedClassSession[], referenceTime: number) {
+  return [...sessions].sort((left, right) => {
+    const leftIsPast = isPastClassSession(left, referenceTime);
+    const rightIsPast = isPastClassSession(right, referenceTime);
+
+    if (leftIsPast !== rightIsPast) {
+      return leftIsPast ? 1 : -1;
+    }
+
+    return leftIsPast
+      ? right.startsAt.localeCompare(left.startsAt)
+      : left.startsAt.localeCompare(right.startsAt);
+  });
 }
 
 function getAttendanceNoteKey(sessionId: string, memberId: string) {
@@ -194,7 +229,7 @@ function coachQuickActionClass(active: boolean, tone: "amber" | "teal" = "teal")
 
 export function ClassesScreen() {
   const context = useApiContext();
-  const { attendanceSync, createClassSession, markAttendance, markSessionAttendance, saveAttendanceReason, syncPendingAttendance, updateClassSession } = useAppStore();
+  const { attendanceSync, clearAttendance, createClassSession, markAttendance, markSessionAttendance, saveAttendanceReason, syncPendingAttendance, updateClassSession } = useAppStore();
   const [reasonSavingKey, setReasonSavingKey] = useState<string | null>(null);
   const [reasonSavedKey, setReasonSavedKey] = useState<string | null>(null);
   const canEditAttendance = ["coach", "owner", "admin"].includes(context.user.role);
@@ -230,9 +265,12 @@ export function ClassesScreen() {
   const [attendanceSearchOpen, setAttendanceSearchOpen] = useState(false);
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<AttendanceStatusFilter>("all");
   const [lastAttendanceChange, setLastAttendanceChange] = useState<AttendanceUndoSnapshot | null>(null);
+  const [attendanceBatchConfirmation, setAttendanceBatchConfirmation] = useState<AttendanceBatchSnapshot | null>(null);
+  const [lastAttendanceBatchChange, setLastAttendanceBatchChange] = useState<AttendanceBatchSnapshot | null>(null);
   const [coachClassRosterOpenById, setCoachClassRosterOpenById] = useState<Record<string, boolean>>({});
   const [coachClassListExpanded, setCoachClassListExpanded] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
+  const [familyReferenceTime] = useState(() => Date.now());
   const { data, loading, error, reload } = useResource(
     () => apiClient.getClasses(context),
     [context.user.id, context.selectedBranchId, context.version],
@@ -355,14 +393,15 @@ export function ClassesScreen() {
     nextStatus: AttendanceStatus,
     noteValue: string,
   ) {
-    if (previousRecord?.status && previousRecord.status !== nextStatus) {
+    if (previousRecord?.status !== nextStatus) {
+      setLastAttendanceBatchChange(null);
       setLastAttendanceChange({
         sessionId: session.id,
         memberId: member.id,
         sessionName: session.name,
         memberName: member.name,
-        previousStatus: previousRecord.status,
-        previousNote: previousRecord.note ?? "",
+        previousStatus: previousRecord?.status ?? null,
+        previousNote: previousRecord?.note ?? "",
         nextStatus,
         changedAt: new Date().toISOString(),
       });
@@ -391,13 +430,84 @@ export function ClassesScreen() {
       return;
     }
 
-    markAttendance(
-      lastAttendanceChange.sessionId,
-      lastAttendanceChange.memberId,
-      lastAttendanceChange.previousStatus,
-      lastAttendanceChange.previousNote,
-    );
+    if (lastAttendanceChange.previousStatus) {
+      markAttendance(
+        lastAttendanceChange.sessionId,
+        lastAttendanceChange.memberId,
+        lastAttendanceChange.previousStatus,
+        lastAttendanceChange.previousNote,
+      );
+    } else {
+      clearAttendance(lastAttendanceChange.sessionId, lastAttendanceChange.memberId);
+    }
     setLastAttendanceChange(null);
+  }
+
+  function requestSessionAttendanceConfirmation(session: EnrichedClassSession) {
+    const changes = session.enrolledMembers.flatMap((member) => {
+      const previousRecord = getAttendanceRecord(session, member.id);
+
+      if (previousRecord?.status === "present") {
+        return [];
+      }
+
+      return [{
+        memberId: member.id,
+        memberName: member.name,
+        previousStatus: previousRecord?.status ?? null,
+        previousNote: previousRecord?.note ?? "",
+      }];
+    });
+
+    if (changes.length === 0) {
+      return;
+    }
+
+    setAttendanceBatchConfirmation({
+      sessionId: session.id,
+      sessionName: session.name,
+      changes,
+      alreadyPresentCount: session.enrolledMemberIds.length - changes.length,
+      changedAt: new Date().toISOString(),
+    });
+  }
+
+  function confirmSessionAttendance() {
+    if (!attendanceBatchConfirmation || attendanceSyncPending) {
+      return;
+    }
+
+    setLastAttendanceChange(null);
+    setLastAttendanceBatchChange(attendanceBatchConfirmation);
+    markSessionAttendance(
+      attendanceBatchConfirmation.sessionId,
+      attendanceBatchConfirmation.changes.map((change) => change.memberId),
+      "present",
+    );
+    setAttendanceBatchConfirmation(null);
+  }
+
+  function handleUndoLastAttendanceBatchChange() {
+    if (!lastAttendanceBatchChange || attendanceSyncPending) {
+      return;
+    }
+
+    const snapshot = lastAttendanceBatchChange;
+    setLastAttendanceBatchChange(null);
+    setLastAttendanceChange(null);
+
+    for (const change of snapshot.changes) {
+      if (change.previousStatus) {
+        markAttendance(
+          snapshot.sessionId,
+          change.memberId,
+          change.previousStatus,
+          change.previousNote,
+        );
+      } else {
+        clearAttendance(snapshot.sessionId, change.memberId);
+      }
+    }
   }
 
   function toggleCoachClassRoster(sessionId: string, defaultOpen: boolean) {
@@ -434,17 +544,32 @@ export function ClassesScreen() {
           }))
       : data;
   const todayDateKey = formatDateKey(new Date());
+  const familySortedSessions = isFamilyRole ? sortFamilyClassSessions(scopedSessions, familyReferenceTime) : scopedSessions;
   const visibleSessions = isCoachRole
-    ? scopedSessions.filter((session) => formatDateKey(session.startsAt) === todayDateKey)
-    : scopedSessions;
+    ? scopedSessions
+        .filter((session) => formatDateKey(session.startsAt) === todayDateKey)
+        .sort((left, right) => {
+          const completionOrder = Number(getAttendanceProgress(left).uncheckedCount === 0)
+            - Number(getAttendanceProgress(right).uncheckedCount === 0);
+
+          return completionOrder || left.startsAt.localeCompare(right.startsAt);
+        })
+    : familySortedSessions;
+  const familyUpcomingSessions = isFamilyRole
+    ? visibleSessions.filter((session) => !isPastClassSession(session, familyReferenceTime))
+    : [];
+  const familyPastSessions = isFamilyRole
+    ? visibleSessions.filter((session) => isPastClassSession(session, familyReferenceTime))
+    : [];
+  const firstFamilyUpcomingSessionId = familyUpcomingSessions[0]?.id ?? null;
+  const firstFamilyPastSessionId = familyPastSessions[0]?.id ?? null;
   const otherDateCoachSessions = isCoachRole
     ? scopedSessions.filter((session) => formatDateKey(session.startsAt) !== todayDateKey)
     : [];
   const childSwitcherItems = guardianChildren.map((member) => ({
     id: member.id,
     name: member.name,
-    meta: `${member.belt} · ${member.level}`,
-    statusLabel: memberStatusLabels[member.status],
+    ...getChildSwitcherPresentation(member),
   }));
   const totalEnrolled = visibleSessions.reduce((sum, session) => sum + session.enrolledMembers.length, 0);
   const totalChecked = visibleSessions.reduce((sum, session) => sum + getAttendanceProgress(session).checkedCount, 0);
@@ -464,7 +589,7 @@ export function ClassesScreen() {
   const defaultOpenCoachClassId =
     hasAttendanceRosterFilter
       ? visibleSessions.find((session) => getVisibleAttendanceMembers(session, showUncheckedOnly, showReasonRequiredOnly, attendanceSearchTerm, attendanceStatusFilter).length > 0)?.id ?? null
-      : null;
+      : visibleSessions.find((session) => getAttendanceProgress(session).uncheckedCount > 0)?.id ?? null;
   const attendanceCounts = attendanceSummaryLabels.map(({ status, label }) => ({
     status,
     label,
@@ -499,8 +624,10 @@ export function ClassesScreen() {
     latestAttendanceAuditLog?.result === "success" ? "완료" : latestAttendanceAuditLog?.result === "blocked" ? "확인 필요" : "실패";
   const hasPendingAttendance = canEditAttendance && attendanceSync.pendingCount > 0;
   const attendanceSyncPending = attendanceSync.status === "saving";
+  const attendanceSyncFailed = attendanceSync.status === "failed";
   const shouldShowMobileSaveStatusPanel =
-    canEditAttendance && (hasPendingAttendance || attendanceSyncPending || Boolean(lastAttendanceChange));
+    canEditAttendance &&
+    (hasPendingAttendance || attendanceSyncPending || attendanceSyncFailed || Boolean(lastAttendanceChange) || Boolean(lastAttendanceBatchChange));
   const coachVisibleMembers = Array.from(
     new Map(visibleSessions.flatMap((session) => session.enrolledMembers.map((member) => [member.id, member]))).values(),
   );
@@ -553,6 +680,79 @@ export function ClassesScreen() {
   return (
     <div className={`relative ${canEditAttendance ? "pb-36 lg:pb-0" : ""}`}>
       {showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : <SectionHeader title="수업" />}
+
+      {attendanceBatchConfirmation ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 sm:items-center"
+          data-testid="attendance-bulk-confirm-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setAttendanceBatchConfirmation(null);
+            }
+          }}
+        >
+          <section
+            aria-describedby="attendance-bulk-confirm-description"
+            aria-labelledby="attendance-bulk-confirm-title"
+            aria-modal="true"
+            className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl"
+            data-testid="attendance-bulk-confirm-dialog"
+            role="dialog"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
+                <CheckCheck className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-zinc-950" id="attendance-bulk-confirm-title">
+                  전체 출석을 적용할까요?
+                </h2>
+                <p className="mt-1 text-sm text-zinc-600" id="attendance-bulk-confirm-description">
+                  {attendanceBatchConfirmation.sessionName}의 {attendanceBatchConfirmation.changes.length}명을 출석으로 변경합니다.
+                </p>
+              </div>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-2 text-sm" data-testid="attendance-bulk-confirm-impact">
+              <div className="rounded-md bg-emerald-50 px-3 py-2">
+                <dt className="text-xs font-medium text-emerald-700">변경 인원</dt>
+                <dd className="mt-0.5 font-semibold text-emerald-950">{attendanceBatchConfirmation.changes.length}명</dd>
+              </div>
+              <div className="rounded-md bg-zinc-50 px-3 py-2">
+                <dt className="text-xs font-medium text-zinc-500">기존 출석 유지</dt>
+                <dd className="mt-0.5 font-semibold text-zinc-950">{attendanceBatchConfirmation.alreadyPresentCount}명</dd>
+              </div>
+            </dl>
+            {attendanceBatchConfirmation.changes.some((change) => change.previousStatus) ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                지각·결석·사유 상태도 출석으로 바뀌며, 실행 후 한 번에 되돌릴 수 있습니다.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-zinc-600">미처리 인원만 변경되며 기존 출석 기록은 유지됩니다.</p>
+            )}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                autoFocus
+                className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                data-testid="attendance-bulk-confirm-cancel"
+                type="button"
+                onClick={() => setAttendanceBatchConfirmation(null)}
+              >
+                취소
+              </button>
+              <button
+                className="inline-flex min-h-11 items-center justify-center rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                data-testid="attendance-bulk-confirm-submit"
+                disabled={attendanceSyncPending}
+                type="button"
+                onClick={confirmSessionAttendance}
+              >
+                {attendanceBatchConfirmation.changes.length}명 출석 처리
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {context.user.role === "guardian" ? (
         <ChildSwitcher items={childSwitcherItems} selectedChildId={selectedChildId} onSelect={setSelectedChildId} />
@@ -732,7 +932,7 @@ export function ClassesScreen() {
       ) : null}
 
       {visibleSessions.length === 0 ? (
-        <EmptyState title="예정 수업이 없습니다" />
+        <EmptyState title={isFamilyRole ? "등록된 수업이 없습니다" : "예정 수업이 없습니다"} />
       ) : (
         <>
           {canEditAttendance ? (
@@ -877,7 +1077,7 @@ export function ClassesScreen() {
 		                  ) : null}
 	                </div>
                 ) : null}
-	                {lastAttendanceChange ? (
+		                {lastAttendanceChange ? (
 	                  <div
 	                    className="flex min-h-11 flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
 	                    data-testid="attendance-undo-panel"
@@ -893,10 +1093,32 @@ export function ClassesScreen() {
 	                      onClick={handleUndoLastAttendanceChange}
 	                    >
 	                      <Undo2 className="h-4 w-4" aria-hidden />
-	                      {attendanceStatusLabels[lastAttendanceChange.previousStatus]}로 되돌리기
+                      {lastAttendanceChange.previousStatus
+                        ? `${attendanceStatusLabels[lastAttendanceChange.previousStatus]}로 되돌리기`
+                        : "미처리로 되돌리기"}
 	                    </button>
 	                  </div>
-	                ) : null}
+		                ) : null}
+		                {lastAttendanceBatchChange ? (
+		                  <div
+		                    className="flex min-h-11 flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950"
+		                    data-testid="attendance-bulk-undo-panel"
+		                  >
+		                    <span className="font-semibold">
+		                      일괄 변경: {lastAttendanceBatchChange.sessionName} · {lastAttendanceBatchChange.changes.length}명
+		                    </span>
+		                    <button
+		                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-emerald-300 bg-white px-3 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+		                      data-testid="attendance-bulk-undo"
+		                      disabled={attendanceSyncPending}
+		                      type="button"
+		                      onClick={handleUndoLastAttendanceBatchChange}
+		                    >
+		                      <Undo2 className="h-4 w-4" aria-hidden />
+		                      일괄 변경 되돌리기
+		                    </button>
+		                  </div>
+		                ) : null}
 	                {hasPendingAttendance ? (
 	                  <button
 	                    aria-label="대기 출석 저장 재시도"
@@ -1046,6 +1268,18 @@ export function ClassesScreen() {
             </>
           ) : null}
 
+          {hiddenCoachClassCount > 0 ? (
+            <button
+              aria-expanded={coachClassListExpanded}
+              className="mb-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
+              data-testid="coach-class-list-toggle"
+              type="button"
+              onClick={() => setCoachClassListExpanded((current) => !current)}
+            >
+              {coachClassListExpanded ? "수업 접기" : `오늘 수업 ${hiddenCoachClassCount}개 더 보기`}
+            </button>
+          ) : null}
+
           <div className={isFamilyRole ? "grid gap-3" : "grid gap-4"}>
             {visibleSessions.map((session, sessionIndex) => {
               const allMemberIds = session.enrolledMemberIds;
@@ -1060,24 +1294,46 @@ export function ClassesScreen() {
               const allPresent =
                 allMemberIds.length > 0 &&
                 allMemberIds.every((memberId) => getAttendanceRecord(session, memberId)?.status === "present");
+              const familySessionPast = isFamilyRole && isPastClassSession(session, familyReferenceTime);
+              const showFamilyUpcomingHeading = isFamilyRole && session.id === firstFamilyUpcomingSessionId;
+              const showFamilyPastHeading = isFamilyRole && session.id === firstFamilyPastSessionId;
 
-	              return (
-	              <article
+		              return (
+		              <Fragment key={session.id}>
+		                {showFamilyUpcomingHeading ? (
+		                  <div className="flex items-end justify-between gap-3 pt-1" data-testid="family-upcoming-classes-heading">
+		                    <div>
+		                      <h2 className="text-base font-semibold text-zinc-950">예정 수업</h2>
+		                      <p className="mt-0.5 text-xs text-zinc-500">앞으로 참여할 수업</p>
+		                    </div>
+		                    <span className="text-xs font-semibold tabular-nums text-zinc-500">{familyUpcomingSessions.length}개</span>
+		                  </div>
+		                ) : null}
+		                {showFamilyPastHeading ? (
+		                  <div className="mt-2 flex items-end justify-between gap-3 border-t border-zinc-200 pt-4" data-testid="family-past-classes-heading">
+		                    <div>
+		                      <h2 className="text-base font-semibold text-zinc-950">지난 수업</h2>
+		                      <p className="mt-0.5 text-xs text-zinc-500">출석 기록과 확인이 필요한 수업</p>
+		                    </div>
+		                    <span className="text-xs font-semibold tabular-nums text-zinc-500">{familyPastSessions.length}개</span>
+		                  </div>
+		                ) : null}
+		              <article
 		                className={`rounded-lg border border-zinc-200 bg-white ${isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "px-3 py-2" : "p-3"} ${
                     coachClassCollapsedOnMobile ? "hidden lg:block" : ""
                   }`}
                   data-coach-class-mobile-state={isCoachRole ? (coachClassCollapsedOnMobile ? "hidden" : "visible") : undefined}
-	                data-testid={isFamilyRole ? `family-class-card-${session.id}` : isCoachRole ? `coach-class-card-${session.id}` : undefined}
-	                key={session.id}
-		              >
+		                data-family-class-period={isFamilyRole ? (familySessionPast ? "past" : "upcoming") : undefined}
+		                data-testid={isFamilyRole ? `family-class-card-${session.id}` : isCoachRole ? `coach-class-card-${session.id}` : undefined}
+			              >
 		                <div
-		                  className={`sm:flex-row sm:items-start sm:justify-between ${
+		                  className={
 		                    isFamilyRole
-		                      ? "flex flex-col gap-1.5 pb-1.5"
+		                      ? "flex flex-col gap-1.5 pb-1.5 sm:flex-row sm:items-start sm:justify-between"
 		                      : isCoachRole
-		                        ? "grid grid-cols-[minmax(0,1fr)_11rem] items-start gap-2 border-b border-zinc-100 pb-1.5"
-		                        : "flex flex-col gap-2 border-b border-zinc-100 pb-3"
-		                  }`}
+		                        ? "grid grid-cols-1 items-start gap-2 border-b border-zinc-100 pb-1.5 sm:grid-cols-[minmax(0,1fr)_11rem]"
+		                        : "flex flex-col gap-2 border-b border-zinc-100 pb-3 sm:flex-row sm:items-start sm:justify-between"
+		                  }
 		                >
 		                  <div className="min-w-0">
 		                    <h2 className={`${isFamilyRole || isCoachRole ? "text-[15px] leading-5" : "text-base leading-6"} font-semibold text-zinc-950`}>{session.name}</h2>
@@ -1098,18 +1354,16 @@ export function ClassesScreen() {
 	                    <div
 	                      className={
 	                        isCoachRole
-	                          ? "grid w-full grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-1.5 sm:min-w-44 sm:max-w-48"
+	                          ? "grid w-full grid-cols-2 items-stretch gap-1.5 sm:min-w-44 sm:max-w-48"
 	                          : "grid w-full gap-1.5 sm:min-w-44 sm:max-w-48"
 	                      }
                     >
                       <button
 	                        className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-md border border-emerald-300 bg-white px-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={allMemberIds.length === 0 || allPresent || attendanceSyncPending}
+                        data-testid={`attendance-bulk-request-${session.id}`}
                         type="button"
-                        onClick={() => {
-                          setLastAttendanceChange(null);
-                          markSessionAttendance(session.id, allMemberIds, "present");
-                        }}
+                        onClick={() => requestSessionAttendanceConfirmation(session)}
 	                      >
 		                        <CheckCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
 		                        <span className="whitespace-nowrap">전체 출석</span>
@@ -1336,23 +1590,27 @@ export function ClassesScreen() {
                                             {preset.label}
                                           </button>
                                         ))}
-                                        {attendanceRecord ? (
-                                          <button
-                                            className="inline-flex min-h-11 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                            data-testid={`attendance-note-save-${session.id}-${member.id}`}
-                                            disabled={!noteValue.trim() || reasonSavingKey === attendanceNoteKey}
-                                            type="button"
-                                            onClick={() =>
-                                              void handleSaveAttendanceReason(attendanceNoteKey, session.id, member.id, noteValue)
+                                        <button
+                                          className="inline-flex min-h-11 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                          data-testid={`attendance-note-save-${session.id}-${member.id}`}
+                                          disabled={!attendanceRecord || !noteValue.trim() || reasonSavingKey === attendanceNoteKey}
+                                          type="button"
+                                          onClick={() => {
+                                            if (!attendanceRecord) {
+                                              return;
                                             }
-                                          >
-                                            {reasonSavingKey === attendanceNoteKey
+
+                                            void handleSaveAttendanceReason(attendanceNoteKey, session.id, member.id, noteValue);
+                                          }}
+                                        >
+                                          {!attendanceRecord
+                                            ? "출석 선택 후 저장"
+                                            : reasonSavingKey === attendanceNoteKey
                                               ? "저장 중..."
                                               : reasonSavedKey === attendanceNoteKey
                                                 ? "사유 저장됨"
                                                 : "사유 저장"}
-                                          </button>
-                                        ) : null}
+                                        </button>
                                       </div>
                                     </div>
                                   ) : null}
@@ -1366,7 +1624,7 @@ export function ClassesScreen() {
                                       </Link>
                                       <Link
                                         className="inline-flex min-h-11 items-center justify-center rounded-md border border-teal-200 bg-teal-50 px-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-100"
-                                        href={`/app/notices?noticeCompose=1&noticeTarget=member&noticeTargetMemberId=${encodeURIComponent(member.id)}&noticeMemberSearch=${encodeURIComponent(member.name)}`}
+                                        href={`/app/notices?noticeCompose=1&noticeTarget=member&noticeTargetMemberId=${encodeURIComponent(member.id)}&noticeMemberSearch=${encodeURIComponent(member.name)}${member.ageGroup !== "adult" && member.guardianIds.length > 0 ? "&noticeAudience=guardian" : ""}`}
                                       >
                                         {member.ageGroup !== "adult" && member.guardianIds.length > 0 ? "보호자 안내" : "회원 안내"}
                                       </Link>
@@ -1378,8 +1636,15 @@ export function ClassesScreen() {
                                   {status ? (
                                     <AttendanceStatusBadge status={status} />
                                   ) : (
-                                    <span className="inline-flex w-fit rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
-                                      예정
+                                    <span
+                                      className={`inline-flex w-fit rounded-md border px-2 py-1 text-xs font-semibold ${
+                                        familySessionPast
+                                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                                          : "border-zinc-200 bg-zinc-50 text-zinc-600"
+                                      }`}
+                                      data-testid={`family-attendance-status-${session.id}-${member.id}`}
+                                    >
+                                      {familySessionPast ? "미기록 · 확인 필요" : "예정"}
                                     </span>
                                   )}
                                   {attendanceRecord?.note ? (
@@ -1445,8 +1710,15 @@ export function ClassesScreen() {
                             {status ? (
                               <AttendanceStatusBadge status={status} />
                             ) : (
-                              <span className="inline-flex w-fit shrink-0 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-600">
-                                예정
+                              <span
+                                className={`inline-flex w-fit shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${
+                                  familySessionPast
+                                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                                    : "border-zinc-200 bg-white text-zinc-600"
+                                }`}
+                                data-testid={`family-attendance-status-${session.id}-${member.id}`}
+                              >
+                                {familySessionPast ? "미기록 · 확인 필요" : "예정"}
                               </span>
                             )}
                           </div>
@@ -1455,22 +1727,11 @@ export function ClassesScreen() {
                     })}
                   </div>
                 )}
-              </article>
+		              </article>
+		              </Fragment>
               );
             })}
           </div>
-
-          {hiddenCoachClassCount > 0 ? (
-            <button
-              aria-expanded={coachClassListExpanded}
-              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
-              data-testid="coach-class-list-toggle"
-              type="button"
-              onClick={() => setCoachClassListExpanded((current) => !current)}
-            >
-              {coachClassListExpanded ? "수업 접기" : `오늘 수업 ${hiddenCoachClassCount}개 더 보기`}
-            </button>
-          ) : null}
 
           {canEditAttendance && latestAttendanceAuditLog ? (
             <section
@@ -1539,8 +1800,12 @@ export function ClassesScreen() {
                   <p className="truncate text-sm font-semibold text-zinc-950">
                     출석 {totalChecked}/{totalEnrolled} · 미처리 {totalUnchecked}
                   </p>
-                  <p className={`mt-0.5 truncate text-xs font-semibold ${hasPendingAttendance ? "text-amber-700" : "text-zinc-500"}`}>
-                    {hasPendingAttendance ? `저장 대기 ${attendanceSync.pendingCount}건` : "저장 대기 없음"} · 처리율 {totalCheckedPercent}%
+                  <p className={`mt-0.5 truncate text-xs font-semibold ${attendanceSyncFailed ? "text-red-700" : hasPendingAttendance ? "text-amber-700" : "text-zinc-500"}`}>
+                    {attendanceSyncFailed
+                      ? `저장 실패 · ${attendanceSync.pendingCount}건 대기`
+                      : hasPendingAttendance
+                        ? `저장 대기 ${attendanceSync.pendingCount}건`
+                        : "저장 대기 없음"} · 처리율 {totalCheckedPercent}%
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -1579,7 +1844,26 @@ export function ClassesScreen() {
                     onClick={handleUndoLastAttendanceChange}
                   >
                     <Undo2 className="h-4 w-4" aria-hidden />
-                    {attendanceStatusLabels[lastAttendanceChange.previousStatus]}로 되돌리기
+                    {lastAttendanceChange.previousStatus
+                      ? `${attendanceStatusLabels[lastAttendanceChange.previousStatus]}로 되돌리기`
+                      : "미처리로 되돌리기"}
+                  </button>
+                </div>
+              ) : null}
+              {lastAttendanceBatchChange ? (
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2" data-testid="attendance-bulk-undo-panel-mobile">
+                  <p className="min-w-0 truncate text-xs font-semibold text-emerald-800">
+                    전체 출석 {lastAttendanceBatchChange.changes.length}명
+                  </p>
+                  <button
+                    className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md border border-emerald-300 bg-white px-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    data-testid="attendance-bulk-undo-mobile"
+                    disabled={attendanceSyncPending}
+                    type="button"
+                    onClick={handleUndoLastAttendanceBatchChange}
+                  >
+                    <Undo2 className="h-4 w-4" aria-hidden />
+                    모두 되돌리기
                   </button>
                 </div>
               ) : null}

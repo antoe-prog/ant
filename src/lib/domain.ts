@@ -60,6 +60,11 @@ export type AppUser = {
 
 export type MemberStatus = "active" | "trial" | "paused" | "withdrawn";
 
+export type MemberMembershipSummary = {
+  expiresAt?: string;
+  status: "active" | "attention" | "expiring" | "inactive" | "none";
+};
+
 export type MemberGender = "male" | "female";
 
 export const memberGenderLabels: Record<MemberGender, string> = {
@@ -85,6 +90,7 @@ export type Member = {
   createdAt?: string;
   statusChangedAt?: string;
   withdrawnAt?: string;
+  membershipSummary?: MemberMembershipSummary;
 };
 
 export type ClassSession = {
@@ -214,6 +220,26 @@ export type PaymentRecurringAgreement = {
   lastFailureReason?: string;
 };
 
+export type FamilyPaymentMethod = "bankTransfer" | "card" | "virtualAccount" | "accountTransfer";
+
+export type FamilyPaymentRequestPayload = {
+  method: FamilyPaymentMethod;
+  methodLabel: string;
+  payerName: string;
+  payerPhone: string;
+};
+
+export type FamilyPaymentRequest = {
+  id: string;
+  method: FamilyPaymentMethod;
+  methodLabel: string;
+  payerName: string;
+  payerPhone: string;
+  requestedAt: string;
+  requestedByUserId: string;
+  status: "pending";
+};
+
 export type Payment = {
   id: string;
   branchId: string;
@@ -233,6 +259,7 @@ export type Payment = {
   refundedAt?: string;
   refundReason?: string;
   onlinePayment?: OnlinePaymentRequest;
+  collectionRequest?: FamilyPaymentRequest;
   recurringAgreement?: PaymentRecurringAgreement;
   statusHistory?: PaymentStatusHistoryEntry[];
 };
@@ -472,6 +499,8 @@ export type AuditLog = {
 // 대한유도회 등 외부 단체의 대회 공지를 도장에서 등록·공유하기 위한 항목
 export type Tournament = {
   id: string;
+  scope?: "global" | "branch";
+  branchId?: string | null;
   title: string;
   organizer: string;
   eventDate: string;
@@ -479,7 +508,7 @@ export type Tournament = {
   registrationDeadline?: string;
   sourceUrl?: string;
   description?: string;
-  createdByUserId: string;
+  createdByUserId?: string;
   createdAt: string;
   updatedAt?: string;
 };

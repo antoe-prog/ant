@@ -25,6 +25,7 @@ const branchPaymentRoutePath = path.join(apiRoot, "branches", "[branchId]", "pay
 const paymentManageRoutePath = path.join(apiRoot, "payments", "[paymentId]", "route.ts");
 const paymentRefundRoutePath = path.join(apiRoot, "payments", "[paymentId]", "refund", "route.ts");
 const onlineCheckoutRoutePath = path.join(apiRoot, "payments", "[paymentId]", "online-checkout", "route.ts");
+const collectionRequestRoutePath = path.join(apiRoot, "payments", "[paymentId]", "collection-request", "route.ts");
 const recurringAgreementRoutePath = path.join(apiRoot, "payments", "[paymentId]", "recurring-agreement", "route.ts");
 const branchMemberRoutePath = path.join(apiRoot, "branches", "[branchId]", "members", "route.ts");
 const memberRoutePath = path.join(apiRoot, "members", "[memberId]", "route.ts");
@@ -115,6 +116,7 @@ const operationalMutationRouteSources = [
   paymentManageRoutePath,
   paymentRefundRoutePath,
   onlineCheckoutRoutePath,
+  collectionRequestRoutePath,
   recurringAgreementRoutePath,
 ].map((routePath) => [routePath, readFileSync(routePath, "utf8")]);
 const memberNoticeMutationRouteSources = [
@@ -255,6 +257,7 @@ for (const routePath of [
   paymentManageRoutePath,
   paymentRefundRoutePath,
   onlineCheckoutRoutePath,
+  collectionRequestRoutePath,
   recurringAgreementRoutePath,
   branchMemberRoutePath,
   memberRoutePath,
@@ -267,7 +270,8 @@ for (const routePath of [
     routeSource.includes("selectedScope.selectedBranchId !== branchId") ||
       routeSource.includes("selectedScope.selectedBranchId !== member.branchId") ||
       routeSource.includes("selectedScope.selectedBranchId !== existing.branchId") ||
-      routeSource.includes("selectedScope.selectedBranchId !== payment.branchId"),
+      routeSource.includes("selectedScope.selectedBranchId !== payment.branchId") ||
+      routeSource.includes("!selectedScope.branchIds.includes(payment.branchId)"),
     `${routePath} must reject selectedBranchId mismatches before reading the request body or mutating scoped data`,
   );
 }

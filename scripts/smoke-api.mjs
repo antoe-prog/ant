@@ -3060,7 +3060,7 @@ async function run() {
     `/api/v1/admin/users/${invitedUser.id}/roles?selectedBranchId=branch-gangnam`,
     {
       method: "PUT",
-      body: JSON.stringify({ role: "coach", reason: `Smoke role mismatch ${stamp}` }),
+      body: JSON.stringify({ role: "coach", branchIds: ["branch-songpa"], reason: `Smoke role mismatch ${stamp}` }),
     },
     { allowError: true },
   );
@@ -3073,7 +3073,7 @@ async function run() {
 
   result = await admin.request(`/api/v1/admin/users/${invitedUser.id}/roles?selectedBranchId=branch-songpa`, {
     method: "PUT",
-    body: JSON.stringify({ role: "coach", reason: `Smoke invited user role update ${stamp}` }),
+    body: JSON.stringify({ role: "coach", branchIds: ["branch-songpa"], reason: `Smoke invited user role update ${stamp}` }),
   });
   assert(
     result.payload.data.db.users.find((user) => user.id === invitedUser.id)?.role === "coach",
@@ -3096,7 +3096,7 @@ async function run() {
     "/api/v1/admin/users/user-admin/roles",
     {
       method: "PUT",
-      body: JSON.stringify({ role: "owner", reason: "smoke self-lockout" }),
+      body: JSON.stringify({ role: "owner", branchIds: ["branch-gangnam", "branch-songpa"], reason: "smoke self-lockout" }),
     },
     { allowError: true },
   );
@@ -3117,7 +3117,7 @@ async function run() {
     "/api/v1/admin/users/user-owner/roles?selectedBranchId=branch-gangnam",
     {
       method: "PUT",
-      body: JSON.stringify({ role: "coach", reason: "smoke sole owner role downgrade" }),
+      body: JSON.stringify({ role: "coach", branchIds: ["branch-gangnam"], reason: "smoke sole owner role downgrade" }),
     },
     { allowError: true },
   );

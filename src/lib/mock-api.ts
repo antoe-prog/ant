@@ -161,6 +161,27 @@ function scopedClasses(context: ApiContext) {
     .filter(Boolean) as EnrichedClassSession[];
 }
 
+function sortClassesForRole(classes: EnrichedClassSession[], role: ApiContext["user"]["role"]) {
+  const referenceTime = Date.now();
+
+  return [...classes].sort((left, right) => {
+    if (role === "member" || role === "guardian") {
+      const leftIsPast = new Date(left.endsAt).getTime() < referenceTime;
+      const rightIsPast = new Date(right.endsAt).getTime() < referenceTime;
+
+      if (leftIsPast !== rightIsPast) {
+        return leftIsPast ? 1 : -1;
+      }
+
+      return leftIsPast
+        ? right.startsAt.localeCompare(left.startsAt)
+        : left.startsAt.localeCompare(right.startsAt);
+    }
+
+    return left.startsAt.localeCompare(right.startsAt);
+  });
+}
+
 function scopedMembers(context: ApiContext) {
   const branchIds = getSelectedBranchIds(context);
   const memberIds = getAccessibleMemberIds(context.user, context.db, branchIds);
@@ -364,7 +385,7 @@ export const mockApi = {
   },
 
   getClasses(context: ApiContext) {
-    return respond(() => scopedClasses(context).sort((a, b) => a.startsAt.localeCompare(b.startsAt)));
+    return respond(() => sortClassesForRole(scopedClasses(context), context.user.role));
   },
 
   getMembers(context: ApiContext): Promise<Member[]> {
@@ -456,6 +477,40 @@ export function upsertAttendance(
       before,
       after,
       message: "출석 상태를 기록했습니다.",
+    }),
+  );
+}
+
+export function clearAttendance(
+  db: MockDatabase,
+  sessionId: string,
+  memberId: string,
+  actorUserId: string,
+): MockDatabase {
+  const existing = db.attendance.find((record) => record.sessionId === sessionId && record.memberId === memberId);
+  const session = db.classes.find((item) => item.id === sessionId);
+
+  if (!existing) {
+    return db;
+  }
+
+  const nextDb = {
+    ...db,
+    attendance: db.attendance.filter((record) => record.id !== existing.id),
+  };
+
+  return withAuditLog(
+    nextDb,
+    createAuditLog({
+      db,
+      branchId: session?.branchId ?? null,
+      actorUserId,
+      action: "attendance.update",
+      targetType: "attendance",
+      targetId: existing.id,
+      before: { status: existing.status, confirmedAt: existing.confirmedAt, note: existing.note },
+      after: null,
+      message: "출석 상태를 미처리로 되돌렸습니다.",
     }),
   );
 }

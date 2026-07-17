@@ -21,6 +21,9 @@ const [
   classesScreenSource,
   paymentCheckoutScreenSource,
   notificationOutboxRunnerSource,
+  appShellSource,
+  adminRolesScreenSource,
+  adminUserRoleRouteSource,
 ] = await Promise.all([
   readFile("src/app/api/v1/exports/payments/route.ts", "utf8"),
   readFile("src/app/api/v1/exports/operations/route.ts", "utf8"),
@@ -32,6 +35,9 @@ const [
   readFile("src/components/screens/classes-screen.tsx", "utf8"),
   readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
   readFile("src/server/notification-outbox-runner.ts", "utf8"),
+  readFile("src/components/shell/app-shell.tsx", "utf8"),
+  readFile("src/components/screens/admin-roles-screen.tsx", "utf8"),
+  readFile("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8"),
 ]);
 
 const db = {
@@ -247,7 +253,29 @@ assert.deepEqual(
   ["members", "adminRoles", "adminAuditLogs"],
   "admin account menu must keep member records distinct from user administration and expose secondary management routes",
 );
-assert.deepEqual(mobileSecondaryRouteIdsFor("owner"), ["ownerBranches"], "owner account menu must keep branch management available");
+assert.deepEqual(
+  mobileSecondaryRouteIdsFor("owner"),
+  ["classes", "promotions", "tournaments", "ownerBranches"],
+  "owner mobile secondary navigation must expose class, promotion, tournament, and branch operations",
+);
+assert.deepEqual(
+  mobileSecondaryRouteIdsFor("coach"),
+  ["tournaments"],
+  "coach mobile secondary navigation must expose tournament operations",
+);
+assert(
+  appShellSource.includes('data-testid="mobile-branch-scope"') &&
+    appShellSource.includes('data-testid="mobile-branch-scope-label"'),
+  "multi-branch mobile shell must keep the current branch scope visible without expanding the menu",
+);
+assert(
+  adminRolesScreenSource.includes('data-testid="admin-role-branch-selector"') &&
+    adminRolesScreenSource.includes('data-testid="admin-role-scope-summary"') &&
+    adminRolesScreenSource.includes("updateUserRole(targetUser.id, nextRole, nextBranchIds, reason)") &&
+    adminUserRoleRouteSource.includes("requestedBranchIds.length === 0") &&
+    !adminUserRoleRouteSource.includes("fallbackBranchIds"),
+  "admin role changes must review and persist an explicit branch scope without automatic fallback assignment",
+);
 assert(
   appStoreSource.includes("branchSelectionRequestRef") &&
     appStoreSource.includes("requestId !== branchSelectionRequestRef.current") &&
@@ -295,7 +323,8 @@ assert(
   "non-owner/admin bootstrap snapshots must not include branch-wide audit logs",
 );
 assert(
-  serverApiSource.includes('const payments = user.role === "coach" ? [] : scopedPayments;'),
+  serverApiSource.includes('const payments = user.role === "coach"') &&
+    /const payments = user\.role === "coach"[\s\S]{0,80}\? \[\]/.test(serverApiSource),
   "coach bootstrap snapshots must not include payment records",
 );
 assert(!serverApiSource.includes("amount: 0"), "coach bootstrap snapshots must not rely on amount masking");
@@ -341,15 +370,23 @@ assert(
   "guardian bootstrap user must drop stale adult child ids",
 );
 assert(
-  serverApiSource.includes("createSafeUser(user: AppUser, db?: MockDatabase, viewerRole") &&
+  serverApiSource.includes("function createSafeUser(") &&
+    serverApiSource.includes('viewerRole: AppUser["role"] = user.role') &&
     serverApiSource.includes('if (viewerRole !== "admin")') &&
     serverApiSource.includes("delete safeUser.invitationToken;") &&
     serverApiSource.includes("delete safeUser.invitedAt;") &&
     serverApiSource.includes("delete safeUser.acceptedAt;") &&
     serverApiSource.includes("delete safeUser.passwordResetRequestedAt;") &&
     serverApiSource.includes("delete safeUser.passwordUpdatedAt;") &&
-    serverApiSource.includes("const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role));") &&
-    serverApiSource.includes("user: createSafeUser(user, db, user.role),"),
+    serverApiSource.includes('(viewerRole === "member" || viewerRole === "guardian") && safeUser.id !== viewerUserId') &&
+    serverApiSource.includes("delete safeUser.email;") &&
+    serverApiSource.includes("delete safeUser.phone;") &&
+    serverApiSource.includes("? { ...member, alerts: [] }") &&
+    serverApiSource.includes("payment.collectionRequest.requestedByUserId !== user.id") &&
+    serverApiSource.includes('payerName: "다른 보호자"') &&
+    serverApiSource.includes('payerPhone: ""') &&
+    serverApiSource.includes("const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role, user.id));") &&
+    serverApiSource.includes("user: createSafeUser(user, db, user.role, user.id),"),
   "guardian bootstrap user and user snapshot sanitizers must both use scoped safe users",
 );
 
