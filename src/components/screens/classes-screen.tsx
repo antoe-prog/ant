@@ -222,7 +222,7 @@ function coachQuickActionClass(active: boolean, tone: "amber" | "teal" = "teal")
       ? "border-amber-700 bg-amber-700 text-white hover:border-amber-800 hover:bg-amber-800"
       : "border-teal-700 bg-teal-700 text-white hover:border-teal-800 hover:bg-teal-800";
 
-  return `inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm ${
+  return `inline-flex min-h-11 w-auto min-w-[72px] shrink-0 items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:px-3 sm:text-sm ${
     active ? activeClass : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
   }`;
 }
@@ -269,6 +269,7 @@ export function ClassesScreen() {
   const [lastAttendanceBatchChange, setLastAttendanceBatchChange] = useState<AttendanceBatchSnapshot | null>(null);
   const [coachClassRosterOpenById, setCoachClassRosterOpenById] = useState<Record<string, boolean>>({});
   const [coachClassListExpanded, setCoachClassListExpanded] = useState(false);
+  const [coachToolsOpen, setCoachToolsOpen] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
   const [familyReferenceTime] = useState(() => Date.now());
   const { data, loading, error, reload } = useResource(
@@ -1144,20 +1145,42 @@ export function ClassesScreen() {
 	          ) : null}
 
           {context.user.role === "coach" && canEditAttendance ? (
-            <>
+            <div className="mb-2" data-testid="coach-mobile-tools">
+              <button
+                aria-controls="coach-mobile-tools-details"
+                aria-expanded={coachToolsOpen}
+                className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-3 text-left text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 sm:hidden"
+                data-testid="coach-mobile-tools-toggle"
+                type="button"
+                onClick={() => setCoachToolsOpen((current) => !current)}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ClipboardList className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                  <span className="truncate">출석 보조 도구</span>
+                </span>
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-800">
+                  미처리 {totalUnchecked} · 사유 {coachReasonRequiredRecords.length}
+                  <ChevronDown className={`h-4 w-4 transition-transform ${coachToolsOpen ? "rotate-180" : ""}`} aria-hidden />
+                </span>
+              </button>
+              <div
+                className={`${coachToolsOpen ? "grid" : "hidden"} gap-2 pt-2 sm:grid sm:pt-0`}
+                data-testid="coach-mobile-tools-details"
+                id="coach-mobile-tools-details"
+              >
               <section
                 aria-label="빠른 조치"
-                className="mb-2 rounded-lg border border-teal-200 bg-teal-50/40 p-1.5 sm:p-4"
+                className="rounded-lg border border-teal-200 bg-teal-50/40 p-0.5 sm:p-2"
                 data-testid="coach-mobile-speed-panel"
               >
                 <p className="sr-only" data-testid="coach-mobile-speed-summary-line">
                   {coachMobileSpeedSummaryText}
                 </p>
-                <div className={`grid gap-1 sm:flex sm:flex-wrap ${hasAttendanceRosterFilter ? "grid-cols-4" : "grid-cols-3"}`}>
+                <div className="flex gap-1 overflow-x-auto sm:flex-wrap sm:gap-2">
 	                  <button
                     aria-label="미처리 명단만 보기"
                     aria-pressed={showUncheckedOnly}
-                    className={coachQuickActionClass(showUncheckedOnly)}
+                    className={`${coachQuickActionClass(showUncheckedOnly)} shrink-0 sm:shrink`}
                     data-testid="coach-mobile-speed-unchecked-action"
                     type="button"
                     onClick={() => {
@@ -1173,7 +1196,7 @@ export function ClassesScreen() {
                   </button>
                   <button
                     aria-label="사유 입력 대상 보기"
-                    className={coachQuickActionClass(showReasonRequiredOnly, "amber")}
+                    className={`${coachQuickActionClass(showReasonRequiredOnly, "amber")} shrink-0 sm:shrink`}
                     data-testid="coach-mobile-speed-reason-action"
                     disabled={coachReasonRequiredRecords.length === 0}
                     aria-pressed={showReasonRequiredOnly}
@@ -1192,7 +1215,7 @@ export function ClassesScreen() {
                   <button
                     aria-label="주의 회원 찾기"
                     aria-pressed={coachAttentionFilterActive}
-                    className={coachQuickActionClass(coachAttentionFilterActive)}
+                    className={`${coachQuickActionClass(coachAttentionFilterActive)} shrink-0 sm:shrink`}
                     data-testid="coach-mobile-speed-attention-action"
                     disabled={!firstAttentionMember}
                     type="button"
@@ -1210,7 +1233,7 @@ export function ClassesScreen() {
                   {hasAttendanceRosterFilter ? (
                     <button
                       aria-label="출석 필터 초기화"
-	                      className="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-1 text-[11px] font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm"
+                      className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-[11px] font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm"
                       data-testid="coach-mobile-speed-reset-action"
                       type="button"
                       onClick={() => {
@@ -1229,10 +1252,20 @@ export function ClassesScreen() {
 	              </section>
               <section
                 aria-label="수업 진행"
-                className="mb-2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5"
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-0.5"
                 data-testid="coach-field-flow-panel"
               >
-                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-stretch gap-1" data-testid="coach-field-flow-compact-grid">
+                <div className="flex min-h-11 items-center justify-between gap-2 px-1 text-sm font-semibold text-zinc-800">
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <ClipboardList className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                    <span className="truncate">수업 진행</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-teal-800">{totalCheckedPercent}% 완료</span>
+                </div>
+                <div
+                  className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-stretch gap-1"
+                  data-testid="coach-field-flow-compact-grid"
+                >
                   <div className="flex min-w-0 flex-col justify-center rounded-md border border-teal-200 bg-teal-50 px-2 py-1">
                     <span className="text-[10px] font-semibold leading-3 text-teal-700">진행</span>
                     <span className="text-xs font-semibold leading-4 text-teal-900">
@@ -1265,19 +1298,8 @@ export function ClassesScreen() {
                   </article>
                 </div>
               </section>
-            </>
-          ) : null}
-
-          {hiddenCoachClassCount > 0 ? (
-            <button
-              aria-expanded={coachClassListExpanded}
-              className="mb-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
-              data-testid="coach-class-list-toggle"
-              type="button"
-              onClick={() => setCoachClassListExpanded((current) => !current)}
-            >
-              {coachClassListExpanded ? "수업 접기" : `오늘 수업 ${hiddenCoachClassCount}개 더 보기`}
-            </button>
+              </div>
+            </div>
           ) : null}
 
           <div className={isFamilyRole ? "grid gap-3" : "grid gap-4"}>
@@ -1727,8 +1749,19 @@ export function ClassesScreen() {
                     })}
                   </div>
                 )}
-		              </article>
-		              </Fragment>
+			              </article>
+                    {sessionIndex === 0 && hiddenCoachClassCount > 0 ? (
+                      <button
+                        aria-expanded={coachClassListExpanded}
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:hidden"
+                        data-testid="coach-class-list-toggle"
+                        type="button"
+                        onClick={() => setCoachClassListExpanded((current) => !current)}
+                      >
+                        {coachClassListExpanded ? "추가 수업 접기" : `오늘 수업 ${hiddenCoachClassCount}개 더 보기`}
+                      </button>
+                    ) : null}
+			              </Fragment>
               );
             })}
           </div>

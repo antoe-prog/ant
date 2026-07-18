@@ -19,7 +19,10 @@ const [
   readFile("src/components/shell/app-shell.tsx", "utf8"),
 ]);
 
-assert(notificationsScreen.includes('"공지 읽음 처리"'), "bulk read must name its notice scope");
+assert(
+  notificationsScreen.includes('"공지 전체 읽음"') && notificationsScreen.includes('"현재 보기 읽음"'),
+  "bulk read must distinguish the all-notice scope from the current filtered view",
+);
 assert(notificationsScreen.includes('"공지 읽음 완료"'), "bulk read completion must name its notice scope");
 assert(
   notificationsScreen.includes('readNotice ? "line-clamp-1 text-zinc-600" : "line-clamp-2 text-zinc-700"'),

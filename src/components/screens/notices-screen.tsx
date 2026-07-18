@@ -2,7 +2,7 @@
 
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bell, BellRing, CheckCheck, Pencil, Send, Trash2 } from "lucide-react";
+import { Bell, BellRing, CheckCheck, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import type { Member, Notice, NoticeAudience, NoticeTargetType } from "@/lib/domain";
 import { ApiClientError, apiClient, type NoticeCreatePayload } from "@/lib/api-client";
@@ -1042,43 +1042,57 @@ export function NoticesScreen() {
                                   <span>알림 발송</span>
                                 </button>
                               ) : null}
-                              {canEditCurrentNotice ? (
-                                <button
-                                  aria-label={`${notice.title} 수정`}
-                                  className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
-                                  data-testid="notice-delivery-edit-action"
-                                  disabled={savingNoticeEditId === notice.id}
-                                  title="수정"
-                                  type="button"
-                                  onClick={() => {
-                                    if (editingNoticeId === notice.id) {
-                                      handleCancelEditNotice();
-                                    } else {
-                                      handleStartEditNotice(notice);
-                                    }
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4" aria-hidden />
-                                  <span className="sr-only">수정</span>
-                                </button>
-                              ) : null}
-                              {canDeleteCurrentNotice ? (
-                                <button
-                                  aria-label={`${notice.title} 삭제`}
-                                  className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white px-0 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-16 sm:px-3"
-                                  data-testid="notice-delivery-delete-action"
-                                  disabled={deletingNoticeId === notice.id}
-                                  title="삭제"
-                                  type="button"
-                                  onClick={() => {
-                                    handleCancelEditNotice();
-                                    setDeleteConfirmNoticeId(notice.id);
-                                    clearNoticeFeedback();
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" aria-hidden />
-                                  <span className="sr-only sm:not-sr-only">삭제</span>
-                                </button>
+                              {canEditCurrentNotice || canDeleteCurrentNotice ? (
+                                <details className="group relative" data-testid="notice-delivery-more-menu">
+                                  <summary
+                                    aria-label={`${notice.title} 추가 작업`}
+                                    className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-teal-500 [&::-webkit-details-marker]:hidden"
+                                    data-testid="notice-delivery-more-menu-toggle"
+                                    title="추가 작업"
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" aria-hidden />
+                                  </summary>
+                                  <div className="absolute right-0 top-12 z-30 hidden w-36 gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg group-open:grid">
+                                    {canEditCurrentNotice ? (
+                                      <button
+                                        aria-label={`${notice.title} 수정`}
+                                        className="inline-flex min-h-11 items-center gap-2 rounded-md px-3 text-left text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                                        data-testid="notice-delivery-edit-action"
+                                        disabled={savingNoticeEditId === notice.id}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.currentTarget.closest("details")?.removeAttribute("open");
+                                          if (editingNoticeId === notice.id) {
+                                            handleCancelEditNotice();
+                                          } else {
+                                            handleStartEditNotice(notice);
+                                          }
+                                        }}
+                                      >
+                                        <Pencil className="h-4 w-4" aria-hidden />
+                                        <span>수정</span>
+                                      </button>
+                                    ) : null}
+                                    {canDeleteCurrentNotice ? (
+                                      <button
+                                        aria-label={`${notice.title} 삭제`}
+                                        className="inline-flex min-h-11 items-center gap-2 rounded-md px-3 text-left text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                        data-testid="notice-delivery-delete-action"
+                                        disabled={deletingNoticeId === notice.id}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.currentTarget.closest("details")?.removeAttribute("open");
+                                          handleCancelEditNotice();
+                                          setDeleteConfirmNoticeId(notice.id);
+                                          clearNoticeFeedback();
+                                        }}
+                                      >
+                                        <Trash2 className="h-4 w-4" aria-hidden />
+                                        <span>삭제</span>
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </details>
                               ) : null}
                             </div>
                           ) : null}

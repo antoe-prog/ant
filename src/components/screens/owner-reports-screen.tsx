@@ -681,9 +681,11 @@ export function OwnerReportsScreen() {
             </div>
             <Link
               aria-label={ownerReportPrimaryGraphRow.actionLabel}
-              className="inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white transition hover:bg-zinc-800"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-teal-800 transition hover:border-teal-200 hover:bg-teal-50"
+              data-testid="owner-report-primary-graph-action"
               href={ownerReportPrimaryGraphRow.actionHref}
             >
+              <span>상세</span>
               <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
             </Link>
           </div>

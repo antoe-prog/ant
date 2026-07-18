@@ -431,7 +431,9 @@ export function NotificationsScreen() {
     ? "처리 중"
     : notificationBulkReadDone
       ? "공지 읽음 완료"
-      : "공지 읽음 처리";
+      : notificationFilter === "all"
+        ? "공지 전체 읽음"
+        : "현재 보기 읽음";
 
   return (
     <div data-testid="notifications-screen">
@@ -451,7 +453,7 @@ export function NotificationsScreen() {
 
       <section className="rounded-lg border border-zinc-200 bg-white" aria-label="알림 목록">
         <div className="grid gap-2 border-b border-zinc-100 px-3 py-2.5 sm:px-4">
-          <div className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]">
             <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="notification-filter-toolbar" role="group" aria-label="알림 보기">
               {filterOptions.map((option) => (
                 <button
@@ -480,7 +482,7 @@ export function NotificationsScreen() {
             </div>
             <Button
               aria-label={notificationBulkReadAriaLabel}
-              className={`min-h-11 w-11 shrink-0 gap-1 px-0 whitespace-nowrap sm:w-auto sm:px-2 ${
+              className={`min-h-11 min-w-24 shrink-0 gap-1 px-2 whitespace-nowrap ${
                 notificationBulkReadDone ? "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-zinc-50" : ""
               }`}
               data-notification-bulk-read-state={notificationBulkReadDone ? "done" : "active"}
@@ -491,7 +493,7 @@ export function NotificationsScreen() {
               onClick={() => void handleMarkFilteredNotificationsAsRead()}
             >
               <CheckCheck className={`h-4 w-4 ${notificationBulkReadDone ? "text-zinc-400" : ""}`} aria-hidden />
-              <span className="sr-only sm:not-sr-only">{notificationBulkReadButtonLabel}</span>
+              <span>{notificationBulkReadButtonLabel}</span>
             </Button>
           </div>
           {notificationFeedback ? (

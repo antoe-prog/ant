@@ -18,6 +18,36 @@ export function ChildSwitcher({
     return null;
   }
 
+  const selectedChild = items.find((child) => child.id === selectedChildId) ?? items[0];
+
+  if (items.length > 3) {
+    return (
+      <section className="mb-3" aria-label="자녀 선택" data-testid="guardian-child-switcher">
+        <label className="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2">
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold text-zinc-500">선택한 자녀</span>
+            <span className="mt-0.5 block truncate text-sm font-semibold text-zinc-950">
+              {selectedChild.name} · {selectedChild.meta}
+            </span>
+          </span>
+          <select
+            aria-label="자녀 변경"
+            className="h-11 max-w-36 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 outline-none transition focus:border-teal-500"
+            data-testid="guardian-child-select"
+            value={selectedChild.id}
+            onChange={(event) => onSelect(event.target.value)}
+          >
+            {items.map((child) => (
+              <option key={child.id} value={child.id}>
+                {child.name}{child.statusLabel && child.statusLabel !== "활성" ? ` · ${child.statusLabel}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+    );
+  }
+
   return (
     <section className="mb-3" aria-label="자녀 선택" data-testid="guardian-child-switcher">
       <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">

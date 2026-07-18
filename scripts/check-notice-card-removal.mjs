@@ -268,6 +268,7 @@ assert(
     noticeDeleteUiSource.includes('getByTestId("notice-delivery-read-action")') &&
     noticeDeleteUiSource.includes('getByTestId("notice-read-feedback")') &&
     noticeDeleteUiSource.includes('getByTestId("notice-delivery-push-action")') &&
+    noticeDeleteUiSource.includes('getByTestId("notice-push-confirmation-submit")') &&
     noticeDeleteUiSource.includes("feedbackResetState") &&
     noticeDeleteUiSource.includes("mobile-notices-read-feedback.png") &&
     noticeDeleteUiSource.includes('getByTestId("notification-notice-delete-action")') &&

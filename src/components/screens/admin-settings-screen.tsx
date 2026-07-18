@@ -850,7 +850,7 @@ export function AdminSettingsScreen() {
 
         <div className="mt-3 grid gap-3">
           <ol className="grid gap-2" data-testid="admin-settings-priority-action-list">
-            {pilotNextActions.slice(0, 3).map((action, index) => (
+            {pilotNextActions.slice(0, 1).map((action, index) => (
               <li
                 className={`rounded-md border px-3 py-2.5 ${pilotNextActionStyles[action.tone]}`}
                 key={`${action.label}-${action.targetLabel}`}
@@ -875,7 +875,11 @@ export function AdminSettingsScreen() {
             type="button"
             onClick={() => setOperatorDetailOpen((current) => !current)}
           >
-            {operatorDetailOpen ? "전체 관제 상세 닫기" : "전체 관제 상세 보기"}
+            {operatorDetailOpen
+              ? "전체 관제 상세 닫기"
+              : pilotNextActions.length > 1
+                ? `나머지 ${pilotNextActions.length - 1}건과 상세 보기`
+                : "전체 관제 상세 보기"}
           </button>
         </div>
 

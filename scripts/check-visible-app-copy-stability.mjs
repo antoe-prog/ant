@@ -2004,6 +2004,12 @@ async function main() {
           coachMobileSpeedSummaryLineCount: document.querySelectorAll('[data-testid="coach-mobile-speed-summary-line"]').length,
           coachMobileSpeedSummaryLineHeight:
             Math.round(document.querySelector('[data-testid="coach-mobile-speed-summary-line"]')?.getBoundingClientRect().height ?? 0),
+          coachMobileToolsToggleHeight:
+            Math.round(document.querySelector('[data-testid="coach-mobile-tools-toggle"]')?.getBoundingClientRect().height ?? 0),
+          coachMobileToolsExpanded:
+            document.querySelector('[data-testid="coach-mobile-tools-toggle"]')?.getAttribute("aria-expanded") ?? "",
+          coachMobileToolsDetailsHeight:
+            Math.round(document.querySelector('[data-testid="coach-mobile-tools-details"]')?.getBoundingClientRect().height ?? 0),
           coachFieldFlowPanelHeight:
             Math.round(document.querySelector('[data-testid="coach-field-flow-panel"]')?.getBoundingClientRect().height ?? 0),
           coachFieldFlowCompactGridCount: document.querySelectorAll('[data-testid="coach-field-flow-compact-grid"]').length,
@@ -2390,8 +2396,8 @@ async function main() {
           assert(layout.adminUserDeleteToggleMinHeight >= 44, "admin users delete icon toggles must keep a 44px touch height");
           assert(layout.adminUserPasswordResetToggleMinHeight >= 44, "admin users password reset icon toggles must keep a 44px touch height");
           assert(layout.adminUserActionButtonMinWidth >= 44, "admin users action icon buttons must keep a 44px touch width");
-          assert(layout.adminUserActionButtonMaxWidth <= 46, "admin users action controls must render as compact icon buttons");
-          assert(layout.adminUserActionStackMaxWidth <= 46, "admin users action controls must render as a narrow vertical icon stack on mobile");
+          assert(layout.adminUserActionButtonMaxWidth <= 96, "admin users action controls must keep visible labels within a compact mobile width");
+          assert(layout.adminUserActionStackMaxWidth <= 96, "admin users action controls must render as a narrow labeled action stack on mobile");
           assert(layout.adminUserActionStackMaxHeight >= 136, "admin users action controls must render edit/delete/reset as three vertical actions");
           assert(layout.adminUserActionStackMaxHeight <= 152, "admin users action controls must keep the vertical action stack compact");
           assert(layout.adminUserProtectedActionStackMaxHeight <= 92, "admin users protected rows must shrink to edit/reset actions only");
@@ -2905,8 +2911,8 @@ async function main() {
           assert(layout.notificationBulkReadButtonHeight >= 44, `${testCase.id} read action must keep 44px touch height`);
           assert.equal(
             layout.notificationBulkReadButtonText,
-            "공지 읽음 처리",
-            `${testCase.id} read action must keep its notice-only scope clear in the notification toolbar`,
+            "공지 전체 읽음",
+            `${testCase.id} read action must disclose that the full current notice view will be marked as read`,
           );
           assert(layout.notificationBulkReadButtonAriaLabel.includes("공지"), `${testCase.id} read action aria-label must make the notice-only scope clear`);
           assert.equal(layout.notificationBulkReadButtonDisabled, false, `${testCase.id} read action must stay enabled while unread notices are visible`);
@@ -3289,15 +3295,15 @@ async function main() {
           assert.equal(layout.attendanceRosterSearchInputCount, 0, "coach classes roster search input must stay collapsed by default");
           assert.equal(layout.attendanceRosterSearchToggleCount, 1, "coach classes roster search toggle must render by default");
           assert(layout.attendanceRosterSearchToggleHeight >= 44, "coach classes roster search toggle must keep a 44px touch height");
-	          assert(layout.coachMobileSpeedPanelHeight <= 62, "coach classes quick action panel must stay compact on mobile");
-	          assert(layout.coachMobileSpeedActionButtonMinHeight >= 44, "coach classes quick action buttons must keep a 44px touch height");
+		          assert(layout.coachMobileToolsToggleHeight >= 44, "coach classes secondary tools toggle must keep a 44px touch height");
+		          assert.equal(layout.coachMobileToolsExpanded, "false", "coach classes secondary tools must stay collapsed by default on mobile");
+		          assert.equal(layout.coachMobileToolsDetailsHeight, 0, "coach classes secondary tools must not consume first-viewport height while collapsed");
           assert(layout.coachMobileSpeedPressedStates.includes("coach-mobile-speed-unchecked-action:false"), "coach classes unchecked quick action must expose inactive pressed state");
           assert(layout.coachMobileSpeedPressedStates.includes("coach-mobile-speed-reason-action:false"), "coach classes reason quick action must expose inactive pressed state");
           assert(layout.coachMobileSpeedPressedStates.includes("coach-mobile-speed-attention-action:false"), "coach classes attention quick action must expose inactive pressed state");
 		          assert.equal(layout.coachMobileSpeedSummaryChipCount, 0, "coach classes quick action panel must not repeat four summary chips");
 		          assert.equal(layout.coachMobileSpeedSummaryLineCount, 1, "coach classes quick action panel must render one compact status line");
 		          assert(layout.coachMobileSpeedSummaryLineHeight <= 18, "coach classes quick action status line must stay one row");
-          assert(layout.coachFieldFlowPanelHeight <= 64, "coach classes field flow panel must stay as a one-row summary rail");
           assert.equal(layout.coachFieldFlowCompactGridCount, 1, "coach classes field flow must render one compact grid");
           assert.equal(layout.coachFieldFlowCompactColumnCount, 2, "coach classes field flow must keep pre/post columns");
           assert.equal(layout.coachFieldFlowCompactSummaryCount, 2, "coach classes field flow must keep two short summary lines");
@@ -3327,7 +3333,7 @@ async function main() {
           );
           assert(layout.coachClassRosterClosedMaxHeight <= 2, "coach classes must merge collapsed roster status into the toggle without a duplicate visible row");
           assert(layout.coachClassCardCount > 1, "coach classes must render compact class cards");
-          assert(layout.coachFirstClassCardTop <= 430, "coach classes first class card must appear high enough in the mobile first viewport");
+          assert(layout.coachFirstClassCardTop <= 340, "coach classes first class card must appear before secondary tools and additional-class controls in the mobile first viewport");
           assert.equal(layout.coachClassAttendanceSummaryCount, layout.coachClassCardCount, "coach classes must render one compact attendance summary per class card");
           assert(layout.coachClassAttendanceSummaryMaxHeight <= 44, "coach classes attendance summary must stay inside the compact action row");
           assert(layout.coachClassCardMaxHeight <= 960, "coach class cards must keep a bounded expanded attendance workspace");
@@ -3932,6 +3938,9 @@ async function main() {
                   (element) => element.getAttribute("aria-expanded") === "true",
                 ).length,
                 formCount: document.querySelectorAll('[data-testid="admin-user-delete-form-user-member"]').length,
+                targetCount: document.querySelectorAll('[data-testid="admin-user-delete-target-user-member"]').length,
+                targetText:
+                  document.querySelector('[data-testid="admin-user-delete-target-user-member"]')?.textContent?.replace(/\s+/g, " ").trim() ?? "",
                 reasonInputCount: document.querySelectorAll('[data-testid="admin-user-delete-form-user-member"] input[placeholder="삭제 사유 입력"]').length,
                 formBottom: Math.round(
                   document.querySelector('[data-testid="admin-user-delete-form-user-member"]')?.getBoundingClientRect().bottom ?? 0,
@@ -3945,6 +3954,11 @@ async function main() {
 
               assert.equal(deleteOpenState.expandedDeleteToggleCount, 1, "admin users delete toggle must expose aria-expanded");
               assert.equal(deleteOpenState.formCount, 1, "admin users delete toggle must open one delete form");
+              assert.equal(deleteOpenState.targetCount, 1, "admin users delete form must repeat the selected account identity");
+              assert(
+                deleteOpenState.targetText.includes("삭제 대상") && deleteOpenState.targetText.includes("최민재"),
+                `admin users delete form must name the selected account; got ${deleteOpenState.targetText}`,
+              );
               assert.equal(deleteOpenState.reasonInputCount, 1, "admin users delete form must require a reason");
               assert(
                 deleteOpenState.formBottom <= deleteOpenState.mobileBottomNavTop - 4,
@@ -4686,9 +4700,12 @@ async function main() {
       coachMobileSpeedPressedStates: layout.coachMobileSpeedPressedStates,
 		      coachMobileSpeedSummaryChipCount: layout.coachMobileSpeedSummaryChipCount,
 		      coachMobileSpeedSummaryChipMaxHeight: layout.coachMobileSpeedSummaryChipMaxHeight,
-		      coachMobileSpeedSummaryLineCount: layout.coachMobileSpeedSummaryLineCount,
-		      coachMobileSpeedSummaryLineHeight: layout.coachMobileSpeedSummaryLineHeight,
-	      coachFieldFlowPanelHeight: layout.coachFieldFlowPanelHeight,
+			      coachMobileSpeedSummaryLineCount: layout.coachMobileSpeedSummaryLineCount,
+			      coachMobileSpeedSummaryLineHeight: layout.coachMobileSpeedSummaryLineHeight,
+		      coachMobileToolsToggleHeight: layout.coachMobileToolsToggleHeight,
+		      coachMobileToolsExpanded: layout.coachMobileToolsExpanded,
+		      coachMobileToolsDetailsHeight: layout.coachMobileToolsDetailsHeight,
+		      coachFieldFlowPanelHeight: layout.coachFieldFlowPanelHeight,
 	      coachFieldFlowCompactGridCount: layout.coachFieldFlowCompactGridCount,
 	      coachFieldFlowCompactColumnCount: layout.coachFieldFlowCompactColumnCount,
 	      coachFieldFlowCompactSummaryCount: layout.coachFieldFlowCompactSummaryCount,

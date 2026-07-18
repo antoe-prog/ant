@@ -1171,7 +1171,7 @@ export function AdminUsersScreen() {
                     aria-label={`${user.name} ${editPanelOpen ? "수정 닫기" : "수정"}`}
                     aria-controls={`admin-user-edit-${user.id}`}
                     aria-expanded={editPanelOpen}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
+                    className="inline-flex h-11 min-w-16 shrink-0 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50"
                     data-admin-user-action="edit"
                     data-testid={`admin-user-edit-toggle-${user.id}`}
                     title={editPanelOpen ? "수정 닫기" : "수정"}
@@ -1179,28 +1179,28 @@ export function AdminUsersScreen() {
                     onClick={() => openUserEdit(user)}
                   >
                     <Pencil className="h-4 w-4" aria-hidden />
-                    <span className="sr-only">{editPanelOpen ? "수정 닫기" : "수정"}</span>
+                      <span>{editPanelOpen ? "수정 닫기" : "수정"}</span>
                   </button>
                   {canOpenDelete ? (
                     <button
                       aria-controls={`admin-user-delete-${user.id}`}
                       aria-expanded={deletePanelVisible}
                       aria-label={`${user.name} ${deletePanelVisible ? "삭제 닫기" : "삭제"}`}
-                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-red-200 bg-white text-red-700 transition hover:bg-red-50"
+                      className="inline-flex h-11 min-w-16 shrink-0 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                       data-admin-user-action="delete"
                       data-testid={`admin-user-delete-toggle-${user.id}`}
                       type="button"
                       onClick={() => openUserDelete(user)}
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
-                      <span className="sr-only">{deletePanelVisible ? "삭제 닫기" : "삭제"}</span>
+                      <span>{deletePanelVisible ? "삭제 닫기" : "삭제"}</span>
                     </button>
                   ) : null}
                   <button
                     aria-label={`${user.name} ${resetPanelOpen ? "비밀번호 재발급 닫기" : "비밀번호 재발급"}`}
                     aria-controls={`admin-user-password-reset-${user.id}`}
                     aria-expanded={resetPanelOpen}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
+                    className="inline-flex h-11 min-w-20 shrink-0 items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50"
                     data-admin-user-action="password-reset"
                     data-testid={`admin-user-password-reset-toggle-${user.id}`}
                     title={resetPanelOpen ? "재발급 닫기" : "재발급"}
@@ -1220,7 +1220,7 @@ export function AdminUsersScreen() {
                     }}
                   >
                     <KeyRound className="h-4 w-4" aria-hidden />
-                    <span className="sr-only">{resetPanelOpen ? "비밀번호 재발급 닫기" : "비밀번호 재발급"}</span>
+                    <span>{resetPanelOpen ? "닫기" : "재발급"}</span>
                   </button>
                 </div>
                 {approvalConfirmOpen ? (
@@ -1647,6 +1647,16 @@ export function AdminUsersScreen() {
                     onSubmit={(event) => void handleDeleteUser(event, user)}
                   >
                     <div className="min-w-0">
+                      <div
+                        className="mb-3 rounded-md border border-red-200 bg-white px-3 py-2"
+                        data-testid={`admin-user-delete-target-${user.id}`}
+                      >
+                        <p className="text-xs font-semibold text-red-700">삭제 대상</p>
+                        <p className="mt-0.5 break-words text-sm font-semibold text-zinc-950">
+                          {user.name} · {roleLabels[user.role]}
+                          {user.phone ? ` · ${formatPhoneNumber(user.phone)}` : ""}
+                        </p>
+                      </div>
                       <label>
                         <span className="mb-1 block text-xs font-semibold text-red-700">삭제 사유</span>
                         <input

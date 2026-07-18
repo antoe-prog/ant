@@ -625,6 +625,7 @@ async function verifyNoticesScreenDelete(browser) {
     const createdCard = page.getByTestId("notice-delivery-compact-card").filter({ hasText: title }).first();
 
     await createdCard.waitFor({ state: "visible", timeout: 15000 });
+    await createdCard.getByTestId("notice-delivery-more-menu-toggle").click();
     await createdCard.getByTestId("notice-delivery-delete-action").click();
     await createdCard.getByTestId("notice-delete-confirm").waitFor({ state: "visible", timeout: 5000 });
     await page.screenshot({ fullPage: false, path: confirmScreenshotPath });
@@ -690,12 +691,20 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
       const title = card.querySelector("h3");
       const actionRow = card.querySelector('[data-testid="notice-delivery-action-row"]');
       const buttons = actionRow ? Array.from(actionRow.querySelectorAll("button")) : [];
+      const visibleButtons = buttons.filter((button) => {
+        const rect = button.getBoundingClientRect();
+
+        return rect.width > 0 && rect.height > 0;
+      });
+      const moreMenuToggle = actionRow?.querySelector('[data-testid="notice-delivery-more-menu-toggle"]');
+      const moreMenuToggleRect = moreMenuToggle?.getBoundingClientRect();
       const titleRect = title?.getBoundingClientRect();
       const actionRect = actionRow?.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
 
       return {
-        actionButtonWidths: buttons.map((button) => button.getBoundingClientRect().width),
+        actionButtonWidths: visibleButtons.map((button) => button.getBoundingClientRect().width),
+        actionButtonVisibleCount: visibleButtons.length,
         actionLayout: actionRow?.getAttribute("data-notice-action-layout") ?? "",
         actionRight: actionRect?.right ?? 0,
         actionTop: actionRect?.top ?? 0,
@@ -706,6 +715,8 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
         frameworkOverlayCount:
           document.querySelectorAll("[data-nextjs-dialog]").length +
           Array.from(document.querySelectorAll("nextjs-portal")).filter((portal) => (portal.textContent ?? "").trim().length > 0).length,
+        moreMenuToggleHeight: moreMenuToggleRect?.height ?? 0,
+        moreMenuToggleWidth: moreMenuToggleRect?.width ?? 0,
         noticeDeliveryBodyVisibleCount: Array.from(document.querySelectorAll('[data-testid="notice-delivery-body"]')).filter((body) => {
           const rect = body.getBoundingClientRect();
           const style = getComputedStyle(body);
@@ -718,6 +729,11 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
             Math.round(body.getBoundingClientRect().height),
           ),
         ),
+        secondaryActionVisibleCount: buttons.filter((button) =>
+          ["notice-delivery-edit-action", "notice-delivery-delete-action"].includes(button.getAttribute("data-testid") ?? "") &&
+          button.getBoundingClientRect().width > 0 &&
+          button.getBoundingClientRect().height > 0,
+        ).length,
         scrollWidth: document.documentElement.scrollWidth,
         titleBottom: titleRect?.bottom ?? 0,
       };
@@ -730,10 +746,13 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
       layoutState.actionTop >= layoutState.titleBottom - 2,
       `admin mobile notices action row must sit below the title row; titleBottom=${layoutState.titleBottom}, actionTop=${layoutState.actionTop}`,
     );
+    assert.equal(layoutState.actionButtonVisibleCount, 2, "admin mobile notices must show only read and push buttons before opening more actions");
     assert(
-      layoutState.actionButtonWidths.every((width) => width <= 56),
-      `admin mobile notices action buttons must stay compact; widths=${layoutState.actionButtonWidths.join(", ")}`,
+      layoutState.actionButtonWidths.every((width) => width <= 112),
+      `admin mobile notices primary action buttons must stay compact; widths=${layoutState.actionButtonWidths.join(", ")}`,
     );
+    assert(layoutState.moreMenuToggleWidth >= 44 && layoutState.moreMenuToggleHeight >= 44, "admin mobile notices more menu must keep a 44px touch target");
+    assert.equal(layoutState.secondaryActionVisibleCount, 0, "admin mobile notices edit and delete actions must stay hidden before opening more actions");
     assert(layoutState.noticeDeliveryBodyVisibleCount > 0, "admin mobile notices must show a body preview before delivery metadata");
     assert(layoutState.noticeDeliveryBodyMaxHeight <= 40, "admin mobile notice body previews must stay within two text lines");
     assert(layoutState.cardHeight <= 188, `admin mobile notices card with preview must stay at or below 188px; got ${layoutState.cardHeight}px`);
@@ -775,6 +794,8 @@ async function verifyMobileNoticesScreenActionLayout(browser) {
     assert(statSync(readFeedbackScreenshotPath).size > 10_000, "mobile notices read feedback screenshot must be non-empty");
 
     await firstCard.getByTestId("notice-delivery-push-action").click();
+    await page.getByTestId("notice-push-confirmation-dialog").waitFor({ state: "visible", timeout: 5000 });
+    await page.getByTestId("notice-push-confirmation-submit").click();
     await page.getByTestId("notice-push-feedback").waitFor({ state: "visible", timeout: 10000 });
 
     const manualDispatchProof = await page.evaluate(async (title) => {

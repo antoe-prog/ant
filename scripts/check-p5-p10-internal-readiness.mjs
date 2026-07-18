@@ -3397,7 +3397,7 @@ for (const snippet of [
   "admin users edit hash deep link must place the form near the sticky header",
   "admin users edit hash deep link must open the owner edit form",
   "adminUserActionStackMaxHeight",
-  "admin users action controls must render as a narrow vertical icon stack on mobile",
+  "admin users action controls must render as a narrow labeled action stack on mobile",
   "admin users action controls must render edit/delete/reset as three vertical actions",
   "admin users action controls must keep the vertical action stack compact",
   "adminUserFirstActionOverlapBottomNavCount",

@@ -297,7 +297,7 @@ function GuardianLearningSummaryPanel({
       </div>
 
       <div
-        aria-label="띠 단계 순서. 실제 승급 진척률이 아닙니다."
+        aria-label={`띠 단계. 이전 ${previousBelt ?? "시작"}, 현재 ${selectedBelt}, 다음 ${nextBelt ?? "최고 단계"}`}
         className="mt-2 rounded-md bg-teal-50/70 p-2 sm:mt-3 sm:p-2.5"
         data-testid="guardian-learning-stage-bar"
       >
@@ -306,7 +306,9 @@ function GuardianLearningSummaryPanel({
             <p className="text-xs font-semibold text-teal-700">띠 단계</p>
             <p className="mt-1 break-words text-sm font-semibold text-zinc-950">현재 {selectedBelt}</p>
           </div>
-          <p className="max-w-32 text-right text-xs leading-4 text-zinc-500">승급 진척률이 아닌 단계 순서입니다.</p>
+          <p className="max-w-32 text-right text-xs font-semibold leading-4 text-teal-800">
+            {nextBelt ? `다음 ${nextBelt}` : "최고 단계"}
+          </p>
         </div>
         <ol className="mt-2 grid grid-cols-3 gap-1.5" data-testid="guardian-learning-belt-steps">
           <li className="min-w-0 rounded-md bg-white px-2 py-1.5 text-center">
@@ -319,7 +321,7 @@ function GuardianLearningSummaryPanel({
           </li>
           <li className="min-w-0 rounded-md bg-white px-2 py-1.5 text-center">
             <p className="text-xs font-semibold text-zinc-500">다음</p>
-            <p className="mt-0.5 truncate text-xs text-zinc-700">{nextBelt ?? "단계 유지"}</p>
+            <p className="mt-0.5 truncate text-xs text-zinc-700">{nextBelt ?? "최고 단계"}</p>
           </li>
         </ol>
       </div>

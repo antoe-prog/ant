@@ -16,6 +16,9 @@ const [
   memberPresentation,
   adminSettingsScreen,
   ownerReportsScreen,
+  childSwitcher,
+  adminUsersScreen,
+  notificationsScreen,
 ] = await Promise.all([
   readFile("src/components/screens/payments-screen.tsx", "utf8"),
   readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
@@ -31,6 +34,9 @@ const [
   readFile("src/lib/member-presentation.ts", "utf8"),
   readFile("src/components/screens/admin-settings-screen.tsx", "utf8"),
   readFile("src/components/screens/owner-reports-screen.tsx", "utf8"),
+  readFile("src/components/domain/child-switcher.tsx", "utf8"),
+  readFile("src/components/screens/admin-users-screen.tsx", "utf8"),
+  readFile("src/components/screens/notifications-screen.tsx", "utf8"),
 ]);
 
 for (const snippet of [
@@ -61,6 +67,12 @@ assert(
   noticesScreen.includes('data-testid="notice-delivery-body"') && noticesScreen.includes('line-clamp-2'),
   "publisher notice cards must show a bounded mobile body preview",
 );
+assert(
+  noticesScreen.includes('data-testid="notice-delivery-more-menu"') &&
+    noticesScreen.includes('data-testid="notice-delivery-more-menu-toggle"') &&
+    noticesScreen.indexOf('data-testid="notice-delivery-more-menu"') < noticesScreen.indexOf('data-testid="notice-delivery-delete-action"'),
+  "publisher notice edit and delete actions must stay behind one explicit secondary action menu",
+);
 
 assert(classesScreen.includes("previousStatus: AttendanceStatus | null"), "first attendance selection must preserve an unchecked undo state");
 assert(classesScreen.includes('"미처리로 되돌리기"'), "attendance undo must name the unchecked restore action");
@@ -72,6 +84,13 @@ assert(
 assert(
   classesScreen.includes('grid grid-cols-1 items-start gap-2 border-b border-zinc-100 pb-1.5 sm:grid-cols-[minmax(0,1fr)_11rem]'),
   "coach class headers must stack before the small-screen breakpoint",
+);
+assert(
+  classesScreen.includes('data-testid="coach-mobile-tools-toggle"') &&
+    classesScreen.includes('data-testid="coach-mobile-tools-details"') &&
+    classesScreen.indexOf('data-testid={isFamilyRole ? `family-class-card-${session.id}` : isCoachRole ? `coach-class-card-${session.id}` : undefined}') <
+      classesScreen.indexOf('data-testid="coach-class-list-toggle"'),
+  "coach mobile attendance must collapse secondary tools and place the first class before the additional-class toggle",
 );
 assert(attendanceClearRoute.includes("export async function DELETE"), "attendance API must expose a scoped clear operation");
 assert(mockApi.includes("export function clearAttendance"), "attendance clear must be a shared domain operation");
@@ -111,9 +130,10 @@ assert(!dashboardScreen.includes("promotionResultNotice"), "guardian promotion s
 assert(!dashboardScreen.includes("tournamentNotice"), "guardian tournament status must not be inferred from notice copy");
 assert(
   dashboardScreen.includes('data-testid="guardian-learning-belt-steps"') &&
-    dashboardScreen.includes("승급 진척률이 아닌 단계 순서입니다.") &&
+    dashboardScreen.includes('aria-label={`띠 단계. 이전 ${previousBelt ?? "시작"}, 현재 ${selectedBelt}, 다음 ${nextBelt ?? "최고 단계"}`}') &&
+    !dashboardScreen.includes("승급 진척률이 아닌 단계 순서입니다.") &&
     dashboardScreen.includes('aria-current="step"'),
-  "guardian belt status must use an explicit step sequence instead of a progress percentage",
+  "guardian belt status must communicate previous, current, and next stages directly without defensive copy",
 );
 assert(!dashboardScreen.includes("currentBeltProgress"), "guardian belt status must not calculate a fake completion percentage");
 assert(promotionsScreen.includes("회원·학부모 공개 메모"), "promotion note input must disclose its audience");
@@ -127,7 +147,10 @@ assert(
 );
 
 assert(adminSettingsScreen.includes('data-testid="admin-settings-priority-work"'), "admin operations must expose one primary work board");
-assert(adminSettingsScreen.includes("pilotNextActions.slice(0, 3)"), "admin operations must show the first three actions by default");
+assert(
+  adminSettingsScreen.includes("pilotNextActions.slice(0, 1)") && adminSettingsScreen.includes("나머지 ${pilotNextActions.length - 1}건과 상세 보기"),
+  "admin operations must expose only the highest-priority action before progressive disclosure",
+);
 assert(
   (adminSettingsScreen.match(/data-operation-tier="secondary"/g) ?? []).length === 3,
   "admin readiness, operations, and incident sections must remain secondary bands",
@@ -143,6 +166,12 @@ assert(
     ownerReportsScreen.indexOf('data-testid="owner-report-export-controls"') <
       ownerReportsScreen.indexOf('data-testid="owner-report-graph-board"'),
   "owner reports must place actions before exports and graphs",
+);
+assert(
+  ownerReportsScreen.includes('data-testid="owner-report-primary-graph-action"') &&
+    ownerReportsScreen.includes('<span>상세</span>') &&
+    !/data-testid="owner-report-primary-graph-action"[\s\S]{0,220}bg-zinc-950/.test(ownerReportsScreen),
+  "owner report graph details must use a labeled secondary action instead of an unlabeled high-emphasis square",
 );
 assert(!/text-\[(?:10|11)px\]/.test(ownerReportsScreen), "owner reports must not rely on 10px or 11px operational copy");
 assert(
@@ -161,6 +190,20 @@ assert(
 
 assert(memberPresentation.includes('member.status === "trial" && level.includes("체험")'), "trial child presentation must detect duplicate trial labels");
 assert(memberPresentation.includes("hideDuplicateTrialLevel || !level ? member.belt"), "trial child presentation must avoid repeating the trial label");
+assert(
+  childSwitcher.includes("if (items.length > 3)") && childSwitcher.includes('data-testid="guardian-child-select"'),
+  "guardian views must compact four or more children into one stable selector",
+);
+assert(
+  adminUsersScreen.includes('data-testid={`admin-user-delete-target-${user.id}`}') && adminUsersScreen.includes("삭제 대상"),
+  "admin destructive user actions must repeat the target identity inside the confirmation panel",
+);
+assert(
+  notificationsScreen.includes('notificationFilter === "all"') &&
+    notificationsScreen.includes('"공지 전체 읽음"') &&
+    notificationsScreen.includes('"현재 보기 읽음"'),
+  "notification bulk read copy must disclose whether it affects all notices or only the current filtered view",
+);
 
 console.log(JSON.stringify({
   ok: true,
@@ -176,5 +219,8 @@ console.log(JSON.stringify({
     "notification and account navigation context",
     "role-specific UI priority and branch context",
     "shared child switcher presentation",
+    "coach mobile attendance priority",
+    "secondary notice management actions",
+    "destructive user target context",
   ],
 }, null, 2));
