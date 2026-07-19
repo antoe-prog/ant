@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } fro
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, LoaderCircle, ShieldCheck } from "lucide-react";
+import { authInputLimits } from "@/lib/auth-input-policy";
 import { getDefaultRoute, roleLabels } from "@/lib/roles";
 import type { UserRole } from "@/lib/domain";
 import { useAppStore } from "@/store/app-store";
@@ -174,6 +175,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
                 className="h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 autoComplete="tel"
                 inputMode="tel"
+                maxLength={authInputLimits.phoneLength}
                 placeholder="휴대폰 번호 입력"
                 required
                 type="tel"
@@ -188,6 +190,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
                   className="h-11 w-full rounded-md border border-zinc-300 bg-white px-3 pr-12 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                   autoComplete="current-password"
                   id="login-password-input"
+                  maxLength={authInputLimits.passwordLength}
                   placeholder="비밀번호"
                   required
                   type={showPassword ? "text" : "password"}

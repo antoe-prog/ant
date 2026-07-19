@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { familyPaymentRequestInputLimits } from "@/lib/family-payment-request-policy";
 import {
   familyPaymentAgeGroupLabels,
   getFamilyPaymentCheckoutAccess,
@@ -530,6 +531,7 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
               <input
                 className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 data-testid="payment-payer-name-input"
+                maxLength={familyPaymentRequestInputLimits.payerNameLength}
                 value={payerName}
                 onChange={(event) => setPayerName(event.target.value)}
               />
@@ -556,6 +558,7 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                   className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                   data-testid="payment-payer-phone-middle-input"
                   inputMode="numeric"
+                  maxLength={4}
                   value={mobileMiddle}
                   onChange={(event) => setMobileMiddle(event.target.value)}
                 />
@@ -564,6 +567,7 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
                   className="min-h-11 w-full min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm font-medium text-zinc-950 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                   data-testid="payment-payer-phone-last-input"
                   inputMode="numeric"
+                  maxLength={4}
                   value={mobileLast}
                   onChange={(event) => setMobileLast(event.target.value)}
                 />

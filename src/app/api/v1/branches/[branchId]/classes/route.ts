@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, ClassSession, Member } from "@/lib/domain";
+import { getClassInputLimitError } from "@/lib/class-input-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -41,7 +43,56 @@ function isValidDateTime(value: string | undefined) {
   return Boolean(value && !Number.isNaN(Date.parse(value)));
 }
 
-function getValidatedClassPayload(body: ClassBody | null): ValidatedClassPayload {
+function getClassBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "수업 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const [field, label] of [
+    ["name", "수업명"],
+    ["level", "레벨"],
+    ["ageGroup", "연령 그룹"],
+    ["coachId", "코치"],
+    ["startsAt", "시작 시간"],
+    ["endsAt", "종료 시간"],
+    ["room", "장소"],
+  ] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  if (body.capacity !== undefined && typeof body.capacity !== "number") {
+    return "정원 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (
+    body.enrolledMemberIds !== undefined &&
+    (!Array.isArray(body.enrolledMemberIds) || body.enrolledMemberIds.some((memberId) => typeof memberId !== "string"))
+  ) {
+    return "등록 회원 목록의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
+
+function getValidatedClassPayload(value: unknown): ValidatedClassPayload {
+  const bodyTypeError = getClassBodyTypeError(value);
+
+  if (bodyTypeError) {
+    return { ok: false, error: bodyTypeError };
+  }
+
+  const inputLimitError = getClassInputLimitError(value as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return { ok: false, error: inputLimitError };
+  }
+
+  const body = value as ClassBody;
+
   if (
     !body?.name?.trim() ||
     !body.level?.trim() ||
@@ -117,7 +168,7 @@ export async function POST(
     return jsonError(403, "FORBIDDEN", "선택한 지점에 수업을 생성할 수 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as ClassBody | null;
+  const body = await request.json().catch(() => null);
   const validated = getValidatedClassPayload(body);
 
   if (!validated.ok) {
@@ -158,7 +209,7 @@ export async function POST(
     });
   }
 
-  const classId = `class-${Date.now()}`;
+  const classId = createRuntimeId("class");
   const nextClass: ClassSession = {
     id: classId,
     branchId,
@@ -166,7 +217,7 @@ export async function POST(
     enrolledMemberIds,
   };
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "class.create",

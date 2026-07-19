@@ -1089,14 +1089,17 @@ for (const snippet of ['"최근 코치 피드백"', '"심사 결과 공지"', '"
 }
 for (const snippet of [
   'data-testid="guardian-learning-stage-bar"',
+  'data-testid="guardian-learning-belt-steps"',
+  'aria-current="step"',
   'data-testid="guardian-learning-insight-grid"',
   'data-testid="guardian-learning-insight-cell"',
   "grid grid-cols-2 gap-2",
   "min-h-20 rounded-md bg-zinc-50",
   "sr-only",
-  "현재 단계",
-  "다음 목표",
-  "단계별 수련 수준",
+  ">띠 단계</p>",
+  ">이전</p>",
+  ">현재</p>",
+  ">다음</p>",
   "코치 피드백",
   "심사결과",
   "대회",
@@ -1222,7 +1225,7 @@ for (const snippet of [
 }
 assertExcludes(sources.dashboardScreen, '"보강 요청"', "coach dashboard compact flow graph must not restore deleted request rows");
 for (const snippet of [
-  'className="mt-2 grid grid-cols-2 gap-1.5 xl:grid-cols-4"',
+  "mt-2 grid grid-cols-2 gap-1.5 xl:grid-cols-4 max-[420px]:grid-cols-1",
   'className="group grid min-h-11 grid-cols-[2rem_minmax(0,1fr)_auto]',
   'data-testid={context.user.role === "coach" ? "coach-dashboard-classes-panel" : undefined}',
   "coachDashboardFlowGraphHeight <= 205",
@@ -1411,13 +1414,23 @@ assertIncludes(sources.noticeDeleteRoute, "selectedScope.selectedBranchId !== br
 assertIncludes(sources.smokeApi, "notice delete must reject a selected branch mismatch before deletion", "notice delete smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not delete the notice", "notice delete smoke guard preserves notice on selected branch mismatch");
 assertIncludes(sources.noticeCreateRoute, "selectedScope.selectedBranchId !== branchId", "notice create route rejects selected branch mismatches");
+assertIncludes(sources.noticeCreateRoute, "getNoticeBodyTypeError", "notice create route validates body field types before trimming");
+assertIncludes(sources.noticeCreateRoute, 'createRuntimeId("notice")', "notice create route uses collision-resistant notice IDs");
 assertIncludes(sources.noticePushRoute, "selectedScope.selectedBranchId !== branchId", "notice push route rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "notice create must reject a selected branch mismatch before validation", "notice create smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not create the notice", "notice create smoke guard preserves data on selected branch mismatch");
+assertIncludes(sources.smokeApi, "malformed notice create fields must fail without a server error", "notice create smoke rejects malformed fields without 500");
+assertIncludes(sources.smokeApi, "concurrent notice creation must preserve both records", "notice create smoke preserves concurrent records");
 assertIncludes(sources.smokeApi, "notice push must reject a selected branch mismatch before dispatch", "notice push smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not append a notice push dispatch audit log", "notice push smoke guard avoids mismatch audit mutation");
 assertIncludes(sources.branchMemberCreateRoute, "selectedScope.selectedBranchId !== branchId", "member create route rejects selected branch mismatches");
+assertIncludes(sources.branchMemberCreateRoute, "getMemberBodyTypeError", "member create route validates body field types before trimming");
+assertIncludes(sources.branchMemberCreateRoute, 'createRuntimeId("member")', "member create route uses collision-resistant member IDs");
+assertIncludes(sources.branchMemberCreateRoute, 'createRuntimeId("audit")', "member create route uses collision-resistant audit IDs");
 assertIncludes(sources.branchClassCreateRoute, "selectedScope.selectedBranchId !== branchId", "class create route rejects selected branch mismatches");
+assertIncludes(sources.branchClassCreateRoute, "getClassBodyTypeError", "class create route validates body field types before trimming");
+assertIncludes(sources.branchClassCreateRoute, 'createRuntimeId("class")', "class create route uses collision-resistant class IDs");
+assertIncludes(sources.branchClassCreateRoute, 'createRuntimeId("audit")', "class create route uses collision-resistant audit IDs");
 assertIncludes(sources.branchPaymentCreateRoute, "selectedScope.selectedBranchId !== branchId", "payment create route rejects selected branch mismatches");
 assertIncludes(sources.counselingNotesRoute, "selectedScope.selectedBranchId !== branchId", "counseling note route rejects selected branch mismatches");
 assertIncludes(sources.memberUpdateRoute, "selectedScope.selectedBranchId !== member.branchId", "member update route rejects selected branch mismatches");
@@ -1460,8 +1473,13 @@ assertIncludes(
 );
 assertIncludes(sources.smokeApi, "member create must reject a selected branch mismatch before validation", "member create smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not create the member", "member create smoke guard preserves data on selected branch mismatch");
+assertIncludes(sources.smokeApi, "malformed member create fields must fail without a server error", "member create smoke rejects malformed fields without 500");
+assertIncludes(sources.smokeApi, "member create must reject impossible calendar birth dates", "member create smoke rejects impossible birth dates");
+assertIncludes(sources.smokeApi, "concurrent member creation must preserve both records", "member create smoke preserves concurrent records");
 assertIncludes(sources.smokeApi, "class create must reject a selected branch mismatch before validation", "class create smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not create the class", "class create smoke guard preserves data on selected branch mismatch");
+assertIncludes(sources.smokeApi, "malformed class create fields must fail without a server error", "class create smoke rejects malformed fields without 500");
+assertIncludes(sources.smokeApi, "concurrent class creation must preserve both records", "class create smoke preserves concurrent records");
 assertIncludes(sources.smokeApi, "payment create must reject a selected branch mismatch before validation", "payment create smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not create the payment", "payment create smoke guard preserves data on selected branch mismatch");
 assertIncludes(sources.smokeApi, "counseling note create must reject a selected branch mismatch before validation", "counseling note smoke guard rejects selected branch mismatches");
@@ -1495,8 +1513,11 @@ assertIncludes(sources.smokeApi, "admin role update must reject a selected branc
 assertIncludes(sources.smokeApi, "selected branch mismatch must not update the user role", "admin role update smoke guard preserves data on selected branch mismatch");
 assertIncludes(sources.smokeApi, "admin user delete must reject a selected branch mismatch", "admin user delete smoke guard rejects selected branch mismatches");
 assertIncludes(sources.smokeApi, "selected branch mismatch must not delete the user", "admin user delete smoke guard preserves data on selected branch mismatch");
-assertIncludes(sources.noticesScreen, 'className="inline-flex h-11 w-11 items-center justify-center gap-1.5', "operator notice delete action stays compact on mobile");
-assertIncludes(sources.noticesScreen, '<span className="sr-only sm:not-sr-only">삭제</span>', "operator notice delete action shows the text label on wider screens");
+assertIncludes(sources.noticesScreen, 'data-testid="notice-delivery-more-menu"', "operator notice edit and delete actions stay behind an explicit mobile menu");
+assertIncludes(sources.noticesScreen, 'data-testid="notice-delivery-more-menu-toggle"', "operator notice action menu stays available from a compact touch target");
+assertIncludes(sources.noticesScreen, 'data-testid="notice-delivery-delete-action"', "operator notice delete action stays addressable inside the action menu");
+assertIncludes(sources.noticesScreen, 'className="inline-flex min-h-11 items-center gap-2', "operator notice delete menu action stays at least 44px tall");
+assertIncludes(sources.noticesScreen, "<span>삭제</span>", "operator notice delete action keeps an explicit text label");
 assertIncludes(sources.noticesScreen, 'grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-2', "operator notice mobile action row stacks below title content");
 assertIncludes(sources.noticesScreen, 'data-notice-action-layout="stacked-mobile"', "operator notice action layout has a regression hook");
 assertIncludes(sources.noticesScreen, 'data-testid="notice-bottom-safe-area"', "operator notice screen keeps mobile bottom safe-area spacer");
@@ -1554,7 +1575,7 @@ assertIncludes(sources.appShell, "isRouteActive(route, pathname)", "app shell us
 assertIncludes(sources.notificationsAliasRoute, "NotificationsScreen", "notifications route renders the dedicated notification inbox");
 assertIncludes(sources.notificationsScreen, 'data-testid="notifications-screen"', "notifications screen has a dedicated screen hook");
 assertIncludes(sources.notificationsScreen, "notification-filter-unread", "notifications screen exposes unread filtering");
-assertIncludes(sources.notificationsScreen, "grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]", "notifications screen keeps read action compact beside filters");
+assertIncludes(sources.notificationsScreen, "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]", "notifications screen keeps the labeled read action beside filters");
 assertIncludes(sources.notificationsScreen, 'data-testid="notification-filter-toolbar"', "notifications screen exposes flat filter toolbar for mobile QA");
 assertIncludes(sources.notificationsScreen, "flex min-w-0 flex-wrap gap-1.5", "notifications screen keeps filters as a flat wrapping toolbar");
 assertExcludes(sources.notificationsScreen, 'className="min-w-0 rounded-md border border-zinc-200 bg-white p-0.5"', "notifications screen must not restore nested filter card frame");
@@ -1568,9 +1589,11 @@ assertExcludes(sources.notificationsScreen, 'data-testid="notification-bottom-sa
 assertIncludes(sources.notificationsScreen, 'item.kind === "notice" && !item.read', "notifications screen unread filter only targets unread notices");
 assertIncludes(sources.notificationsScreen, "notification-bulk-read-filtered", "notifications screen exposes filtered read action");
 assertIncludes(sources.notificationsScreen, "notificationBulkReadAriaLabel", "notifications screen bulk read action explains notice-only scope");
-assertIncludes(sources.notificationsScreen, "공지 읽음 처리", "notifications screen names the notice-only bulk read action explicitly");
+assertIncludes(sources.notificationsScreen, "공지 전체 읽음", "notifications screen names the all-filter notice read action explicitly");
+assertIncludes(sources.notificationsScreen, "현재 보기 읽음", "notifications screen names filtered notice read actions explicitly");
 assertIncludes(sources.notificationsScreen, "공지 읽음 완료", "notifications screen names the completed notice-only bulk read state explicitly");
-assertIncludes(sources.notificationsScreen, 'className="sr-only sm:not-sr-only"', "notifications screen hides bulk read text on narrow mobile while preserving accessible text");
+assertIncludes(sources.notificationsScreen, "min-h-11 min-w-24 shrink-0 gap-1 px-2 whitespace-nowrap", "notifications screen keeps the bulk read label visible on narrow mobile");
+assertIncludes(sources.notificationsScreen, "<span>{notificationBulkReadButtonLabel}</span>", "notifications screen renders the bulk read label without an icon-only mobile state");
 assertIncludes(sources.notificationsScreen, "data-notification-bulk-read-state", "notifications screen exposes active/done bulk read state");
 assertIncludes(sources.notificationsScreen, "공지 읽음 상태를 저장하지 못했습니다.", "notifications screen bulk read failure copy stays notice-scoped");
 assertIncludes(sources.notificationsScreen, 'data-notification-read-state={readNotice ? "read" : "active"}', "notifications screen marks confirmed notice cards for tone-down styling");
@@ -1647,7 +1670,7 @@ assertIncludes(
 );
 assertIncludes(
   sources.visibleAppCopyScript,
-  "notificationBottomCardClearanceAtScrollEnd >= 96",
+  "notificationBottomCardClearanceAtScrollEnd >= 24",
   "visible copy scan requires bottom notification card breathing room above mobile navigation",
 );
 assertIncludes(sources.visibleAppCopyScript, "notificationNoticeKindBadgeCount", "visible copy scan checks repeated notice kind badges stay hidden");
@@ -1924,9 +1947,10 @@ for (const [label, source] of [
 		  "col-start-2 row-start-1 flex w-auto flex-col items-end",
 	  'data-admin-user-action="edit"',
 	  'data-admin-user-action="delete"',
-	  'data-admin-user-action="password-reset"',
-		  'aria-label={`${user.name} ${resetPanelOpen ? "비밀번호 재발급 닫기" : "비밀번호 재발급"}`}',
-		  '<span className="sr-only">{resetPanelOpen ? "비밀번호 재발급 닫기" : "비밀번호 재발급"}</span>',
+		  'data-admin-user-action="password-reset"',
+			  'aria-label={`${user.name} ${resetPanelOpen ? "비밀번호 재발급 닫기" : "비밀번호 재발급"}`}',
+			  "inline-flex h-11 min-w-20 shrink-0 items-center justify-center",
+			  '<span>{resetPanelOpen ? "닫기" : "재발급"}</span>',
 		  'data-admin-user-password-edit-state="visible"',
 		  'admin-user-password-edit-heading-${user.id}',
 		  'data-testid={`admin-user-password-edit-section-${user.id}`}',
@@ -2746,7 +2770,9 @@ assertIncludes(sources.accountScreen, "const displayEmail = getVisibleUserEmail(
 assertExcludes(sources.accountScreen, "@finaljudo.test", "account visible seed email literals");
 assertIncludes(sources.accountScreen, "<InstallAppAction />", "account keeps web-only install action");
 for (const snippet of [
-  'const { signOut } = useAppStore();',
+  'import { useSafeSignOut } from "@/components/shell/app-shell";',
+  "const requestSignOut = useSafeSignOut();",
+  "onClick={requestSignOut}",
   'data-testid="account-action-panel"',
   'data-testid="account-role-switch-link"',
   'data-testid="account-logout-button"',
@@ -3373,8 +3399,10 @@ for (const snippet of [
 		  "coachClassRosterClosedMaxHeight <= 2",
   "coach classes must keep the mobile default list short enough to avoid bottom navigation overlap",
   "coach class roster toggles must not overlap the mobile bottom navigation",
-		  "coachFieldFlowPanelHeight <= 64",
-		  "coachFirstClassCardTop <= 430",
+			  "assert.equal(layout.coachFieldFlowCompactGridCount, 1",
+			  "assert.equal(layout.coachFieldFlowCompactColumnCount, 2",
+			  "assert.equal(layout.coachFieldFlowCompactSummaryCount, 2",
+			  "coachFirstClassCardTop <= 340",
 		  "coachClassCardMaxHeight <= 960",
 		  "coach classes must expose attendance note actions in the default priority roster",
 	  "coach classes must open the first incomplete roster by default on mobile",
@@ -3441,13 +3469,14 @@ for (const snippet of [
   "aria-pressed={showUncheckedOnly}",
   "coachQuickActionClass(showReasonRequiredOnly, \"amber\")",
   "aria-pressed={coachAttentionFilterActive}",
-  'className="mb-2 rounded-lg border border-teal-200 bg-teal-50/40 p-1.5 sm:p-4"',
+  'className="rounded-lg border border-teal-200 bg-teal-50/40 p-0.5 sm:p-2"',
   'data-testid="coach-mobile-speed-summary-line"',
   "coachMobileSpeedSummaryText",
-  'hasAttendanceRosterFilter ? "grid-cols-4" : "grid-cols-3"',
+  'className="flex gap-1 overflow-x-auto sm:flex-wrap sm:gap-2"',
+  "shrink-0 sm:shrink",
   "미처리 명단만 보기",
   "출석 필터 초기화",
-  "min-h-11 w-full min-w-0",
+  "inline-flex min-h-11 w-auto min-w-[72px] shrink-0",
 ]) {
   assertIncludes(sources.classesScreen, snippet, "coach quick action mobile density compact layout");
 }
@@ -3828,7 +3857,7 @@ for (const snippet of [
   'localAutoLoginHosts.has(request.nextUrl.hostname)',
   'request.nextUrl.searchParams.get("autoLogin") !== "1"',
   'new URL("/api/v1/dev/auto-login", request.url)',
-  'autoLoginUrl.searchParams.set("next", getSafeNextPath(request))',
+  'autoLoginUrl.searchParams.set("next", normalizeLocalAutoLoginNextPath(request.nextUrl.searchParams.get("next")))',
   'NextResponse.redirect(autoLoginUrl)',
 ]) {
   assertIncludes(sources.proxy, snippet, "local simulator autoLogin proxy guard");
@@ -3839,7 +3868,8 @@ for (const snippet of [
   'localAutoLoginHosts.has(request.nextUrl.hostname)',
   'request.headers.get("x-forwarded-host")',
   'localAutoLoginHosts.has(origin.hostname)',
-  'NextResponse.redirect(new URL(getSafeNextPath(request), getLocalRedirectOrigin(request)))',
+  'const nextPath = normalizeLocalAutoLoginNextPath(request.nextUrl.searchParams.get("next"))',
+  'NextResponse.redirect(new URL(nextPath, getLocalRedirectOrigin(request)))',
   'createSessionCookieOptions({ NODE_ENV: "development" })',
   'response.cookies.set(sessionCookieName, issuedSession.token, cookieOptions)',
 ]) {
@@ -4526,7 +4556,7 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "noticeDeliveryBodyMaxHeight <= 40", "visible copy bounded operator notice body guard"],
   [sources.visibleAppCopyScript, "noticeDeliveryReadCardToneDownCount", "visible copy read operator notice card tone-down guard"],
   [sources.visibleAppCopyScript, "noticeDeliveryReadBadgeToneDownCount", "visible copy read operator notice badge tone-down guard"],
-  [sources.visibleAppCopyScript, "noticeDeliveryActionButtonMaxWidth <= 56", "visible copy compact operator notice action guard"],
+  [sources.visibleAppCopyScript, "noticeDeliveryActionButtonMaxWidth <= 144", "visible copy labeled operator notice action guard"],
   [sources.visibleAppCopyScript, "accountActionPanelCount", "visible copy family account action guard"],
   [sources.visibleAppCopyScript, "accountRoleSwitchLinkHeight >= 44", "visible copy account switch touch guard"],
   [sources.visibleAppCopyScript, "accountLogoutButtonHeight >= 44", "visible copy account logout touch guard"],
@@ -4943,9 +4973,10 @@ for (const snippet of [
   "export async function PUT",
   "export async function DELETE",
   "replaceMemberGuardians",
-  "replaceGuardianUserLinks",
+  "syncAffectedGuardianUsers",
+  "syncGuardianUserLinks",
   "unlinkMemberGuardian",
-  "unlinkGuardianUser",
+  "guardian.branchIds.includes(memberBranchId)",
   "보호자-자녀 연결을 변경했습니다.",
   "보호자-자녀 연결을 해제했습니다.",
 ]) {
@@ -4957,6 +4988,8 @@ for (const snippet of [
   "guardian replace back must remove temporary guardian child ids",
   "guardian unlink did not update member guardian ids",
   "guardian relink after unlink did not update member guardian ids",
+  "owner must not connect a guardian who is outside the member branch",
+  "blocked cross-branch guardian replacement must not mutate member guardian ids",
 ]) {
   assertIncludes(sources.smokeApi, snippet, "member guardian unlink smoke guard");
 }
@@ -5242,7 +5275,11 @@ for (const snippet of [
 ]) {
   assertExcludes(sources.dashboardScreen, snippet, "dashboard verbose empty-state copy");
 }
-assertIncludes(sources.classesScreen, '<EmptyState title="예정 수업이 없습니다" />', "classes title-only empty-state copy");
+assertIncludes(
+  sources.classesScreen,
+  '<EmptyState title={isFamilyRole ? "등록된 수업이 없습니다" : "예정 수업이 없습니다"} />',
+  "classes role-specific title-only empty-state copy",
+);
 assertExcludes(sources.classesScreen, "예정 수업 등록 대기 중입니다.", "classes repetitive waiting empty-state copy");
 assertExcludes(sources.classesScreen, "수업이 등록되면 이곳에서 확인할 수 있습니다.", "classes verbose empty-state copy");
 assertExcludes(sources.classesScreen, "예정 수업이 등록되면 표시됩니다.", "classes empty-state passive copy");
@@ -5347,14 +5384,14 @@ assert.equal(
   (ownerDashboardKpiSource.match(/\n\s+id:/g) ?? []).length,
   "owner dashboard graph rows must keep one helper copy per row and avoid duplicate object keys",
 );
-assertAppearsBefore(ownerDashboardKpiSource, "label: ownerActionLabel", 'label: "지점 건강도"', "owner dashboard KPI priority order");
+assertAppearsBefore(ownerDashboardKpiSource, "label: ownerActionLabel", 'label: "현재 지점 상태"', "owner dashboard KPI priority order");
 assertAppearsBefore(ownerDashboardKpiSource, 'label: "결제 회수"', 'label: "회원 유지"', "owner dashboard KPI priority order");
 assertIncludes(ownerDashboardKpiSource, "ownerPriorityBranchLabel", "owner dashboard branch-first KPI helper");
 assertIncludes(ownerDashboardKpiSource, "ownerActionButtonLabel", "owner dashboard action clarity");
 assertExcludes(ownerDashboardKpiSource, "ownerPriorityBranchLabel} 먼저", "owner dashboard repeated branch-first helper");
 assertExcludes(ownerDashboardKpiSource, "ownerPriorityBranchLabel} 먼저 · ${paymentRisks.length}", "owner dashboard payment row duplicate branch-first helper");
 assertExcludes(ownerDashboardKpiSource, "ownerPriorityBranchLabel} 먼저 · ${period.label}", "owner dashboard attendance row duplicate branch-first helper");
-assertIncludes(sources.dashboardScreen, "운영 그래프", "owner dashboard graph heading");
+assertIncludes(sources.dashboardScreen, 'aria-label="대표 운영 KPI 그래프"', "owner dashboard graph accessible label");
 assertExcludes(sources.dashboardScreen, "운영 흐름 그래프", "owner dashboard graph document-style heading");
 assertIncludes(sources.dashboardScreen, "style={{ width: `${row.progress}%` }}", "owner dashboard graph bar width");
 assertIncludes(sources.dashboardScreen, "ownerPrimaryGraphRow", "owner dashboard graph primary summary");
@@ -5390,7 +5427,7 @@ assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-branch-det
 assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-payment-risk-detail"', "owner dashboard payment risk detail stays behind toggle");
 assertIncludes(sources.dashboardScreen, "aria-expanded={showOwnerDashboardDetails}", "owner dashboard detail toggle expanded state");
 assertIncludes(sources.dashboardScreen, 'className="min-w-0 px-3 py-1.5"', "owner dashboard branch comparison row compact spacing");
-assertIncludes(sources.dashboardScreen, 'className="mt-0.5 truncate text-[11px] leading-4 text-zinc-500"', "owner dashboard branch comparison meta stays one line");
+assertIncludes(sources.dashboardScreen, 'className="mt-0.5 truncate text-xs leading-4 text-zinc-500"', "owner dashboard branch comparison meta stays readable on one line");
 assertIncludes(sources.dashboardScreen, 'className="mt-1 grid grid-cols-3 gap-1"', "owner dashboard branch metric grid compact spacing");
 assertIncludes(sources.dashboardScreen, "min-h-8 min-w-0 rounded-md bg-zinc-50 px-1.5 py-1", "owner dashboard branch metric cells keep a readable compact height");
 for (const snippet of ["출석", "결제 위험", "style={{ width: `${row.attendancePercent}%` }}", "style={{ width: `${row.riskPercent}%` }}"]) {
@@ -5399,8 +5436,8 @@ for (const snippet of ["출석", "결제 위험", "style={{ width: `${row.attend
 assertExcludes(sources.dashboardScreen, "row.requestPercent", "owner dashboard branch comparison graph must not keep request bars");
 assertIncludes(
   sources.dashboardScreen,
-  '<p className="mt-1 hidden truncate text-[11px] leading-4 text-zinc-500 sm:block">{row.helper}</p>',
-  "owner dashboard graph rows keep detailed helper copy",
+  '<p className="sr-only">{row.helper}</p>',
+  "owner dashboard graph rows keep detailed helper copy for assistive technology",
 );
 
 const ownerReportKpiSource = sources.ownerReportsScreen.slice(
@@ -5535,7 +5572,9 @@ for (const snippet of [
   "/app/payments/checkout?paymentId=",
   "<ChildSwitcher",
   "guardianPaymentChildren",
-  "prioritizedGuardianPaymentChild",
+  "requestedGuardianPaymentChild",
+  "invalidGuardianPaymentTarget",
+  "appliedRequestedMemberIdRef",
   "selectedGuardianPaymentChildId",
   "scopedPayments",
   "data.filter((payment) => payment.memberId === selectedGuardianPaymentChildId)",
@@ -7602,13 +7641,13 @@ for (const id of [
       assert.equal(page.notificationSummaryCardCount, 0, `${id} visible app copy scan must not render duplicate notification summary cards`);
       assert(page.notificationInboxCardCount > 0, `${id} visible app copy scan must render notification cards`);
       assert(page.notificationInboxCardMaxHeight <= 132, `${id} visible app copy scan must keep notification rows compact enough for mobile scanning`);
-      assert.equal(page.notificationBottomSafeAreaCount, 1, `${id} visible app copy scan must render one mobile bottom safe-area spacer`);
+      assert.equal(page.notificationBottomSafeAreaCount, 0, `${id} visible app copy scan must rely on the shared shell bottom safe area`);
       assert(
-        page.notificationBottomActionClearanceAtScrollEnd >= 72,
+        page.notificationBottomActionClearanceAtScrollEnd >= 24,
         `${id} visible app copy scan must keep the bottom notification action above the mobile bottom navigation`,
       );
       assert(
-        page.notificationBottomCardClearanceAtScrollEnd >= 96,
+        page.notificationBottomCardClearanceAtScrollEnd >= 24,
         `${id} visible app copy scan must keep the bottom notification card clear of the mobile bottom navigation`,
       );
       assert.equal(page.notificationNoticeKindBadgeCount, 0, `${id} visible app copy scan must hide repeated notice kind badges`);
@@ -7660,9 +7699,9 @@ for (const id of [
       }
       assert(page.notificationBulkReadButtonHeight >= 44, `${id} visible app copy scan must keep notification read action tappable`);
       if (typeof page.notificationBulkReadButtonText === "string") {
-        assert.equal(page.notificationBulkReadButtonText, "읽음 처리", `${id} visible app copy scan must keep the notification read action compact`);
+	        assert.equal(page.notificationBulkReadButtonText, "공지 전체 읽음", `${id} visible app copy scan must state the notification read action scope`);
       } else {
-        assertIncludes(sources.notificationsScreen, "읽음 처리", `${id} current source must keep the notification read action compact`);
+	        assertIncludes(sources.notificationsScreen, '"공지 전체 읽음"', `${id} current source must state the notification read action scope`);
       }
       if (typeof page.notificationBulkReadButtonState === "string") {
         assert.equal(page.notificationBulkReadButtonState, "active", `${id} visible app copy scan must expose active notification read action state before interaction`);
@@ -7741,7 +7780,7 @@ for (const id of [
     assert(page.noticeDeliveryBodyMaxHeight <= 40, `${id} visible app copy scan must keep operator notice previews within two lines`);
     assert.equal(page.noticeDeliveryActionRowCount, page.noticeDeliveryCompactCardCount, `${id} visible app copy scan must keep one compact action row per notice`);
     assert(page.noticeDeliveryActionRowMaxHeight <= 44, `${id} visible app copy scan must keep notice actions in one compact mobile icon row`);
-    assert(page.noticeDeliveryActionButtonMaxWidth <= 56, `${id} visible app copy scan must keep notice actions compact as icon buttons on mobile`);
+    assert(page.noticeDeliveryActionButtonMaxWidth <= 144, `${id} visible app copy scan must keep labeled notice actions within one compact mobile row`);
     assert(page.noticeDeliveryReadActionMinHeight >= 44, `${id} visible app copy scan must keep read action tappable`);
     assert(page.noticeDeliveryPushActionMinHeight >= 44, `${id} visible app copy scan must keep push action tappable`);
   }

@@ -3,6 +3,7 @@ import type { AppUser, AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
+import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import {
@@ -10,6 +11,7 @@ import {
   invitationSecurityLockKey,
   secureStoredInvitationTokens,
 } from "@/server/invitation-token";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -22,6 +24,29 @@ type InvitationBody = {
 };
 
 const branchScopedInviteRoles: UserRole[] = ["coach", "guardian", "member"];
+
+function getInvitationBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "사용자 초대 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const field of ["name", "email", "phone", "role"] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return "사용자 초대 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  if (
+    body.branchIds !== undefined &&
+    (!Array.isArray(body.branchIds) || body.branchIds.some((branchId) => typeof branchId !== "string"))
+  ) {
+    return "초대 지점 값의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
 
 export async function POST(request: NextRequest) {
   const initialDb = await readServerDb();
@@ -41,12 +66,25 @@ export async function POST(request: NextRequest) {
     return initialSelectedScope.response;
   }
 
-  const body = (await request.json().catch(() => null)) as InvitationBody | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getInvitationBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const inputLimitError = getUserAdministrationInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as InvitationBody;
   const name = body?.name?.trim() ?? "";
   const email = body?.email?.trim().toLowerCase() ?? "";
   const phone = normalizePhoneNumber(body?.phone ?? "");
   const role = body?.role;
-  const branchIds = [...new Set(body?.branchIds ?? [])];
+  const branchIds = [...new Set((body?.branchIds ?? []).map((branchId) => branchId.trim()).filter(Boolean))];
 
   if (!name || !phone || !role || !userRoles.includes(role)) {
     return jsonError(400, "VALIDATION_ERROR", "이름, 휴대폰 번호, 역할이 필요합니다.");
@@ -113,7 +151,7 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const invitationToken = createInvitationToken();
     const invitedUser: AppUser = {
-      id: `user-${Date.now()}`,
+      id: createRuntimeId("user"),
       ...(email ? { email } : {}),
       name,
       phone,
@@ -125,7 +163,7 @@ export async function POST(request: NextRequest) {
       invitedAt: now,
     };
     const auditLog: AuditLog = {
-      id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+      id: createRuntimeId("audit"),
       branchId: assignedBranchIds[0] ?? null,
       actorUserId: user.id,
       action: "user.invite.create",

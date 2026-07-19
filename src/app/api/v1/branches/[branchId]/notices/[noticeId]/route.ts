@@ -3,6 +3,11 @@ import type { AuditLog, Notice, NoticeAudience } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
+import {
+  getNoticeStringListLimitError,
+  getNoticeTextLimitError,
+  noticeInputLimits,
+} from "@/lib/notice-input-policy";
 import { hasNoticeVisibleContentChanged, hasSameNoticeAudience, noticeStateLockKey } from "@/lib/notices";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -57,6 +62,20 @@ export async function PATCH(
       (!Array.isArray(rawUpdate.audience) || rawUpdate.audience.some((item) => typeof item !== "string")))
   ) {
     return jsonError(400, "VALIDATION_ERROR", "공지 수정 정보가 올바르지 않습니다.");
+  }
+
+  const inputLimitError =
+    getNoticeTextLimitError({
+      body: rawUpdate.body as string | undefined,
+      title: rawUpdate.title as string | undefined,
+    }) ??
+    getNoticeStringListLimitError(rawUpdate.audience, {
+      label: "공지 대상",
+      maximumItems: noticeInputLimits.audienceItems,
+    });
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
   }
 
   if (

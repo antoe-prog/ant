@@ -86,11 +86,17 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
+  const target = new URL(baseUrl);
+  const hostname = target.hostname === "[::1]" ? "::1" : target.hostname;
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", hostname, "--port", target.port],
+    {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+    },
+  );
 
   managedAppServer.stdout?.on("data", (chunk) => {
     if (process.env.ADMIN_AUDIT_SEARCH_SERVER_LOGS === "1") {
@@ -178,7 +184,8 @@ async function loginTo(page, nextPath) {
 
 async function readLayout(page) {
   return page.evaluate(() => {
-    const inputRect = document.querySelector('[data-testid="admin-audit-search-input"]')?.getBoundingClientRect();
+    const input = document.querySelector('[data-testid="admin-audit-search-input"]');
+    const inputRect = input?.getBoundingClientRect();
     const clearRect = document.querySelector('[data-testid="admin-audit-search-clear"]')?.getBoundingClientRect();
     const submitRect = document.querySelector('[data-testid="admin-audit-filter-submit"]')?.getBoundingClientRect();
     const fromInput = document.querySelector('[data-testid="admin-audit-from-input"]');
@@ -201,6 +208,7 @@ async function readLayout(page) {
       fromMax: fromInput instanceof HTMLInputElement ? fromInput.max : "",
       fromValue: fromInput instanceof HTMLInputElement ? fromInput.value : "",
       inputHeight: Math.round(inputRect?.height ?? 0),
+      inputMaxLength: input instanceof HTMLInputElement ? input.maxLength : null,
       resetBottomNavClearance: resetRect && navRect ? Math.round(navRect.top - resetRect.bottom) : null,
       resetHeight: Math.round(resetRect?.height ?? 0),
       rowCount: document.querySelectorAll('[data-testid="admin-audit-log-row"]').length,
@@ -219,6 +227,7 @@ function assertStaticContracts() {
   const releaseRunner = readFileSync("scripts/run-release-checks.mjs", "utf8");
   const adminAuditScreen = readFileSync("src/components/screens/admin-audit-logs-screen.tsx", "utf8");
   const adminAuditRoute = readFileSync("src/app/api/v1/admin/audit-logs/route.ts", "utf8");
+  const auditQueryPolicy = readFileSync("src/lib/audit-log-query.ts", "utf8");
   const auditPresentation = readFileSync("src/lib/audit-log-presentation.ts", "utf8");
 
   assert(packageJson.includes('"test:admin-audit-search"'), "package.json must expose test:admin-audit-search");
@@ -229,6 +238,10 @@ function assertStaticContracts() {
     "admin audit screen must write applied filters through the Next-compatible native history API",
   );
   assert(adminAuditScreen.includes('data-testid="admin-audit-search-input"'), "admin audit screen must expose a stable search input hook");
+  assert(
+    adminAuditScreen.includes("maxLength={auditLogQueryLimits.query}"),
+    "admin audit search input must mirror the server query limit",
+  );
   assert(adminAuditScreen.includes('data-testid="admin-audit-search-clear"'), "admin audit screen must expose a search clear action");
   assert(adminAuditScreen.includes('data-testid="admin-audit-filter-reset"'), "admin audit screen must expose a filter reset action");
   assert(adminAuditScreen.includes('data-testid="admin-audit-empty-filter-reset"'), "admin audit screen must expose an empty state reset action");
@@ -241,7 +254,19 @@ function assertStaticContracts() {
   assert(!adminAuditScreen.includes("<pre"), "admin audit detail must not render raw JSON blocks");
   assert(adminAuditRoute.includes('from "@/lib/audit-log-presentation"'), "admin audit API must use the shared filter allowlist");
   assert(adminAuditRoute.includes("isDuplicateAuditRead"), "admin audit API must deduplicate identical short-window reads");
+  assert(
+    adminAuditRoute.includes("withServerDbLock(authSecurityLockKey") && adminAuditRoute.includes('createRuntimeId("audit")'),
+    "admin audit API must serialize duplicate checks with account mutations and use collision-resistant audit IDs",
+  );
   assert(adminAuditRoute.includes("parseAuditDateParam"), "admin audit API must use full-day date boundaries");
+  assert(
+    adminAuditRoute.indexOf("parseAuditLogRequestFilters(request)") < adminAuditRoute.indexOf("withServerDbLock(authSecurityLockKey"),
+    "admin audit API must reject invalid filters before taking the shared auth lock",
+  );
+  assert(
+    auditQueryPolicy.includes("query: 120") && auditQueryPolicy.includes("reason: 500") && auditQueryPolicy.includes("branchId: 200"),
+    "admin audit query policy must bound searchable and persisted filter values",
+  );
   assert(auditPresentation.includes("Record<AuditAction, string>"), "shared audit labels must be exhaustive for AuditAction");
   for (const action of ["promotion.create", "promotion.update", "tournament.create", "tournament.update", "tournament.delete"]) {
     assert(auditPresentation.includes(`"${action}"`), `shared audit action list must include ${action}`);
@@ -254,16 +279,18 @@ assertStaticContracts();
 const chromeExecutable = findChromeExecutable();
 assert(chromeExecutable, "Chrome or Chromium executable is required for admin audit search proof");
 
-await ensureLocalAppServer();
-const resetBefore = await resetDevData("before");
-const browser = await chromium.launch({
-  executablePath: chromeExecutable,
-  headless: true,
-});
-const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-const messages = collectConsoleMessages(page);
-
+let browser = null;
 try {
+  await ensureLocalAppServer();
+  const resetBefore = await resetDevData("before");
+  browser = await chromium.launch({
+    executablePath: chromeExecutable,
+    headless: true,
+  });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const messages = collectConsoleMessages(page);
+
   await loginTo(page, "/app/admin/audit-logs?q=회원권&detail=audit-seed-payment-create");
   await page.waitForURL(
     (url) =>
@@ -345,6 +372,7 @@ try {
   const filteredLayout = await readLayout(page);
   assert.match(filteredLayout.activeSummaryText, /검색 회원권/, "admin audit q deep link must show the applied search chip");
   assert(filteredLayout.inputHeight >= 44, `admin audit search input must stay 44px tall; got ${filteredLayout.inputHeight}px`);
+  assert.equal(filteredLayout.inputMaxLength, 120, "admin audit search input must mirror the 120-character server limit");
   assert(filteredLayout.clearButtonHeight >= 44, `admin audit search clear action must stay 44px tall; got ${filteredLayout.clearButtonHeight}px`);
   assert(filteredLayout.clearButtonWidth >= 44, `admin audit search clear action must stay 44px wide; got ${filteredLayout.clearButtonWidth}px`);
   assert(filteredLayout.submitHeight >= 44, `admin audit filter submit must stay 44px tall; got ${filteredLayout.submitHeight}px`);
@@ -414,6 +442,47 @@ try {
     assert.equal(filter.ok, true, `admin audit API must accept ${filter.action} filters shown in the UI`);
     assert.equal(filter.status, 200, `admin audit ${filter.action} filter API must return 200`);
   }
+  const oversizedQueries = [
+    new URLSearchParams({ q: "가".repeat(121), reason: "검색어 상한 검증" }),
+    new URLSearchParams({ reason: "가".repeat(501) }),
+    new URLSearchParams({ branchId: "b".repeat(201), reason: "지점 필터 상한 검증" }),
+  ];
+  const oversizedInspectQuery = new URLSearchParams({
+    action: "audit_logs.read",
+    limit: "200",
+    reason: "상한 차단 결과 확인",
+  });
+  const auditProbePage = await page.context().newPage();
+  await auditProbePage.goto(new URL("/", baseUrl).href, { waitUntil: "domcontentloaded" });
+  const oversizedFilterResult = await auditProbePage.evaluate(async ({ inspectQuery, queries }) => {
+    const statuses = [];
+
+    for (const query of queries) {
+      const response = await fetch(`/api/v1/admin/audit-logs?${query}`);
+      statuses.push(response.status);
+    }
+
+    const inspectResponse = await fetch(`/api/v1/admin/audit-logs?${inspectQuery}`);
+    const inspectPayload = await inspectResponse.json().catch(() => ({}));
+
+    return {
+      inspectStatus: inspectResponse.status,
+      invalidPersisted: (inspectPayload?.data?.logs ?? []).filter(
+        (log) =>
+          String(log.after?.query ?? "").length > 120 ||
+          String(log.after?.reason ?? "").length > 500 ||
+          String(log.after?.branchId ?? "").length > 200,
+      ).length,
+      statuses,
+    };
+  }, {
+    inspectQuery: oversizedInspectQuery.toString(),
+    queries: oversizedQueries.map((query) => query.toString()),
+  });
+  await auditProbePage.close();
+  assert.deepEqual(oversizedFilterResult.statuses, [400, 400, 400], "oversized audit filters must all return 400");
+  assert.equal(oversizedFilterResult.inspectStatus, 200, "audit filter limit inspection must succeed");
+  assert.equal(oversizedFilterResult.invalidPersisted, 0, "oversized audit filters must not persist read audit records");
   const duplicateReadAudit = await page.evaluate(async () => {
     const repeatedQuery = new URLSearchParams({ q: "중복 조회", reason: "중복 조회 재시도 검증" });
 
@@ -491,6 +560,7 @@ try {
       "admin audit search clear and reset actions stay 44px touch targets",
       "admin audit empty search clears filters without stale rows or bottom-nav overlap",
       "admin audit API accepts shared promotion and tournament filters shown in the UI",
+      "admin audit search, reason, and branch filters reject oversized values without audit writes",
       "admin audit and role screens use one completion label policy",
       "admin audit detail uses readable Korean before/after rows without raw JSON",
       "admin audit detail deep link restores and toggles the selected record",
@@ -529,6 +599,6 @@ try {
   writeFileSync(join(outDir, "summary.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
 } finally {
-  await browser.close();
+  await browser?.close();
   await stopManagedAppServer();
 }

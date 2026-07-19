@@ -6,6 +6,7 @@ const {
   cancelPushDispatchJob,
   createNoticePushPayloadSnapshot,
   enqueuePushDispatchJob,
+  hasInFlightPushDispatchForSubscription,
   isPermanentPushSubscriptionFailure,
   leasePushDispatchJob,
   notificationOutboxLockKey,
@@ -276,6 +277,16 @@ const afterProviderBegin = beginPushDispatchProviderCall(afterProviderLeased.db,
 });
 assert.equal(afterProviderBegin.ok, true);
 assert.equal(afterProviderBegin.shouldSend, true);
+assert.equal(
+  hasInFlightPushDispatchForSubscription(afterProviderBegin.db, "push-cancel-after-provider", new Date(addMs(start, 30))),
+  true,
+  "subscription ownership must not transfer while a provider call can still deliver the old user's payload",
+);
+assert.equal(
+  hasInFlightPushDispatchForSubscription(afterProviderBegin.db, "push-cancel-after-provider", new Date(addMs(start, 5_001))),
+  false,
+  "an expired provider-call lease must not block subscription ownership forever",
+);
 const staleRevisionSettlement = settlePushDispatchJob(afterProviderBegin.db, {
   jobId: "push-job-cancel-after-provider",
   leaseToken: "lease-cancel-after-provider",
@@ -321,6 +332,7 @@ console.log(
         "expired lease recovery",
         "revision fencing and stale settlement rejection",
         "leased cancellation before and after provider start",
+        "in-flight provider call blocks push subscription ownership transfer",
         "at-least-once retry with stable notification tag",
       ],
     },

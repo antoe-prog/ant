@@ -19,8 +19,10 @@ const {
   canManageManualPayment,
   getManualPaymentDateRangeError,
   getManualPaymentManagementBlockReason,
+  manualPaymentInputLimits,
   manualPaymentCreatableStatuses,
   requiresManualPaymentCreateReason,
+  validateManualPaymentDelete,
   validateManualPaymentUpdate,
 } = await import("../src/lib/manual-payment-management.ts");
 
@@ -129,6 +131,7 @@ function assertAppearsAfter(source, needle, earlierNeedle, message) {
 
 assert.equal(paymentWithHistory.statusHistory.length, 2, "payment lifecycle helper must append status history");
 assert.equal(parsePaymentCreateIdempotencyKey(idempotencyKey).ok, true, "generated payment idempotency keys must be valid");
+assert.equal(parsePaymentCreateIdempotencyKey(null).ok, false, "manual payment creation must require an idempotency key");
 assert.equal(parsePaymentCreateIdempotencyKey("short").ok, false, "short payment idempotency keys must be rejected");
 assert.equal(idempotentSnapshot.amount, 180000, "idempotency snapshots must use the persisted rounded amount");
 assert.equal(
@@ -368,6 +371,19 @@ assert.equal(
   false,
   "manual payment updates must reject discounts greater than the amount",
 );
+assert.equal(
+  validateManualPaymentUpdate({
+    amount: Number.MAX_SAFE_INTEGER + 1,
+    discountAmount: 0,
+    dueDate: "2026-07-01",
+    expiresAt: "2026-08-01",
+    planName: "수정 회원권",
+    reason: "금액 정정",
+    status: "paid",
+  }).ok,
+  false,
+  "manual payment updates must reject unsafe integer amounts",
+);
 assert.match(
   getManualPaymentDateRangeError("2026-08-01", "2026-07-31") ?? "",
   /만료일은 납부일과 같거나 이후/,
@@ -401,6 +417,45 @@ assert.equal(
   false,
   "manual payment updates must reject reversed date ranges",
 );
+assert.equal(manualPaymentInputLimits.planName, 100, "manual payment plan names must have a shared 100-character limit");
+assert.equal(manualPaymentInputLimits.reason, 500, "manual payment audit reasons must have a shared 500-character limit");
+assert.equal(
+  validateManualPaymentUpdate({
+    amount: 10000,
+    discountAmount: 0,
+    dueDate: "2026-08-01",
+    expiresAt: "2026-08-31",
+    planName: "가".repeat(manualPaymentInputLimits.planName + 1),
+    reason: "회원권명 길이 검증",
+    status: "paid",
+  }).ok,
+  false,
+  "manual payment updates must reject oversized plan names",
+);
+assert.equal(
+  validateManualPaymentUpdate({
+    amount: 10000,
+    discountAmount: 0,
+    dueDate: "2026-08-01",
+    expiresAt: "2026-08-31",
+    planName: "월 회원권",
+    reason: "가".repeat(manualPaymentInputLimits.reason + 1),
+    status: "paid",
+  }).ok,
+  false,
+  "manual payment updates must reject oversized audit reasons",
+);
+assert.deepEqual(
+  validateManualPaymentDelete({ reason: "  중복 등록  " }),
+  { ok: true, value: { reason: "중복 등록" } },
+  "manual payment deletion must normalize a valid reason",
+);
+assert.equal(validateManualPaymentDelete([]).ok, false, "manual payment deletion must reject array bodies");
+assert.equal(
+  validateManualPaymentDelete({ reason: "가".repeat(manualPaymentInputLimits.reason + 1) }).ok,
+  false,
+  "manual payment deletion must reject oversized audit reasons",
+);
 
 const files = {
   adminSettingsGateTest: "scripts/check-admin-settings-gates.mjs",
@@ -416,6 +471,7 @@ const files = {
   paymentManageRoute: "src/app/api/v1/payments/[paymentId]/route.ts",
   paymentOnlineCheckoutRoute: "src/app/api/v1/payments/[paymentId]/online-checkout/route.ts",
   paymentRefundRoute: "src/app/api/v1/payments/[paymentId]/refund/route.ts",
+  paymentWebhookRoute: "src/app/api/v1/payments/webhook/route.ts",
   paymentsScreen: "src/components/screens/payments-screen.tsx",
   packageJson: "package.json",
   qaPlan: "docs/QA_TEST_PLAN.md",
@@ -440,6 +496,7 @@ const [
   paymentManageRouteSource,
   paymentOnlineCheckoutRouteSource,
   paymentRefundRouteSource,
+  paymentWebhookRouteSource,
   paymentsScreenSource,
   packageJsonSource,
   qaPlanSource,
@@ -457,10 +514,29 @@ assert(paymentCreateRouteSource.includes("createPaymentStatusHistoryEntry"), "pa
 assert(paymentCreateRouteSource.includes("getManualPaymentDateRangeError"), "payment create route must validate date chronology with the shared rule");
 assert(paymentCreateRouteSource.includes("withServerDbLock"), "payment create route must use the runtime store lock for concurrent retries");
 assert(paymentCreateRouteSource.includes("Idempotency-Replayed"), "payment create route must mark replayed responses");
+assert(
+  paymentCreateRouteSource.includes("parsePaymentCreateIdempotencyKey") &&
+    !paymentCreateRouteSource.includes("idempotencyKey: null"),
+  "manual payment creation must require an idempotency key",
+);
+assert(
+  paymentCreateRouteSource.includes("isNonNegativeSafeIntegerPaymentAmount(amount)") &&
+    paymentCreateRouteSource.includes("isNonNegativeSafeIntegerPaymentAmount(discountAmount)"),
+  "manual payment creation must reject fractional and unsafe KRW amounts",
+);
 assert(paymentCreateRouteSource.includes('createRuntimeId("pay")'), "payment create route must use collision-resistant payment IDs");
 assert(
-  paymentCreateRouteSource.includes('typeof body.feeProductId !== "string"'),
-  "payment create route must reject non-string fee product IDs before trimming",
+  paymentCreateRouteSource.includes("getPaymentBodyTypeError") &&
+    paymentCreateRouteSource.includes('typeof body[field] !== "string"') &&
+    paymentCreateRouteSource.includes('typeof body[field] !== "number"'),
+  "payment create route must validate all supported field types before trimming or calculating",
+);
+assert(
+  paymentRefundRouteSource.includes("getRefundBodyTypeError") &&
+    paymentRefundRouteSource.includes('typeof body.reason !== "string"') &&
+    paymentRefundRouteSource.includes('typeof body.amount !== "number"') &&
+    paymentRefundRouteSource.includes('typeof body.cancel !== "boolean"'),
+  "payment refund route must validate reason, amount, and cancel field types before trimming or calculating",
 );
 assert(
   paymentCreateRouteSource.includes("benefitCode && !benefitVerificationReason") &&
@@ -493,11 +569,39 @@ assert(
   "payment refunds must reject fractional and unsafe KRW amounts before mutation",
 );
 assert(
+  paymentRefundRouteSource.includes('["paid", "partially_refunded"].includes(payment.status)') &&
+    paymentRefundRouteSource.includes('["scheduled", "overdue", "expiringSoon"].includes(payment.status)'),
+  "payment refunds and cancellations must enforce mutually exclusive lifecycle states",
+);
+assert(
+  paymentWebhookRouteSource.includes("!providerEventId") &&
+    paymentWebhookRouteSource.includes("webhookBody.amount !== payment.onlinePayment.amount") &&
+    paymentWebhookRouteSource.includes('"PAYMENT_AMOUNT_MISMATCH"'),
+  "payment webhooks must require event idempotency and exact paid amounts",
+);
+assert(
+  paymentWebhookRouteSource.includes("findPaymentByProcessedWebhookEventId") &&
+    paymentWebhookRouteSource.includes('"PROVIDER_EVENT_CONFLICT"') &&
+    paymentWebhookRouteSource.includes("providerEventIdMaxLength = 160") &&
+    paymentWebhookRouteSource.includes("withServerDbLock(paymentWebhookStateLockKey"),
+  "payment webhook provider event IDs must be globally unique and schema-length compatible",
+);
+assert(
+  paymentWebhookRouteSource.includes('event === "refunded" && !isPositiveSafeIntegerPaymentAmount(body.amount)'),
+  "payment refund webhooks must require an explicit positive safe-integer amount",
+);
+assert(
   paymentRefundRouteSource.includes("CONCURRENT_MODIFICATION"),
   "payment refund route must expose stable concurrent conflict responses",
 );
 assert(paymentManageRouteSource.includes('action: "payment.update"'), "manual payment update must create an update audit log");
 assert(paymentManageRouteSource.includes('action: "payment.delete"'), "manual payment deletion must create a delete audit log");
+assert(
+  paymentManageRouteSource.includes("validateManualPaymentDelete") &&
+    paymentRefundRouteSource.includes("manualPaymentInputLimits.reason") &&
+    paymentCreateRouteSource.includes("manualPaymentInputLimits.reason"),
+  "manual payment create, update/delete, and refund routes must share bounded audit reasons",
+);
 assert(paymentManageRouteSource.includes("getManualPaymentManagementBlockReason"), "manual payment route must block external/refunded records");
 assert(paymentManageRouteSource.includes("requireSelectedBranchScope"), "manual payment route must enforce selected branch scope");
 assert(
@@ -524,6 +628,13 @@ assert(manualPaymentComponentSource.includes('data-testid="manual-payment-edit-f
 assert(manualPaymentComponentSource.includes('data-testid="manual-payment-delete-form"'), "manual payment UI must require explicit deletion confirmation");
 assert(manualPaymentComponentSource.includes("수정 사유"), "manual payment edit UI must require a change reason");
 assert(manualPaymentComponentSource.includes("삭제 사유"), "manual payment delete UI must require a deletion reason");
+assert(
+  manualPaymentComponentSource.includes("maxLength={manualPaymentInputLimits.planName}") &&
+    manualPaymentComponentSource.match(/maxLength=\{manualPaymentInputLimits\.reason\}/g)?.length === 2 &&
+    paymentsScreenSource.includes("maxLength={manualPaymentInputLimits.planName}") &&
+    paymentsScreenSource.match(/maxLength=\{manualPaymentInputLimits\.reason\}/g)?.length === 3,
+  "manual payment UI must mirror server plan-name and reason limits",
+);
 assert(
   paymentsScreenSource.includes('data-testid="payment-create-feedback"') &&
     paymentsScreenSource.includes("paymentCreatePending"),
@@ -567,7 +678,7 @@ assert(paymentsScreenSource.includes("showPaymentMemberSearchResults"), "payment
 assert(
   paymentsScreenSource.includes('const requestedMemberId = searchParams.get("memberId")') &&
     paymentsScreenSource.includes("appliedRequestedMemberIdRef.current === requestedMemberId") &&
-    paymentsScreenSource.includes("guardianPaymentChildren.some((child) => child.id === requestedMemberId)") &&
+    paymentsScreenSource.includes("guardianPaymentChildren.find((child) => child.id === requestedMemberId)") &&
     paymentsScreenSource.includes("setSelectedChildId(requestedMemberId)"),
   "guardian payment deep links must select an accessible active child once without pinning later choices",
 );
@@ -595,6 +706,15 @@ assert(paymentExportRouteSource.includes("status_history_count"), "payment CSV m
 assert(paymentExportRouteSource.includes("last_status_changed_at"), "payment CSV must include latest status timestamp");
 assert(paymentExportRouteSource.includes("last_status_reason"), "payment CSV must include latest status reason");
 assert(smokeApiSource.includes("payment create must persist status history"), "smoke test must verify payment create history");
+assert(
+  smokeApiSource.includes("malformed manual payment fields must fail without a server error"),
+  "smoke test must reject malformed manual payment fields without a 500",
+);
+assert(
+  smokeApiSource.includes("malformed payment refund fields must fail without a server error") &&
+    smokeApiSource.includes("malformed payment refund fields must not change the payment"),
+  "smoke test must reject malformed refund fields without mutating payment state",
+);
 assert(smokeApiSource.includes("concurrent payment retries with the same key"), "smoke test must verify concurrent payment idempotency");
 assert(smokeApiSource.includes("a stale retry must not recreate a deleted payment"), "smoke test must verify deleted payment retry protection");
 assert(smokeApiSource.includes("payment refund must append status history"), "smoke test must verify payment refund history");

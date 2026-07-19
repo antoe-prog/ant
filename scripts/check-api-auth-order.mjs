@@ -90,19 +90,44 @@ function hasSelectedBranchScopeGuard(content) {
   return /requireSelectedBranchScope\(request,\s*(?:user|latestSession\.user),\s*(?:db|latestDb)\)/.test(content);
 }
 
-function getExportedHandlers(content) {
-  const matches = [...content.matchAll(/export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\s*\(/g)];
+function getAsyncFunctions(content) {
+  const matches = [...content.matchAll(/(export\s+)?async\s+function\s+([A-Za-z_$][\w$]*)\s*\(/g)];
 
   return matches.map((match, index) => {
     const start = match.index ?? 0;
     const end = matches[index + 1]?.index ?? content.length;
 
     return {
-      method: match[1],
+      exported: Boolean(match[1]),
+      name: match[2],
       source: content.slice(start, end),
       start,
     };
   });
+}
+
+function getExportedHandlers(content) {
+  const functions = getAsyncFunctions(content);
+
+  return functions
+    .filter(
+      (candidate) =>
+        candidate.exported && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(candidate.name),
+    )
+    .map((handler) => {
+      const delegatedName = handler.source.match(
+        /withServerDbLock\([^,]+,\s*\(\)\s*=>\s*([A-Za-z_$][\w$]*)\(request,\s*context\)\)/,
+      )?.[1];
+      const delegatedHandler = delegatedName
+        ? functions.find((candidate) => !candidate.exported && candidate.name === delegatedName)
+        : null;
+
+      return {
+        method: handler.name,
+        source: delegatedHandler ? `${handler.source}\n${delegatedHandler.source}` : handler.source,
+        start: handler.start,
+      };
+    });
 }
 
 const routeFiles = listRouteFiles(apiRoot).sort();
@@ -166,6 +191,11 @@ for (const routeFile of routeFiles) {
       handler.source.indexOf("requireSession("),
       handler.source.indexOf("requireManualPaymentRequestContext("),
       handler.source.indexOf("requireRefundRequestContext("),
+      handler.source.indexOf("requireCollectionRequestContext("),
+      handler.source.indexOf("requireGuardianLinkRequestContext("),
+      handler.source.indexOf("requireBranchCreateRequestContext("),
+      handler.source.indexOf("requireBranchUpdateRequestContext("),
+      handler.source.indexOf("requireBranchOwnerRequestContext("),
     ].filter((index) => index >= 0);
 
     if (authGuardIndexes.length === 0) {
@@ -215,6 +245,61 @@ assert(
     paymentRefundRouteSource.includes("requireSession(request, db)"),
   "payment refund helper must authenticate before returning payment context",
 );
+const collectionRequestRouteSource = readFileSync(collectionRequestRoutePath, "utf8");
+assert(
+  collectionRequestRouteSource.includes("async function requireCollectionRequestContext") &&
+    collectionRequestRouteSource.includes("requireSession(request, db)"),
+  "family collection request helper must authenticate before returning payment context",
+);
+const guardianLinkRouteSource = readFileSync(guardianLinkRoutePath, "utf8");
+assert(
+  guardianLinkRouteSource.includes("async function requireGuardianLinkRequestContext") &&
+    guardianLinkRouteSource.includes("requireSession(request, db)"),
+  "guardian link request helper must authenticate before returning member context",
+);
+for (const [routePath, helperName] of [
+  [adminBranchRoutePath, "requireBranchCreateRequestContext"],
+  [adminBranchUpdateRoutePath, "requireBranchUpdateRequestContext"],
+  [adminBranchOwnerRoutePath, "requireBranchOwnerRequestContext"],
+]) {
+  const routeSource = readFileSync(routePath, "utf8");
+
+  assert(
+    routeSource.includes(`async function ${helperName}`) && routeSource.includes("requireSession(request, db)"),
+    `${routePath} must authenticate in ${helperName} before returning branch context`,
+  );
+  assert(
+    routeSource.indexOf("request.json()") < routeSource.indexOf("withServerDbLock(branchManagementStateLockKey"),
+    `${routePath} must parse and validate its request body before taking the shared branch lock`,
+  );
+}
+const branchInputPolicySource = readFileSync("src/lib/branch-input-policy.ts", "utf8");
+const adminBranchesScreenSource = readFileSync("src/components/screens/admin-branches-screen.tsx", "utf8");
+const branchSmokeApiSource = readFileSync("scripts/smoke-api.mjs", "utf8");
+for (const expectedLimit of [
+  "districtLength: 100",
+  "nameLength: 80",
+  "reasonLength: 500",
+  "timezoneLength: 64",
+  "userIdLength: 200",
+]) {
+  assert(branchInputPolicySource.includes(expectedLimit), `branch input policy must keep ${expectedLimit}`);
+}
+for (const expectedUiLimit of [
+  "maxLength={branchInputLimits.nameLength}",
+  "maxLength={branchInputLimits.districtLength}",
+  "maxLength={branchInputLimits.reasonLength}",
+]) {
+  assert(adminBranchesScreenSource.includes(expectedUiLimit), `admin branch forms must keep ${expectedUiLimit}`);
+}
+for (const expectedSmokeCoverage of [
+  "oversized branch create values must be rejected",
+  "oversized branch update values must be rejected",
+  "oversized branch owner values must be rejected",
+  "slow body parsing must not hold the shared branch lock",
+]) {
+  assert(branchSmokeApiSource.includes(expectedSmokeCoverage), `smoke API must cover ${expectedSmokeCoverage}`);
+}
 assert(
   readFileSync("scripts/smoke-api.mjs", "utf8").includes("/api/v1/me/bootstrap?selectedBranchId=branch-missing"),
   "smoke API must cover invalid selectedBranchId on bootstrap",

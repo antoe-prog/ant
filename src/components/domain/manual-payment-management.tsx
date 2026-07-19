@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Pencil, Save, Trash2, X } from "lucide-react";
 import type { Payment } from "@/lib/domain";
 import {
+  manualPaymentInputLimits,
   manualPaymentEditableStatuses,
   validateManualPaymentUpdate,
   type ManualPaymentUpdatePayload,
@@ -165,6 +166,7 @@ export function ManualPaymentManagement({ payment, onDelete, onUpdate }: ManualP
             <input
               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
               data-testid="manual-payment-plan-input"
+              maxLength={manualPaymentInputLimits.planName}
               required
               value={draft.planName}
               onChange={(event) => updateDraft({ planName: event.target.value })}
@@ -238,6 +240,7 @@ export function ManualPaymentManagement({ payment, onDelete, onUpdate }: ManualP
             <input
               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
               data-testid="manual-payment-edit-reason-input"
+              maxLength={manualPaymentInputLimits.reason}
               placeholder="예: 금액 오입력 정정"
               required
               value={draft.reason}
@@ -264,6 +267,7 @@ export function ManualPaymentManagement({ payment, onDelete, onUpdate }: ManualP
             <input
               className="h-11 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-red-500"
               data-testid="manual-payment-delete-reason-input"
+              maxLength={manualPaymentInputLimits.reason}
               placeholder="예: 중복 등록으로 삭제"
               required
               value={deleteReason}

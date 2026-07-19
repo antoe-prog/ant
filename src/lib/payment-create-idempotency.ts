@@ -37,7 +37,10 @@ export function createPaymentCreateIdempotencyKey() {
 
 export function parsePaymentCreateIdempotencyKey(value: string | null) {
   if (value === null) {
-    return { ok: true as const, value: null };
+    return {
+      ok: false as const,
+      message: "수기 결제 등록 요청 식별자가 필요합니다. 등록 화면을 새로 열어 다시 시도해 주세요.",
+    };
   }
 
   if (value !== value.trim() || !idempotencyKeyPattern.test(value)) {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Payment } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
+import { manualPaymentInputLimits } from "@/lib/manual-payment-management";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import { canRefundPaymentAmount, getPaymentRemainingRefundableAmount } from "@/lib/payment-amounts";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -16,6 +17,28 @@ type RefundBody = {
   cancel?: boolean;
   reason?: string;
 };
+
+function getRefundBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "환불/취소 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  if (body.reason !== undefined && typeof body.reason !== "string") {
+    return "환불/취소 사유 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.amount !== undefined && typeof body.amount !== "number") {
+    return "환불 금액 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.cancel !== undefined && typeof body.cancel !== "boolean") {
+    return "취소 여부 값의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
 
 function createRefundedPayment(payment: Payment, amount: number, reason: string, actorUserId: string, changedAt: string): Payment {
   const previousRefunded = payment.refundedAmount ?? 0;
@@ -103,14 +126,29 @@ export async function POST(
     return context.response;
   }
 
-  const body = (await request.json().catch(() => null)) as RefundBody | null;
-  const reason = body?.reason?.trim() ?? "";
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getRefundBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as RefundBody;
+  const reason = body.reason?.trim() ?? "";
   const amount = body?.amount;
   const cancel = body?.cancel === true;
   const validatedRefundAmount = isPositiveSafeIntegerPaymentAmount(amount) ? amount : null;
 
   if (!reason) {
     return jsonError(400, "VALIDATION_ERROR", "환불/취소 사유가 필요합니다.");
+  }
+
+  if (reason.length > manualPaymentInputLimits.reason) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `환불/취소 사유는 ${manualPaymentInputLimits.reason}자 이하로 입력해 주세요.`,
+    );
   }
 
   if (!cancel && validatedRefundAmount === null) {
@@ -130,8 +168,16 @@ export async function POST(
       let nextPayment: Payment;
 
       if (cancel) {
+        if (!["scheduled", "overdue", "expiringSoon"].includes(payment.status)) {
+          return jsonError(422, "BUSINESS_RULE_FAILED", "미납 또는 납부 예정 결제만 취소할 수 있습니다.");
+        }
+
         nextPayment = createCancelledPayment(payment, reason, user.id, now);
       } else {
+        if (!["paid", "partially_refunded"].includes(payment.status)) {
+          return jsonError(422, "BUSINESS_RULE_FAILED", "납부 완료된 결제만 환불할 수 있습니다.");
+        }
+
         if (validatedRefundAmount === null) {
           return jsonError(400, "VALIDATION_ERROR", "환불 금액은 1원 이상의 정수여야 합니다.");
         }

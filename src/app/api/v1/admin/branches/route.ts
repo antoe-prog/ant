@@ -1,16 +1,13 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Branch } from "@/lib/domain";
 import { defaultBranchSettings } from "@/lib/domain";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { getBranchCreateBodyError, type BranchCreateInput } from "@/lib/branch-input-policy";
+import { branchManagementStateLockKey } from "@/server/branch-management";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
-
-type BranchCreateBody = {
-  name?: string;
-  district?: string;
-  ownerUserId?: string;
-};
 
 function slugifyBranchId(name: string) {
   const ascii = name
@@ -35,25 +32,42 @@ function createUniqueBranchId(name: string, existingIds: Set<string>) {
   return id;
 }
 
-export async function POST(request: NextRequest) {
+async function requireBranchCreateRequestContext(request: NextRequest) {
   const db = await readServerDb();
   const { user, response } = requireSession(request, db);
 
   if (!user) {
-    return response;
+    return { context: null, response };
   }
 
   if (user.role !== "admin") {
-    return jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 생성할 수 있습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 생성할 수 있습니다."),
+    };
   }
 
   const selectedScope = requireSelectedBranchScope(request, user, db);
 
   if (selectedScope.response) {
-    return selectedScope.response;
+    return { context: null, response: selectedScope.response };
   }
 
-  const body = (await request.json().catch(() => null)) as BranchCreateBody | null;
+  return {
+    context: { db, selectedBranchId: selectedScope.selectedBranchId, user },
+    response: null,
+  };
+}
+
+async function createBranch(request: NextRequest, body: BranchCreateInput) {
+  const currentContext = await requireBranchCreateRequestContext(request);
+
+  if (!currentContext.context) {
+    return currentContext.response;
+  }
+
+  const { db, selectedBranchId, user } = currentContext.context;
+
   const name = body?.name?.trim() ?? "";
   const district = body?.district?.trim() ?? "";
   const ownerUserId = body?.ownerUserId?.trim() ?? "";
@@ -87,7 +101,7 @@ export async function POST(request: NextRequest) {
   };
   const now = new Date().toISOString();
   const branchCreateLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "branch.create",
@@ -101,7 +115,7 @@ export async function POST(request: NextRequest) {
   };
   const ownerAssignLog: AuditLog | null = owner
     ? {
-        id: `audit-${Date.now()}-${db.auditLogs.length + 2}`,
+        id: createRuntimeId("audit"),
         branchId,
         actorUserId: user.id,
         action: "branch.owner.assign",
@@ -128,5 +142,30 @@ export async function POST(request: NextRequest) {
     auditLogs: [branchCreateLog, ...(ownerAssignLog ? [ownerAssignLog] : []), ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
+}
+
+export async function POST(request: NextRequest) {
+  const initialContext = await requireBranchCreateRequestContext(request);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const rawBody = await request.json().catch(() => null);
+  const bodyError = getBranchCreateBodyError(rawBody);
+
+  if (bodyError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyError);
+  }
+
+  const body = rawBody as BranchCreateInput;
+  const name = body.name?.trim() ?? "";
+  const district = body.district?.trim() ?? "";
+
+  if (!name || !district) {
+    return jsonError(400, "VALIDATION_ERROR", "지점명과 지역이 필요합니다.");
+  }
+
+  return withServerDbLock(branchManagementStateLockKey, () => createBranch(request, body));
 }

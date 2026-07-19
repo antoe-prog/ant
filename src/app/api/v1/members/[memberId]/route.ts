@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Member, MemberStatus } from "@/lib/domain";
+import { memberInputLimits } from "@/lib/member-input-policy";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -18,6 +20,43 @@ type MemberPatchPayload = Partial<Pick<Member, "ageGroup" | "alerts" | "belt" | 
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : null;
+}
+
+function getMemberPatchBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "변경할 회원 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const field of ["status", "ageGroup", "name", "emergencyContact", "level", "belt", "gender", "birthDate", "address"] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return "변경할 회원 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  if (body.alerts !== undefined && (!Array.isArray(body.alerts) || body.alerts.some((alert) => typeof alert !== "string"))) {
+    return "주의사항 목록의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
+
+function isDateOnly(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const [, year, month, day] = match;
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+
+  return (
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() === Number(month) - 1 &&
+    parsed.getUTCDate() === Number(day)
+  );
 }
 
 function hasRestrictedProfileFields(body: MemberPatchPayload) {
@@ -46,6 +85,71 @@ export async function PATCH(
   { params }: { params: Promise<{ memberId: string }> },
 ) {
   const { memberId } = await params;
+  const initialDb = await readServerDb();
+  const { user: initialUser, response: initialResponse } = requireSession(request, initialDb);
+
+  if (!initialUser) {
+    return initialResponse;
+  }
+
+  const initialMember = initialDb.members.find((candidate) => candidate.id === memberId);
+
+  if (!initialMember) {
+    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
+  }
+
+  const initialAccessibleBranchIds = getAccessibleBranchIds(initialUser, initialDb);
+  const initialCanReadMember = getAccessibleMemberIds(
+    initialUser,
+    initialDb,
+    initialAccessibleBranchIds,
+  ).includes(initialMember.id);
+
+  if (!initialCanReadMember) {
+    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
+  }
+
+  const initialScope = requireSelectedBranchScope(request, initialUser, initialDb);
+
+  if (initialScope.response) {
+    return initialScope.response;
+  }
+
+  if (initialScope.selectedBranchId && initialScope.selectedBranchId !== initialMember.branchId) {
+    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+  }
+
+  const initialCanManageMember = initialUser.role === "owner" || initialUser.role === "admin";
+  const initialCanUpdateOwnContact =
+    (initialUser.role === "member" && (initialUser.memberIds ?? []).includes(initialMember.id)) ||
+    (initialUser.role === "guardian" &&
+      getAccessibleMemberIds(initialUser, initialDb, [initialMember.branchId]).includes(initialMember.id));
+
+  if (!initialCanManageMember && !initialCanUpdateOwnContact) {
+    return jsonError(403, "FORBIDDEN", "회원 정보를 변경할 권한이 없습니다.");
+  }
+
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getMemberPatchBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as MemberPatchPayload;
+
+  if (Object.keys(body).length === 0) {
+    return jsonError(400, "VALIDATION_ERROR", "변경할 회원 정보가 없습니다.");
+  }
+
+  if (!initialCanManageMember && hasRestrictedProfileFields(body)) {
+    return jsonError(403, "FORBIDDEN", "회원/학부모는 긴급 연락처만 변경할 수 있습니다.");
+  }
+
+  return withServerDbLock(`member-profile:${memberId}`, () => patchMember(request, memberId, body));
+}
+
+async function patchMember(request: NextRequest, memberId: string, body: MemberPatchPayload) {
   const db = await readServerDb();
   const { user, response } = requireSession(request, db);
 
@@ -59,8 +163,11 @@ export async function PATCH(
     return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
   }
 
-  if (!getAccessibleBranchIds(user, db).includes(member.branchId)) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+  const accessibleBranchIds = getAccessibleBranchIds(user, db);
+  const canReadMember = getAccessibleMemberIds(user, db, accessibleBranchIds).includes(member.id);
+
+  if (!canReadMember) {
+    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
   }
 
   const selectedScope = requireSelectedBranchScope(request, user, db);
@@ -82,9 +189,7 @@ export async function PATCH(
     return jsonError(403, "FORBIDDEN", "회원 정보를 변경할 권한이 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as MemberPatchPayload | null;
-
-  if (!body || Object.keys(body).length === 0) {
+  if (Object.keys(body).length === 0) {
     return jsonError(400, "VALIDATION_ERROR", "변경할 회원 정보가 없습니다.");
   }
 
@@ -119,7 +224,7 @@ export async function PATCH(
   if (body.name !== undefined) {
     const name = cleanText(body.name);
 
-    if (!name || name.length > 30) {
+    if (!name || name.length > memberInputLimits.nameLength) {
       return jsonError(400, "VALIDATION_ERROR", "회원 이름을 30자 이내로 입력해 주세요.");
     }
 
@@ -129,7 +234,7 @@ export async function PATCH(
   if (body.emergencyContact !== undefined) {
     const emergencyContact = cleanText(body.emergencyContact);
 
-    if (!emergencyContact || emergencyContact.length > 40) {
+    if (!emergencyContact || emergencyContact.length > memberInputLimits.emergencyContactLength) {
       return jsonError(400, "VALIDATION_ERROR", "긴급 연락처를 40자 이내로 입력해 주세요.");
     }
 
@@ -139,7 +244,7 @@ export async function PATCH(
   if (body.level !== undefined) {
     const level = cleanText(body.level);
 
-    if (!level || level.length > 30) {
+    if (!level || level.length > memberInputLimits.levelLength) {
       return jsonError(400, "VALIDATION_ERROR", "레벨을 30자 이내로 입력해 주세요.");
     }
 
@@ -149,7 +254,7 @@ export async function PATCH(
   if (body.belt !== undefined) {
     const belt = cleanText(body.belt);
 
-    if (!belt || belt.length > 30) {
+    if (!belt || belt.length > memberInputLimits.beltLength) {
       return jsonError(400, "VALIDATION_ERROR", "띠 정보를 30자 이내로 입력해 주세요.");
     }
 
@@ -171,7 +276,7 @@ export async function PATCH(
 
     if (birthDate === "") {
       patch.birthDate = undefined;
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(birthDate))) {
+    } else if (!isDateOnly(birthDate)) {
       return jsonError(400, "VALIDATION_ERROR", "생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.");
     } else if (Date.parse(birthDate) > Date.now()) {
       return jsonError(400, "VALIDATION_ERROR", "생년월일은 오늘 이전 날짜여야 합니다.");
@@ -183,7 +288,7 @@ export async function PATCH(
   if (body.address !== undefined) {
     const address = cleanText(body.address) ?? "";
 
-    if (address.length > 100) {
+    if (address.length > memberInputLimits.addressLength) {
       return jsonError(400, "VALIDATION_ERROR", "주소는 100자 이내로 입력해 주세요.");
     }
 
@@ -199,7 +304,10 @@ export async function PATCH(
       .map((alert) => cleanText(alert))
       .filter((alert): alert is string => Boolean(alert));
 
-    if (alerts.length > 8 || alerts.some((alert) => alert.length > 80)) {
+    if (
+      alerts.length > memberInputLimits.alertItems ||
+      alerts.some((alert) => alert.length > memberInputLimits.alertLength)
+    ) {
       return jsonError(400, "VALIDATION_ERROR", "주의사항은 8개 이하, 항목당 80자 이내로 입력해 주세요.");
     }
 
@@ -247,7 +355,7 @@ export async function PATCH(
     : db.users;
 
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: member.branchId,
     actorUserId: user.id,
     action: "member.update",

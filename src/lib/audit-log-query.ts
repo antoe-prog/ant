@@ -1,5 +1,11 @@
 export type AuditDateBoundary = "from" | "to";
 
+export const auditLogQueryLimits = {
+  branchId: 200,
+  query: 120,
+  reason: 500,
+} as const;
+
 const koreaUtcOffsetMs = 9 * 60 * 60 * 1_000;
 
 function parseKoreanDateOnly(value: string, boundary: AuditDateBoundary) {

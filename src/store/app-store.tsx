@@ -192,7 +192,7 @@ type AppStore = AppState & {
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => void;
   updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => void;
-  createPayment: (branchId: string, payload: PaymentCreatePayload, idempotencyKey?: string) => Promise<PaymentCreateResult>;
+  createPayment: (branchId: string, payload: PaymentCreatePayload, idempotencyKey: string) => Promise<PaymentCreateResult>;
   updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
   deleteManualPayment: (paymentId: string, payload: PaymentDeletePayload) => Promise<boolean>;
   createOnlinePaymentCheckout: (paymentId: string) => Promise<boolean>;
@@ -1488,7 +1488,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createPayment = useCallback(
-    async (branchId: string, payload: PaymentCreatePayload, idempotencyKey?: string): Promise<PaymentCreateResult> => {
+    async (branchId: string, payload: PaymentCreatePayload, idempotencyKey: string): Promise<PaymentCreateResult> => {
       if (!state.user) {
         return { ok: false, message: "로그인이 필요합니다." };
       }

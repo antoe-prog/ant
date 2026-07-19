@@ -1,10 +1,11 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, LoaderCircle, Smartphone } from "lucide-react";
-import { ApiClientError, apiClient } from "@/lib/api-client";
+import { authInputLimits } from "@/lib/auth-input-policy";
+import { ApiClientError, apiClient, type PublicSignupBranch } from "@/lib/api-client";
 import { Button } from "@/components/ui/primitives";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
 
@@ -18,9 +19,47 @@ export function SignupScreen() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [branches, setBranches] = useState<PublicSignupBranch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [branchesPending, setBranchesPending] = useState(true);
+  const [branchLoadError, setBranchLoadError] = useState<string | null>(null);
+  const [branchReloadKey, setBranchReloadKey] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    void apiClient
+      .getPublicSignupBranches()
+      .then(({ branches: availableBranches }) => {
+        if (!active) {
+          return;
+        }
+
+        setBranches(availableBranches);
+        setSelectedBranchId(availableBranches.length === 1 ? availableBranches[0].id : "");
+      })
+      .catch((caught) => {
+        if (!active) {
+          return;
+        }
+
+        setBranches([]);
+        setSelectedBranchId("");
+        setBranchLoadError(caught instanceof ApiClientError ? caught.message : "가입 지점을 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (active) {
+          setBranchesPending(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [branchReloadKey]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +78,11 @@ export function SignupScreen() {
       return;
     }
 
+    if (!selectedBranchId) {
+      setError(branchesPending ? "가입 지점을 확인하고 있습니다." : "가입 지점을 선택해 주세요.");
+      return;
+    }
+
     if (password.length < 8) {
       setError("비밀번호는 8자 이상이어야 합니다.");
       return;
@@ -52,7 +96,7 @@ export function SignupScreen() {
     setPending(true);
 
     try {
-      await apiClient.registerWithPhone({ name: cleanName, password, phone: cleanPhone });
+      await apiClient.registerWithPhone({ branchId: selectedBranchId, name: cleanName, password, phone: cleanPhone });
       router.replace(`/login?registered=1&phone=${encodeURIComponent(cleanPhone)}`);
     } catch (caught) {
       setError(caught instanceof ApiClientError ? caught.message : "회원가입을 완료하지 못했습니다.");
@@ -85,12 +129,66 @@ export function SignupScreen() {
                 autoComplete="name"
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="signup-name-input"
+                maxLength={authInputLimits.registrationNameLength}
                 placeholder="이름 입력"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 required
               />
             </label>
+
+            <div>
+              <label className="text-sm font-semibold text-zinc-700" htmlFor="signup-branch-input">
+                가입 지점
+              </label>
+              {branchesPending ? (
+                <div className="mt-2 flex h-11 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-600" role="status">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+                  지점 확인 중
+                </div>
+              ) : branches.length > 1 ? (
+                <select
+                  className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="signup-branch-input"
+                  id="signup-branch-input"
+                  value={selectedBranchId}
+                  onChange={(event) => setSelectedBranchId(event.target.value)}
+                  required
+                >
+                  <option value="">지점 선택</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} · {branch.district}
+                    </option>
+                  ))}
+                </select>
+              ) : branches.length === 1 ? (
+                <div
+                  className="mt-2 flex min-h-11 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-800"
+                  data-testid="signup-branch-summary"
+                  id="signup-branch-input"
+                >
+                  {branches[0].name} · {branches[0].district}
+                </div>
+              ) : null}
+
+              {branchLoadError ? (
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                  <span>{branchLoadError}</span>
+                  <button
+                    className="min-h-11 shrink-0 rounded-md px-3 font-semibold text-red-700 hover:bg-red-100"
+                    type="button"
+                    onClick={() => {
+                      setBranchesPending(true);
+                      setBranchLoadError(null);
+                      setBranchReloadKey((current) => current + 1);
+                    }}
+                  >
+                    다시 시도
+                  </button>
+                </div>
+              ) : null}
+            </div>
 
             <label>
               <span className="text-sm font-semibold text-zinc-700">휴대폰 번호</span>
@@ -99,6 +197,7 @@ export function SignupScreen() {
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="signup-phone-input"
                 inputMode="tel"
+                maxLength={11}
                 placeholder="휴대폰 번호 입력"
                 type="tel"
                 value={phone}
@@ -117,6 +216,7 @@ export function SignupScreen() {
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="signup-password-input"
                   id="signup-password-input"
+                  maxLength={authInputLimits.passwordLength}
                   minLength={8}
                   placeholder="8자 이상"
                   type={showPassword ? "text" : "password"}
@@ -146,6 +246,7 @@ export function SignupScreen() {
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="signup-password-confirm-input"
                 id="signup-password-confirm-input"
+                maxLength={authInputLimits.passwordLength}
                 minLength={8}
                 placeholder="다시 입력"
                 type={showPassword ? "text" : "password"}
@@ -161,7 +262,14 @@ export function SignupScreen() {
               </p>
             ) : null}
 
-            <Button data-testid="signup-submit-button" className="w-full" disabled={pending} size="lg" type="submit" variant="primary">
+            <Button
+              data-testid="signup-submit-button"
+              className="w-full"
+              disabled={pending || branchesPending || branches.length === 0}
+              size="lg"
+              type="submit"
+              variant="primary"
+            >
               {pending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : null}
               회원가입
             </Button>

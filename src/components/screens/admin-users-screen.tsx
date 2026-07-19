@@ -11,6 +11,7 @@ import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } f
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { matchesMemberSearch } from "@/lib/notice-member-search";
 import { roleLabels, roleManagementScopeLabels } from "@/lib/roles";
+import { userAdministrationInputLimits } from "@/lib/user-administration-input-policy";
 import { getVisibleUserEmail } from "@/lib/user-display";
 import { useAppStore } from "@/store/app-store";
 import { Button, RoleBadge, SectionHeader } from "@/components/ui/primitives";
@@ -186,6 +187,16 @@ export function AdminUsersScreen() {
   const [deleteReasons, setDeleteReasons] = useState<Record<string, string>>({});
   const [userActionFeedbacks, setUserActionFeedbacks] = useState<Record<string, string>>({});
   const [pendingUserAction, setPendingUserAction] = useState<{ kind: "delete" | "update"; userId: string } | null>(null);
+  const activeUserPanelId = editOpenUserId
+    ? `admin-user-edit-${editOpenUserId}`
+    : deleteOpenUserId
+      ? `admin-user-delete-${deleteOpenUserId}`
+      : passwordResetOpenUserId
+        ? `admin-user-password-reset-${passwordResetOpenUserId}`
+        : approvalConfirmUserId
+          ? `admin-user-approve-invitation-confirm-${approvalConfirmUserId}`
+          : null;
+  const userListPanelExpanded = Boolean(activeUserPanelId || approvedInvitationPassword || issuedPassword);
   const branchById = useMemo(() => new Map(context.db.branches.map((branch) => [branch.id, branch])), [context.db.branches]);
   const memberById = useMemo(() => new Map(context.db.members.map((member) => [member.id, member])), [context.db.members]);
   const linkedMembersByUserId = useMemo(
@@ -266,6 +277,12 @@ export function AdminUsersScreen() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (activeUserPanelId) {
+      scrollUserPanelIntoView(activeUserPanelId);
+    }
+  }, [activeUserPanelId]);
 
   function resetListFilters() {
     clearSensitivePasswordState();
@@ -857,6 +874,7 @@ export function AdminUsersScreen() {
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="admin-user-invite-field"
+                maxLength={userAdministrationInputLimits.nameLength}
                 placeholder="이름"
                 value={inviteName}
                 onChange={(event) => setInviteName(event.target.value)}
@@ -868,6 +886,7 @@ export function AdminUsersScreen() {
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="admin-user-invite-field"
                 inputMode="tel"
+                maxLength={userAdministrationInputLimits.phoneLength}
                 placeholder="휴대폰 번호 입력"
                 type="tel"
                 value={invitePhone}
@@ -879,6 +898,7 @@ export function AdminUsersScreen() {
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="admin-user-invite-field"
+                maxLength={userAdministrationInputLimits.emailLength}
                 placeholder="연락 이메일"
                 type="email"
                 value={inviteEmail}
@@ -995,7 +1015,10 @@ export function AdminUsersScreen() {
           <span>담당 지점</span>
         </div>
         <div
-          className="divide-y divide-zinc-100"
+          className={`min-h-36 divide-y divide-zinc-100 lg:max-h-none lg:overflow-visible ${
+            userListPanelExpanded ? "max-h-none overflow-visible" : "max-h-[25dvh] overflow-y-auto overscroll-contain"
+          }`}
+          data-admin-user-list-mode={userListPanelExpanded ? "panel-open" : "browse"}
           data-testid="admin-user-list-scroll-region"
         >
           {filteredUsers.map((user) => {
@@ -1293,6 +1316,8 @@ export function AdminUsersScreen() {
                         <input
                           className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                           data-admin-user-edit-control="true"
+                          data-testid={`admin-user-edit-name-input-${user.id}`}
+                          maxLength={userAdministrationInputLimits.nameLength}
                           value={editDraft.name}
                           onChange={(event) => updateUserEditDraft(user, { name: event.target.value })}
                         />
@@ -1302,7 +1327,9 @@ export function AdminUsersScreen() {
                         <input
                           className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                           data-admin-user-edit-control="true"
+                          data-testid={`admin-user-edit-phone-input-${user.id}`}
                           inputMode="tel"
+                          maxLength={userAdministrationInputLimits.phoneLength}
                           type="tel"
                           value={editDraft.phone}
                           onChange={(event) => updateUserEditDraft(user, { phone: event.target.value })}
@@ -1314,6 +1341,8 @@ export function AdminUsersScreen() {
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                         data-admin-user-edit-control="true"
+                        data-testid={`admin-user-edit-email-input-${user.id}`}
+                        maxLength={userAdministrationInputLimits.emailLength}
                         type="email"
                         value={editDraft.email}
                         onChange={(event) => updateUserEditDraft(user, { email: event.target.value })}
@@ -1343,6 +1372,7 @@ export function AdminUsersScreen() {
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                             data-admin-user-edit-control="true"
                             data-testid={`admin-user-password-input-${user.id}`}
+                            maxLength={userAdministrationInputLimits.passwordLength}
                             minLength={12}
                             placeholder="12자 이상"
                             type="password"
@@ -1358,6 +1388,7 @@ export function AdminUsersScreen() {
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                             data-admin-user-edit-control="true"
                             data-testid={`admin-user-password-confirm-input-${user.id}`}
+                            maxLength={userAdministrationInputLimits.passwordLength}
                             minLength={12}
                             placeholder="다시 입력"
                             type="password"
@@ -1404,6 +1435,8 @@ export function AdminUsersScreen() {
                         <input
                           className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                           data-admin-user-edit-control="true"
+                          data-testid={`admin-user-edit-title-input-${user.id}`}
+                          maxLength={userAdministrationInputLimits.titleLength}
                           value={editDraft.title}
                           onChange={(event) => updateUserEditDraft(user, { title: event.target.value })}
                         />
@@ -1662,6 +1695,7 @@ export function AdminUsersScreen() {
                         <input
                           className="h-11 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-red-500"
                           data-testid={`admin-user-delete-reason-input-${user.id}`}
+                          maxLength={userAdministrationInputLimits.reasonLength}
                           placeholder="삭제 사유 입력"
                           value={deleteReason}
                           onChange={(event) => setDeleteReasons((current) => ({ ...current, [user.id]: event.target.value }))}
@@ -1691,6 +1725,7 @@ export function AdminUsersScreen() {
                         <input
                           className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                           data-testid={`admin-user-password-reset-reason-input-${user.id}`}
+                          maxLength={userAdministrationInputLimits.reasonLength}
                           placeholder="재발급 사유 입력"
                           value={resetReason}
                           onChange={(event) => updatePasswordReason(user.id, event.target.value)}

@@ -1,28 +1,24 @@
 import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, Member } from "@/lib/domain";
+import { parseGuardianLinkInput } from "@/lib/member-guardian-input-policy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
-type GuardianLinkBody = {
-  guardianUserId?: string;
+type GuardianLinkRouteContext = {
+  params: Promise<{ memberId: string }>;
 };
+
+const guardianLinkStateLockKey = "member-guardian-links";
 
 function linkMemberGuardian(member: Member, guardianUserId: string): Member {
   return {
     ...member,
     guardianIds: [...new Set([...member.guardianIds, guardianUserId])],
-  };
-}
-
-function linkGuardianUser(user: AppUser, memberId: string, branchId: string): AppUser {
-  return {
-    ...user,
-    branchIds: [...new Set([...user.branchIds, branchId])],
-    childMemberIds: [...new Set([...(user.childMemberIds ?? []), memberId])],
   };
 }
 
@@ -33,13 +29,6 @@ function unlinkMemberGuardian(member: Member, guardianUserId: string): Member {
   };
 }
 
-function unlinkGuardianUser(user: AppUser, memberId: string): AppUser {
-  return {
-    ...user,
-    childMemberIds: (user.childMemberIds ?? []).filter((candidate) => candidate !== memberId),
-  };
-}
-
 function replaceMemberGuardians(member: Member, guardianUserId: string): Member {
   return {
     ...member,
@@ -47,89 +36,126 @@ function replaceMemberGuardians(member: Member, guardianUserId: string): Member 
   };
 }
 
-function replaceGuardianUserLinks(users: AppUser[], member: Member, guardian: AppUser) {
-  const affectedGuardianIds = new Set([...member.guardianIds, guardian.id]);
+function syncGuardianUserLinks(user: AppUser, members: Member[]): AppUser {
+  const linkedMembers = members.filter(
+    (member) => canMemberHaveGuardianLink(member) && member.guardianIds.includes(user.id),
+  );
 
-  return users.map((candidate) => {
-    if (!affectedGuardianIds.has(candidate.id)) {
-      return candidate;
-    }
+  return {
+    ...user,
+    branchIds: [...new Set(linkedMembers.map((member) => member.branchId))],
+    childMemberIds: linkedMembers.map((member) => member.id),
+  };
+}
 
-    return candidate.id === guardian.id
-      ? linkGuardianUser(candidate, member.id, member.branchId)
-      : unlinkGuardianUser(candidate, member.id);
-  });
+function syncAffectedGuardianUsers(users: AppUser[], members: Member[], guardianUserIds: Iterable<string>) {
+  const affectedGuardianIds = new Set(guardianUserIds);
+
+  return users.map((candidate) =>
+    affectedGuardianIds.has(candidate.id) ? syncGuardianUserLinks(candidate, members) : candidate,
+  );
 }
 
 function canManageGuardianLinks(user: AppUser) {
   return user.role === "owner" || user.role === "admin";
 }
 
-function readGuardianUserId(body: GuardianLinkBody | null) {
-  return body?.guardianUserId?.trim() ?? "";
+function canAssignGuardian(user: AppUser, guardian: AppUser, memberBranchId: string) {
+  if (user.role === "admin") {
+    return true;
+  }
+
+  return guardian.branchIds.includes(memberBranchId);
 }
 
-export async function POST(
+async function requireGuardianLinkRequestContext(
   request: NextRequest,
-  { params }: { params: Promise<{ memberId: string }> },
+  { params }: GuardianLinkRouteContext,
+  requireEligibleMember: boolean,
 ) {
   const { memberId } = await params;
   const db = await readServerDb();
   const { user, response } = requireSession(request, db);
 
   if (!user) {
-    return response;
+    return { context: null, response };
   }
 
   if (!canManageGuardianLinks(user)) {
-    return jsonError(403, "FORBIDDEN", "보호자 연결 권한이 없습니다.");
+    return { context: null, response: jsonError(403, "FORBIDDEN", "보호자 연결 권한이 없습니다.") };
   }
 
   const member = db.members.find((candidate) => candidate.id === memberId);
 
-  if (!member) {
-    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
-  }
-
-  if (!getAccessibleBranchIds(user, db).includes(member.branchId)) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+  if (!member || !getAccessibleBranchIds(user, db).includes(member.branchId)) {
+    return { context: null, response: jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.") };
   }
 
   const selectedScope = requireSelectedBranchScope(request, user, db);
 
   if (selectedScope.response) {
-    return selectedScope.response;
+    return { context: null, response: selectedScope.response };
   }
 
   if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다."),
+    };
   }
 
-  if (!canMemberHaveGuardianLink(member)) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 계정에 연결할 수 없습니다.");
+  if (requireEligibleMember && !canMemberHaveGuardianLink(member)) {
+    return {
+      context: null,
+      response: jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 계정에 연결할 수 없습니다."),
+    };
   }
 
-  const body = (await request.json().catch(() => null)) as GuardianLinkBody | null;
-  const guardianUserId = readGuardianUserId(body);
+  return {
+    context: {
+      db,
+      member,
+      selectedBranchId: selectedScope.selectedBranchId ?? member.branchId,
+      user,
+    },
+    response: null,
+  };
+}
 
-  if (!guardianUserId) {
-    return jsonError(400, "VALIDATION_ERROR", "연결할 학부모 계정을 선택해 주세요.");
+async function createGuardianLink(
+  request: NextRequest,
+  routeContext: GuardianLinkRouteContext,
+  guardianUserId: string,
+) {
+  const currentContext = await requireGuardianLinkRequestContext(request, routeContext, true);
+
+  if (!currentContext.context) {
+    return currentContext.response;
   }
+
+  const { db, member, selectedBranchId, user } = currentContext.context;
 
   const guardian = db.users.find((candidate) => candidate.id === guardianUserId);
 
-  if (!guardian || guardian.role !== "guardian" || guardian.invitationStatus === "pending") {
+  if (
+    !guardian ||
+    guardian.role !== "guardian" ||
+    guardian.invitationStatus === "pending" ||
+    !canAssignGuardian(user, guardian, member.branchId)
+  ) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "활성 학부모 계정만 연결할 수 있습니다.");
   }
 
   if (member.guardianIds.includes(guardian.id)) {
-    return jsonOk(createBootstrapPayload(db, user, selectedScope.selectedBranchId ?? member.branchId));
+    return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
 
   const nextMember = linkMemberGuardian(member, guardian.id);
-  const nextGuardian = linkGuardianUser(guardian, member.id, member.branchId);
+  const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
+  const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [guardian.id]);
+  const nextGuardian = nextUsers.find((candidate) => candidate.id === guardian.id) ?? guardian;
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: member.branchId,
     actorUserId: user.id,
     action: "member.update",
@@ -150,77 +176,49 @@ export async function POST(
   };
   const nextDb = await writeServerDb({
     ...db,
-    members: db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate)),
-    users: db.users.map((candidate) => (candidate.id === guardian.id ? nextGuardian : candidate)),
+    members: nextMembers,
+    users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
 }
 
-export async function PUT(
+async function replaceGuardianLink(
   request: NextRequest,
-  { params }: { params: Promise<{ memberId: string }> },
+  routeContext: GuardianLinkRouteContext,
+  guardianUserId: string,
 ) {
-  const { memberId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const currentContext = await requireGuardianLinkRequestContext(request, routeContext, true);
 
-  if (!user) {
-    return response;
+  if (!currentContext.context) {
+    return currentContext.response;
   }
 
-  if (!canManageGuardianLinks(user)) {
-    return jsonError(403, "FORBIDDEN", "보호자 연결 권한이 없습니다.");
-  }
-
-  const member = db.members.find((candidate) => candidate.id === memberId);
-
-  if (!member) {
-    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
-  }
-
-  if (!getAccessibleBranchIds(user, db).includes(member.branchId)) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
-  }
-
-  const selectedScope = requireSelectedBranchScope(request, user, db);
-
-  if (selectedScope.response) {
-    return selectedScope.response;
-  }
-
-  if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
-  }
-
-  if (!canMemberHaveGuardianLink(member)) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 계정에 연결할 수 없습니다.");
-  }
-
-  const body = (await request.json().catch(() => null)) as GuardianLinkBody | null;
-  const guardianUserId = readGuardianUserId(body);
-
-  if (!guardianUserId) {
-    return jsonError(400, "VALIDATION_ERROR", "변경할 학부모 계정을 선택해 주세요.");
-  }
+  const { db, member, selectedBranchId, user } = currentContext.context;
 
   const guardian = db.users.find((candidate) => candidate.id === guardianUserId);
 
-  if (!guardian || guardian.role !== "guardian" || guardian.invitationStatus === "pending") {
+  if (
+    !guardian ||
+    guardian.role !== "guardian" ||
+    guardian.invitationStatus === "pending" ||
+    !canAssignGuardian(user, guardian, member.branchId)
+  ) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "활성 학부모 계정만 연결할 수 있습니다.");
   }
 
   if (member.guardianIds.length === 1 && member.guardianIds[0] === guardian.id) {
-    return jsonOk(createBootstrapPayload(db, user, selectedScope.selectedBranchId ?? member.branchId));
+    return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
 
   const nextMember = replaceMemberGuardians(member, guardian.id);
-  const nextUsers = replaceGuardianUserLinks(db.users, member, guardian);
+  const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
+  const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [...member.guardianIds, guardian.id]);
   const nextGuardian = nextUsers.find((candidate) => candidate.id === guardian.id) ?? guardian;
   const previousGuardians = db.users.filter((candidate) => member.guardianIds.includes(candidate.id));
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: member.branchId,
     actorUserId: user.id,
     action: "member.update",
@@ -244,55 +242,29 @@ export async function PUT(
   };
   const nextDb = await writeServerDb({
     ...db,
-    members: db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate)),
+    members: nextMembers,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
 }
 
-export async function DELETE(
+async function deleteGuardianLink(
   request: NextRequest,
-  { params }: { params: Promise<{ memberId: string }> },
+  routeContext: GuardianLinkRouteContext,
+  guardianUserId: string,
 ) {
-  const { memberId } = await params;
-  const db = await readServerDb();
-  const { user, response } = requireSession(request, db);
+  const currentContext = await requireGuardianLinkRequestContext(request, routeContext, false);
 
-  if (!user) {
-    return response;
+  if (!currentContext.context) {
+    return currentContext.response;
   }
 
-  if (!canManageGuardianLinks(user)) {
-    return jsonError(403, "FORBIDDEN", "보호자 연결 권한이 없습니다.");
-  }
+  const { db, member, selectedBranchId, user } = currentContext.context;
 
-  const member = db.members.find((candidate) => candidate.id === memberId);
-
-  if (!member) {
-    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
-  }
-
-  if (!getAccessibleBranchIds(user, db).includes(member.branchId)) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
-  }
-
-  const selectedScope = requireSelectedBranchScope(request, user, db);
-
-  if (selectedScope.response) {
-    return selectedScope.response;
-  }
-
-  if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
-    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
-  }
-
-  const body = (await request.json().catch(() => null)) as GuardianLinkBody | null;
-  const guardianUserId = readGuardianUserId(body);
-
-  if (!guardianUserId) {
-    return jsonError(400, "VALIDATION_ERROR", "해제할 학부모 계정을 선택해 주세요.");
+  if (!member.guardianIds.includes(guardianUserId)) {
+    return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
 
   const guardian = db.users.find((candidate) => candidate.id === guardianUserId);
@@ -301,14 +273,12 @@ export async function DELETE(
     return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 계정을 확인할 수 없습니다.");
   }
 
-  if (!member.guardianIds.includes(guardian.id)) {
-    return jsonOk(createBootstrapPayload(db, user, selectedScope.selectedBranchId ?? member.branchId));
-  }
-
   const nextMember = unlinkMemberGuardian(member, guardian.id);
-  const nextGuardian = unlinkGuardianUser(guardian, member.id);
+  const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
+  const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [guardian.id]);
+  const nextGuardian = nextUsers.find((candidate) => candidate.id === guardian.id) ?? guardian;
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: member.branchId,
     actorUserId: user.id,
     action: "member.update",
@@ -330,10 +300,76 @@ export async function DELETE(
   };
   const nextDb = await writeServerDb({
     ...db,
-    members: db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate)),
-    users: db.users.map((candidate) => (candidate.id === guardian.id ? nextGuardian : candidate)),
+    members: nextMembers,
+    users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
+}
+
+export async function POST(request: NextRequest, context: GuardianLinkRouteContext) {
+  const initialContext = await requireGuardianLinkRequestContext(request, context, true);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const parsedBody = parseGuardianLinkInput(await request.json().catch(() => null));
+
+  if (parsedBody.error) {
+    return jsonError(400, "VALIDATION_ERROR", parsedBody.error);
+  }
+
+  if (!parsedBody.guardianUserId) {
+    return jsonError(400, "VALIDATION_ERROR", "연결할 학부모 계정을 선택해 주세요.");
+  }
+
+  return withServerDbLock(guardianLinkStateLockKey, () =>
+    createGuardianLink(request, context, parsedBody.guardianUserId),
+  );
+}
+
+export async function PUT(request: NextRequest, context: GuardianLinkRouteContext) {
+  const initialContext = await requireGuardianLinkRequestContext(request, context, true);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const parsedBody = parseGuardianLinkInput(await request.json().catch(() => null));
+
+  if (parsedBody.error) {
+    return jsonError(400, "VALIDATION_ERROR", parsedBody.error);
+  }
+
+  if (!parsedBody.guardianUserId) {
+    return jsonError(400, "VALIDATION_ERROR", "변경할 학부모 계정을 선택해 주세요.");
+  }
+
+  return withServerDbLock(guardianLinkStateLockKey, () =>
+    replaceGuardianLink(request, context, parsedBody.guardianUserId),
+  );
+}
+
+export async function DELETE(request: NextRequest, context: GuardianLinkRouteContext) {
+  const initialContext = await requireGuardianLinkRequestContext(request, context, false);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const parsedBody = parseGuardianLinkInput(await request.json().catch(() => null));
+
+  if (parsedBody.error) {
+    return jsonError(400, "VALIDATION_ERROR", parsedBody.error);
+  }
+
+  if (!parsedBody.guardianUserId) {
+    return jsonError(400, "VALIDATION_ERROR", "해제할 학부모 계정을 선택해 주세요.");
+  }
+
+  return withServerDbLock(guardianLinkStateLockKey, () =>
+    deleteGuardianLink(request, context, parsedBody.guardianUserId),
+  );
 }

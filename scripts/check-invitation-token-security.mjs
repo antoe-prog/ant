@@ -291,6 +291,22 @@ async function runApiAssertions(baseUrl, dbFile) {
   }
   assert(!failureAudits.some((log) => "ip" in (log.after ?? {})), "failure audit records must not persist client IP addresses");
 
+  const oversizedInvite = await createInvite(admin, "oversized-password");
+  const oversizedPassword = "P".repeat(257);
+  const oversizedAccept = await createClient(baseUrl).request(
+    `/api/v1/auth/invitations/${oversizedInvite.token}/accept`,
+    { method: "POST", body: JSON.stringify({ password: oversizedPassword }) },
+  );
+  assert.equal(oversizedAccept.response.status, 400, "oversized invitation passwords must be rejected before hashing");
+  const oversizedDb = await readRuntimeDb(dbFile);
+  const oversizedUser = oversizedDb.users.find((user) => user.id === oversizedInvite.userId);
+  const oversizedAudit = oversizedDb.auditLogs.find(
+    (log) => log.action === "auth.invite.accept" && log.targetId === oversizedInvite.userId && log.result === "failed",
+  );
+  assert.equal(oversizedUser.invitationStatus, "pending", "oversized invitation passwords must not accept the account");
+  assert.equal(oversizedAudit?.after?.reason, "too_long", "oversized invitation passwords must record a bounded failure reason");
+  assert(!JSON.stringify(oversizedDb).includes(oversizedPassword), "oversized invitation passwords must not persist in runtime state");
+
   const concurrentInvite = await createInvite(admin, "concurrent");
   const acceptedPassword = `Concurrent-Accept-${stamp}!`;
   const acceptBody = JSON.stringify({ password: acceptedPassword });
@@ -405,6 +421,7 @@ async function main() {
         "seven-day expiration boundary",
         "unmatched token rejection before password work",
         "target audit-based password failure throttling with Retry-After",
+        "oversized invitation password rejection before hashing without raw persistence",
         "future-dated audit rows excluded from password throttling",
         "atomic single-use acceptance and opaque session issuance",
         "accepted invitation phone/password logout and relogin",

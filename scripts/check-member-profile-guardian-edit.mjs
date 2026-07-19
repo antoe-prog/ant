@@ -14,9 +14,14 @@ const [
   membersScreenSource,
   adminUsersScreenSource,
   memberRouteSource,
+  memberCreateRouteSource,
   guardianRouteSource,
+  memberGuardianInputPolicySource,
   adminUserRouteSource,
   memberAgePolicySource,
+  memberInputPolicySource,
+  counselingNotePolicySource,
+  counselingNoteRouteSource,
   smokeApiSource,
   adminUserManagementApiSource,
   packageJsonSource,
@@ -28,9 +33,14 @@ const [
   readFile("src/components/screens/members-screen.tsx", "utf8"),
   readFile("src/components/screens/admin-users-screen.tsx", "utf8"),
   readFile("src/app/api/v1/members/[memberId]/route.ts", "utf8"),
+  readFile("src/app/api/v1/branches/[branchId]/members/route.ts", "utf8"),
   readFile("src/app/api/v1/members/[memberId]/guardians/route.ts", "utf8"),
+  readFile("src/lib/member-guardian-input-policy.ts", "utf8"),
   readFile("src/app/api/v1/admin/users/[userId]/route.ts", "utf8"),
   readFile("src/lib/member-age-policy.ts", "utf8"),
+  readFile("src/lib/member-input-policy.ts", "utf8"),
+  readFile("src/lib/counseling-note-input-policy.ts", "utf8"),
+  readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/route.ts", "utf8"),
   readFile("scripts/smoke-api.mjs", "utf8"),
   readFile("scripts/check-admin-user-management-api.mjs", "utf8"),
   readFile("package.json", "utf8"),
@@ -101,11 +111,12 @@ assert(
 );
 assert(
   membersScreenSource.includes("const showAlertSection = !isFamilyRole && member.alerts.length > 0;") &&
-    !membersScreenSource.includes('data-testid="family-member-alert-strip"') &&
+    membersScreenSource.includes("isFamilyRole && member.alerts.length > 0") &&
+    membersScreenSource.includes('data-testid="family-member-alert-strip"') &&
     !membersScreenSource.includes("등록된 주의사항 없음") &&
     !membersScreenSource.includes("아직 상담/주의 메모가 없습니다.") &&
     !membersScreenSource.includes("아직 코치 피드백이 없습니다."),
-  "member profile cards must keep quiet zero-count note/warning states without repeated empty copy",
+  "member profile cards must show real family warnings while keeping zero-count states quiet",
 );
 assert(
   /data-testid="member-invite-feedback"[\s\S]*aria-live="polite"[\s\S]*role="status"/.test(membersScreenSource),
@@ -131,16 +142,41 @@ assert(
 assert(
   memberRouteSource.includes('Pick<Member, "ageGroup"') &&
     memberRouteSource.includes("getAccessibleMemberIds(user, db, [member.branchId]).includes(member.id)") &&
+    memberRouteSource.includes("const initialCanReadMember = getAccessibleMemberIds(") &&
+    memberRouteSource.includes("const canReadMember = getAccessibleMemberIds(user, db, accessibleBranchIds).includes(member.id)") &&
     memberRouteSource.includes("hasRestrictedProfileFields") &&
     memberRouteSource.includes("canManageMember") &&
     memberRouteSource.includes("patch.ageGroup = body.ageGroup") &&
     memberRouteSource.includes('message: canManageMember ? "회원 정보를 변경했습니다." : "회원 긴급 연락처를 변경했습니다."'),
   "member update API must keep manager-only age/profile editing and family contact-only editing",
 );
+assert(
+  memberInputPolicySource.includes("nameLength: 30") &&
+    memberInputPolicySource.includes("emergencyContactLength: 40") &&
+    memberInputPolicySource.includes("alertItems: 8") &&
+    memberInputPolicySource.includes("alertLength: 80") &&
+    memberCreateRouteSource.includes("memberInputLimits.nameLength") &&
+    memberCreateRouteSource.includes("memberInputLimits.emergencyContactLength") &&
+    memberRouteSource.includes("memberInputLimits.nameLength") &&
+    membersScreenSource.includes("maxLength={memberInputLimits.nameLength}") &&
+    membersScreenSource.includes("maxLength={memberInputLimits.alertsTextLength}"),
+  "member create/edit UI and APIs must share bounded profile and alert input policy",
+);
+assert(
+  counselingNotePolicySource.includes("bodyLength: 2_000") &&
+    counselingNoteRouteSource.includes("getCounselingNoteBodyLimitError(body.body)") &&
+    membersScreenSource.includes("maxLength={counselingNoteInputLimits.bodyLength}") &&
+    membersScreenSource.includes('data-testid="member-note-body"'),
+  "counseling note API and editor must share a bounded body policy",
+);
+assert(
+  (memberRouteSource.match(/if \(!(?:initialCanReadMember|canReadMember)\) \{[\s\S]{0,160}jsonError\(404, "NOT_FOUND", "회원을 찾을 수 없습니다\."\)/g)?.length ?? 0) === 2,
+  "member update API must conceal inaccessible member targets before and inside the mutation lock",
+);
 assertAppearsAfter(
   memberRouteSource,
   "request.json()",
-  "if (!canManageMember && !canUpdateOwnContact)",
+  "if (!initialCanManageMember && !initialCanUpdateOwnContact)",
   "member update API must authorize member/profile edits before reading request body",
 );
 assert(
@@ -148,11 +184,29 @@ assert(
     guardianRouteSource.includes("export async function PUT") &&
     guardianRouteSource.includes("export async function DELETE") &&
     guardianRouteSource.includes("canMemberHaveGuardianLink(member)") &&
-    guardianRouteSource.includes("replaceGuardianUserLinks") &&
-    guardianRouteSource.includes("unlinkGuardianUser(candidate, member.id)") &&
-    guardianRouteSource.includes("linkGuardianUser(candidate, member.id, member.branchId)") &&
+    guardianRouteSource.includes("syncAffectedGuardianUsers") &&
+    guardianRouteSource.includes("syncGuardianUserLinks") &&
+    guardianRouteSource.includes("parseGuardianLinkInput") &&
+    guardianRouteSource.includes('createRuntimeId("audit")') &&
+    guardianRouteSource.includes('const guardianLinkStateLockKey = "member-guardian-links"') &&
+    (guardianRouteSource.match(/withServerDbLock\(guardianLinkStateLockKey/g)?.length ?? 0) === 3 &&
+    (guardianRouteSource.match(/await requireGuardianLinkRequestContext\(/g)?.length ?? 0) === 6 &&
+    (guardianRouteSource.match(/parseGuardianLinkInput\(await request\.json\(\)/g)?.length ?? 0) === 3 &&
+    guardianRouteSource.includes("guardian.branchIds.includes(memberBranchId)") &&
+    (guardianRouteSource.match(/!canAssignGuardian\(user, guardian, member\.branchId\)/g)?.length ?? 0) === 2 &&
     guardianRouteSource.includes('message: "보호자-자녀 연결을 변경했습니다."'),
-  "guardian link API must keep add/replace/delete handlers and reciprocal child-member updates",
+  "guardian link API must keep scoped add/replace/delete handlers without disclosing inaccessible members or unavailable guardian accounts",
+);
+assert(
+  guardianRouteSource.includes("async function requireGuardianLinkRequestContext") &&
+    guardianRouteSource.includes("requireSession(request, db)") &&
+    guardianRouteSource.indexOf("request.json()") < guardianRouteSource.indexOf("withServerDbLock(guardianLinkStateLockKey"),
+  "guardian link API must authenticate before body parsing and parse the body before taking the shared mutation lock",
+);
+assert(
+  memberGuardianInputPolicySource.includes("guardianUserIdLength: 200") &&
+    memberGuardianInputPolicySource.includes("guardianUserId.length > memberGuardianInputLimits.guardianUserIdLength"),
+  "guardian link API must reject oversized guardian identifiers through the shared input policy",
 );
 assert(
   guardianRouteSource.includes("성인 회원은 학부모 계정에 연결할 수 없습니다.") &&
@@ -170,11 +224,29 @@ assertAppearsAfter(
 for (const snippet of [
   "owner member age group update did not persist",
   "owner member profile update did not sync linked user name",
+  "oversized member create input must be rejected",
+  "oversized member create input must not create audit records",
+  "guardian must not discover another family member profile",
+  "member update must not disclose whether an inaccessible member exists",
   "guardian replace must atomically replace member guardian ids",
   "guardian replace must remove previous guardian child ids",
   "guardian replace must update next guardian child ids",
   "guardian unlink did not update member guardian ids",
   "guardian unlink did not update guardian child ids",
+  "concurrent guardian links must both succeed",
+  "concurrent guardian links must preserve both member links",
+  "concurrent guardian links must preserve both guardian child links",
+  "concurrent guardian links must preserve both audit records",
+  "concurrent guardian link audit IDs must be unique",
+  "malformed guardian links must not mutate member guardian ids",
+  "malformed guardian replace/unlink must preserve the existing relationship",
+  "oversized guardian links must be rejected",
+  "slow guardian body parsing must not hold the shared guardian link lock",
+  "owner must not connect a guardian who is outside the member branch",
+  "guardian replacement must not disclose whether an unavailable guardian account exists",
+  "guardian unlink must be idempotent without disclosing an unlinked account's existence",
+  "blocked cross-branch guardian replacement must not mutate member guardian ids",
+  "blocked cross-branch guardian replacement must not mutate guardian child ids",
   "adult member guardian link must be rejected",
   "adult member guardian link rejection must not mutate guardian ids",
 ]) {

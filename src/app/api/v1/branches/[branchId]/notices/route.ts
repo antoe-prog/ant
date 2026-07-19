@@ -4,6 +4,11 @@ import type { AuditLog, Notice, NoticeAudience } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
+import {
+  getNoticeStringListLimitError,
+  getNoticeTextLimitError,
+  noticeInputLimits,
+} from "@/lib/notice-input-policy";
 import { noticeStateLockKey } from "@/lib/notices";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -17,6 +22,7 @@ import {
   processNotificationOutbox,
 } from "@/server/notification-outbox-runner";
 import { getNotificationOutboxDispatchSummary } from "@/server/notification-outbox";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -72,6 +78,39 @@ function isValidAudience(value: string): value is NoticeAudience {
   return value === "all" || userRoles.includes(value as (typeof userRoles)[number]);
 }
 
+function getNoticeBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "공지 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const [field, label] of [
+    ["title", "공지 제목"],
+    ["body", "공지 본문"],
+  ] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  if (body.important !== undefined && typeof body.important !== "boolean") {
+    return "중요 공지 여부 값의 형식이 올바르지 않습니다.";
+  }
+
+  for (const [field, label] of [
+    ["audience", "공지 대상"],
+    ["targetClassIds", "대상 수업"],
+    ["targetMemberIds", "대상 회원"],
+  ] as const) {
+    if (body[field] !== undefined && (!Array.isArray(body[field]) || body[field].some((item) => typeof item !== "string"))) {
+      return `${label} 목록의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ branchId: string }> },
@@ -108,13 +147,40 @@ export async function POST(
     return jsonError(400, "INVALID_IDEMPOTENCY_KEY", parsedIdempotencyKey.message);
   }
 
-  const body = (await request.json().catch(() => null)) as NoticeCreateBody | null;
-  const title = body?.title?.trim() ?? "";
-  const noticeBody = body?.body?.trim() ?? "";
-  const important = body?.important === true;
-  const audience = [...new Set(body?.audience ?? [])];
-  const targetClassIds = [...new Set(body?.targetClassIds ?? [])].filter(Boolean);
-  const requestedTargetMemberIds = [...new Set(body?.targetMemberIds ?? [])].filter(Boolean);
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getNoticeBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as NoticeCreateBody;
+  const title = body.title?.trim() ?? "";
+  const noticeBody = body.body?.trim() ?? "";
+  const important = body.important === true;
+
+  const inputLimitError =
+    getNoticeTextLimitError({ body: noticeBody, title }) ??
+    getNoticeStringListLimitError(body.audience, {
+      label: "공지 대상",
+      maximumItems: noticeInputLimits.audienceItems,
+    }) ??
+    getNoticeStringListLimitError(body.targetClassIds, {
+      label: "대상 수업",
+      maximumItems: noticeInputLimits.classTargetItems,
+    }) ??
+    getNoticeStringListLimitError(body.targetMemberIds, {
+      label: "대상 회원",
+      maximumItems: noticeInputLimits.memberTargetItems,
+    });
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const audience = [...new Set(body.audience ?? [])];
+  const targetClassIds = [...new Set(body.targetClassIds ?? [])].filter(Boolean);
+  const requestedTargetMemberIds = [...new Set(body.targetMemberIds ?? [])].filter(Boolean);
 
   if (!title || !noticeBody) {
     return jsonError(400, "VALIDATION_ERROR", "공지 제목과 본문이 필요합니다.");
@@ -251,9 +317,9 @@ export async function POST(
     }
 
     const now = new Date().toISOString();
-    const noticeId = `notice-${Date.now()}`;
-    const noticeAuditLogId = `audit-${Date.now()}-${db.auditLogs.length + 1}`;
-    const dispatchAuditLogId = `audit-${Date.now()}-${db.auditLogs.length + 2}`;
+    const noticeId = createRuntimeId("notice");
+    const noticeAuditLogId = createRuntimeId("audit");
+    const dispatchAuditLogId = createRuntimeId("audit");
     const nextNotice: Notice = {
       id: noticeId,
       branchId,

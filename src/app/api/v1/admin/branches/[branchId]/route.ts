@@ -1,19 +1,13 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, BranchSettings, BranchStatus } from "@/lib/domain";
 import { normalizeBranchSettings } from "@/lib/domain";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { getBranchUpdateBodyError, type BranchUpdateInput } from "@/lib/branch-input-policy";
+import { branchManagementStateLockKey } from "@/server/branch-management";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
-
-type BranchUpdateBody = {
-  district?: unknown;
-  name?: unknown;
-  reason?: unknown;
-  settings?: Partial<Record<keyof BranchSettings, unknown>>;
-  status?: unknown;
-  timezone?: unknown;
-};
 
 const branchStatuses: BranchStatus[] = ["active", "inactive"];
 
@@ -21,7 +15,7 @@ function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function PATCH(
+async function requireBranchUpdateRequestContext(
   request: NextRequest,
   { params }: { params: Promise<{ branchId: string }> },
 ) {
@@ -30,29 +24,48 @@ export async function PATCH(
   const { user, response } = requireSession(request, db);
 
   if (!user) {
-    return response;
+    return { context: null, response };
   }
 
   if (user.role !== "admin") {
-    return jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 수정할 수 있습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 수정할 수 있습니다."),
+    };
   }
 
   const selectedScope = requireSelectedBranchScope(request, user, db);
 
   if (selectedScope.response) {
-    return selectedScope.response;
+    return { context: null, response: selectedScope.response };
   }
 
   if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== branchId) {
-    return jsonError(403, "FORBIDDEN", "선택한 지점의 정보만 수정할 수 있습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "선택한 지점의 정보만 수정할 수 있습니다."),
+    };
   }
 
-  const body = (await request.json().catch(() => null)) as BranchUpdateBody | null;
-  const reason = cleanText(body?.reason);
+  return {
+    context: { branchId, db, selectedBranchId: selectedScope.selectedBranchId, user },
+    response: null,
+  };
+}
 
-  if (!reason) {
-    return jsonError(400, "VALIDATION_ERROR", "지점 수정 사유가 필요합니다.");
+async function updateBranch(
+  request: NextRequest,
+  routeContext: { params: Promise<{ branchId: string }> },
+  body: BranchUpdateInput,
+  reason: string,
+) {
+  const currentContext = await requireBranchUpdateRequestContext(request, routeContext);
+
+  if (!currentContext.context) {
+    return currentContext.response;
   }
+
+  const { branchId, db, selectedBranchId, user } = currentContext.context;
 
   const branch = db.branches.find((candidate) => candidate.id === branchId);
 
@@ -93,7 +106,7 @@ export async function PATCH(
     timezone: nextTimezone,
   };
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "branch.update",
@@ -124,5 +137,32 @@ export async function PATCH(
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
+}
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ branchId: string }> },
+) {
+  const initialContext = await requireBranchUpdateRequestContext(request, context);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const rawBody = await request.json().catch(() => null);
+  const bodyError = getBranchUpdateBodyError(rawBody);
+
+  if (bodyError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyError);
+  }
+
+  const body = rawBody as BranchUpdateInput;
+  const reason = cleanText(body.reason);
+
+  if (!reason) {
+    return jsonError(400, "VALIDATION_ERROR", "지점 수정 사유가 필요합니다.");
+  }
+
+  return withServerDbLock(branchManagementStateLockKey, () => updateBranch(request, context, body, reason));
 }

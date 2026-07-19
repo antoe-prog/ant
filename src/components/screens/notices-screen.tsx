@@ -9,6 +9,7 @@ import { ApiClientError, apiClient, type NoticeCreatePayload } from "@/lib/api-c
 import { userRoles } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { matchesNoticeMemberSearch, normalizeNoticeMemberSearchText } from "@/lib/notice-member-search";
+import { noticeInputLimits } from "@/lib/notice-input-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
 import { getNoticeReadCount, isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
@@ -1185,6 +1186,7 @@ export function NoticesScreen() {
                               <input
                                 className="min-h-11 rounded-md border border-zinc-200 bg-white px-3 text-sm font-normal text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                                 data-testid="notice-edit-title-input"
+                                maxLength={noticeInputLimits.titleLength}
                                 value={editNoticeTitle}
                                 onChange={(event) => setEditNoticeTitle(event.target.value)}
                               />
@@ -1194,6 +1196,7 @@ export function NoticesScreen() {
                               <textarea
                                 className="min-h-20 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-normal leading-5 text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                                 data-testid="notice-edit-body-input"
+                                maxLength={noticeInputLimits.bodyLength}
                                 rows={3}
                                 value={editNoticeBody}
                                 onChange={(event) => setEditNoticeBody(event.target.value)}
@@ -1333,6 +1336,7 @@ export function NoticesScreen() {
                     <input
                       className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                       data-testid="notice-create-title-input"
+                      maxLength={noticeInputLimits.titleLength}
                       placeholder="공지 제목"
                       value={noticeTitle}
                       onChange={(event) => setNoticeTitle(event.target.value)}
@@ -1342,6 +1346,7 @@ export function NoticesScreen() {
                     <span className="mb-1 block text-xs font-semibold text-zinc-500">내용</span>
                     <textarea
                       className="min-h-28 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                      maxLength={noticeInputLimits.bodyLength}
                       placeholder="공지 내용"
                       value={noticeBody}
                       onChange={(event) => setNoticeBody(event.target.value)}

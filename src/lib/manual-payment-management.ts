@@ -1,5 +1,12 @@
 import type { Payment, PaymentStatus } from "@/lib/domain";
 
+export const manualPaymentInputLimits = {
+  externalId: 200,
+  planName: 100,
+  reason: 500,
+  verificationReason: 200,
+} as const;
+
 export const manualPaymentEditableStatuses = [
   "scheduled",
   "paid",
@@ -31,6 +38,10 @@ export type ManualPaymentUpdatePayload = Pick<
 
 type ManualPaymentUpdateValidation =
   | { ok: true; value: ManualPaymentUpdatePayload }
+  | { ok: false; message: string };
+
+type ManualPaymentDeleteValidation =
+  | { ok: true; value: { reason: string } }
   | { ok: false; message: string };
 
 function isDateOnly(value: string) {
@@ -88,7 +99,7 @@ export function canManageManualPayment(payment: Payment) {
 }
 
 export function validateManualPaymentUpdate(input: unknown): ManualPaymentUpdateValidation {
-  if (!input || typeof input !== "object") {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, message: "변경할 수기 결제 정보가 필요합니다." };
   }
 
@@ -105,21 +116,25 @@ export function validateManualPaymentUpdate(input: unknown): ManualPaymentUpdate
     return { ok: false, message: "회원권명을 입력해 주세요." };
   }
 
+  if (planName.length > manualPaymentInputLimits.planName) {
+    return { ok: false, message: `회원권명은 ${manualPaymentInputLimits.planName}자 이하로 입력해 주세요.` };
+  }
+
   if (!manualPaymentEditableStatuses.includes(status as (typeof manualPaymentEditableStatuses)[number])) {
     return { ok: false, message: "변경할 결제 상태가 올바르지 않습니다." };
   }
 
-  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
-    return { ok: false, message: "결제 금액은 0원 이상의 숫자여야 합니다." };
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
+    return { ok: false, message: "결제 금액은 0원 이상의 원 단위 정수여야 합니다." };
   }
 
   if (
     typeof discountAmount !== "number" ||
-    !Number.isFinite(discountAmount) ||
+    !Number.isSafeInteger(discountAmount) ||
     discountAmount < 0 ||
     discountAmount > amount
   ) {
-    return { ok: false, message: "할인 금액은 결제 금액 이하의 0원 이상 숫자여야 합니다." };
+    return { ok: false, message: "할인 금액은 결제 금액 이하의 0원 이상 원 단위 정수여야 합니다." };
   }
 
   const dateRangeError = getManualPaymentDateRangeError(dueDate, expiresAt);
@@ -132,11 +147,15 @@ export function validateManualPaymentUpdate(input: unknown): ManualPaymentUpdate
     return { ok: false, message: "수정 사유를 입력해 주세요." };
   }
 
+  if (reason.length > manualPaymentInputLimits.reason) {
+    return { ok: false, message: `수정 사유는 ${manualPaymentInputLimits.reason}자 이하로 입력해 주세요.` };
+  }
+
   return {
     ok: true,
     value: {
-      amount: Math.round(amount),
-      discountAmount: Math.round(discountAmount),
+      amount,
+      discountAmount,
       dueDate,
       expiresAt,
       planName,
@@ -144,4 +163,28 @@ export function validateManualPaymentUpdate(input: unknown): ManualPaymentUpdate
       status: status as PaymentStatus,
     },
   };
+}
+
+export function validateManualPaymentDelete(input: unknown): ManualPaymentDeleteValidation {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, message: "삭제할 수기 결제 정보가 올바른 JSON 객체가 아닙니다." };
+  }
+
+  const candidate = input as Record<string, unknown>;
+
+  if (typeof candidate.reason !== "string") {
+    return { ok: false, message: "삭제 사유 값의 형식이 올바르지 않습니다." };
+  }
+
+  const reason = candidate.reason.trim();
+
+  if (!reason) {
+    return { ok: false, message: "삭제 사유를 입력해 주세요." };
+  }
+
+  if (reason.length > manualPaymentInputLimits.reason) {
+    return { ok: false, message: `삭제 사유는 ${manualPaymentInputLimits.reason}자 이하로 입력해 주세요.` };
+  }
+
+  return { ok: true, value: { reason } };
 }

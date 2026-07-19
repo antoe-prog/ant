@@ -243,16 +243,23 @@ function assertStaticContracts() {
     'data-testid={`admin-user-guardian-child-search-input-${user.id}`}',
     'data-testid={`admin-user-approved-password-dismiss-${user.id}`}',
     'data-testid={`admin-user-issued-password-dismiss-${user.id}`}',
+    "maxLength={userAdministrationInputLimits.nameLength}",
+    "maxLength={userAdministrationInputLimits.phoneLength}",
+    "maxLength={userAdministrationInputLimits.emailLength}",
+    "maxLength={userAdministrationInputLimits.passwordLength}",
+    "maxLength={userAdministrationInputLimits.titleLength}",
+    "maxLength={userAdministrationInputLimits.reasonLength}",
     "clearSensitivePasswordState();",
     "requestId !== sensitivePasswordRequestRef.current",
-    'className="divide-y divide-zinc-100"',
+    'data-testid="admin-user-list-scroll-region"',
+    'data-admin-user-list-mode={userListPanelExpanded ? "panel-open" : "browse"}',
+    'userListPanelExpanded ? "max-h-none overflow-visible" : "max-h-[25dvh] overflow-y-auto overscroll-contain"',
   ]) {
     assert(adminUsersScreen.includes(snippet), `admin users screen must include ${snippet}`);
   }
 
   for (const forbidden of [
     'className="max-h-36 divide-y',
-    "overflow-y-auto overscroll-contain",
     'className="h-10 w-full',
     'className="inline-flex h-10',
     'className="inline-flex min-h-10',
@@ -365,6 +372,7 @@ async function captureAdminUsers(context) {
         overflowY: window.getComputedStyle(element).overflowY,
         rowCount: element.querySelectorAll('[data-testid="admin-user-list-row"]').length,
         scrollHeight: element.scrollHeight,
+        viewportHeight: window.innerHeight,
       })),
       listStatus: await page.getByTestId("admin-user-list-status-label").textContent(),
     };
@@ -373,10 +381,14 @@ async function captureAdminUsers(context) {
     assert(collapsedLayout.health.bodyTextLength > 100, "admin users collapsed state must not render a blank page");
     assert.equal(collapsedLayout.health.horizontalOverflow, 0, "admin users collapsed state must not overflow horizontally");
     assert.equal(collapsedLayout.inviteFormCount, 0, "admin user invite form must stay collapsed by default");
-    assert.equal(collapsedLayout.listFlow.overflowY, "visible", "admin user list must use page flow instead of nested scrolling");
+    assert.equal(collapsedLayout.listFlow.overflowY, "auto", "admin user list must keep a bounded mobile scroll region");
     assert(
-      collapsedLayout.listFlow.scrollHeight <= collapsedLayout.listFlow.clientHeight + 1,
-      `admin user list must not have clipped rows; got ${collapsedLayout.listFlow.clientHeight}/${collapsedLayout.listFlow.scrollHeight}px`,
+      collapsedLayout.listFlow.clientHeight <= Math.ceil(collapsedLayout.listFlow.viewportHeight * 0.25) + 1,
+      `admin user list must stay within 25dvh on mobile; got ${collapsedLayout.listFlow.clientHeight}/${collapsedLayout.listFlow.viewportHeight}px`,
+    );
+    assert(
+      collapsedLayout.listFlow.scrollHeight >= collapsedLayout.listFlow.clientHeight,
+      `admin user list scroll metrics must remain valid; got ${collapsedLayout.listFlow.clientHeight}/${collapsedLayout.listFlow.scrollHeight}px`,
     );
     const listStatusMatch = collapsedLayout.listStatus?.match(/(\d+)\/(\d+)명 표시/);
     assert(listStatusMatch, `admin user list status must expose visible/total counts; got ${collapsedLayout.listStatus}`);
@@ -419,6 +431,9 @@ async function captureAdminUsers(context) {
       passwordResetFields: await readHeights(page, '[data-testid^="admin-user-password-reset-reason-input-"]'),
       passwordResetSubmit: await readHeights(page, '[id^="admin-user-password-reset-"] button[type="submit"]'),
     };
+    const passwordResetReasonMaxLength = Number(
+      await page.locator('[data-testid^="admin-user-password-reset-reason-input-"]').first().getAttribute("maxlength"),
+    );
 
     const resetFormId = await page.locator('[id^="admin-user-password-reset-"]').first().getAttribute("id");
     assert(resetFormId, "admin user password reset form must expose an id");
@@ -480,6 +495,9 @@ async function captureAdminUsers(context) {
         deleteSubmit: await readHeights(page, '[data-testid^="admin-user-delete-form-"] button[type="submit"]'),
       };
     }
+    const deleteReasonMaxLength = Number(
+      await page.locator('[data-testid^="admin-user-delete-reason-input-"]').first().getAttribute("maxlength"),
+    );
 
     const openControlHeights = {
       ...deleteHeights,
@@ -487,6 +505,9 @@ async function captureAdminUsers(context) {
       inviteSubmit: await readHeights(page, '#admin-user-invite-form button[type="submit"]'),
       ...passwordResetHeights,
     };
+    const inviteTextMaxLengths = await page
+      .locator('#admin-user-invite-form input:not([type="checkbox"])')
+      .evaluateAll((inputs) => inputs.map((input) => Number(input.getAttribute("maxlength"))));
 
     await page.locator('[data-testid^="admin-user-delete-toggle-"]').first().click().catch(() => {});
     await page.waitForFunction(() => document.querySelectorAll('[data-testid^="admin-user-delete-form-"]').length === 0, null, {
@@ -498,6 +519,16 @@ async function captureAdminUsers(context) {
       editBranchLabels: await readHeights(page, '[data-testid^="admin-user-edit-form-"] fieldset label'),
       editControls: await readHeights(page, "[data-admin-user-edit-control='true']"),
       memberShortcut: await readHeights(page, '[data-testid^="admin-user-member-link-create-shortcut-"]'),
+    };
+    const editInputMaxLengths = {
+      email: Number(await page.locator('[data-testid^="admin-user-edit-email-input-"]').first().getAttribute("maxlength")),
+      name: Number(await page.locator('[data-testid^="admin-user-edit-name-input-"]').first().getAttribute("maxlength")),
+      password: Number(await page.locator('[data-testid^="admin-user-password-input-"]').first().getAttribute("maxlength")),
+      passwordConfirm: Number(
+        await page.locator('[data-testid^="admin-user-password-confirm-input-"]').first().getAttribute("maxlength"),
+      ),
+      phone: Number(await page.locator('[data-testid^="admin-user-edit-phone-input-"]').first().getAttribute("maxlength")),
+      title: Number(await page.locator('[data-testid^="admin-user-edit-title-input-"]').first().getAttribute("maxlength")),
     };
     await page.locator('[data-testid^="admin-user-edit-action-bar-"]').scrollIntoViewIfNeeded();
     const openHealth = await collectPageHealth(page);
@@ -512,6 +543,14 @@ async function captureAdminUsers(context) {
     for (const [label, heights] of Object.entries(openControlHeights)) {
       assertHeightsAtLeast(`admin user management ${label}`, heights);
     }
+    assert.deepEqual(inviteTextMaxLengths, [80, 40, 254], "admin invitation fields must expose server input limits");
+    assert.deepEqual(
+      editInputMaxLengths,
+      { email: 254, name: 80, password: 256, passwordConfirm: 256, phone: 40, title: 120 },
+      "admin user edit fields must expose server input limits",
+    );
+    assert.equal(deleteReasonMaxLength, 500, "admin user delete reason must expose the server input limit");
+    assert.equal(passwordResetReasonMaxLength, 500, "admin password issue reason must expose the server input limit");
     for (const [label, heights] of Object.entries(editOpenHeights)) {
       if (heights.length > 0) {
         assertHeightsAtLeast(`admin user management ${label}`, heights);
@@ -558,10 +597,14 @@ async function captureAdminUsers(context) {
 
     return {
       collapsedLayout,
+      deleteReasonMaxLength,
+      editInputMaxLengths,
       editOpenHeights,
+      inviteTextMaxLengths,
       messages,
       openControlHeights,
       openHealth,
+      passwordResetReasonMaxLength,
       screenshots: [
         { label: "admin users collapsed", path: collapsedScreenshotPath, sizeBytes: statSync(collapsedScreenshotPath).size },
         { label: "admin users open", path: openScreenshotPath, sizeBytes: statSync(openScreenshotPath).size },

@@ -1,13 +1,42 @@
 import { NextRequest } from "next/server";
+import { getCounselingNoteBodyLimitError } from "@/lib/counseling-note-input-policy";
 import type { AuditLog, CounselingNote, CounselingNoteVisibility } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
 const noteVisibilities: CounselingNoteVisibility[] = ["staff_only", "coach_visible", "guardian_visible"];
 const noteTypes: CounselingNote["noteType"][] = ["general", "caution", "progress", "follow_up"];
+
+type CounselingNoteCreateBody = {
+  body?: string;
+  noteType?: CounselingNote["noteType"];
+  visibility?: CounselingNoteVisibility;
+};
+
+function getCounselingNoteBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "상담/주의 메모 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+  const fields = [
+    ["body", "메모 내용"],
+    ["noteType", "메모 유형"],
+    ["visibility", "공개 범위"],
+  ] as const;
+
+  for (const [field, label] of fields) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  return null;
+}
 
 export async function POST(
   request: NextRequest,
@@ -49,11 +78,19 @@ export async function POST(
     return jsonError(403, "FORBIDDEN", "선택한 지점에 상담/주의 메모를 작성할 수 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as {
-    body?: string;
-    noteType?: CounselingNote["noteType"];
-    visibility?: CounselingNoteVisibility;
-  } | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getCounselingNoteBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as CounselingNoteCreateBody;
+  const bodyLimitError = getCounselingNoteBodyLimitError(body.body);
+
+  if (bodyLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyLimitError);
+  }
 
   if (!body?.body?.trim()) {
     return jsonError(400, "VALIDATION_ERROR", "상담/주의 메모 내용이 필요합니다.");
@@ -74,7 +111,7 @@ export async function POST(
     return jsonError(403, "FORBIDDEN", "운영진 전용 메모는 대표 또는 총괄 어드민만 작성할 수 있습니다.");
   }
 
-  const noteId = `note-${Date.now()}`;
+  const noteId = createRuntimeId("note");
   const nextNote: CounselingNote = {
     id: noteId,
     branchId,
@@ -86,7 +123,7 @@ export async function POST(
     visibility,
   };
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "counseling_note.create",

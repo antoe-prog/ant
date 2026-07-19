@@ -1,5 +1,10 @@
 import type { BeltPromotion, Member, MockDatabase } from "./domain";
 
+export const promotionInputLimits = {
+  memberId: 200,
+  note: 500,
+} as const;
+
 const promotionDateKeyFormatter = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
   month: "2-digit",

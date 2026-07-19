@@ -516,9 +516,11 @@ async function collectSelectedLayout(page) {
   const layout = await page.evaluate(() => {
     const selected = document.querySelector('[data-testid="payment-create-selected-member"]')?.getBoundingClientRect();
     const submit = document.querySelector('[data-testid="payment-create-submit"]')?.getBoundingClientRect();
+    const planNameInput = document.querySelector('[data-testid="payment-create-plan-input"]');
 
     return {
       clientWidth: document.documentElement.clientWidth,
+      planNameMaxLength: planNameInput instanceof HTMLInputElement ? planNameInput.maxLength : null,
       resultCount: document.querySelectorAll('[data-testid="payment-create-member-result"]').length,
       scrollWidth: document.documentElement.scrollWidth,
       selectedHeight: Math.round(selected?.height ?? 0),
@@ -534,6 +536,7 @@ async function collectSelectedLayout(page) {
   assert(layout.selectedHeight >= 44, `payment create selected member card must remain readable; got ${layout.selectedHeight}px`);
   assert.equal(layout.resultCount, 0, "payment create results must collapse after selecting a member");
   assert.equal(layout.submitDisabled, false, "payment create submit must enable after selecting a member");
+  assert.equal(layout.planNameMaxLength, 100, "payment create plan name must mirror the 100-character server limit");
   assert(layout.submitHeight >= 44, `payment create submit must stay 44px tall after selection; got ${layout.submitHeight}px`);
   assert.equal(layout.scrollWidth, layout.clientWidth, "payment create selected state must not overflow horizontally");
 
@@ -545,7 +548,10 @@ async function createManualPaymentFixture(page) {
   const response = await page.evaluate(async ({ fixturePlanName }) => {
     const result = await fetch("/api/v1/branches/branch-gangnam/payments?selectedBranchId=branch-gangnam", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": `manual.fixture.${Date.now()}`,
+      },
       body: JSON.stringify({
         amount: 180000,
         discountAmount: 0,
@@ -559,13 +565,14 @@ async function createManualPaymentFixture(page) {
     const payload = await result.json();
 
     return {
+      message: payload.error?.message ?? null,
       ok: result.ok,
       paymentId: payload.data?.db?.payments?.find((payment) => payment.planName === fixturePlanName)?.id ?? null,
       status: result.status,
     };
   }, { fixturePlanName: planName });
 
-  assert(response.ok, `manual payment fixture create failed with ${response.status}`);
+  assert(response.ok, `manual payment fixture create failed with ${response.status}: ${response.message ?? "unknown error"}`);
   assert(response.paymentId, "manual payment fixture must return a payment id");
 
   return { id: response.paymentId, planName };
@@ -577,6 +584,7 @@ async function collectManualPaymentManagementLayout(page, paymentId, formTestId)
     const form = article?.querySelector(`[data-testid="${testId}"]`);
     const controls = Array.from(form?.querySelectorAll("input, select, button") ?? []).map((control) => ({
       height: Math.round(control.getBoundingClientRect().height),
+      maxLength: control instanceof HTMLInputElement ? control.maxLength : null,
       testId: control.getAttribute("data-testid"),
       text: control.textContent?.replace(/\s+/g, " ").trim() ?? "",
     }));
@@ -681,17 +689,20 @@ try {
   await terminalReasonInput.waitFor({ state: "visible" });
   await terminalReasonInput.scrollIntoViewIfNeeded();
   const terminalReasonLayout = await page.evaluate(() => {
-    const input = document.querySelector('[data-testid="payment-create-reason-input"]')?.getBoundingClientRect();
+    const inputElement = document.querySelector('[data-testid="payment-create-reason-input"]');
+    const input = inputElement?.getBoundingClientRect();
     const submit = document.querySelector('[data-testid="payment-create-submit"]');
 
     return {
       clientWidth: document.documentElement.clientWidth,
       inputHeight: Math.round(input?.height ?? 0),
+      inputMaxLength: inputElement instanceof HTMLInputElement ? inputElement.maxLength : null,
       scrollWidth: document.documentElement.scrollWidth,
       submitDisabledWithoutReason: submit instanceof HTMLButtonElement ? submit.disabled : null,
     };
   });
   assert(terminalReasonLayout.inputHeight >= 44, `terminal payment reason input must stay 44px tall; got ${terminalReasonLayout.inputHeight}px`);
+  assert.equal(terminalReasonLayout.inputMaxLength, 500, "terminal payment reason must mirror the 500-character server limit");
   assert.equal(terminalReasonLayout.submitDisabledWithoutReason, true, "cancelled payment create must stay disabled without a reason");
   assert.equal(terminalReasonLayout.scrollWidth, terminalReasonLayout.clientWidth, "terminal payment reason field must not overflow horizontally");
   await terminalReasonInput.fill("이중 등록 취소");
@@ -835,6 +846,16 @@ try {
   await manualPaymentArticle.getByTestId("manual-payment-edit-open").click();
   await manualPaymentArticle.getByTestId("manual-payment-edit-form").waitFor({ state: "visible" });
   const manualEditLayout = await collectManualPaymentManagementLayout(page, manualPaymentFixture.id, "manual-payment-edit-form");
+  assert.equal(
+    manualEditLayout.controls.find((control) => control.testId === "manual-payment-plan-input")?.maxLength,
+    100,
+    "manual payment edit plan name must mirror the 100-character server limit",
+  );
+  assert.equal(
+    manualEditLayout.controls.find((control) => control.testId === "manual-payment-edit-reason-input")?.maxLength,
+    500,
+    "manual payment edit reason must mirror the 500-character server limit",
+  );
   const manualEditScreenshotPath = join(outDir, "owner-manual-payment-edit-mobile.png");
   await page.screenshot({ path: manualEditScreenshotPath, fullPage: false, caret: "initial" });
 
@@ -878,6 +899,11 @@ try {
   const manualDeleteForm = manualPaymentArticle.getByTestId("manual-payment-delete-form");
   await manualDeleteForm.waitFor({ state: "visible" });
   const manualDeleteLayout = await collectManualPaymentManagementLayout(page, manualPaymentFixture.id, "manual-payment-delete-form");
+  assert.equal(
+    manualDeleteLayout.controls.find((control) => control.testId === "manual-payment-delete-reason-input")?.maxLength,
+    500,
+    "manual payment delete reason must mirror the 500-character server limit",
+  );
   await manualPaymentArticle.getByTestId("manual-payment-delete-reason-input").fill("중복 등록 삭제");
   await manualDeleteForm.scrollIntoViewIfNeeded();
   await page.evaluate(() => {
@@ -932,6 +958,7 @@ try {
       "payment create member search finds and selects a real member without scroll-only picker behavior",
       "payment create submit enables only after member selection",
       "cancelled/refunded manual payment create exposes a 44px reason field and blocks empty submission",
+      "manual payment plan names and audit reasons mirror the server input limits",
       "discount and public-service benefits require visible operator verification evidence",
       "manual payment create disables while saving and keeps its draft retryable after an uncertain response",
       "manual payment retry reuses its idempotency key, persists exactly once, and shows success feedback",

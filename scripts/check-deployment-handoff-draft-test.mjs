@@ -20,6 +20,7 @@ const preflightReportPath = path.join(directory, "pilot-preflight.pre-pilot.json
 await writeFile(preflightReportPath, `${JSON.stringify({ ok: true, releaseDecision: "ready", blockers: [] }, null, 2)}\n`);
 
 const draftPath = path.join(directory, "deployment-handoff.json");
+const signedOffAt = new Date(Date.now() + 60_000).toISOString();
 const secretEnv = {
   NODE_ENV: "production",
   FINAL_JUDO_DB_DRIVER: "postgres",
@@ -56,7 +57,7 @@ const draftReport = await runScript(
     "--preflight-evidence=drive://final-judo/evidence/deployment/pilot-preflight-json",
     "--release-evidence=https://github.com/antoe-prog/ant/actions/runs/201",
     "--signed-off-by=정유진",
-    "--signed-off-at=2026-07-16T04:30:00.000Z",
+    `--signed-off-at=${signedOffAt}`,
     "--signoff-evidence=https://evidence.finaljudo.kr/deployment/signoff",
   ],
   secretEnv,

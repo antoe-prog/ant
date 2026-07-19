@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import type { AppUser, AuditLog, Member } from "@/lib/domain";
+import { getAuthInputLimitError } from "@/lib/auth-input-policy";
+import type { AppUser, AuditLog, Member, MockDatabase } from "@/lib/domain";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
 import { createBootstrapPayload, jsonError, jsonOk } from "@/server/api";
@@ -10,16 +11,64 @@ import { findAcceptedBranchOperatorId } from "@/server/user-operational-reassign
 export const runtime = "nodejs";
 
 type RegisterBody = {
+  branchId?: string;
   name?: string;
   password?: string;
   phone?: string;
 };
 
+function getAvailableSignupBranches(db: MockDatabase) {
+  return db.branches
+    .filter((branch) => branch.status !== "inactive")
+    .map((branch) => ({ branch, operatorId: findAcceptedBranchOperatorId(db, branch.id) }))
+    .filter((entry): entry is { branch: MockDatabase["branches"][number]; operatorId: string } => Boolean(entry.operatorId));
+}
+
+export async function GET() {
+  const db = await readServerDb();
+  const availableBranches = getAvailableSignupBranches(db);
+
+  if (availableBranches.length === 0) {
+    return jsonError(503, "SERVICE_UNAVAILABLE", "현재 가입 가능한 지점이 없습니다.");
+  }
+
+  return jsonOk({
+    branches: availableBranches.map(({ branch }) => ({
+      district: branch.district,
+      id: branch.id,
+      name: branch.name,
+    })),
+  });
+}
+
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as RegisterBody | null;
-  const name = body?.name?.trim() ?? "";
-  const phone = normalizePhoneNumber(body?.phone ?? "");
-  const password = body?.password ?? "";
+  const rawBody = await request.json().catch(() => null);
+
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    return jsonError(400, "VALIDATION_ERROR", "회원가입 입력 형식이 올바르지 않습니다.");
+  }
+
+  const body = rawBody as RegisterBody;
+
+  if (
+    (body.branchId !== undefined && typeof body.branchId !== "string") ||
+    (body.name !== undefined && typeof body.name !== "string") ||
+    (body.phone !== undefined && typeof body.phone !== "string") ||
+    (body.password !== undefined && typeof body.password !== "string")
+  ) {
+    return jsonError(400, "VALIDATION_ERROR", "회원가입 입력 형식이 올바르지 않습니다.");
+  }
+
+  const inputLimitError = getAuthInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const name = body.name?.trim() ?? "";
+  const phone = normalizePhoneNumber(body.phone ?? "");
+  const password = body.password ?? "";
+  const requestedBranchId = body.branchId?.trim() ?? "";
 
   if (!name || !phone || !password) {
     return jsonError(400, "VALIDATION_ERROR", "이름, 휴대폰 번호, 비밀번호를 입력해 주세요.");
@@ -44,17 +93,25 @@ export async function POST(request: NextRequest) {
       return jsonError(409, "CONFLICT", "이미 등록된 휴대폰 번호입니다.");
     }
 
-    const branch = db.branches.find((candidate) => candidate.status !== "inactive") ?? db.branches[0];
+    const availableBranches = getAvailableSignupBranches(db);
 
-    if (!branch) {
-      return jsonError(503, "SERVICE_UNAVAILABLE", "가입 가능한 지점을 찾지 못했습니다.");
+    if (availableBranches.length === 0) {
+      return jsonError(503, "SERVICE_UNAVAILABLE", "현재 가입 가능한 지점이 없습니다.");
     }
 
-    const branchOperatorId = findAcceptedBranchOperatorId(db, branch.id);
-
-    if (!branchOperatorId) {
-      return jsonError(503, "SERVICE_UNAVAILABLE", "가입 지점의 담당 운영자가 준비되지 않았습니다.");
+    if (!requestedBranchId && availableBranches.length > 1) {
+      return jsonError(400, "VALIDATION_ERROR", "가입 지점을 선택해 주세요.");
     }
+
+    const selectedBranch = requestedBranchId
+      ? availableBranches.find(({ branch: candidate }) => candidate.id === requestedBranchId)
+      : availableBranches[0];
+
+    if (!selectedBranch) {
+      return jsonError(400, "VALIDATION_ERROR", "선택한 지점에서는 현재 가입할 수 없습니다.");
+    }
+
+    const { branch, operatorId: branchOperatorId } = selectedBranch;
 
     const now = new Date().toISOString();
     const userId = createRuntimeId("user-member");

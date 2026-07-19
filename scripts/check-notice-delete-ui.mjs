@@ -198,13 +198,21 @@ async function collectScreenState(page, screenTestId) {
 }
 
 async function loginTo(page, role, nextPath) {
-	  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
-	  loginUrl.searchParams.set("role", role);
-	  loginUrl.searchParams.set("next", nextPath);
-	  const loginResponse = await page.context().request.get(loginUrl.toString(), { maxRedirects: 0 });
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
+  loginUrl.searchParams.set("next", nextPath);
 
-	  assert([302, 303, 307, 308].includes(loginResponse.status()), `notice delete UI ${role} login must redirect after creating the session`);
-	  await page.goto(new URL(nextPath, baseUrl).toString(), { waitUntil: "domcontentloaded" });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForURL((url) => url.pathname === nextPath, { timeout: 30000 });
+  } catch (error) {
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).trim().slice(0, 500);
+    throw new Error(
+      `Notice delete UI auto-login failed for ${role}: expected ${nextPath}, got ${page.url()}; body=${JSON.stringify(bodyText)}`,
+      { cause: error },
+    );
+  }
 }
 
 async function createNoticeFromCurrentSession(page, title, body) {

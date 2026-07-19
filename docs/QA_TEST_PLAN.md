@@ -20,29 +20,30 @@
 - `npm run test:final-common-fee-policy` 통과. 공통 회비 상품·할인·1+1 연장 규칙과 유효 날짜 경계를 확인
 - `npm run test:final-main-schedule-policy` 통과. 본관 전용 수업 시간표·훈련 프로그램과 전 지점 공통 정책의 분리를 확인
 - `npm run test:final-common-promotion-policy` 통과. 전 지점 공통 승급 기간·월 수련시간·1일 최대 인정시간·심사일·정확한 다음 띠·코치 범위를 확인
-- `npm run test:promotion-api-integrity` 통과. 격리 저장소와 서버에서 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위와 동시 요청 중복 반영 차단을 확인
+- `npm run test:promotion-api-integrity` 통과. 격리 저장소와 서버에서 잘못된 생성·결과 본문 및 201자 회원 ID·501자 공개 메모의 무변경 차단, 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위, 동시 등록 고유 ID와 같은 대상 중복 반영 차단을 확인
 - `npm run test:final-policy-ui` 통과. 회비·본관 시간표·승급 기준 UI가 역할별 화면에 연결되고 정책 원문과 어긋나지 않는지 확인
-- `npm run test:role-csv-export-gates` 통과
+- `npm run test:role-csv-export-gates` 통과. 회원/학부모 차단, 대표/총괄 최신 계정·지점 범위 재검사, 동시 결제·운영 CSV 4건과 고유 감사 기록 4건 보존을 확인
 - `npm run test:deleted-request-surface` 통과
 - `npm run test:store` 통과. JSON runtime store의 동일 키 작업이 FIFO 순서로 직렬화되고 같은 base revision의 추가·서로 다른 필드 수정은 병합되며 동일 필드 충돌은 차단되고 revision/base 메타가 파일에 직렬화되지 않는지 확인
 - `npm run test:store`에서 서로 다른 JSON store 인스턴스와 독립 Node 프로세스가 같은 stale 파일을 동시에 써도 두 변경이 보존되고, 쓰지 않은 캐시 보유 인스턴스도 다음 조회에서 최신 파일을 읽는지 확인한다. 정규화 휴대폰·이메일 중복과 새로 생성되는 고아 참조는 저장 경계에서 차단하되, 기존 고아 참조는 읽기 중 자동 변경하지 않고 명시적 복구 대상으로 진단해야 한다.
 - `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. JSON/PostgreSQL 쓰기 전후 검증 훅, 비파괴 진단, 기존 결함 호환·새 결함 차단, `system.integrity.repair` 감사 기록을 남기는 명시적 복구, 출석·결제 원본 보존, 운영 복제본 리포트 비식별화를 확인한다.
 - `npm run test:next-build-readiness` 통과. 현재 Next dist의 `BUILD_ID`·빌드 입력 SHA-256 지문 누락, mtime 보존 수정, 소스 삭제·이름 변경, public 추가, 검증 중 빌드 변경 차단과 최신 빌드 허용을 확인하고, `FINAL_JUDO_NEXT_DIST_DIR` 격리 빌드가 기본 `.next` manifest를 덮어쓰지 않는지 검증
 - `npm run test:release-smoke-isolation` 통과. 빈 로컬 포트, run-owned 임시 JSON 디렉터리·실제 `PILOT_DB_FILE`·마커 강제, 상속 토큰 교체, 공유 경로·심볼릭 링크·원격/기존 서버 재사용 차단, 종료 후 임시 데이터 제거를 확인
-- `npm run test:admin-user-management-api` 통과. 최신 production build를 확인한 뒤 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경/초대 API와 지점 생성/수정/대표 배정 API, 인증/권한 선확인, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 전용 비밀번호 재발급, 원문 비밀번호/password hash 미노출과 변경 기록을 확인
+- `npm run test:admin-user-management-api` 통과. 최신 production build를 확인한 뒤 임시 DB와 임시 `next start` 서버에서 공개 가입 지점 최소 필드 목록, 복수 지점 선택 필수, 위조 지점 차단, 선택 지점 귀속, 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경의 본문 타입·계정 필드·연결 배열·사유·비밀번호 길이 무변경, 초대 본문 타입·계정 필드/원본 지점 배열 길이·동시 ID/휴대폰 유일성, 역할 변경 사유/원본 지점 배열 길이 무변경, 지점 생성/수정/대표 배정 API, 인증/권한 선확인, 계정 단위 로그인 제한 중 정상 비밀번호 복구, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 전용 비밀번호 재발급, 원문 비밀번호/password hash 미노출과 변경 기록을 확인
 - `npm run test:dashboard-priority-kpi` 통과. 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시하는지 확인
-- `npm run test:member-profile-guardian-edit` 통과. `/app/members` 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위를 확인
+- `npm run test:member-profile-guardian-edit` 통과. `/app/members` 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자 ID 200자 상한, 인증·지점 선검사, 공통 잠금 밖 본문 파싱과 잠금 안 최신 권한 재검사, 보호자-자녀 양방향 링크·동시 감사 ID 갱신 API와 smoke 회귀 범위를 확인
 - `npm run test:guardian-age-policy-ui` 통과. 운영자 회원 상세의 연령 정책과 보호자 연결 후보가 성인/유소년/청소년 기준으로 렌더링되고, 회원 검색 지우기 컨트롤이 44px 터치 목표를 유지하는지 확인
 - `npm run test:admin-user-guardian-bottom-safe-area` 통과. 관리자 사용자 목록의 44px 액션 버튼과 사용자 상세의 보호자 연결 선택/해제 목록/저장 액션이 모바일 하단 내비게이션에 가려지지 않는지 확인
 - `npm run test:api-auth-order` 통과. 보호 API route handler의 `request.json()` 본문 읽기가 `requireSession()` 이후에만 실행되고, 공개 body route allowlist가 로그인/비밀번호 재설정/초대 수락/결제 webhook으로 유지되는지 확인
+- `npm run test:attendance-mutation-safety` 통과. 출석 등록·해제·사유 변경이 공통 서버 잠금 안에서 직렬화되고, URL 선택 지점과 수업 지점 불일치 및 수업 시작 전 변경을 차단한다. 일괄 저장은 JSON 객체·배열 항목·필드 타입·200건 상한·회원 ID 200자·메모/사유 80자·회원 중복을 검증한다. 본문은 권한 선검증 후 공통 잠금 밖에서 읽고 잠금 안에서 최신 권한·수업 상태를 재검증하며, 격리 스모크는 느린 미완성 일괄 본문을 읽는 중에도 별도 출석 사유 저장이 먼저 완료되는지 확인한다. 잘못된 요청은 기존 출석·감사 기록을 변경하지 않고 저장 실패 건은 재시도 큐에 유지되는지 확인
 - `npm run test:login-keep-signed-in` 통과. 390px 로그인 화면에서 로그인 상태 유지 선택지가 44px 이상 터치 영역으로 보이고, 선택 시 30일/해제 시 8시간 세션 쿠키가 설정되는지 확인. 로그인된 상태 또는 HttpOnly 쿠키만 남은 앱 재시작 상태로 `/login`에 진입했을 때 `로그아웃하고 계정 전환` 액션도 44px 터치 높이를 유지해야 한다.
-- `npm run test:auth-session-security` 통과. 사용자 ID를 세션 쿠키로 직접 넣어도 인증되지 않고, 무작위 토큰 원문은 저장소에 남지 않으며 만료·로그아웃·사용자 전체 세션 폐기가 적용되는지 확인
-- `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 초대 수락 뒤 휴대폰·동일 비밀번호 로그인과 로그아웃 후 재로그인, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
+- `npm run test:auth-session-security` 통과. 사용자 ID를 세션 쿠키로 직접 넣어도 인증되지 않고, 무작위 토큰 원문은 저장소에 남지 않으며 만료·로그아웃·사용자 전체 세션 폐기와 계정 단위 실패 제한 중 정상 자격증명 복구가 적용되는지 확인
+- `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 257자 비밀번호의 해시 전 차단·원문 미저장, 초대 수락 뒤 휴대폰·동일 비밀번호 로그인과 로그아웃 후 재로그인, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
 - `npm run test:local-demo-password-rotation` 통과. 공용 데모 비밀번호의 고정/임의 salt 해시를 모두 탐지하고, 명시적 격리 JSON 확인 없이는 쓰지 않으며 원본·PostgreSQL·공개 산출물에 비밀번호를 남기지 않는지 확인
 - `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 통과. 구독별 멱등 enqueue, lease/revision 경쟁, 지수 backoff, 최대 시도, 404/410 비활성화, 수동 재발송 멱등 digest, 공지 변경/삭제 취소 경계, provider timeout·불확실 전송·stale settlement 감사, CRON_SECRET 인증과 endpoint/key 없는 시도 감사 기록을 확인
-- `npm run test:phone-signup-login-flow` 통과. 390px 휴대폰 회원가입에서 입력한 비밀번호로 가입 완료 안내 로그인 화면에 진입하고, 같은 비밀번호로 회원 대시보드까지 이동하며 잘못된 비밀번호 문구가 먼저 노출되지 않는지 확인. 브라우저 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-20260705/summary.json`, iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-ios-20260705/summary.json`에 보관
-- `npm run test:payment-lifecycle` 통과. 수기 결제 등록이 처리자·지점 범위의 `Idempotency-Key` 재시도를 한 건으로 유지하고 다른 payload나 삭제된 원본의 키 재사용을 차단하며, UUID 식별자를 사용하고 환불액 없는 부분 환불 직접 생성을 거부하는지 확인한다. 취소·환불 완료 상태 등록은 사유를 필수로 받고 정규화한 사유를 최초 상태 이력·감사 스냅샷·확인값에 저장하며, 일반 상태 확인값은 기존 형식과 호환되는지 검증한다. 존재하지 않는 달력 날짜와 납부일보다 앞선 만료일을 차단하고, 동일 결제의 수기 변경과 온라인 요청은 직렬화되며 삭제 감사 스냅샷에는 취소·상태 이력이 유지되고, 등록과 환불/취소 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하는지 검증
-- `npm run test:auth-production-guard` 통과
+- `npm run test:phone-signup-login-flow` 통과. 고유 로컬 포트와 실행별 임시 JSON 저장소의 390px 휴대폰 회원가입에서 서버가 제공한 지점 선택기(44px, 가로 overflow 0)를 거쳐 선택 지점에 가입하고, 31자 이름·257자 비밀번호·255자 로그인/재설정 식별자를 계정 생성·비밀번호 검증 전에 400으로 차단한다. 정상 입력은 같은 휴대폰과 비밀번호로 가입 완료 안내 로그인 화면과 회원 대시보드까지 이동하며, 폼의 이름·휴대폰·비밀번호 `maxLength`와 잘못된 비밀번호 문구 비노출을 확인한다. 최신 브라우저 증빙은 `.data/mobile-builds/ios/phone-signup-branch-selection-20260719/summary.json`에 보관하며 기존 iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-ios-20260705/summary.json`에 보관
+- `npm run test:payment-lifecycle` 통과. 수기 결제 등록이 처리자·지점 범위의 `Idempotency-Key` 재시도를 한 건으로 유지하고 다른 payload나 삭제된 원본의 키 재사용을 차단하며, UUID 식별자를 사용하고 환불액 없는 부분 환불 직접 생성을 거부하는지 확인한다. 취소·환불 완료 상태 등록은 사유를 필수로 받고 정규화한 사유를 최초 상태 이력·감사 스냅샷·확인값에 저장하며, 일반 상태 확인값은 기존 형식과 호환되는지 검증한다. 회원권명 100자와 등록·수정·삭제·환불/취소 사유 500자 공통 상한, 존재하지 않는 달력 날짜와 납부일보다 앞선 만료일을 차단하고, 동일 결제의 수기 변경과 온라인 요청은 직렬화되며 삭제 감사 스냅샷에는 취소·상태 이력이 유지되고, 등록과 환불/취소 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하는지 검증
+- `npm run test:auth-production-guard` 통과. production 데모 로그인 차단·세션 쿠키 정책, 로그인/회원가입/초대 수락/재설정의 공통 입력 상한, 로컬 자동로그인 `next`의 같은 오리진·2,048자 상한과 안전하지 않은 경로의 대시보드 대체가 서버와 폼에 연결되는지 확인
 - `npm run test:dev-reset-guard` 통과
 - `npm run test:env-readiness` 통과
 - `npm run test:deployment-handoff-draft` 통과
@@ -88,19 +89,19 @@
 - 대표 대시보드 지점 비교 카드는 390px 모바일 첫 화면에서 위험 알림보다 먼저 보이고 하단 내비게이션과 24px 이상 여백을 유지해야 하며, 위험 알림 요약도 같은 화면에서 하단 내비게이션에 가리지 않아야 한다. `npm run test:visible-app-copy-stability`가 `ownerBranchComparison*BottomNavClearance`와 `ownerDashboardRiskSummaryBottomNavOverlap` 값으로 회귀를 차단한다.
 - `npm run test:postgres-doctor` 통과
 - `npm run test:online-payments` 통과
-- `npm run test:family-payment-checkout` 통과. 회원/학부모 결제 카드가 내부 결제 준비 화면으로 이동하고, 성인 회원 직접 결제와 학부모 자녀 결제 허용, 유소년/청소년 회원 직접 결제 차단, 실 PG/API 미연결 상태를 검증
+- `npm run test:family-payment-checkout` 통과. 회원/학부모 결제 카드가 내부 결제 준비 화면으로 이동하고, 성인 회원 직접 결제와 학부모 자녀 결제 허용, 유소년/청소년 회원 직접 결제 차단, 납부 요청 이름·연락처 UI/서버 상한과 본문 잠금 밖 검증·잠금 안 최신 권한 재확인, 실 PG/API 미연결 상태를 검증
 - `npm run test:payment-checkout-method-flow` 통과. 390px 모바일 결제 상세에서 성인 회원/학부모 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, compact 납부 요약, 자연스러운 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 선택, 카드 안내 버튼 44px 터치 목표, 우리WON페이 모달, 저장/1회성 납부 정보 확인 피드백과 polite status live region, 학부모 자녀 결제 화면이 overflow/콘솔 오류 없이 동작하고 하단 고정 내비게이션에 `납부 정보 확인` 버튼과 `납부 정보 접수` 안내가 가리지 않는지 검증
-- `npm run test:tournament-access` 통과. 역할·지점별 대회 조회와 관리 권한 계약을 확인
+- `npm run test:tournament-access` 통과. 역할·지점별 대회 조회/관리 권한, 잘못된 본문 타입·존재하지 않는 달력 날짜 무변경 차단, 동시 등록·수정·감사 기록 보존을 확인
 - `npm run test:payment-create-touch-targets` 통과. 390px 모바일 대표 결제 화면에서 상단 결제 내보내기/상태 필터/표시 건수, 결제 행 재등록/온라인 요청/정기결제 약정/환불/취소 액션, 수기 결제 등록 폼의 접힘/열림, 회원 검색 결과 선택, 취소·환불 완료 상태의 44px 조건부 사유 입력과 빈 사유 제출 차단, 등록 중 중복 제출 차단, 서버 저장 뒤 응답 유실 시 동일 `Idempotency-Key` 재시도와 정확히 1건의 목록 반영, 성공 안내, overflow 0, 콘솔 오류 없음 상태를 검증. iPhone 16e 조건부 사유 입력 증빙은 `.data/mobile-builds/ios/manual-payment-create-audit-reason-20260713/simulator-summary.json`에 보관
-- `npm run test:class-management-touch-targets` 통과. 390px 모바일 대표 수업 화면에서 수업 생성 폼 기본 접힘, 생성 입력/등록 버튼, 수업 장소/정원 수정 입력/저장 버튼이 44px 이상이고, 코치 수업 화면의 출석 메모 토글/입력/빠른 메모/사유 저장도 44px 이상이며 overflow 0, 콘솔 오류 없음 상태를 검증
+- `npm run test:class-management-touch-targets` 통과. 390px 모바일 대표 수업 화면에서 수업 생성 폼 기본 접힘, 생성 입력/등록 버튼, 수업 장소/정원 수정 입력/저장 버튼이 44px 이상이고 수업명 80자·레벨 40자·장소 80자 UI 상한을 유지한다. 코치 수업 화면의 출석 메모 토글/입력/빠른 메모/사유 저장도 44px 이상이고 메모 80자 UI 상한, overflow 0, 콘솔 오류 없음 상태를 검증
 - `npm run test:member-management-touch-targets` 통과. 390px 모바일 대표 회원 관리 컨트롤 44px, 회원 상세 결제·회원권 요약의 가족 금액 비노출·코치 전체 비노출, 학부모 자녀·결제 딥링크와 이후 수동 자녀 선택 유지, overflow 0, 콘솔 오류 없음, iPhone 16e 네이티브 셸을 검증
-- `npm run test:admin-user-management-touch-targets` 통과. 390px 모바일 총괄 사용자 관리 화면에서 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼이 44px 이상이고 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙을 검증
+- `npm run test:admin-user-management-touch-targets` 통과. 390px 모바일 총괄 사용자 관리 화면에서 초대 폼 기본 접힘, 초대 이름 80자·휴대폰 40자·이메일 254자, 수정 설명 120자·비밀번호 256자, 삭제·재발급 사유 500자 상한, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼이 44px 이상이고 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙을 검증
 - `npm run test:operator-list-search` 통과. 390px 모바일 운영자 결제 목록과 공지함 `q` 검색 딥링크/검색어 지우기, 0건 검색 빈 상태, 공지 0건 상태의 읽음 처리 액션 숨김과 하단 내비 clearance, 검색 입력/인라인 지우기/빈 상태 지우기 44px 터치 목표가 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태를 유지하는지 검증
 - `npm run test:global-search` 통과. 대표/총괄 상단 검색이 권한 범위 안의 메뉴·회원·결제·공지·사용자를 통합 검색하고, 코치에게 결제·사용자 민감 결과를 반환하지 않으며 실제 목록 검색 딥링크로 연결되는지 검증
 - `npm run test:admin-role-search` 통과. 390px 모바일 총괄 권한 관리의 `q` 검색 딥링크, 검색 입력/인라인 지우기/0건 빈 상태 `전체 보기` 44px 액션, 검색 중 부가 패널 숨김, 하단 safe-area spacer와 내비 clearance, overflow 0, 콘솔 오류 없음 상태를 검증
 - `npm run test:admin-user-search` 통과. 390px 모바일 총괄 사용자 관리의 `role`+`q` 검색 딥링크, 검색어 지우기 시 역할 필터 보존, 0건 빈 상태 `전체 보기`의 q/role 복구, 검색 입력/지우기/필터 초기화/빈 상태 초기화 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음 상태를 검증
-- `npm run test:admin-audit-search` 통과. 390px 모바일 총괄 변경 기록의 `q` 검색 딥링크, 검색어 지우기와 `전체 보기` URL 복구, 0건 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨과 승급 심사·대회 공지 변경 기록 API 필터 허용을 검증
-- `npm run test:recurring-billing` 통과. 정기결제 약정 생성/해지 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하는지 함께 확인
+- `npm run test:admin-audit-search` 통과. 390px 모바일 총괄 변경 기록의 `q` 검색 딥링크, 검색어 120자 상한, 검색어 지우기와 `전체 보기` URL 복구, 0건 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨과 승급 심사·대회 공지 변경 기록 API 필터 허용, 검색어 121자·사유 501자·지점 ID 201자 요청의 잠금 전 400 무감사 차단, 동시 동일 조회의 단일 감사 기록 보존을 검증
+- `npm run test:recurring-billing` 통과. 정기결제 약정 생성/해지 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하고, 실제 달력 날짜·1-28 청구일·문자열 해지 사유, 공통 결제 잠금, 최신 권한·상태 재검증, 저장 충돌 409 매핑을 유지하는지 확인. 격리 `test:smoke`는 동시 생성 `200/409`, 동시 해지 `200/422`, 성공 작업별 상태 이력·감사 기록 1건을 검증
 - `npm run test:payment-provider-handoff-draft` 통과
 - `npm run test:payment-provider-handoff` 통과
 - `npm run test:routes` 통과
@@ -124,7 +125,7 @@
 - `npm run test:db` 통과
 - `npm run test:postgres-store` 통과. 서로 다른 PostgreSQL runtime store 인스턴스가 같은 결제 요청 키를 advisory lock으로 직렬화하고 잠금 내부 read/write가 성공 시 커밋·실패 시 롤백되며, stale snapshot의 서로 다른 추가가 병합되는지 확인한다. 임시 Next 서버에서는 동시 결제 route 요청이 결제·감사 기록 각각 1건만 저장되고, DB row barrier 뒤 같은 오래된 revision에서 시작한 결제·출석 요청이 두 변경과 두 감사 기록을 모두 보존하는지 Docker PostgreSQL에서 확인
 - `npm run test:pilot` 통과
-- `npm run test:pilot-readiness-contract` 통과
+- `npm run test:pilot-readiness-contract` 통과. 파일럿 준비·이슈·운영 로그의 공통 문자열 상한, 잠금 전 차단 순서, 관리자 설정 입력의 동일 `maxLength` 계약을 확인
 - `npm run test:pilot-import` 통과
 - `npm run test:pilot-prelaunch-draft` 통과
 - `npm run test:pilot-launch-package` 통과
@@ -221,19 +222,27 @@
 | QA-AUTH-01 | 로그인하지 않고 `/app/dashboard` 접속 | `/login?next=...`로 이동 |
 | QA-AUTH-01A | `/login`에서 총괄 어드민 이메일과 교체된 비밀번호 입력 | 총괄 어드민 세션 생성 후 `/app/dashboard`로 이동, 응답에 `passwordHash` 미노출 |
 | QA-AUTH-01B | `/login`에서 등록 이메일과 잘못된 임시 비밀번호 입력 | `401 UNAUTHENTICATED` 오류 메시지 표시, 세션 미생성 |
-| QA-AUTH-01C | `/login`에서 회원가입 선택 후 `/signup`에서 이름·휴대폰 번호·비밀번호 입력 | 성인 회원 사용자와 회원 프로필이 생성되고 같은 휴대폰 번호/비밀번호로 로그인 가능. `/login?registered=1`은 가입 완료 안내와 가입 휴대폰 번호를 유지하고, 로그인 전에는 잘못된 비밀번호 문구를 띄우지 않는다. `/signup`에는 초대 링크 입력이 보이지 않으며 초대 수락은 `/invite/:token`에서만 진행 |
+| QA-AUTH-01C | `/login`에서 회원가입 선택 후 `/signup`에서 가입 지점·이름·휴대폰 번호·비밀번호 입력 | 서버가 제공한 활성·운영 가능 지점 중 선택한 지점에 성인 회원 사용자와 회원 프로필이 함께 생성되고 같은 휴대폰 번호/비밀번호로 로그인 가능. `/login?registered=1`은 가입 완료 안내와 가입 휴대폰 번호를 유지하고, 로그인 전에는 잘못된 비밀번호 문구를 띄우지 않는다. `/signup`에는 초대 링크 입력이 보이지 않으며 초대 수락은 `/invite/:token`에서만 진행 |
 | QA-AUTH-01D | 알려진 과거 관리자 seed 해시가 있는 기존 JSON 런타임을 재설정하지 않고 기본 운영 비밀번호로 로그인 | `user-admin`의 정확한 과거 seed 해시만 현재 공유 기본 해시로 승격되어 로그인되고, 다른 사용자 비밀번호와 대기 초대는 변경되지 않으며 응답에 `passwordHash`가 노출되지 않음 |
+| QA-AUTH-01E | 로그인·회원가입·비밀번호 재설정 API에 객체형 휴대폰/이름/식별자, 배열 payload, 비문자 비밀번호 또는 허용되지 않은 역할을 전송 | 서버 오류나 PBKDF2 검증 없이 `400 VALIDATION_ERROR`로 차단되고 사용자·회원·세션·감사 기록이 생성되지 않음 |
+| QA-AUTH-01F | 인증 없이 회원가입에 이름 31자·비밀번호 257자, 로그인에 식별자 255자·비밀번호 257자, 재설정 요청에 식별자 255자 전송 | 모든 요청이 PBKDF2·계정 조회·저장소 잠금 전에 `400 VALIDATION_ERROR`로 차단되고 같은 휴대폰의 정상 가입이 이어진다. 390px 폼은 서버 상한과 일치하는 `maxLength`를 사용 |
 | QA-AUTH-02 | 코치로 `/app/payments` 직접 접속 | 403 권한 없음 화면 |
 | QA-AUTH-03 | 코치로 `/app/admin/roles` 직접 접속 | 403 권한 없음 화면 |
-| QA-AUTH-03A | `npm run test:role-csv-export-gates`, `npm run test:smoke` 실행 | 회원/학부모는 `/app/payments`에서 결제 상태만 볼 수 있고 CSV 내보내기 버튼, `/app/owner/reports`, `/app/admin/audit-logs`, `/app/admin/settings`, `/api/v1/exports/*` 권한은 대표/총괄 또는 관리자 전용으로 유지된다. `test:smoke`의 회원/학부모 CSV export API 403 런타임 요청에서 `/api/v1/exports/payments`, `/api/v1/exports/operations`가 403이고 CSV content-type을 반환하지 않으면 통과 |
+| QA-AUTH-03A | `npm run test:role-csv-export-gates`, `npm run test:smoke` 실행 | 회원/학부모는 `/app/payments`에서 결제 상태만 볼 수 있고 CSV 내보내기 버튼, `/app/owner/reports`, `/app/admin/audit-logs`, `/app/admin/settings`, `/api/v1/exports/*` 권한은 대표/총괄 또는 관리자 전용으로 유지된다. 현재 계정·지점 범위를 다시 확인하고 동시 결제·운영 CSV 4건의 감사 기록을 모두 보존한다. `test:smoke`의 회원/학부모 CSV export API 403 런타임 요청에서 `/api/v1/exports/payments`, `/api/v1/exports/operations`가 403이고 CSV content-type을 반환하지 않으면 통과 |
 | QA-AUTH-04 | `/reset-password`에서 등록 이메일 입력 후 요청 | 사용자 존재 여부 노출 없이 완료 메시지 표시, `auth.password_reset.request` 기록 |
 | QA-AUTH-05 | 총괄이 `/app/admin/roles`에서 사용자 초대 | 대기 초대 수 증가, 초대 링크 생성, `user.invite.create` 기록 |
+| QA-AUTH-05A | 총괄 | 객체형 이름·휴대폰 또는 비문자 지점 배열로 초대한 뒤 서로 다른 계정 2건과 같은 휴대폰 2건을 각각 동시에 초대 | 잘못된 타입은 `400 VALIDATION_ERROR`이고 사용자·감사 기록 무변경. 서로 다른 초대는 UUID 기반 사용자·감사 ID로 모두 보존되고, 같은 휴대폰 초대는 `200/409`로 한 계정만 저장됨 |
+| QA-AUTH-05B | 총괄 | 비밀번호 재발급과 역할 변경에 객체형 사유 또는 비문자 지점 배열 전송 | 두 요청 모두 `400 VALIDATION_ERROR`이고 기존 비밀번호 로그인이 계속 성공하며 역할·담당 지점·감사 기록이 유지됨. 정상 변경은 기존 세션 폐기와 감사 기록을 유지 |
+| QA-AUTH-05C | 총괄/대표 | 사용자 초대에 이름 81자·이메일 255자·휴대폰 41자·원본 지점 101개를 전송하거나 역할 변경에 사유 501자·원본 지점 101개를 전송 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 사용자·역할·담당 지점·감사 기록이 변하지 않는다. 초대 UI는 이름 80자·이메일 254자·휴대폰 40자, 역할 변경 사유는 500자 상한을 사용 |
+| QA-AUTH-05D | 총괄 | 사용자 수정에 객체형 이메일·혼합 연결 배열 또는 이름 81자·설명 121자·비밀번호 257자·연결 ID 101개를 전송하고 삭제·비밀번호 재발급에 501자 사유를 전송 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 기존 이메일·연결·비밀번호·감사 기록이 변하지 않는다. 사용자 수정 UI는 서버와 같은 계정 필드 상한, 삭제·재발급 사유는 500자 상한을 사용 |
 | QA-AUTH-06 | 생성된 `/invite/:token` 접속 후 12자 이상 초기 비밀번호로 초대 수락 | 초대 사용자가 로그인되고 `auth.invite.accept` 기록, `passwordHash` 미노출, 초기 비밀번호로 재로그인 가능 |
 | QA-AUTH-06A | 총괄이 `/app/admin/users`에서 초대 수락 사용자에 발급 사유 입력 후 임시 비밀번호 발급 | 임시 비밀번호가 1회 표시되고 새 비밀번호로 로그인 가능, 기본 임시 비밀번호는 재사용되지 않으며 `auth.password_reset.complete` 기록 |
 | QA-AUTH-06B | 초대 수락에서 비밀번호 누락, 기본 임시 비밀번호 사용, 이미 사용한 링크 재사용 시도 | 각각 400/422/409로 차단되고 가입 세션이 새로 생성되지 않음 |
 | QA-AUTH-06C | 같은 초대 링크로 두 요청을 동시에 수락 | 전용 저장소 잠금 아래 정확히 한 요청만 200과 로그인 세션을 받고 다른 요청은 409, 성공 감사 기록도 한 건만 생성. 저장소·감사에는 토큰 원문과 비밀번호 원문이 남지 않음 |
 | QA-AUTH-06D | 유효한 대기 초대에서 15분 안에 비밀번호 정책 실패 5회 후 다시 수락 | 사용자 target의 최근 실패 감사 기록을 기준으로 다음 요청은 `429 RATE_LIMITED`, `Retry-After` 포함. 미일치 256-bit 토큰은 404이며 대상 감사·세션·PBKDF2 작업 없음. 앞뒤 공백 비밀번호는 자동 trim 없이 400 |
+| QA-AUTH-06G | 유효한 대기 초대에 257자 비밀번호로 수락 요청 | `400 VALIDATION_ERROR`, 계정은 `pending` 유지, PBKDF2 미실행. 실패 감사에는 `too_long`만 기록되고 비밀번호 원문은 저장되지 않음 |
 | QA-AUTH-06E | 총괄 또는 담당 지점 대표가 대기 초대의 `링크 다시 만들기` 실행 | 새 원문 링크는 해당 응답에서만 표시되고 저장소에는 SHA-256 해시만 남는다. 이전 링크는 즉시 404, 비관리자·담당 밖 지점은 403이며 bootstrap 사용자 목록에는 해시도 노출되지 않음 |
+| QA-AUTH-06F | 총괄이 같은 대기 초대를 두 요청으로 동시에 승인 | 초대 보안 잠금 아래 정확히 한 요청만 `200`과 1회 표시 임시 비밀번호를 받고 다른 요청은 `409`. 성공 임시 비밀번호로 로그인 가능하고 UUID 기반 `user.invite.approve` 감사 기록은 한 건만 생성되며 원문 비밀번호는 응답 외 저장소·감사에 남지 않음 |
 | QA-AUTH-07 | `/app/account` 접속 | 계정 유형, 이용 지점, 웹/PWA의 홈 화면 추가 액션 표시. 네이티브 앱에서는 설치 안내 카드가 숨겨짐 |
 | QA-AUTH-08 | 대표가 `/app/members`에서 코치/학부모/회원 초대 | 자기 지점 범위 초대 링크 생성, `user.invite.create` 기록 |
 | QA-AUTH-09 | 대표가 총괄 어드민 초대 API 호출 | `403 FORBIDDEN`으로 차단 |
@@ -307,7 +316,8 @@
 | QA-MOB-10C | `npm run test:android-release-handoff-draft` 실행 | Android handoff 초안 생성기가 doctor/assetlinks/build-plan/APK/AAB에서 origin, release fingerprint, SHA-256, byte size를 자동 입력하고, 증빙 값이 채워진 초안이 strict handoff를 통과하면 완료 |
 | QA-MOB-10D | `npm run test:android-release-handoff` 실행 | Android handoff manifest 검증기가 APK/AAB 해시, assetlinks 배포, signing custody, 설치 smoke, 주소창/공유/더보기 브라우저 UI 비노출, HTTPS/provider URI 증빙, 템플릿의 `*_EVIDENCE_URI` placeholder, ISO 생성/승인 시각, 생성 이후 승인 순서, signoff ready fixture를 통과시키고 누락 AAB/해시 불일치/템플릿 대기/브라우저 주소창 smoke 실패/non-reference evidence/non-ISO timestamp/시간 역전 상태를 차단하면 통과 |
 | QA-MOB-10E | 실제 `.data/android-release-handoff.json` 작성 후 `npm run android:release-handoff -- --file=.data/android-release-handoff.json --out=.data/android-release-handoff.report.json` 실행 | 실제 APK/AAB, doctor report, assetlinks/build-plan, Play/App signing, keystore custody, Android 설치 smoke, 주소창/공유/더보기 브라우저 UI 비노출 승인 증빙, HTTPS/provider URI 증빙, ISO 생성/승인 시각과 생성 이후 승인 순서가 모두 ready이고 blockers가 없으면 파일럿 배포 전 통과 |
-| QA-MOB-11 | `npm run test:notification-readiness` 실행 | 공지 화면 알림 권한 UI, VAPID 구성 필요/구독 가능/구독됨 상태, PushSubscription 저장/해지 API, 역할별 활성 구독 수 스코프, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, 공지 요약, AppShell 미읽음 공지 배지, 테스트 알림 표시, push/click handler, 공지함 이동 경로, `브라우저`, `브라우저 권한`, `서비스 워커` 같은 구현 기준 문구 비노출이 검증되면 통과 |
+| QA-MOB-11 | `npm run test:notification-readiness`, `npm run test:notification-outbox`, `npm run test:smoke` 실행 | 공지 화면 알림 권한 UI, VAPID 구성 필요/구독 가능/구독됨 상태, PushSubscription 저장/해지 API, 역할별 활성 구독 수 스코프, 동일 브라우저 endpoint의 단일 계정 소유권 이전 감사, 이전 계정 provider 호출 중 이전 보류, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, 공지 요약, AppShell 미읽음 공지 배지, 테스트 알림 표시, push/click handler, 공지함 이동 경로, `브라우저`, `브라우저 권한`, `서비스 워커` 같은 구현 기준 문구 비노출이 검증되면 통과 |
+| QA-MOB-11C | `npm run test:mobile-notification-inbox` 실행 | 회원·학부모 390px 알림함에서 알림 권한 요청, PushManager 구독, 구독 API 1회 저장, 연결 후 안내 행 제거, 44px 터치 영역, 가로 오버플로 0, 공지 읽음 톤다운이 함께 검증되면 통과 |
 | QA-MOB-11A | `npm run test:notification-push-handoff-draft`와 `npm run test:notification-push-handoff` 실행 | 운영 푸시 handoff 초안이 원문 VAPID private key를 저장하지 않고, strict 검증기가 HTTPS origin, VAPID secret store, Android 실기기 push 수신/클릭, 공지 발송 변경 기록, 권한 차단/미지원 상태 HTTPS/provider URI 증빙 누락, 템플릿의 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO production origin과 VAPID subject, non-reference evidence, non-ISO timestamp, 시간 역전을 차단하면 통과 |
 | QA-MOB-11B | `npm run test:notification-outbox`와 `npm run test:notification-outbox-integration` 실행 | 수동 재발송 `Idempotency-Key` 원문 미저장·동일 요청 재사용, revision fencing, 공지 변경/삭제 시 대기·임대 작업 취소, provider 호출 전 발송 중단, 호출 후 취소·15초 timeout의 전송 가능성 감사, 늦은 이전 결과의 상태 덮어쓰기 차단, CRON_SECRET timing-safe 검증이 통과 |
 
@@ -319,20 +329,28 @@
 | QA-PAY-01 | 코치 | 대시보드와 수업 화면 확인 | 회원권 상태는 보이되 원화 금액 미노출 |
 | QA-PAY-02 | 대표 | `/app/payments` 접속 | 금액, 미납, 만료 예정 표시 |
 | QA-PAY-03 | 대표 | `/app/payments`에서 회원 검색 후 일반 상태와 취소·환불 완료 상태로 수기 결제 등록 | 일반 상태는 결제 목록에 UUID 기반 새 회원권이 추가되고 동일 `Idempotency-Key` 재시도는 한 건만 유지. 취소·환불 완료 상태는 사유 입력 전 제출할 수 없고, 정규화한 사유·처리 시각이 `refundReason`/`refundedAt`, 최초 상태 이력과 `payment.create` 변경 기록에 저장되며 Payment 루트에는 감사용 `reason`이 중복되지 않음 |
+| QA-PAY-03A | 대표 | 수기 결제 등록 API의 회원·회원권·상태·날짜·사유·회비 상품·혜택 필드에 객체나 배열을, 금액 필드에 문자열을 전송 | 문자열 정규화나 금액 계산 전에 `400 VALIDATION_ERROR`로 차단되고 결제·상태 이력·감사 기록이 생성되지 않으며 서버 오류가 발생하지 않음 |
+| QA-PAY-03B | 대표/총괄 | 수기 결제 등록·수정의 회원권명에 101자, 등록·수정·삭제·환불/취소 사유에 501자를 전송 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 결제 원본·상태 이력·감사 기록이 생성·수정·삭제되지 않으며 UI도 같은 100자·500자 상한을 사용 |
 | QA-PAY-04 | 대표 | `/app/payments`에서 결제 내보내기 | CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-PAY-05 | 대표 | `/app/payments`에서 환불 금액과 사유 입력 후 처리 | 상태가 부분/전액 환불로 변경되고 `payment.refund` 변경 기록 생성 |
 | QA-PAY-05A | 대표/총괄 | 동일 결제에 1,000원 환불 12건을 동시에 요청하고 `0.4원`·안전 정수 범위 밖 금액을 제출 | 12건은 공통 결제 잠금 안에서 순차 반영되어 `500` 없이 환불액·상태 이력 12건이 일치하고, 소수·비안전 정수 금액은 `400 VALIDATION_ERROR`로 차단 |
+| QA-PAY-05B | 대표/총괄 | 환불·취소 API의 사유에 객체, 금액에 문자열 또는 취소 여부에 문자열을 전송 | 문자열 정규화와 상태 계산 전에 `400 VALIDATION_ERROR`로 차단되고 환불액·결제 상태·상태 이력·감사 기록이 변경되지 않으며 서버 오류가 발생하지 않음 |
 | QA-PAY-06 | 대표 | `/app/payments`에서 예정/미납 결제를 사유와 함께 취소 | 상태가 취소로 변경되고 `payment.refund` 변경 기록 생성 |
 | QA-PAY-07 | 대표 | `/app/payments`에서 상태 필터를 `미납/만료 예정`으로 변경 | 위험 결제만 표시되고 조회 건수/미납/확인 필요 금액이 필터 기준으로 재계산 |
 | QA-PAY-08 | 대표 | `/app/payments` 결제 행의 `재등록` 클릭 | 같은 회원/회원권/금액/할인이 수기 결제 등록 폼에 채워지고 상태는 납부 예정으로 설정 |
 | QA-PAY-09 | 대표 | `/app/payments` 결제 행 확인 | 회원별 결제 이력 건수와 최근 만료일이 표시 |
 | QA-PAY-10 | 대표 | `/app/payments`에서 예정/미납 결제의 `온라인 요청` 클릭 | 온라인 결제 대기 상태, provider 결제 ID, 결제 링크가 저장되고 `payment.online_checkout.create` 변경 기록 생성 |
-| QA-PAY-11 | 대표 | `/api/v1/payments/webhook`에 성공/실패/환불 이벤트 전송 후 같은 `providerEventId`를 재전송 | 첫 이벤트는 결제 완료/실패/환불 상태와 영수증/실패/환불 메타, `payment.webhook` 변경 기록을 남기고, 중복 event ID는 상태 이력과 변경 기록을 추가하지 않음 |
+| QA-PAY-10A | 대표/총괄 | production 결제창 기본 주소를 HTTP, 자격증명 포함 URL 또는 경로·쿼리가 붙은 값으로 설정한 뒤 온라인 결제 요청 | `PAYMENT_CHECKOUT_BASE_URL_INVALID` 준비 차단 사유가 확인되고 API는 `503 PAYMENT_RUNTIME_NOT_READY`를 반환하며 결제 요청·상태 이력·감사 로그를 저장하지 않음 |
+| QA-PAY-11 | 대표 | `/api/v1/payments/webhook`에 성공/실패/환불 이벤트 전송 후 같은 결제와 다른 결제에 동일 `providerEventId`를 순차·동시에 재전송한다. 금액 없는 환불, 비문자 식별자, 실행 가능 스킴의 영수증 URL도 전송 | 같은 결제의 중복 event ID는 상태 이력과 변경 기록을 추가하지 않고 멱등 응답하며, 다른 두 결제의 동시 재사용도 정확히 한 건만 성공하고 나머지는 상태·이력·감사 기록을 변경하지 않은 채 `409 PROVIDER_EVENT_CONFLICT`로 차단한다. 금액 없는 환불과 잘못된 provider/영수증 메타데이터는 결제 상태·환불액·이벤트 ID·감사 기록을 변경하지 않고 `400`으로 차단 |
 | QA-PAY-11A | 결제 provider | `paid → refunded → 다른 ID의 paid`와 최신 처리 시각보다 오래된 이벤트를 전송 | 환불 완료 상태는 `409 INVALID_TRANSITION`, 오래된 이벤트는 `409 OUT_OF_ORDER`로 차단되고 결제·온라인 결제 상태와 환불액이 환불 완료로 유지 |
+| QA-PAY-11B | 대표/결제 provider | 같은 결제에 `paid` 웹훅과 정기결제 약정 생성을 동시에 전송 | 전역 provider event 잠금 뒤 결제별 잠금을 같은 순서로 얻어 두 요청이 모두 완료되고, 최종 결제는 납부 완료 상태와 정기결제 약정을 함께 보존하며 웹훅·약정 상태 이력과 감사 기록이 각각 한 건만 생성 |
 | QA-PAY-12 | 코치 | 온라인 요청이 있는 결제 포함 수업/회원 화면 확인 | 회원권 상태는 보이되 `onlinePayment.amount`와 결제 링크는 노출되지 않음 |
 | QA-PAY-13 | 대표 | `/app/payments`에서 결제 완료/납부 예정/미납/만료 예정 결제의 `정기결제 약정` 클릭 | provider 약정 ID, 월 청구일, 다음 청구일, `payment.recurring_agreement.create` 변경 기록이 저장됨 |
 | QA-PAY-14 | 대표 | 정기결제 약정이 있는 결제에서 사유 입력 후 `정기결제 해지` 클릭 | 약정 상태가 해지로 바뀌고 해지 사유, 해지 시각, `payment.recurring_agreement.cancel` 변경 기록이 저장됨 |
+| QA-PAY-14A | 대표 | 같은 결제의 정기결제 약정 생성 또는 해지를 동시에 2건 제출하고 잘못된 달력 날짜·청구일·객체형 해지 사유도 제출 | 생성은 `200/409`, 해지는 `200/422`로 한 건만 반영되고 생성·해지 상태 이력과 감사 기록은 각각 1건. 잘못된 입력은 `400`이며 약정·이력·감사 기록 무변경 |
 | QA-PAY-15 | 대표 | 수기 결제의 `수정`에서 회원권명·금액·할인·상태·납부일·만료일과 사유를 변경하고, API로 존재하지 않는 날짜를 전송 | 정상 정정은 목록에 반영되고 실제 상태 변경 시에만 상태 이력이 추가되며 전후 값과 사유가 `payment.update` 변경 기록에 저장됨. `2026-02-29`, `2026-04-31`처럼 존재하지 않는 날짜는 `400 VALIDATION_ERROR`로 차단되고 실제 윤년 날짜는 허용 |
+| QA-PAY-15A | 학부모/대표 | 같은 자녀 결제에 학부모 납부 요청과 대표의 수기 결제 정정을 동시에 전송하고, 납부 요청 본문에 `null`·상한 초과 문자열을 전송한다. 느린 미완성 납부 본문을 열어 둔 동안 대표 정정도 전송 | 잘못된 본문은 `400`이며 결제·감사 기록 무변경. 느린 본문이 끝나기 전에 대표 정정이 먼저 완료되고, 동시 정상 요청은 둘 다 `200`이며 최종 결제에 납부 요청과 정정값이 함께 남고 서로 다른 감사 기록 2건이 보존됨 |
+| QA-PAY-15B | 학부모 | 같은 지점의 연결되지 않은 회원 결제 ID와 존재하지 않는 결제 ID로 납부 요청 | 두 요청 모두 동일한 `404 NOT_FOUND` 오류를 반환해 다른 가족의 결제 존재 여부를 노출하지 않고 결제·감사 기록을 변경하지 않음 |
 | QA-PAY-16 | 대표 | 오등록 또는 환불 금액이 없는 취소 수기 결제의 `삭제`에서 삭제 사유 입력 후 확정 | 결제 목록에서 제거되고 삭제 전 값과 사유가 `payment.delete` 변경 기록에 남음 |
 | QA-PAY-16A | 대표 | iPhone 16e Simulator 네이티브 앱에서 수기 결제 195,000원 등록, 사유와 함께 205,000원으로 수정, 삭제 사유 입력 후 삭제 | 생성·수정·삭제가 앱 재시작 없이 반영되고 수정 전후 스냅샷과 삭제 사유가 감사 기록에 남으며 삭제 뒤 `수기 결제 기록을 삭제했습니다.` 안내가 표시됨. `.data/mobile-builds/ios/manual-payment-management-20260713/simulator-summary.json` 증빙은 내부 QA 전용이고 실 PG·운영 데이터·IPA 준비 완료를 의미하지 않음 |
 | QA-PAY-17 | 대표/코치 | 온라인·정기·환불 이력 결제의 직접 수정/삭제 및 코치의 수기 결제 삭제 API 시도 | 외부/환불 이력은 `422`, 코치는 `403`으로 차단되고 원본 결제 기록이 유지됨 |
@@ -344,6 +362,7 @@
 | QA-PAY-23 | 대표/총괄 | 수기 결제 등록 API에 `partially_refunded`를 제출하고, 같은 결제의 수기 수정과 온라인 요청을 동시에 시도 | 부분 환불 직접 등록은 `400`으로 차단되고 두 변경은 순차 처리되어 온라인 요청 금액과 저장 금액이 어긋나지 않음 |
 | QA-PAY-24 | 대표 | 0원 환불 완료 또는 환불액 누락 부분 환불 레코드의 수정·삭제 API 호출 | 환불 상태 자체를 이력으로 인식해 두 요청 모두 `422 BUSINESS_RULE_FAILED`로 차단되고 원본 결제와 상태 이력이 유지됨 |
 | QA-AUTH-11 | 비로그인 사용자 | 같은 휴대폰 번호와 비밀번호로 회원가입 요청 2건을 동시에 제출 | 정확히 한 건만 `200`, 다른 한 건은 `409 CONFLICT`이며 사용자와 연결 회원 프로필이 각각 1건만 저장됨 |
+| QA-AUTH-11A | 비로그인 사용자 | 복수 활성 지점에서 지점 없이 가입하거나 존재하지 않는 지점 ID로 가입 | 두 요청 모두 `400 VALIDATION_ERROR`, 사용자·회원·감사 기록 미생성. 공개 지점 조회는 `id`, `name`, `district`만 노출하고 정상 선택 시 사용자와 회원이 같은 선택 지점에 저장됨 |
 | QA-REPORT-01 | 대표 | `/app/owner/reports`에서 운영 리포트 내보내기 | 지점별 회원/수업/출석/매출/결제위험/출석 미처리/점검 점수 CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-REPORT-02 | 대표 | `/app/owner/reports` 우선 점검 지점 확인 | 출석 미처리, 결제 위험, 휴면 회원 배지가 지점별 점검 점수와 함께 표시 |
 | QA-REPORT-03 | 대표 | `/app/owner/reports` 오늘 우선순위 확인 | 출석 미처리 정리, 결제 위험 확인, 휴면 회원 케어가 우선순위와 담당 역할로 표시되고 요청 승인 카드는 표시되지 않음 |
@@ -360,14 +379,26 @@
 | QA-CLASS-02 | 대표 | `/app/classes`에서 장소/정원 수정 | 수정값이 반영되고 변경 기록 생성 |
 | QA-MEMBER-01 | 코치 | `/app/members`에서 담당 회원 상담/주의 메모 작성 | 메모가 회원 카드에 추가되고 `counseling_note.create` 변경 기록 생성 |
 | QA-DASH-01A | `npm run test:dashboard-priority-kpi` 실행 | 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시한다 |
-| QA-MEMBER-01A | `npm run test:smoke` 실행 | 회원 수정, 보호자 연결, 상담/주의 메모 작성 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단 |
+| QA-MEMBER-01A | `npm run test:smoke` 실행 | 회원 수정, 보호자 연결, 상담/주의 메모 작성 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단. 객체형 상담 메모 본문은 `400`이고 메모·감사 기록 무변경, 정상 동시 작성 2건은 UUID 기반 메모·감사 ID로 모두 보존 |
 | QA-MEMBER-01A1 | `npm run test:member-profile-guardian-edit` 실행 | 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위가 유지된다 |
 | QA-MEMBER-01A2 | `npm run test:member-management-touch-targets` 실행 | 390px 모바일 대표 회원 관리 컨트롤이 44px 이상이고, 회원 상세 결제·회원권 요약은 대표만 금액을 확인하며 회원·학부모는 상태·납부일·만료일만 보고 코치는 요약을 받지 않는다. 학부모가 정확한 자녀·결제 딥링크 진입 후 다른 자녀를 선택해도 선택이 유지되고 overflow 0, 콘솔 오류 없음, iPhone 16e 증빙이 있으면 통과 |
+| QA-MEMBER-01A3 | 대표/총괄 | 보호자 연결 POST·변경 PUT·해제 DELETE에 객체·배열 또는 201자 `guardianUserId`를 전송하고, 미완성 POST 본문을 열어 둔 동안 다른 회원의 DELETE를 실행한 뒤 서로 다른 유소년 회원 2명을 동시에 정상 연결 | 잘못된 타입·길이는 `400 VALIDATION_ERROR`이고 회원 `guardianIds`, 학부모 `childMemberIds`, 감사 기록이 변하지 않는다. 느린 본문은 공통 관계 잠금을 점유하지 않아 다른 변경이 먼저 완료되며, 정상 동시 연결은 양방향 관계와 UUID 기반 서로 다른 `member.update` 감사 기록 2건을 모두 보존 |
+| QA-MEMBER-01A4 | 학부모/코치 | 연결되지 않은 회원 ID와 존재하지 않는 회원 ID로 회원 수정 API 호출 후, 담당 회원에 코치가 수정 요청 | 학부모의 두 요청은 동일한 `404 NOT_FOUND` 오류를 반환해 타 가족 회원 존재를 노출하지 않는다. 담당 회원을 읽을 수 있으나 수정 권한이 없는 코치 요청은 `403 FORBIDDEN`을 유지하며 회원·감사 기록은 변하지 않는다 |
+| QA-MEMBER-01A5 | 대표 | 회원 지점에 연결할 수 없는 실재 학부모 ID와 존재하지 않는 학부모 ID로 보호자 변경·해제 요청 | 두 변경 요청은 같은 `422 BUSINESS_RULE_FAILED` 오류를 반환하고, 연결되지 않은 두 ID의 해제는 모두 멱등 성공한다. 회원·학부모 관계와 감사 기록은 바뀌지 않아 계정 존재 여부를 노출하지 않는다 |
+| QA-MEMBER-01A6 | 코치 | 담당 회원에게 2,001자 상담/주의 메모 작성 요청 후 2,000자 이하 정상 메모 작성 | 초과 요청은 `400 VALIDATION_ERROR`이고 메모·감사 기록이 변하지 않는다. 작성 폼은 서버와 같은 `maxLength=2000`과 44px 이상 입력 영역을 사용하고 정상 메모는 공개 범위·감사 기록과 함께 저장됨 |
 | QA-MEMBER-01B | `npm run test:smoke` 실행 | 회원 등록 API에서 익명 요청은 401, 코치 요청은 403으로 본문 검증보다 먼저 차단 |
+| QA-MEMBER-01B1 | 대표/총괄 | 회원 등록 API에 객체형 회원명, 존재하지 않는 생년월일을 전송한 뒤 정상 회원 2명을 동시에 등록 | 잘못된 타입·날짜는 `400 VALIDATION_ERROR`이고 회원·감사 기록 무변경. 동시 정상 등록은 UUID 기반 서로 다른 회원 ID로 둘 다 저장되고 `member.create` 감사 기록도 각각 한 건 생성 |
+| QA-MEMBER-01B2 | 대표/총괄 | 회원 수정 API에 객체형 생년월일 또는 존재하지 않는 날짜를 전송한 뒤 같은 회원 상태를 두 값으로 동시에 변경 | 잘못된 타입·날짜는 `400 VALIDATION_ERROR`이고 기존 생년월일·상태·감사 기록이 변하지 않는다. 동시 정상 수정은 두 요청 모두 성공하고 마지막 직렬화 상태와 UUID 기반 `member.update` 감사 기록 2건을 보존 |
+| QA-MEMBER-01B3 | 대표/총괄 | 이름·레벨·띠 31자 또는 비상 연락처 41자로 회원 등록 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 회원·감사 기록이 생기지 않는다. 등록·수정 화면은 공통 이름/레벨/띠 30자, 연락처 40자, 주소 100자와 주의사항 8개·항목당 80자 상한을 사용 |
 | QA-CLASS-01A | `npm run test:smoke` 실행 | 출석 저장/사유 기록과 수업 생성/수정 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단 |
 | QA-CLASS-01B | `npm run test:class-management-touch-targets` 실행 | 390px 모바일 대표 수업 화면에서 수업 생성 폼은 기본 접힘으로 시작하고, `열기` 후 수업명/연령/레벨/코치/정원/시작/종료/장소 입력과 생성 버튼, 각 수업 카드의 장소/정원 수정 입력과 저장 버튼이 44px 이상이다. 코치 수업 화면에서는 명단을 연 뒤 출석 메모 토글, 현장 메모 입력, 빠른 메모, 사유 저장 버튼이 44px 이상이고 overflow 0, 콘솔 오류 없음, 증빙 스크린샷이 유지되면 통과 |
+| QA-CLASS-01C | 대표/총괄 | 수업 생성 API에 객체형 수업명, 문자열 정원 또는 비문자 등록 회원 목록을 전송한 뒤 정상 수업 2개를 동시에 등록 | 잘못된 타입은 `400 VALIDATION_ERROR`이고 수업·감사 기록 무변경. 동시 정상 등록은 UUID 기반 서로 다른 수업 ID로 둘 다 저장되고 `class.create` 감사 기록도 각각 한 건 생성 |
+| QA-CLASS-01D | 대표/총괄 | 수업 수정 API에 객체형 장소 또는 존재하지 않는 시간 값을 전송한 뒤 같은 수업의 장소를 두 값으로 동시에 변경 | 잘못된 타입·시간은 `400 VALIDATION_ERROR`이고 기존 수업·감사 기록이 변하지 않는다. 동시 정상 수정은 두 요청 모두 성공하고 마지막 직렬화 장소와 UUID 기반 `class.update` 감사 기록 2건을 보존 |
+| QA-CLASS-01E | 대표/총괄 | 수업명·장소 81자, 레벨 41자, 201자 코치/회원 ID 또는 등록 회원 원본 배열 81개로 수업 생성·수정 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 수업·감사 기록이 변하지 않는다. 생성·수정 화면은 수업명 80자, 레벨 40자, 장소 80자 상한을 사용 |
+| QA-PROMOTION-01 | 대표/총괄/담당 코치 | 승급 심사 생성에 객체형·201자 회원 ID, 생성·결과 기록에 객체형·501자 공개 메모를 전송한 뒤 서로 다른 회원의 정상 심사 2건을 동시에 등록 | 잘못된 타입·상한 초과 입력은 `400 VALIDATION_ERROR`이고 심사·회원 띠·감사 기록 무변경. 정상 동시 등록은 UUID 기반 서로 다른 심사 ID로 둘 다 저장되고 `promotion.create` 감사 기록도 각각 한 건 생성. 같은 회원 동시 등록과 같은 심사 동시 결과는 정확히 한 요청만 반영됨 |
 | QA-NOTICE-11A | `npm run test:smoke` 실행 | 삭제된 요청 API는 404, 공지 작성/일괄 읽음, 알림 구독/해지 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단 |
 | QA-PILOT-01A | `npm run test:smoke` 실행 | 파일럿 준비 상태 변경, 운영 이슈 생성/수정, 운영 로그 저장 API에서 익명 요청은 401, 코치 요청은 403으로 본문 검증보다 먼저 차단 |
+| QA-PILOT-01B | 총괄 | 파일럿 준비·이슈·운영 로그 API에 객체형 문자열 필드와 확인 메모 1,001자·이슈 상세 2,001자·우회책 1,001자·모바일 출석 확인 501자를 전송한 뒤 같은 준비 항목, 같은 이슈, 같은 지점·일자 운영 로그를 각각 동시에 변경 | 잘못된 타입과 초과 입력은 잠금 전에 `400 VALIDATION_ERROR`이고 상태·이슈·운영 로그·감사 기록이 변하지 않는다. 동시 요청은 모두 정상 응답하고 마지막 직렬화 결과와 UUID 기반 고유 감사 기록 2건을 보존하며, 동시 이슈 생성은 고유 이슈 ID 2건을 보존 |
 | QA-MEMBER-02 | 코치 | 스태프 전용 상담 메모 API 호출 | `403 FORBIDDEN`으로 차단 |
 | QA-MEMBER-03 | 대표/총괄 | `/app/members`에서 스태프 전용 메모 작성 | 대표/총괄 화면에 표시되고 학부모 화면에는 미노출 |
 | QA-MEMBER-04 | 회원/학부모 | `/app/members`에서 본인/자녀 긴급 연락처 수정 | 연락처가 저장되고 상태 변경 같은 제한 필드는 `403 FORBIDDEN`, `member.update` 변경 기록 생성 |
@@ -381,16 +412,21 @@
 | QA-NOTICE-02B | 대표/총괄/코치 | `/app/notices`에서 공지 읽음 후 같은 공지의 알림 발송 클릭 | 새 알림 발송 피드백만 남고 이전 읽음/작성/삭제 피드백은 함께 보이지 않음 |
 | QA-NOTICE-02C | 대표/총괄/코치 | 공지 생성·수동 재발송 뒤 `notification.dispatch` 감사 기록 확인 | 공지 생성과 `dispatchState: requested` 감사 기록이 외부 발송보다 먼저 저장되고 결과가 `completed`/`blocked`/`failed`와 완료 시각으로 갱신됨. 생성 후 푸시 실패는 공지 생성 실패로 오인되지 않아 같은 공지를 다시 만들지 않음 |
 | QA-NOTICE-03 | 대표 | `/app/notices`에서 공지 작성 | `작성 열기`로 폼을 연 뒤 새 공지를 발행하면 공지함에 표시되고 `notice.create` 변경 기록 생성 |
+| QA-NOTICE-03A | 대표/총괄 | 공지 생성 API에 객체형 제목 또는 비문자 대상 배열 전송 후 정상 공지 2건 동시 생성 | 잘못된 본문은 `400 VALIDATION_ERROR`이고 공지·감사·outbox가 생기지 않는다. 정상 동시 생성은 UUID 기반 공지 ID가 서로 다르고 `notice.create` 감사 기록 2건이 모두 보존됨 |
+| QA-NOTICE-03B | 대표/총괄 | 제목 121자, 본문 5,001자, 같은 회원 ID 501개로 공지 생성 후 기존 공지 제목을 121자로 수정 | 모든 요청이 `400 VALIDATION_ERROR`로 차단되고 공지·감사·outbox 건수와 기존 공지 내용이 유지된다. 작성·수정 화면 입력도 서버와 같은 제목 120자·본문 5,000자 상한을 사용 |
 | QA-NOTICE-04 | 전체 | `/app/notices` 접속 | 공지 목록, 읽음 상태, 읽음 처리 표시 |
 | QA-NOTICE-05 | 대표/총괄 | `/app/notices`에서 공지 작성 | 새 공지가 공지함에 표시되고 `notice.create` 변경 기록 생성 |
 | QA-NOTICE-06 | 대표/총괄 | `/app/notices`에서 반 대상/개인 대상 공지 작성 | 대상 반/회원 관계 사용자에게만 노출되고 비대상 회원/학부모는 미노출, 읽음 처리와 `notice.create` 변경 기록 생성 |
 | QA-NOTICE-07 | 전체 | `/app/notices` 알림 설정 확인 | 알림 꺼짐/허용됨/차단됨/미지원 상태가 표시되고 허용 상태에서는 알림 확인 버튼이 활성화 |
+| QA-NOTICE-07A | 회원/학부모 | 활성 푸시 구독 상태에서 객체형 endpoint로 구독 해제 요청 후 정상 해제 요청 | 잘못된 해지는 `400 VALIDATION_ERROR`이고 현재 사용자 활성 구독·표시 건수가 유지됨. 정상 해제 요청은 `enforcedAlwaysOn: true`, `disabledAt: null`을 반환하고 UUID 기반 차단 감사 기록을 남김 |
+| QA-NOTICE-07B | 회원/학부모 | 2,048자를 초과한 endpoint나 512자를 초과한 key로 푸시 구독 등록·해지 요청 | URL 파싱·잠금·저장 전 `400 VALIDATION_ERROR`로 거부되고 현재 사용자의 활성 구독·표시 건수가 유지됨 |
 | QA-NOTICE-08 | 전체 | 미읽음 공지가 있는 계정으로 모바일 진입 | 상단 공지 버튼에 현재 사용자/지점 스코프의 미읽음 공지 수가 표시되고 접근성 이름에 미읽음 건수가 포함된다. 요청 메뉴는 하단 내비에 표시되지 않는다 |
 | QA-NOTICE-09 | 대표/총괄 | `/app/notices`에서 `중요 공지` 체크 후 발행 | 공지 목록 상단에 중요 배지가 표시되고, API 응답과 `notice.create` 변경 기록에 `important: true`, 푸시 제목에 `[중요]` prefix가 반영 |
 | QA-NOTICE-14 | 대표/총괄 | 읽은 공지의 제목·본문·중요 여부·역할 audience를 실제 변경 | 기존 `readByUserIds`가 초기화되어 대상 회원/학부모 알림함에 다시 미확인으로 보이고 `notice.update` 감사 로그에는 본문 원문 없이 길이·변경 여부·읽음 초기화 여부가 기록됨. 수정만으로 휴대폰 푸시는 재발송하지 않음 |
 | QA-NOTICE-15 | 대표/총괄/코치 | 동일 내용 재저장, 코치 audience 변경, 반·개인 대상 PATCH, 읽음·수정 동시 요청 | 동일 내용과 순서·중복만 다른 같은 audience 재저장은 읽음 상태를 유지하고, 코치의 audience 변경은 `403 FORBIDDEN`, 생성 후 반·개인 대상 변경과 잘못된 타입은 `400 VALIDATION_ERROR`. 읽음·수정은 직렬화되어 마지막 작업과 최종 읽음 상태가 일치 |
 | QA-NOTICE-10 | 전체 | `/app/notices`에서 전체/미읽음/중요 보기 전환 | 현재 사용자/지점 스코프 안에서 표시 건수와 목록이 바뀌고, 결과가 없으면 선택한 보기의 빈 상태가 표시 |
-| QA-NOTICE-11 | 전체 | `/app/notices`에서 필터 적용 후 보이는 공지 읽음 처리 | 화면에 보이는 미읽음 공지만 읽음 처리되고, 스코프 밖 공지 ID는 bulk-read API에서 403으로 차단되며 `notice.read` 변경 기록이 남음 |
+| QA-NOTICE-11 | 전체 | `/app/notices`에서 필터 적용 후 보이는 공지 읽음 처리. 단일·일괄 API에 타인 개인 공지 ID와 존재하지 않는 ID를 각각 전송 | 화면에 보이는 미읽음 공지만 읽음 처리되고, 타인·다른 지점 공지와 존재하지 않는 공지는 식별자 목록 없이 동일한 `404 NOT_FOUND`로 응답해 존재 여부를 노출하지 않으며 부분 읽음 없이 정상 요청만 `notice.read` 변경 기록을 남김 |
+| QA-NOTICE-11B | 회원/학부모 | 읽을 수 있는 미확인 공지 ID에 객체형 항목을 섞거나 같은 ID를 51개 넣어 일괄 읽음 요청 | 혼합 타입은 `400 VALIDATION_ERROR`, 중복 포함 원본 51건은 `422 BUSINESS_RULE_FAILED`로 중복 제거 전에 차단되고 대상 공지는 미확인 상태를 유지하며 감사 기록도 생기지 않음 |
 | QA-NOTICE-12 | 전체/운영자 | `/app/notices` 확인할 공지 확인 | 현재 필터 기준 중요 미읽음 확인, 미읽음 공지 읽음 처리, 중요 공지 푸시 점검, 읽음 반응 점검이 우선순위로 표시 |
 | QA-NOTICE-13 | 전체/운영자 | `/app/notices`에서 `공지 요약` 확인 | 중요 공지, 미확인 공지, 읽음 확인, 알림 수신이 현재 필터 기준으로 분리되고 운영 푸시 외부 증빙은 P1 blocker로 유지 |
 
@@ -403,6 +439,7 @@
 | QA-ADMIN-02A | `/app/admin/users`에서 사용자 수정 열기 | 이름, 이메일, 역할, 설명, 담당 지점, 선택 새 비밀번호/확인, 수정 사유 입력과 `user.update` 변경 기록. 새 비밀번호 원문과 password hash는 화면 응답/변경 기록에 노출되지 않음 |
 | QA-ADMIN-02B | `/app/admin/users`에서 사용자 삭제 열기 | 삭제 사유 입력이 필요하고 본인 계정, 마지막 총괄 어드민, 단독 대표 계정은 차단된다. 담당 수업·회원은 다른 코치/대표/총괄에게 인계되고 성공 시 인계 건수와 `user.delete` 변경 기록 생성 |
 | QA-ADMIN-02C | 사용자 삭제 제출 중 API 연결 실패 | 삭제 폼을 유지하고 `사용자 계정을 삭제하지 못했습니다. 현재 계정, 총괄 유지, 지점 대표 배정 상태를 확인해 주세요.`를 표시한다. iPhone 16e Simulator 증빙에서 안내 문구가 하단 내비게이션과 겹치지 않는다 |
+| QA-ADMIN-02D | 사용자 수정 API에 숫자·배열·빈 객체를, 삭제 API에 숫자 본문을 전송 | 모두 `400 VALIDATION_ERROR`이며 대상 계정, 수업·회원 인계, 세션, 감사 기록이 변경되지 않고 서버 오류가 발생하지 않음 |
 | QA-ADMIN-03 | `/app/admin/roles` 접속 | 시스템 역할, 관리 권한 보유자, 대기 초대, 감사 이벤트 카드 표시 |
 | QA-ADMIN-04 | 사용자 검색 | 이름/역할/RBAC 키워드로 목록 필터 |
 | QA-ADMIN-05 | 권한 매트릭스 확인 | 리소스 x 보기/생성/수정/삭제/승인 상태 표시 |
@@ -410,6 +447,7 @@
 | QA-ADMIN-07 | 담당 수업이 있는 코치 역할 변경 후 사유 저장, 단독 대표 역할 제거 시도 | 코치 역할 변경은 수업·회원이 다른 운영자에게 인계되고 인계 건수와 `user.role.update` 변경 기록이 생성된다. 단독 대표 역할 제거는 `422`로 차단됨 |
 | QA-ADMIN-08 | 내 총괄 어드민 권한 제거 시도 | 서버가 `422 BUSINESS_RULE_FAILED`로 차단 |
 | QA-ADMIN-09 | `/app/admin/branches`에서 지점 생성 | 새 지점이 추가되고 `branch.create` 변경 기록 생성 |
+| QA-ADMIN-09A | 총괄 | 객체형 또는 지점명 81자·지역 101자·시간대 65자·사유 501자·대표 ID 201자 요청을 전송하고, 생성·수정·대표 배정의 미완성 본문을 열어 둔 동안 다른 지점 변경을 실행한 뒤 같은 이름 동시 생성과 생성·이름 변경 교차 요청 | 잘못된 타입·길이는 `400 VALIDATION_ERROR`이고 지점·대표·감사 기록 무변경. 느린 본문은 공통 지점 잠금을 점유하지 않아 다른 변경이 먼저 완료된다. 같은 이름 생성과 생성·이름 변경은 각각 한 요청만 `200`, 다른 요청은 `409`; 서로 다른 지점은 고유 ID와 UUID 감사 기록으로 모두 보존 |
 | QA-ADMIN-10 | 지점 대표 배정 | 대표 사용자 지점 범위에 해당 지점이 추가되고 `branch.owner.assign` 변경 기록 생성 |
 | QA-ADMIN-11 | 지점 운영 설정 변경 후 사유 저장 | 지점명/지역/상태/시간대 라벨/출석 수정 사유 정책이 반영되고 `branch.update` 변경 기록 생성 |
 | QA-ADMIN-12 | 코치로 `/app/admin/branches` 직접 접근 | 403 권한 없음 화면 표시 |
@@ -427,7 +465,7 @@
 | QA-ADMIN-24 | `/app/admin/settings`에서 일일 운영 로그 저장 | 운영 일자, 지점, 출석/결제/공지 후속/공지 수치, 모바일 출석 30초 계측 증빙이 저장되고 `pilot_operation.update` 변경 기록 생성. 화면은 지점별 중복 로그가 아닌 고유 운영일 기준 14일 누락일, 다음 입력 추천일, 모바일 30초 증빙 누락을 표시 |
 | QA-ADMIN-25 | 코치가 `/api/v1/admin/pilot-operations` 직접 호출 | `403 FORBIDDEN` 반환 |
 | QA-ADMIN-26 | 파일럿 운영 로그에 불가능한 날짜 또는 차단 사유 없는 `blocked` 상태 저장 시도 | API가 400으로 거절하고 운영 로그가 생성되지 않음 |
-| QA-ADMIN-27 | `npm run test:pilot-readiness-contract` 실행 | 기본 준비 항목, import 생성 항목, preflight 필수 항목의 ID/문구/담당자 계약이 정합하면 통과 |
+| QA-ADMIN-27 | `npm run test:pilot-readiness-contract`, `npm run test:visible-app-copy-stability` 실행 | 기본 준비 항목, import 생성 항목, preflight 필수 항목의 ID/문구/담당자 계약이 정합하고 390px 관리자 설정의 준비·운영·이슈 생성·수정 폼이 서버와 같은 입력 상한, overflow 0, 콘솔 오류 0을 유지하면 통과 |
 | QA-ADMIN-28 | `npm run test:preflight-runtime` 실행 | 현재 런타임 DB에서 남아 있는 데모 기본 비밀번호와 준비 미완료 외 blocker, 예상 warning 외 warning, collection count drift, 참조 오류, 민감정보, 깨진 운영 로그가 없으면 통과. 이미 비밀번호를 교체한 데모 계정은 정상으로 인정 |
 | QA-ADMIN-29 | `npm run test:pilot-evidence` 실행 | 파일럿 증빙 리포트가 runtime/preflight/준비 항목/이슈/출석·결제·공지 후속·공지 운영 로그 요약과 post-pilot 차단 조건을 포함하면 통과 |
 | QA-ADMIN-29A | `npm run test:pilot-field-evidence-draft` 실행 | source CSV와 pre/post evidence 리포트에서 현장 증빙 manifest 초안의 지점/계정/명령/운영 수치가 자동 반영되고, placeholder 초안은 strict 검증에서 차단되며 운영자가 현장 값을 채운 manifest가 validator를 통과하면 완료 |
@@ -528,7 +566,7 @@
 | QA-ADMIN-35E0C | `npm run test:admin-role-search` 실행 | 390px 모바일 총괄 권한 관리에서 `/app/admin/roles?q=...` 딥링크가 사용자/역할/관리 항목 기준으로 목록을 좁히고 검색어 지우기로 URL을 복구한다. 0건 검색에서는 stale 사용자 행 없이 빈 상태와 `전체 보기` 44px 액션을 보여주고 검색 중 권한 매트릭스/최근 변경 부가 패널은 모바일에서 숨긴다. 하단 safe-area spacer, 하단 내비와 24px 이상 간격, overflow 0, 콘솔 오류 없음, 증빙 스크린샷을 유지하면 통과 |
 | QA-ADMIN-35E0C1 | `npm run test:admin-user-search` 실행 | 390px 모바일 총괄 사용자 관리에서 `/app/admin/users?role=guardian&q=...` 딥링크가 역할 필터와 검색어를 함께 복원하고 사용자/휴대폰/역할/연결 회원 기준으로 목록을 좁힌다. 검색어 지우기는 역할 필터를 유지하고, 0건 검색에서는 stale 사용자 행 없이 빈 상태와 `전체 보기` 44px 액션을 보여주며 q/role을 모두 제거한다. 검색 입력/인라인 지우기/역할 필터 초기화/빈 상태 초기화가 44px 이상이고 하단 내비와 24px 이상 간격, overflow 0, 콘솔 오류 없음, 증빙 스크린샷을 유지하면 통과 |
 | QA-ADMIN-35E0C1A | `npm run test:admin-user-management-touch-targets` 실행 | 390px 모바일 총괄 사용자 관리에서 초대 폼은 기본 접힘으로 시작하고, 목록 수정/삭제/재발급 액션과 초대/수정/삭제/비밀번호 재발급 입력 및 저장 버튼이 모두 44px 이상이다. 수정 action bar는 하단 내비와 24px 이상 간격을 유지하고, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 없는 사용자 관리 화면 증빙이 유지되면 통과 |
-| QA-ADMIN-35E0C2 | `npm run test:admin-audit-search` 실행 | 390px 모바일 총괄 변경 기록에서 `/app/admin/audit-logs?q=...&detail=...` 딥링크가 적용 조건 chip, 목록, 선택 기록 상세를 복원하고 상세 열기/닫기·검색어 지우기·`전체 보기`로 URL을 갱신한다. 0건 검색에서는 stale 변경 기록 행 없이 빈 상태와 44px 초기화 액션을 보여주고 하단 내비와 24px 이상 간격, overflow 0, 콘솔 오류 없음, 증빙 스크린샷을 유지한다. 변경 기록·권한 화면이 공통 처리/결과 라벨을 사용하고 승급 심사와 대회 공지 등록·수정·삭제 필터가 API에서 400으로 깨지지 않으며 동일 사용자·필터·사유 조회 2회가 5초 안에 한 기록으로 저장된다. 날짜만 지정한 한국 시간 종료일은 그날 23:59:59.999까지 포함하고 시작일이 종료일보다 늦은 조합은 화면에서 정리되며 API에서 400으로 거부되면 통과 |
+| QA-ADMIN-35E0C2 | `npm run test:admin-audit-search` 실행 | 390px 모바일 총괄 변경 기록에서 `/app/admin/audit-logs?q=...&detail=...` 딥링크가 적용 조건 chip, 목록, 선택 기록 상세를 복원하고 상세 열기/닫기·검색어 지우기·`전체 보기`로 URL을 갱신한다. 검색 입력은 120자로 제한하며 0건 검색에서는 stale 변경 기록 행 없이 빈 상태와 44px 초기화 액션을 보여주고 하단 내비와 24px 이상 간격, overflow 0, 콘솔 오류 없음, 증빙 스크린샷을 유지한다. 변경 기록·권한 화면이 공통 처리/결과 라벨을 사용하고 승급 심사와 대회 공지 등록·수정·삭제 필터가 API에서 400으로 깨지지 않으며, 검색어 121자·사유 501자·지점 ID 201자 요청은 `audit_logs.read`를 남기지 않고 400으로 차단된다. 동일 사용자·필터·사유 조회 2회는 5초 안에 한 기록으로 저장된다. 날짜만 지정한 한국 시간 종료일은 그날 23:59:59.999까지 포함하고 시작일이 종료일보다 늦은 조합은 화면에서 정리되며 API에서 400으로 거부되면 통과 |
 | QA-ADMIN-35E0C3 | `npm run test:audit-action-contract` 실행 | 앱 `AuditAction`의 모든 값이 공통 표시 라벨, 정규화 PostgreSQL `audit_action` 초기/추가 마이그레이션, DB 스키마 문서에 존재하고 API route의 변경 기록 액션이 모두 앱 타입에 선언되어 있으면 통과 |
 | QA-ADMIN-35E0C4 | `npm run test:audit-log-privacy` 실행 | 변경 기록의 휴대폰·이메일·계정 식별값이 마스킹되고 비밀번호·토큰·알림 endpoint와 민감 메모 원문이 저장·응답·화면에 남지 않는다. 총괄 변경 기록 상세가 원문 JSON 대신 한국어 필드별 변경 전후 비교를 제공하고 서버 저장소가 모든 기록에 같은 정책을 적용하며 iOS 앱에서 `detail` 딥링크 상세 증빙이 유지되면 통과 |
 | QA-ADMIN-35E0D | `npm run test:visible-app-copy-stability` 실행 | 390px 모바일 코치/회원/학부모 회원 화면에서 비상 연락처 전화 링크가 아이콘이 있는 44px 이상 터치 목표로 렌더링되고, 보호자 현재 연결 연락처도 `test:member-profile-guardian-edit` 정적 가드로 텍스트 링크 회귀 없이 44px 전화 액션을 유지하면 통과 |
@@ -748,7 +786,7 @@
 | 2026-06-24 | Codex | Browser 390px + iOS Simulator | 관리자 변경 기록 행 압축 | `/app/admin/audit-logs` 기본 조회를 전체 지점으로 고정하고 모바일 로그 행에서 반복 `공통`/대상 종류 메타를 숨김. 결과 배지는 시간 줄에 배치하고 `변경 전후`는 payload가 있는 로그에만 표시해 목록 스캔 속도를 높임 | Browser `adminAuditNoDetailRowMaxHeight<=150`, `adminAuditListRowMaxHeight<=190`, `branchMetaVisible=0`, `targetMetaVisible=0`, console error 0, iPhone 16e `.data/mobile-builds/ios/admin-audit-compact-rows-20260624/admin-audit-compact-rows-ios-sim.jpg`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
 | 2026-06-24 | Codex | Browser 390px + iOS Simulator | 관리자 지점 요약 상태 바 압축 | `/app/admin/branches` 상단 4개 요약 카드를 한 줄 4분할 상태 바로 바꿔 전체/운영 중/미배정/비활성 지점 수는 유지하면서 모바일 첫 화면에서 목록 도달 시간을 줄임 | Browser `adminBranchSummaryGridHeight<=84`, `activeSummaryText=운영 중2`, slash count 0, console error 0, iPhone 16e `.data/mobile-builds/ios/admin-branch-summary-bar-20260624/admin-branches-summary-bar-ios-sim.jpg`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
 | 2026-06-24 | Codex | Browser 390px + iOS Simulator | 관리자 지점 상단 카드 추가 압축 | `/app/admin/branches` 상단 요약 상태 바와 `지점 생성` 패널을 약 2/3 높이로 줄이고, 생성 버튼은 44px 터치 높이를 유지해 목록 도달성과 조작성을 같이 보존 | Browser `summaryHeight=59`, `createPanelHeight=58`, `createToggleHeight=44`, console error 0, iPhone 16e `.data/mobile-builds/ios/admin-branch-card-compact-20260624/admin-branches-card-compact-ios-sim.jpg`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
-| 2026-07-04 | Codex | Browser 390px + iOS Simulator | 관리자 지점 생성 폼 열림 상태 압축 | `/app/admin/branches`의 `지점 생성` 열림 폼에서 보이는 라벨을 접근성 라벨로 남기고 입력 placeholder 중심의 2행 폼으로 정리해 목록이 더 빨리 보이게 함. 생성 토글과 생성 버튼은 44px 터치 기준을 유지 | Browser `adminBranchCreateOpenPanelHeight=146<=160`, `adminBranchCreateOpenFormHeight=94<=112`, `adminBranchCreateOpenMinFieldWidth=157`, `adminBranchCreateOpenSubmitButtonHeight=44`, iPhone 16e `.data/mobile-builds/ios/admin-branch-create-compact-20260704/admin-branches-create-compact-ios-sim.png`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
+| 2026-07-04 | Codex | Browser 390px + iOS Simulator | 관리자 지점 생성 폼 열림 상태 압축 | `/app/admin/branches`의 `지점 생성` 열림 폼에서 보이는 라벨을 접근성 라벨로 남기고 입력 placeholder 중심의 2행 폼으로 정리해 목록이 더 빨리 보이게 함. 생성 토글과 생성 버튼은 44px 터치 기준을 유지하고 지점명/지역 입력은 서버와 같은 80/100자 상한을 사용 | Browser `adminBranchCreateOpenPanelHeight<=160`, `adminBranchCreateOpenFormHeight<=112`, `adminBranchCreateOpenInputMaxLengths=[80,100]`, `adminBranchCreateOpenSubmitButtonHeight=44`, `.data/mobile-builds/ios/visible-app-copy-stability/visible-app-copy-stability-report.json`, iPhone 16e `.data/mobile-builds/ios/admin-branch-create-compact-20260704/admin-branches-create-compact-ios-sim.png`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 관리자 지점 운영 설정 터치 안정화 | `/app/admin/branches`의 운영 설정 폼에서 지점명/지역/상태/시간대 입력과 출석 수정 정책 토글을 44px 터치 높이로 맞추고, 저장 버튼과 하단 내비 clearance를 유지 | Browser `fieldGridMinControlHeight=44`, `policyControlHeight=44`, `saveHeight=44`, `formHeight=201`, `cardHeight=279`, iPhone 16e `.data/mobile-builds/ios/admin-branch-settings-touch-20260705/admin-branches-settings-touch-ios-sim.png`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 인증 계정 전환 터치 안정화 | `/login`의 로그인된 계정 전환 액션과 `/select-role`의 로그인 화면 링크를 44px 터치 높이로 맞추고, 쿠키만 남은 앱 재시작 상태에서도 `/login`이 현재 세션을 복원하도록 함 | Browser `accountSwitchLayout.buttonHeight=44`, `cookieOnlyAccountSwitch.layout.buttonHeight=44`, `authSelectRoleLoginLinkHeight=44`, iPhone 16e `.data/mobile-builds/ios/auth-account-switch-touch-20260705/login-account-switch-ios-sim.png`, `npm run test:login-keep-signed-in`, `npm run test:visible-app-copy-stability`, `npm run test:auth-production-guard`, `npm run test:p5-p10-internal-readiness` |
 | 2026-06-24 | Codex | Browser 390px + iOS Simulator | 코치 출석 메모 기본 접힘 | `/app/classes` 코치 출석 명단의 회원별 `현장 메모` 입력과 빠른 메모 칩을 기본 접힘으로 두고 `메모` 토글을 눌렀을 때만 열리게 정리. 지각/결석 등 사유가 필요한 상태는 메모 영역을 자동으로 열어 현장 입력 흐름을 유지 | Browser `coachClassAttendanceNoteToggleCount>0`, `coachClassAttendanceNoteEditorCount < toggleCount`, 입력칸은 열린 editor 안에서만 표시, iPhone 16e `.data/mobile-builds/ios/coach-attendance-note-collapse-20260624/coach-classes-note-collapse-ios-sim.jpg`, `npm run test:e2e`, `npm run test:visible-app-copy-stability`, `npm run test:p5-p10-internal-readiness` |

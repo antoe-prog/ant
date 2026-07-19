@@ -11,6 +11,7 @@ import { userRoles, type AppUser, type AuditAction, type UserRole } from "@/lib/
 import { formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { roleLabels, roleManagementScopeLabels } from "@/lib/roles";
+import { userAdministrationInputLimits } from "@/lib/user-administration-input-policy";
 import { getVisibleUserEmail } from "@/lib/user-display";
 import { useAppStore } from "@/store/app-store";
 import { Button, RoleBadge } from "@/components/ui/primitives";
@@ -390,6 +391,7 @@ export function AdminRolesScreen() {
                 <span className="sr-only">초대 이름</span>
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  maxLength={userAdministrationInputLimits.nameLength}
                   placeholder="이름"
                   value={inviteName}
                   onChange={(event) => setInviteName(event.target.value)}
@@ -400,6 +402,7 @@ export function AdminRolesScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   inputMode="tel"
+                  maxLength={userAdministrationInputLimits.phoneLength}
                   placeholder="휴대폰 번호"
                   type="tel"
                   value={invitePhone}
@@ -410,6 +413,7 @@ export function AdminRolesScreen() {
                 <span className="sr-only">초대 이메일 선택 입력</span>
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  maxLength={userAdministrationInputLimits.emailLength}
                   placeholder="이메일 선택"
                   type="email"
                   value={inviteEmail}
@@ -638,6 +642,7 @@ export function AdminRolesScreen() {
                         <span className="sr-only">권한 변경 사유</span>
                         <input
                           className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                          maxLength={userAdministrationInputLimits.reasonLength}
                           placeholder="변경 사유"
                           value={roleReasons[user.id] ?? ""}
                           onChange={(event) =>

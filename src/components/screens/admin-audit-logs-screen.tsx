@@ -15,6 +15,7 @@ import {
   auditResults,
   auditTargetTypeLabels,
 } from "@/lib/audit-log-presentation";
+import { auditLogQueryLimits } from "@/lib/audit-log-query";
 import type { AuditAction, AuditLog } from "@/lib/domain";
 import { formatDateKey, formatDateTime } from "@/lib/format";
 import { SectionHeader } from "@/components/ui/primitives";
@@ -391,6 +392,7 @@ export function AdminAuditLogsScreen() {
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 data-testid="admin-audit-search-input"
+                maxLength={auditLogQueryLimits.query}
                 placeholder="메시지, 처리 항목, 담당자, 대상 검색"
                 value={draftFilters.q}
                 onChange={(event) => setDraftFilters((current) => ({ ...current, q: event.target.value }))}

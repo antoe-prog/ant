@@ -5,6 +5,29 @@ const { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentChec
   "../src/lib/payment-checkout-access.ts"
 );
 const { getAccessibleMemberIds } = await import("../src/lib/mock-api.ts");
+const { familyPaymentRequestInputLimits, getFamilyPaymentRequestBodyTypeError } = await import(
+  "../src/lib/family-payment-request-policy.ts"
+);
+
+const validCollectionRequestBody = {
+  method: "card",
+  methodLabel: "우리카드",
+  payerName: "최민재",
+  payerPhone: "01012345678",
+};
+
+for (const [field, maxLength] of [
+  ["method", familyPaymentRequestInputLimits.methodLength],
+  ["methodLabel", familyPaymentRequestInputLimits.methodLabelLength],
+  ["payerName", familyPaymentRequestInputLimits.payerNameLength],
+  ["payerPhone", familyPaymentRequestInputLimits.payerPhoneLength],
+]) {
+  assert.match(
+    getFamilyPaymentRequestBodyTypeError({ ...validCollectionRequestBody, [field]: "x".repeat(maxLength + 1) }) ?? "",
+    new RegExp(String(maxLength)),
+    `${field} must reject values beyond the family payment request limit`,
+  );
+}
 
 const adultUser = {
   branchIds: ["branch-gangnam"],
@@ -233,10 +256,11 @@ assert(
   "guardian payments screen must keep linked withdrawn children visible and scope cards/counts to the selected child",
 );
 assert(
-  guardianPaymentSelectionSource.includes("requestedGuardianPaymentChild ??") &&
+  guardianPaymentSelectionSource.includes("pendingRequestedGuardianPaymentChild") &&
+    guardianPaymentSelectionSource.includes("appliedRequestedMemberIdRef.current !== requestedMemberId") &&
     guardianPaymentSelectionSource.includes("setSelectedChildId(requestedMemberId)") &&
     !paymentsScreenSource.includes("prioritizedGuardianPaymentChild"),
-  "valid guardian memberId deep links must select the requested child without prioritizing a payable sibling",
+  "valid guardian memberId deep links must select the requested child once without pinning later manual choices",
 );
 assert(
   guardianPaymentSelectionSource.includes("invalidGuardianPaymentTarget") &&
@@ -462,12 +486,22 @@ assert(
   "family checkout must persist the reviewed request and render its pending state",
 );
 assert(
-  collectionRequestRouteSource.includes('user.role !== "member" && user.role !== "guardian"') &&
+    collectionRequestRouteSource.includes('user.role !== "member" && user.role !== "guardian"') &&
     collectionRequestRouteSource.includes("getFamilyPaymentCheckoutAccess") &&
-    collectionRequestRouteSource.includes("withServerDbLock") &&
+    collectionRequestRouteSource.includes("getFamilyPaymentRequestBodyTypeError") &&
+    collectionRequestRouteSource.includes("withServerDbLock(`payment-mutation:${paymentId}`") &&
+    collectionRequestRouteSource.indexOf("request.json()") <
+      collectionRequestRouteSource.indexOf("withServerDbLock(`payment-mutation:${paymentId}`") &&
+    collectionRequestRouteSource.match(/await requireCollectionRequestContext\(request, paymentId\)/g)?.length === 2 &&
+    collectionRequestRouteSource.includes('access.state === "forbidden"') &&
     collectionRequestRouteSource.includes("payment.collectionRequest?.status === \"pending\"") &&
     collectionRequestRouteSource.includes('action: "payment.update"'),
-  "family payment request API must enforce role scope, lock duplicate submissions, and audit the request",
+  "family payment request API must hide unrelated targets, validate object bodies, share the payment mutation lock, and audit the request",
+);
+assert(
+  checkoutScreenSource.includes("maxLength={familyPaymentRequestInputLimits.payerNameLength}") &&
+    (checkoutScreenSource.match(/maxLength=\{4\}/g)?.length ?? 0) >= 2,
+  "family payment request UI must expose the server payer name and phone-part boundaries",
 );
 
 console.log(

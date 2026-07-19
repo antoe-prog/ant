@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import type { AppUser, AuditLog, MockDatabase, UserRole } from "@/lib/domain";
+import { getAuthInputLimitError } from "@/lib/auth-input-policy";
+import { userRoles, type AppUser, type AuditLog, type MockDatabase, type UserRole } from "@/lib/domain";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, sessionCookieName } from "@/server/api";
 import { canUseDemoRoleLogin, createSessionCookieOptions } from "@/server/auth-policy";
@@ -24,8 +25,35 @@ type LoginBody = {
   role?: UserRole;
 };
 
+function isLoginBody(value: unknown): value is LoginBody {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const optionalStringFields = ["email", "loginId", "password", "phone"];
+
+  return optionalStringFields.every(
+    (field) => candidate[field] === undefined || typeof candidate[field] === "string",
+  ) &&
+    (candidate.keepSignedIn === undefined || typeof candidate.keepSignedIn === "boolean") &&
+    (candidate.role === undefined || userRoles.includes(candidate.role as UserRole));
+}
+
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as LoginBody | null;
+  const rawBody = await request.json().catch(() => null);
+
+  if (!isLoginBody(rawBody)) {
+    return jsonError(400, "VALIDATION_ERROR", "로그인 입력 형식이 올바르지 않습니다.");
+  }
+
+  const inputLimitError = getAuthInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody;
   const loginId = (body?.phone ?? body?.loginId ?? body?.email ?? "").trim();
   const emailFallback = loginId.toLowerCase();
   const password = readUnmodifiedPassword(body?.password);

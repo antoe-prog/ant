@@ -180,21 +180,41 @@ async function verifyCreateIdempotency(browser, plan) {
           };
         };
 
-        return Promise.all([send(), send()]);
+        return Promise.all([send(), send(), send(), send()]);
       },
       { key: idempotencyKey, requestPath: path, requestPayload: payload },
     );
 
-    assert.deepEqual(duplicateResults.map((result) => result.status), [200, 200], "duplicate notice requests must both succeed");
+    assert(
+      duplicateResults.every((result) => result.status === 200),
+      "duplicate notice requests must all succeed",
+    );
+    const duplicateRuntimeDb = readRuntimeDb(plan);
+    const duplicateDiagnostics = {
+      notices: duplicateRuntimeDb.notices
+        .filter((notice) => notice.title === title)
+        .map((notice) => ({ createdAt: notice.createdAt, id: notice.id })),
+      createAudits: duplicateRuntimeDb.auditLogs
+        .filter((auditLog) => auditLog.action === "notice.create" && auditLog.after?.title === title)
+        .map((auditLog) => ({ createdAt: auditLog.createdAt, id: auditLog.id, targetId: auditLog.targetId })),
+      dispatchAudits: duplicateRuntimeDb.auditLogs
+        .filter(
+          (auditLog) =>
+            auditLog.action === "notification.dispatch" &&
+            duplicateRuntimeDb.notices.some((notice) => notice.title === title && notice.id === auditLog.targetId),
+        )
+        .map((auditLog) => ({ createdAt: auditLog.createdAt, id: auditLog.id, targetId: auditLog.targetId })),
+      responseNoticeIds: duplicateResults.map((result) => result.body.data.notice.id),
+    };
     assert.equal(
       duplicateResults[0].body.data.notice.id,
       duplicateResults[1].body.data.notice.id,
-      "duplicate notice requests must return the same notice",
+      `duplicate notice requests must return the same notice: ${JSON.stringify(duplicateDiagnostics)}`,
     );
     assert.deepEqual(
       duplicateResults.map((result) => result.replayed).sort(),
-      ["false", "true"],
-      "one duplicate response must identify the replay",
+      ["false", "true", "true", "true"],
+      "one duplicate response must create the notice and the remaining responses must identify the replay",
     );
 
     const noticeId = duplicateResults[0].body.data.notice.id;

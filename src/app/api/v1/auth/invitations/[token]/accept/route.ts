@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { authInputLimits } from "@/lib/auth-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, sessionCookieName } from "@/server/api";
 import { createSessionCookieOptions } from "@/server/auth-policy";
@@ -22,7 +23,7 @@ type InvitationAcceptBody = {
 type PasswordValidationFailure = {
   code: "BUSINESS_RULE_FAILED" | "VALIDATION_ERROR";
   message: string;
-  reason: "default_password" | "leading_or_trailing_whitespace" | "missing_or_too_short";
+  reason: "default_password" | "leading_or_trailing_whitespace" | "missing_or_too_short" | "too_long";
   status: 400 | 422;
 };
 
@@ -32,6 +33,15 @@ function validateInvitationPassword(password: unknown): PasswordValidationFailur
       code: "VALIDATION_ERROR",
       message: "비밀번호는 12자 이상이어야 합니다.",
       reason: "missing_or_too_short",
+      status: 400,
+    };
+  }
+
+  if (password.length > authInputLimits.passwordLength) {
+    return {
+      code: "VALIDATION_ERROR",
+      message: "비밀번호는 256자 이하여야 합니다.",
+      reason: "too_long",
       status: 400,
     };
   }

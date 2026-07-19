@@ -75,6 +75,7 @@ assert.equal(verifyPassword(defaultPilotPassword, defaultPilotPasswordHash), tru
 assert.equal(verifyPassword("wrong-password", defaultPilotPasswordHash), false, "wrong password must not verify");
 
 const signupScreenSource = readFileSync("src/components/screens/signup-screen.tsx", "utf8");
+const authInputPolicySource = readFileSync("src/lib/auth-input-policy.ts", "utf8");
 const publicRegisterRouteSource = readFileSync("src/app/api/v1/auth/register/route.ts", "utf8");
 const inviteAcceptRouteSource = readFileSync("src/app/api/v1/auth/invitations/[token]/accept/route.ts", "utf8");
 const inviteAcceptScreenSource = readFileSync("src/components/screens/invite-accept-screen.tsx", "utf8");
@@ -83,19 +84,34 @@ const adminUsersScreenSource = readFileSync("src/components/screens/admin-users-
 const mockDataSource = readFileSync("src/lib/mock-data.ts", "utf8");
 const serverDbSource = readFileSync("src/server/db.ts", "utf8");
 const loginScreenSource = readFileSync("src/components/screens/login-screen.tsx", "utf8");
+const passwordResetScreenSource = readFileSync("src/components/screens/password-reset-screen.tsx", "utf8");
+const passwordResetRouteSource = readFileSync("src/app/api/v1/auth/password-reset/route.ts", "utf8");
 const selectRoleScreenSource = readFileSync("src/components/screens/select-role-screen.tsx", "utf8");
 const loginRouteSource = readFileSync("src/app/api/v1/auth/login/route.ts", "utf8");
 const bootstrapRouteSource = readFileSync("src/app/api/v1/me/bootstrap/route.ts", "utf8");
 const appStoreSource = readFileSync("src/store/app-store.tsx", "utf8");
 const apiClientSource = readFileSync("src/lib/api-client.ts", "utf8");
 const serverApiSource = readFileSync("src/server/api.ts", "utf8");
+const devAutoLoginRouteSource = readFileSync("src/app/api/v1/dev/auto-login/route.ts", "utf8");
+const proxySource = readFileSync("src/proxy.ts", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+const { localAutoLoginFallbackPath, localAutoLoginNextMaxLength, normalizeLocalAutoLoginNextPath } = await import(
+  "../src/lib/local-auto-login.ts"
+);
 
 assert(signupScreenSource.includes("휴대폰 번호로 회원가입"), "signup must render the phone signup heading");
 assert(signupScreenSource.includes('data-testid="signup-phone-input"'), "signup must collect a phone number");
+assert(signupScreenSource.includes('data-testid="signup-branch-input"'), "multi-branch signup must collect a branch selection");
 assert(signupScreenSource.includes('data-testid="signup-password-input"'), "signup must collect a password");
 assert(signupScreenSource.includes('data-testid="signup-password-confirm-input"'), "signup must confirm the password");
+assert(signupScreenSource.includes("maxLength={authInputLimits.registrationNameLength}"), "signup must bound member names");
+assert.equal(
+  signupScreenSource.split("maxLength={authInputLimits.passwordLength}").length - 1,
+  2,
+  "signup password and confirmation inputs must share the server password limit",
+);
 assert(signupScreenSource.includes("apiClient.registerWithPhone"), "signup must submit through the phone registration API");
+assert(signupScreenSource.includes(".getPublicSignupBranches()"), "signup must load server-validated public branches");
 assert(!signupScreenSource.includes("초대 링크로 회원가입"), "signup must not regress to invitation-link entry");
 assert(!signupScreenSource.includes("signup-invitation-input"), "signup must not render the invitation input");
 assert(!signupScreenSource.includes("router.push(`/invite/"), "signup must not route phone signup through invite accept");
@@ -104,12 +120,24 @@ assert(publicRegisterRouteSource.includes("request.json()"), "public register ro
 assert(publicRegisterRouteSource.includes("writeServerDb"), "public register route must persist the phone signup account");
 assert(publicRegisterRouteSource.includes("isValidKoreanMobileNumber"), "public register route must validate Korean mobile numbers");
 assert(publicRegisterRouteSource.includes("samePhoneNumber"), "public register route must block duplicate phone numbers");
+assert(publicRegisterRouteSource.includes("getAvailableSignupBranches"), "public register route must derive eligible branches on the server");
+assert(
+  publicRegisterRouteSource.includes("availableBranches.length > 1") && publicRegisterRouteSource.includes("가입 지점을 선택해 주세요."),
+  "public register route must not assign an arbitrary first branch in multi-branch environments",
+);
 assert(publicRegisterRouteSource.includes("createRandomPasswordHash"), "public register route must store a password hash");
+assert(publicRegisterRouteSource.includes("getAuthInputLimitError"), "public register must reject oversized inputs before hashing");
 assert(publicRegisterRouteSource.includes('role: "member"'), "public register route must create member accounts only");
 assert(publicRegisterRouteSource.includes("memberIds: [memberId]"), "public register route must link the user to a member profile");
 assert(!publicRegisterRouteSource.includes("INVITATION_REQUIRED"), "public register route must not reject all phone signups as invitation-only");
 assert(inviteAcceptRouteSource.includes("password.length < 12"), "invitation accept API must require a 12+ character password");
 assert(inviteAcceptScreenSource.includes("minLength={12}"), "invitation accept form must enforce a 12+ character password hint");
+assert(inviteAcceptRouteSource.includes("authInputLimits.passwordLength"), "invitation accept must bound passwords before hashing");
+assert.equal(
+  inviteAcceptScreenSource.split("maxLength={authInputLimits.passwordLength}").length - 1,
+  2,
+  "invitation password and confirmation inputs must share the server password limit",
+);
 assert(
   inviteAcceptScreenSource.includes("const result = await acceptInvitation(token, password);") &&
     inviteAcceptScreenSource.includes("setError(result.message);"),
@@ -152,6 +180,15 @@ assert(
 );
 assert(!loginScreenSource.includes("관리자 승인 후 로그인"), "registered login notice must not imply a second admin approval step");
 assert(loginRouteSource.includes("keepSignedIn?: boolean"), "login API must accept an explicit keep-signed-in flag");
+assert(loginRouteSource.includes("getAuthInputLimitError"), "login must reject oversized credentials before password verification");
+assert(loginScreenSource.includes("maxLength={authInputLimits.phoneLength}"), "login identifier must expose the server limit");
+assert(loginScreenSource.includes("maxLength={authInputLimits.passwordLength}"), "login password must expose the server limit");
+assert(passwordResetRouteSource.includes("getAuthInputLimitError"), "password reset requests must bound identifiers before lookup");
+assert(
+  passwordResetScreenSource.includes("maxLength={authInputLimits.identifierLength}"),
+  "password reset identifier must expose the server limit",
+);
+assert(authInputPolicySource.includes("passwordLength: 256"), "public authentication passwords must be capped at 256 characters");
 assert(
   loginRouteSource.includes("shared_demo_password_blocked") &&
     loginRouteSource.includes('process.env.NODE_ENV === "production"'),
@@ -170,6 +207,41 @@ assert(
 assert(
   serverApiSource.includes('process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null'),
   "server auth must ignore x-user-id fallback headers in production",
+);
+assert(
+  devAutoLoginRouteSource.includes('process.env.NODE_ENV === "production"') &&
+    devAutoLoginRouteSource.indexOf('process.env.NODE_ENV === "production"') < devAutoLoginRouteSource.indexOf("readServerDb()"),
+  "local auto-login API must fail closed before reading data in production",
+);
+assert(
+  proxySource.includes('process.env.NODE_ENV === "production"') &&
+    proxySource.indexOf('process.env.NODE_ENV === "production"') < proxySource.indexOf('searchParams.get("autoLogin")'),
+  "login proxy must not route auto-login requests in production",
+);
+assert.equal(localAutoLoginNextMaxLength, 2_048, "local auto-login next paths must have a finite URL-size bound");
+assert.equal(
+  normalizeLocalAutoLoginNextPath("/app/members?q=%ED%95%9C%EA%B8%80#profile"),
+  "/app/members?q=%ED%95%9C%EA%B8%80#profile",
+  "local auto-login must preserve same-origin path, query, and hash deep links",
+);
+for (const unsafeNext of [
+  null,
+  "app/dashboard",
+  "//evil.example/path",
+  "/\\\\evil.example/path",
+  "https://evil.example/path",
+  `/${"a".repeat(localAutoLoginNextMaxLength)}`,
+]) {
+  assert.equal(
+    normalizeLocalAutoLoginNextPath(unsafeNext),
+    localAutoLoginFallbackPath,
+    `local auto-login must reject unsafe next path ${String(unsafeNext).slice(0, 80)}`,
+  );
+}
+assert(
+  proxySource.includes("normalizeLocalAutoLoginNextPath(request.nextUrl.searchParams.get(\"next\"))") &&
+    devAutoLoginRouteSource.includes("normalizeLocalAutoLoginNextPath(request.nextUrl.searchParams.get(\"next\"))"),
+  "login proxy and dev auto-login route must share the same-origin next-path policy",
 );
 assert(
   appStoreSource.includes("type InvitationAcceptResult = { ok: true } | { ok: false; message: string }") &&
@@ -230,6 +302,7 @@ console.log(
         "default pilot password hash verification",
         "public signup uses phone number and password",
         "public register API creates a member account with password hash",
+        "public authentication input amplification limits",
         "invitation accept password length policy",
         "invitation accept API failure messages reach the form",
         "registered login notice uses phone/password copy",
@@ -237,6 +310,7 @@ console.log(
         "login keep-signed-in checkbox and 30-day cookie policy",
         "authenticated login and select-role account navigation touch targets",
         "production auth ignores localStorage user-id fallback headers",
+        "local auto-login same-origin redirect and URL length policy",
         "admin invitation approval action",
         "visible admin invitation approval label",
         "confirmation step before admin invitation approval",

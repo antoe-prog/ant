@@ -12,14 +12,17 @@ import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection"
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
+import { counselingNoteInputLimits } from "@/lib/counseling-note-input-policy";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
+import { memberInputLimits } from "@/lib/member-input-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { memberStatusLabels, roleLabels } from "@/lib/roles";
+import { userAdministrationInputLimits } from "@/lib/user-administration-input-policy";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { Button, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
@@ -1038,6 +1041,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-invite-field"
+                  maxLength={userAdministrationInputLimits.nameLength}
                   placeholder="초대 이름"
                   value={inviteName}
                   onChange={(event) => setInviteName(event.target.value)}
@@ -1049,6 +1053,7 @@ export function MembersScreen() {
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-invite-field"
                   inputMode="tel"
+                  maxLength={userAdministrationInputLimits.phoneLength}
                   placeholder="휴대폰 번호 입력"
                   type="tel"
                   value={invitePhone}
@@ -1060,6 +1065,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-invite-field"
+                  maxLength={userAdministrationInputLimits.emailLength}
                   placeholder="연락 이메일"
                   type="email"
                   value={inviteEmail}
@@ -1174,6 +1180,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-create-field"
+                  maxLength={memberInputLimits.nameLength}
                   placeholder="회원명"
                   value={newMemberName}
                   onChange={(event) => setNewMemberName(event.target.value)}
@@ -1214,6 +1221,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="member-create-field"
+                  maxLength={memberInputLimits.levelLength}
                   value={newMemberLevel}
                   onChange={(event) => setNewMemberLevel(event.target.value)}
                 />
@@ -1223,6 +1231,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="member-create-field"
+                  maxLength={memberInputLimits.beltLength}
                   value={newMemberBelt}
                   onChange={(event) => setNewMemberBelt(event.target.value)}
                 />
@@ -1232,6 +1241,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-create-field"
+                  maxLength={memberInputLimits.emergencyContactLength}
                   placeholder="연락 가능한 번호"
                   value={newMemberEmergencyContact}
                   onChange={(event) => setNewMemberEmergencyContact(event.target.value)}
@@ -1269,7 +1279,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="member-create-field"
-                  maxLength={100}
+                  maxLength={memberInputLimits.addressLength}
                   placeholder="도로명 주소"
                   value={newMemberAddress}
                   onChange={(event) => setNewMemberAddress(event.target.value)}
@@ -1636,6 +1646,7 @@ export function MembersScreen() {
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                             data-touch-target="member-profile-field"
                             data-testid={`member-profile-name-input-${member.id}`}
+                            maxLength={memberInputLimits.nameLength}
                             value={getProfileDraft(member).name}
                             onChange={(event) => updateProfileDraft(member, { name: event.target.value, feedback: undefined })}
                           />
@@ -1666,6 +1677,7 @@ export function MembersScreen() {
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                             data-touch-target="member-profile-field"
+                            maxLength={memberInputLimits.beltLength}
                             value={getProfileDraft(member).belt}
                             onChange={(event) => updateProfileDraft(member, { belt: event.target.value, feedback: undefined })}
                           />
@@ -1675,6 +1687,7 @@ export function MembersScreen() {
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                             data-touch-target="member-profile-field"
+                            maxLength={memberInputLimits.levelLength}
                             value={getProfileDraft(member).level}
                             onChange={(event) => updateProfileDraft(member, { level: event.target.value, feedback: undefined })}
                           />
@@ -1719,7 +1732,7 @@ export function MembersScreen() {
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                             data-touch-target="member-profile-field"
                             data-testid={`member-address-input-${member.id}`}
-                            maxLength={100}
+                            maxLength={memberInputLimits.addressLength}
                             placeholder="도로명 주소"
                             value={getProfileDraft(member).address}
                             onChange={(event) => updateProfileDraft(member, { address: event.target.value, feedback: undefined })}
@@ -1733,6 +1746,7 @@ export function MembersScreen() {
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                         data-touch-target="member-profile-field"
                         data-testid={`member-emergency-contact-input-${member.id}`}
+                        maxLength={memberInputLimits.emergencyContactLength}
                         placeholder="연락 가능한 번호"
                         value={getProfileDraft(member).emergencyContact}
                         onChange={(event) => updateProfileDraft(member, { emergencyContact: event.target.value, feedback: undefined })}
@@ -1754,6 +1768,7 @@ export function MembersScreen() {
                         <span className="mb-1 block text-xs font-semibold text-zinc-500">주의사항</span>
                         <textarea
                           className="min-h-20 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                          maxLength={memberInputLimits.alertsTextLength}
                           placeholder="한 줄에 하나씩 입력"
                           value={getProfileDraft(member).alertsText}
                           onChange={(event) => updateProfileDraft(member, { alertsText: event.target.value, feedback: undefined })}
@@ -2100,6 +2115,8 @@ export function MembersScreen() {
                       <span className="mb-1 block text-xs font-semibold text-zinc-500">메모</span>
                       <textarea
                         className="min-h-24 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        data-testid="member-note-body"
+                        maxLength={counselingNoteInputLimits.bodyLength}
                         placeholder="상담 내용과 다음 확인 일정"
                         value={getNoteDraft(member.id).body}
                         onChange={(event) => updateNoteDraft(member.id, { body: event.target.value, feedback: undefined })}

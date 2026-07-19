@@ -43,7 +43,7 @@ Vercel production은 `prebuild`와 서버 런타임에서 `FINAL_JUDO_DB_DRIVER=
 | 변수 | 개발 | 파일럿/운영 | 설명 |
 | --- | --- | --- | --- |
 | `FINAL_JUDO_PAYMENT_PROVIDER` | 비움 | `external` | 비어 있으면 mock provider로 동작한다. |
-| `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL` | 비움 | provider checkout origin | 외부 provider 결제 요청 URL base. |
+| `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL` | 비움 | provider checkout HTTPS origin | 경로·쿼리·fragment·자격증명 없는 외부 provider 결제 요청 origin. |
 | `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET` | 비움 가능 | 필수 | production webhook 인증 secret. 비어 있으면 webhook route는 `503`으로 차단한다. |
 
 Provider event ID는 body의 `providerEventId` 또는 `x-final-judo-payment-event-id` header에서 받는다. 같은 event ID 재전송은 상태 이력과 감사 로그를 중복 생성하지 않는다. 실제 provider 연결 전에는 provider의 event ID 필드, 서명 header, 영수증 URL 필드를 최종 매핑해야 한다.

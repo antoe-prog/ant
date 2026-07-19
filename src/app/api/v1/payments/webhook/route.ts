@@ -9,6 +9,8 @@ import {
 import {
   createPaymentReceipt,
   getWebhookSecret,
+  isValidPaymentReceiptUrl,
+  paymentReceiptUrlMaxLength,
   type PaymentWebhookBody,
   type PaymentWebhookEvent,
 } from "@/server/online-payments";
@@ -16,6 +18,7 @@ import { jsonError, jsonOk } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import {
   isPositiveSafeIntegerPaymentAmount,
+  paymentWebhookStateLockKey,
   validatePaymentWebhookTransition,
 } from "@/server/payment-mutation-policy";
 import { createRuntimeId } from "@/server/runtime-id";
@@ -25,6 +28,9 @@ export const runtime = "nodejs";
 
 const webhookEvents: PaymentWebhookEvent[] = ["paid", "failed", "refunded"];
 const webhookActorUserId = "system-payment-webhook";
+const providerPaymentIdMaxLength = 160;
+const providerEventIdMaxLength = 160;
+const receiptIdMaxLength = 160;
 
 function isIsoDate(value: unknown): value is string {
   return Boolean(
@@ -50,6 +56,16 @@ function appendProcessedWebhookEventId(
     ...onlinePayment,
     processedWebhookEventIds,
   };
+}
+
+function findPaymentByProcessedWebhookEventId(db: { payments: Payment[] }, providerEventId: string) {
+  return db.payments.find(
+    (payment) =>
+      payment.onlinePayment?.processedWebhookEventIds?.includes(providerEventId) ||
+      payment.statusHistory?.some(
+        (entry) => entry.event === "webhook" && entry.providerEventId === providerEventId,
+      ),
+  );
 }
 
 function createWebhookUpdatedPayment(payment: Payment, body: PaymentWebhookBody, occurredAt: string): Payment {
@@ -117,9 +133,10 @@ function createWebhookUpdatedPayment(payment: Payment, body: PaymentWebhookBody,
 
   const previousRefunded = payment.refundedAmount ?? 0;
   const remainingRefundable = getPaymentRemainingRefundableAmount(payment);
-  const requestedRefund = typeof body.amount === "number" && Number.isFinite(body.amount)
-    ? Math.round(body.amount)
-    : remainingRefundable;
+  if (!isPositiveSafeIntegerPaymentAmount(body.amount)) {
+    throw new TypeError("Validated refund amount is required before applying a refund webhook.");
+  }
+  const requestedRefund = body.amount;
   const nextRefundedAmount = previousRefunded + Math.min(Math.max(requestedRefund, 0), remainingRefundable);
   const nextStatus: PaymentStatus = nextRefundedAmount >= getPaymentNetAmount(payment) ? "refunded" : "partially_refunded";
   const reason = "결제 환불 상태가 반영되었습니다.";
@@ -161,14 +178,54 @@ export async function POST(request: NextRequest) {
     return jsonError(401, "UNAUTHENTICATED", "결제 연동 인증에 실패했습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as PaymentWebhookBody | null;
-  const providerPaymentId = body?.providerPaymentId?.trim() ?? "";
+  const rawBody = await request.json().catch(() => null);
+  const body = rawBody && typeof rawBody === "object" && !Array.isArray(rawBody)
+    ? rawBody as PaymentWebhookBody
+    : null;
+  const providerPaymentId = typeof body?.providerPaymentId === "string" ? body.providerPaymentId.trim() : "";
+  const bodyProviderEventId = typeof body?.providerEventId === "string" ? body.providerEventId.trim() : "";
   const providerEventId =
-    body?.providerEventId?.trim() || request.headers.get("x-final-judo-payment-event-id")?.trim() || undefined;
+    bodyProviderEventId || request.headers.get("x-final-judo-payment-event-id")?.trim() || undefined;
   const event = body?.event;
 
-  if (!body || !providerPaymentId || !event || !webhookEvents.includes(event)) {
-    return jsonError(400, "VALIDATION_ERROR", "결제 연동 식별자와 처리 이벤트가 필요합니다.");
+  if (!body || !providerPaymentId || !providerEventId || !event || !webhookEvents.includes(event)) {
+    return jsonError(400, "VALIDATION_ERROR", "결제·이벤트 식별자와 처리 이벤트가 필요합니다.");
+  }
+
+  if (providerPaymentId.length > providerPaymentIdMaxLength || providerEventId.length > providerEventIdMaxLength) {
+    return jsonError(400, "VALIDATION_ERROR", "결제 또는 이벤트 식별자가 너무 깁니다.");
+  }
+
+  if (body.receiptId !== undefined && typeof body.receiptId !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "영수증 식별자가 올바르지 않습니다.");
+  }
+
+  const receiptId = body.receiptId?.trim() || undefined;
+
+  if (receiptId && receiptId.length > receiptIdMaxLength) {
+    return jsonError(400, "VALIDATION_ERROR", "영수증 식별자가 너무 깁니다.");
+  }
+
+  if (body.receiptUrl !== undefined && typeof body.receiptUrl !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "영수증 주소가 올바르지 않습니다.");
+  }
+
+  const receiptUrl = body.receiptUrl?.trim() || undefined;
+
+  if (receiptUrl && !isValidPaymentReceiptUrl(receiptUrl)) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `영수증 주소는 ${paymentReceiptUrlMaxLength}자 이하의 HTTPS 주소여야 합니다.`,
+    );
+  }
+
+  if (event === "paid" && !isPositiveSafeIntegerPaymentAmount(body.amount)) {
+    return jsonError(400, "VALIDATION_ERROR", "승인 금액은 1원 이상의 원 단위 정수여야 합니다.");
+  }
+
+  if (event === "refunded" && !isPositiveSafeIntegerPaymentAmount(body.amount)) {
+    return jsonError(400, "VALIDATION_ERROR", "환불 금액은 1원 이상의 원 단위 정수여야 합니다.");
   }
 
   const initialDb = await readServerDb();
@@ -184,22 +241,18 @@ export async function POST(request: NextRequest) {
 
   const webhookBody: PaymentWebhookBody = {
     ...body,
-    ...(providerEventId ? { providerEventId } : {}),
+    providerPaymentId,
+    providerEventId,
+    receiptId,
+    receiptUrl,
   };
   const occurredAtInput = webhookBody.occurredAt;
   const hasValidOccurredAt = isIsoDate(occurredAtInput);
   const occurredAt = hasValidOccurredAt ? new Date(occurredAtInput as string).toISOString() : new Date().toISOString();
 
-  if (
-    event === "refunded" &&
-    webhookBody.amount !== undefined &&
-    !isPositiveSafeIntegerPaymentAmount(webhookBody.amount)
-  ) {
-    return jsonError(400, "VALIDATION_ERROR", "환불 금액은 1원 이상의 정수여야 합니다.");
-  }
-
   try {
-    return await withServerDbLock(`payment-mutation:${paymentId}`, async () => {
+    return await withServerDbLock(paymentWebhookStateLockKey, () =>
+      withServerDbLock(`payment-mutation:${paymentId}`, async () => {
       const db = await readServerDb();
       const payment = db.payments.find(
         (candidate) =>
@@ -210,13 +263,27 @@ export async function POST(request: NextRequest) {
         return jsonError(404, "NOT_FOUND", "결제 요청을 찾을 수 없습니다.");
       }
 
-      if (providerEventId && payment.onlinePayment.processedWebhookEventIds?.includes(providerEventId)) {
+      const processedByPayment = findPaymentByProcessedWebhookEventId(db, providerEventId);
+
+      if (processedByPayment?.id === payment.id) {
         return jsonOk({
           duplicate: true,
           ok: true,
           payment,
           providerEventId,
         });
+      }
+
+      if (processedByPayment) {
+        return jsonError(
+          409,
+          "PROVIDER_EVENT_CONFLICT",
+          "이미 다른 결제에 처리된 결제 이벤트입니다.",
+        );
+      }
+
+      if (event === "paid" && webhookBody.amount !== payment.onlinePayment.amount) {
+        return jsonError(422, "PAYMENT_AMOUNT_MISMATCH", "승인 금액이 결제 요청 금액과 일치하지 않습니다.");
       }
 
       if (!hasValidOccurredAt && payment.statusHistory?.some((entry) => entry.event === "webhook")) {
@@ -275,7 +342,8 @@ export async function POST(request: NextRequest) {
         ok: true,
         payment: nextDb.payments.find((candidate) => candidate.id === payment.id),
       });
-    });
+      }),
+    );
   } catch (error) {
     if (error instanceof RuntimeStateMergeConflictError) {
       return jsonError(409, "CONCURRENT_MODIFICATION", "결제 상태가 동시에 변경되었습니다. 다시 시도해 주세요.");

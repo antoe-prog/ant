@@ -59,7 +59,7 @@ async function canReachAppServer() {
   }
 }
 
-async function waitForManagedAppServer(timeoutMs = 30000) {
+async function waitForManagedAppServer(timeoutMs = 60000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -101,7 +101,7 @@ async function ensureLocalAppServer() {
     ["run", "dev", "--", "--webpack", "--hostname", target.hostname, "--port", target.port],
     {
       cwd: process.cwd(),
-      env: process.env,
+      env: { ...process.env, FINAL_JUDO_ROLL_DEMO_DATES: "0" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -220,12 +220,80 @@ async function gotoRole(page, role, nextPath) {
   });
 }
 
+async function prepareStartedAttendanceSessions(context) {
+  const page = await context.newPage();
+
+  try {
+    await gotoRole(page, "owner", "/app/classes");
+    await page.waitForSelector('[data-testid="class-create-toggle"]', { timeout: roleScreenTimeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: roleScreenTimeoutMs });
+    const now = Date.now();
+    const updates = [
+      {
+        classId: "class-kids-am",
+        endsAt: new Date(now + 48 * 60_000).toISOString(),
+        startsAt: new Date(now - 2 * 60_000).toISOString(),
+      },
+      {
+        classId: "class-adult-night",
+        endsAt: new Date(now + 79 * 60_000).toISOString(),
+        startsAt: new Date(now - 60_000).toISOString(),
+      },
+    ];
+    const results = await page.evaluate(async (items) => {
+      const bootstrapResponse = await fetch("/api/v1/me/bootstrap");
+      const bootstrapPayload = await bootstrapResponse.json().catch(() => null);
+      const classes = bootstrapPayload?.data?.db?.classes ?? [];
+
+      const results = [];
+
+      for (const item of items) {
+        const targetClass = classes.find((candidate) => candidate.id === item.classId);
+
+        if (!targetClass?.branchId) {
+          results.push({ classId: item.classId, status: null });
+          continue;
+        }
+
+        const response = await fetch(
+          `/api/v1/classes/${encodeURIComponent(item.classId)}?selectedBranchId=${encodeURIComponent(targetClass.branchId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startsAt: item.startsAt, endsAt: item.endsAt }),
+          },
+        );
+
+        results.push({ classId: item.classId, status: response.status });
+      }
+
+      return results;
+    }, updates);
+
+    assert.deepEqual(
+      results,
+      updates.map((item) => ({ classId: item.classId, status: 200 })),
+      "class management touch-target check must prepare deterministic started attendance sessions",
+    );
+  } finally {
+    await page.close();
+  }
+}
+
 async function readHeights(page, selector) {
   return page.evaluate((targetSelector) => {
     return Array.from(document.querySelectorAll(targetSelector)).map((element) =>
       Math.round(element.getBoundingClientRect().height),
     );
   }, selector);
+}
+
+async function revealCoachClassList(page) {
+  const classListToggle = page.getByTestId("coach-class-list-toggle");
+
+  if ((await classListToggle.count()) > 0 && (await classListToggle.getAttribute("aria-expanded")) !== "true") {
+    await classListToggle.click();
+  }
 }
 
 function assertHeightsAtLeast(label, heights, min = 44) {
@@ -280,8 +348,16 @@ async function captureOwnerClasses(context) {
 
     const openLayout = {
       health: await collectPageHealth(page),
+      createTextMaxLengths: {
+        level: Number(await page.getByLabel("레벨", { exact: true }).getAttribute("maxlength")),
+        name: Number(await page.getByLabel("수업명", { exact: true }).getAttribute("maxlength")),
+        room: Number(await page.getByLabel("장소", { exact: true }).getAttribute("maxlength")),
+      },
       createFieldHeights: await readHeights(page, '[data-testid="class-create-field"]'),
       createSubmitHeights: await readHeights(page, '[data-testid="class-create-submit"]'),
+      editRoomMaxLengths: await page
+        .getByLabel("장소 수정", { exact: true })
+        .evaluateAll((inputs) => inputs.map((input) => Number(input.getAttribute("maxlength")))),
       editInputHeights: await readHeights(page, '[data-testid="class-edit-input"]'),
       editSubmitHeights: await readHeights(page, '[data-testid="class-edit-submit"]'),
       formCount: await page.locator('[data-testid="class-create-form"]').count(),
@@ -294,6 +370,15 @@ async function captureOwnerClasses(context) {
     assertHeightsAtLeast("class create submit", openLayout.createSubmitHeights);
     assertHeightsAtLeast("class edit input", openLayout.editInputHeights);
     assertHeightsAtLeast("class edit submit", openLayout.editSubmitHeights);
+    assert.deepEqual(
+      openLayout.createTextMaxLengths,
+      { level: 40, name: 80, room: 80 },
+      "class create fields must expose the server text limits",
+    );
+    assert(
+      openLayout.editRoomMaxLengths.length > 0 && openLayout.editRoomMaxLengths.every((value) => value === 80),
+      "class edit room fields must expose the server room limit",
+    );
     assert.equal(messages.length, 0, `owner classes must not log console/page warnings: ${messages.join(" | ")}`);
     await page.screenshot({ fullPage: false, path: openScreenshotPath });
 
@@ -327,16 +412,36 @@ async function captureCoachAttendanceNote(context) {
   try {
     await gotoRole(page, "coach", "/app/classes");
     await page.waitForSelector('[data-testid^="coach-class-card-"]', { timeout: roleScreenTimeoutMs });
-    const rosterToggle = page.locator('[data-testid^="coach-class-roster-toggle-"]').first();
+    await revealCoachClassList(page);
+    const rosterToggle = page.getByTestId("coach-class-roster-toggle-class-kids-am");
     if ((await rosterToggle.getAttribute("aria-expanded")) !== "true") {
       await rosterToggle.click();
     }
-    await page.waitForSelector('[data-testid^="attendance-note-toggle-"]', { timeout: 15000 });
-    await page.locator('[data-testid^="attendance-note-toggle-"]').first().click();
-    await page.waitForSelector('[data-testid^="attendance-note-editor-"]', { timeout: 15000 });
+    const noteToggle = page.getByTestId("attendance-note-toggle-class-kids-am-member-jun");
+    await noteToggle.waitFor({ timeout: 15000 });
+    const noteToggleState = await noteToggle.evaluate(async (element) => {
+      const bootstrapResponse = await fetch("/api/v1/me/bootstrap");
+      const bootstrapPayload = await bootstrapResponse.json().catch(() => null);
+      const targetClass = bootstrapPayload?.data?.db?.classes?.find((candidate) => candidate.id === "class-kids-am");
+
+      return {
+        ariaDescribedBy: element.getAttribute("aria-describedby"),
+        disabled: element.matches(":disabled"),
+        startsAt: targetClass?.startsAt ?? null,
+      };
+    });
+    assert.equal(
+      noteToggleState.disabled,
+      false,
+      `started class attendance note must be actionable: ${JSON.stringify(noteToggleState)}`,
+    );
+    await noteToggle.click();
+    await page.getByTestId("attendance-note-editor-class-kids-am-member-jun").waitFor({ timeout: 15000 });
+    const noteInput = page.getByTestId("attendance-note-class-kids-am-member-jun");
 
     const layout = {
       health: await collectPageHealth(page),
+      noteInputMaxLength: await noteInput.getAttribute("maxlength"),
       noteInputHeights: await readHeights(page, 'input[data-testid^="attendance-note-"]'),
       notePresetHeights: await readHeights(page, '[data-testid^="attendance-note-preset-"]'),
       noteSaveHeights: await readHeights(page, '[data-testid^="attendance-note-save-"]'),
@@ -346,6 +451,7 @@ async function captureCoachAttendanceNote(context) {
     assert.equal(layout.health.frameworkOverlayCount, 0, "coach classes note flow must not show a framework overlay");
     assert(layout.health.bodyTextLength > 100, "coach classes note flow must not render a blank page");
     assert.equal(layout.health.scrollWidth, layout.health.clientWidth, "coach classes note flow must not overflow horizontally");
+    assert.equal(layout.noteInputMaxLength, "80", "coach attendance note must expose the shared 80-character limit");
     assertHeightsAtLeast("attendance note toggle", layout.noteToggleHeights);
     assertHeightsAtLeast("attendance note input", layout.noteInputHeights);
     assertHeightsAtLeast("attendance note preset", layout.notePresetHeights);
@@ -375,6 +481,7 @@ async function captureCoachBulkAttendance(context) {
   try {
     await gotoRole(page, "coach", "/app/classes");
     await page.waitForSelector('[data-testid^="attendance-bulk-request-"]', { timeout: roleScreenTimeoutMs });
+    await revealCoachClassList(page);
 
     const bulkRequest = page.locator('[data-testid^="attendance-bulk-request-"]:not([disabled])').first();
     assert.equal(await bulkRequest.count(), 1, "coach bulk attendance check needs one actionable class");
@@ -648,9 +755,14 @@ async function main() {
 
     try {
       const beforeReset = await resetDevData("before");
+      await prepareStartedAttendanceSessions(context);
       const coachNote = await captureCoachAttendanceNote(context);
       const coachBulk = await captureCoachBulkAttendance(context);
       const familyReset = await resetDevData("before-family");
+      await context.clearCookies();
+      await context.addInitScript(() => {
+        window.localStorage.removeItem("final-judo-mvp-session");
+      });
       const family = await captureGuardianClassPeriods(context);
       const owner = await captureOwnerClasses(context);
       const summary = {

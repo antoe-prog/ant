@@ -8,6 +8,7 @@ import type {
   PushSubscriptionRecord,
 } from "@/lib/domain";
 import { isNoticeRecipient } from "@/lib/mock-api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 type WebPushSubscriptionInput = {
   endpoint?: unknown;
@@ -17,6 +18,10 @@ type WebPushSubscriptionInput = {
     p256dh?: unknown;
   };
 };
+
+export const pushEndpointMaxLength = 2_048;
+const pushKeyMaxLength = 512;
+const pushKeyPattern = /^[A-Za-z0-9_-]+={0,2}$/;
 
 export type PushConfigPayload = {
   configured: boolean;
@@ -116,27 +121,59 @@ export function getPushConfig(): PushConfigPayload {
   };
 }
 
+export function normalizePushEndpoint(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const endpoint = value.trim();
+
+  if (!endpoint || endpoint.length > pushEndpointMaxLength) {
+    return null;
+  }
+
+  let endpointUrl: URL;
+
+  try {
+    endpointUrl = new URL(endpoint);
+  } catch {
+    return null;
+  }
+
+  return endpointUrl.protocol === "https:" ? endpoint : null;
+}
+
 export function normalizePushSubscription(value: unknown) {
   if (!value || typeof value !== "object") {
     return null;
   }
 
   const subscription = value as WebPushSubscriptionInput;
-  const endpoint = typeof subscription.endpoint === "string" ? subscription.endpoint.trim() : "";
+  const endpoint = normalizePushEndpoint(subscription.endpoint);
   const p256dh = typeof subscription.keys?.p256dh === "string" ? subscription.keys.p256dh.trim() : "";
   const auth = typeof subscription.keys?.auth === "string" ? subscription.keys.auth.trim() : "";
-  const expirationTime =
-    typeof subscription.expirationTime === "number" && Number.isFinite(subscription.expirationTime)
-      ? subscription.expirationTime
-      : null;
+  const expirationTime = subscription.expirationTime;
 
-  if (!endpoint || !p256dh || !auth) {
+  if (
+    !endpoint ||
+    !p256dh ||
+    p256dh.length > pushKeyMaxLength ||
+    !pushKeyPattern.test(p256dh) ||
+    !auth ||
+    auth.length > pushKeyMaxLength ||
+    !pushKeyPattern.test(auth) ||
+    (
+      expirationTime !== undefined &&
+      expirationTime !== null &&
+      (typeof expirationTime !== "number" || !Number.isSafeInteger(expirationTime) || expirationTime < 0)
+    )
+  ) {
     return null;
   }
 
   return {
     endpoint,
-    expirationTime,
+    expirationTime: expirationTime ?? null,
     keys: {
       auth,
       p256dh,
@@ -314,12 +351,12 @@ export function upsertPushSubscription(
   const now = new Date().toISOString();
   const existing = db.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
   const nextRecord: PushSubscriptionRecord = {
-    id: existing?.id ?? `push-${Date.now()}-${db.pushSubscriptions.length + 1}`,
+    id: existing?.id ?? createRuntimeId("push"),
     userId: user.id,
     branchIds: [...new Set(user.branchIds)],
     endpoint: subscription.endpoint,
     keys: subscription.keys,
-    userAgent: userAgent?.trim() || existing?.userAgent,
+    userAgent: typeof userAgent === "string" ? userAgent.trim() || existing?.userAgent : existing?.userAgent,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

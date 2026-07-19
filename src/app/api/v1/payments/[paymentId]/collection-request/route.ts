@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, FamilyPaymentMethod } from "@/lib/domain";
+import { getFamilyPaymentRequestBodyTypeError } from "@/lib/family-payment-request-policy";
 import { getFamilyPaymentCheckoutAccess } from "@/lib/payment-checkout-access";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -9,8 +10,71 @@ export const runtime = "nodejs";
 
 const paymentMethods = new Set<FamilyPaymentMethod>(["bankTransfer", "card", "virtualAccount", "accountTransfer"]);
 
-function readText(value: unknown, maxLength: number) {
-  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+function readText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function requireCollectionRequestContext(request: NextRequest, paymentId: string) {
+  const db = await readServerDb();
+  const { user, response } = requireSession(request, db);
+
+  if (!user) {
+    return { ok: false as const, response };
+  }
+
+  if (user.role !== "member" && user.role !== "guardian") {
+    return {
+      ok: false as const,
+      response: jsonError(403, "FORBIDDEN", "회원 또는 학부모 계정에서 납부를 요청해 주세요."),
+    };
+  }
+
+  const payment = db.payments.find((candidate) => candidate.id === paymentId);
+  const member = payment ? db.members.find((candidate) => candidate.id === payment.memberId) : undefined;
+
+  if (!payment || !member) {
+    return {
+      ok: false as const,
+      response: jsonError(404, "NOT_FOUND", "결제 대상 정보를 찾을 수 없습니다."),
+    };
+  }
+
+  const selectedScope = requireSelectedBranchScope(request, user, db);
+
+  if (selectedScope.response) {
+    return { ok: false as const, response: selectedScope.response };
+  }
+
+  if (!selectedScope.branchIds.includes(payment.branchId)) {
+    return {
+      ok: false as const,
+      response: jsonError(404, "NOT_FOUND", "결제 대상 정보를 찾을 수 없습니다."),
+    };
+  }
+
+  const access = getFamilyPaymentCheckoutAccess(user, payment, member);
+
+  if (access.state === "forbidden") {
+    return {
+      ok: false as const,
+      response: jsonError(404, "NOT_FOUND", "결제 대상 정보를 찾을 수 없습니다."),
+    };
+  }
+
+  if (!access.canOpen) {
+    return {
+      ok: false as const,
+      response: jsonError(403, "FORBIDDEN", access.reason),
+    };
+  }
+
+  return {
+    db,
+    ok: true as const,
+    payment,
+    selectedBranchId: selectedScope.selectedBranchId,
+    user,
+  };
 }
 
 export async function POST(
@@ -18,74 +82,57 @@ export async function POST(
   { params }: { params: Promise<{ paymentId: string }> },
 ) {
   const { paymentId } = await params;
-  const initialDb = await readServerDb();
-  const initialSession = requireSession(request, initialDb);
+  const initialContext = await requireCollectionRequestContext(request, paymentId);
 
-  if (!initialSession.user) {
-    return initialSession.response;
+  if (!initialContext.ok) {
+    return initialContext.response;
   }
 
-  if (initialSession.user.role !== "member" && initialSession.user.role !== "guardian") {
-    return jsonError(403, "FORBIDDEN", "회원 또는 학부모 계정에서 납부를 요청해 주세요.");
+  if (initialContext.payment.collectionRequest?.status === "pending") {
+    return jsonOk({
+      ...createBootstrapPayload(initialContext.db, initialContext.user, initialContext.selectedBranchId),
+      collectionRequest: initialContext.payment.collectionRequest,
+    });
   }
 
-  return withServerDbLock(`payment-collection-request:${paymentId}`, async () => {
-    const db = await readServerDb();
-    const { user, response } = requireSession(request, db);
+  let rawBody: unknown;
 
-    if (!user) {
-      return response;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return jsonError(400, "VALIDATION_ERROR", "납부 요청 정보를 확인해 주세요.");
+  }
+
+  const bodyTypeError = getFamilyPaymentRequestBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const candidate = rawBody as Record<string, unknown>;
+  const payerName = readText(candidate.payerName);
+  const payerPhone = readText(candidate.payerPhone).replace(/\D/g, "");
+  const method = candidate.method;
+  const methodLabel = readText(candidate.methodLabel);
+
+  if (!payerName || !/^01\d{8,9}$/.test(payerPhone) || typeof method !== "string" || !paymentMethods.has(method as FamilyPaymentMethod) || !methodLabel) {
+    return jsonError(422, "VALIDATION_ERROR", "이름, 휴대전화와 희망 납부 방법을 확인해 주세요.");
+  }
+
+  return withServerDbLock(`payment-mutation:${paymentId}`, async () => {
+    const currentContext = await requireCollectionRequestContext(request, paymentId);
+
+    if (!currentContext.ok) {
+      return currentContext.response;
     }
 
-    if (user.role !== "member" && user.role !== "guardian") {
-      return jsonError(403, "FORBIDDEN", "회원 또는 학부모 계정에서 납부를 요청해 주세요.");
-    }
-
-    const payment = db.payments.find((candidate) => candidate.id === paymentId);
-    const member = payment ? db.members.find((candidate) => candidate.id === payment.memberId) : undefined;
-
-    if (!payment || !member) {
-      return jsonError(404, "NOT_FOUND", "결제 대상 정보를 찾을 수 없습니다.");
-    }
-
-    const selectedScope = requireSelectedBranchScope(request, user, db);
-
-    if (selectedScope.response) {
-      return selectedScope.response;
-    }
-
-    if (!selectedScope.branchIds.includes(payment.branchId)) {
-      return jsonError(403, "FORBIDDEN", "선택한 지점의 결제만 요청할 수 있습니다.");
-    }
-
-    const access = getFamilyPaymentCheckoutAccess(user, payment, member);
-
-    if (!access.canOpen) {
-      return jsonError(403, "FORBIDDEN", access.reason);
-    }
+    const { db, payment, selectedBranchId, user } = currentContext;
 
     if (payment.collectionRequest?.status === "pending") {
       return jsonOk({
-        ...createBootstrapPayload(db, user, selectedScope.selectedBranchId),
+        ...createBootstrapPayload(db, user, selectedBranchId),
         collectionRequest: payment.collectionRequest,
       });
-    }
-
-    let body: Record<string, unknown>;
-
-    try {
-      body = (await request.json()) as Record<string, unknown>;
-    } catch {
-      return jsonError(400, "VALIDATION_ERROR", "납부 요청 정보를 확인해 주세요.");
-    }
-
-    const payerName = readText(body.payerName, 50);
-    const payerPhone = readText(body.payerPhone, 20).replace(/\D/g, "");
-    const method = body.method;
-    const methodLabel = readText(body.methodLabel, 60);
-
-    if (!payerName || !/^01\d{8,9}$/.test(payerPhone) || typeof method !== "string" || !paymentMethods.has(method as FamilyPaymentMethod) || !methodLabel) {
-      return jsonError(422, "VALIDATION_ERROR", "이름, 휴대전화와 희망 납부 방법을 확인해 주세요.");
     }
 
     const now = new Date().toISOString();
@@ -127,7 +174,7 @@ export async function POST(
     });
 
     return jsonOk({
-      ...createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId),
+      ...createBootstrapPayload(nextDb, user, selectedBranchId),
       collectionRequest,
     });
   });

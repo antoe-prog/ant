@@ -267,6 +267,24 @@ async function main() {
     result = await apiRequest(baseUrl, "/api/v1/tournaments", { userId: "user-coach", body: payload });
     assert.equal(result.response.status, 400, "coaches must select a branch before creation");
 
+    const tournamentCountBeforeInvalidCreate = (await readDb(dbFile)).tournaments.length;
+    result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      body: { ...payload, title: { value: "잘못된 대회명" } },
+    });
+    assert.equal(result.response.status, 400, "object-valued tournament fields must be rejected without a server error");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      body: { ...payload, eventDate: "2026-02-30" },
+    });
+    assert.equal(result.response.status, 400, "impossible tournament calendar dates must be rejected");
+    assert.equal(
+      (await readDb(dbFile)).tournaments.length,
+      tournamentCountBeforeInvalidCreate,
+      "invalid tournament creates must not mutate persisted state",
+    );
+
     result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
       userId: "user-coach",
       body: payload,
@@ -277,6 +295,55 @@ async function main() {
     assert.equal(createdCoachTournament.scope, "branch");
     assert.equal(createdCoachTournament.branchId, "branch-gangnam");
     assert.equal(createdCoachTournament.createdByUserId, "user-coach");
+
+    const concurrentCreateTitles = ["동시 등록 대회 A", "동시 등록 대회 B"];
+    const concurrentCreateResults = await Promise.all(
+      concurrentCreateTitles.map((title) =>
+        apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
+          userId: "user-coach",
+          body: { ...payload, title },
+        }),
+      ),
+    );
+    assert.deepEqual(
+      concurrentCreateResults.map(({ response }) => response.status),
+      [200, 200],
+      "concurrent tournament creates must both succeed",
+    );
+
+    result = await apiRequest(baseUrl, `/api/v1/tournaments/${createdCoachTournament.id}?selectedBranchId=branch-gangnam`, {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { unsupported: "ignored before" },
+    });
+    assert.equal(result.response.status, 400, "tournament patches without a supported field must be rejected");
+
+    const concurrentPatchResults = await Promise.all([
+      apiRequest(baseUrl, `/api/v1/tournaments/${createdCoachTournament.id}?selectedBranchId=branch-gangnam`, {
+        userId: "user-coach",
+        method: "PATCH",
+        body: { title: "동시 수정 대회" },
+      }),
+      apiRequest(baseUrl, `/api/v1/tournaments/${createdCoachTournament.id}?selectedBranchId=branch-gangnam`, {
+        userId: "user-coach",
+        method: "PATCH",
+        body: { location: "동시성 검증 체육관" },
+      }),
+    ]);
+    assert.deepEqual(
+      concurrentPatchResults.map(({ response }) => response.status),
+      [200, 200],
+      "concurrent tournament patches must both succeed",
+    );
+    const tournamentAfterConcurrentPatch = (await readDb(dbFile)).tournaments.find(
+      (item) => item.id === createdCoachTournament.id,
+    );
+    assert.equal(tournamentAfterConcurrentPatch.title, "동시 수정 대회", "concurrent title update must persist");
+    assert.equal(
+      tournamentAfterConcurrentPatch.location,
+      "동시성 검증 체육관",
+      "concurrent location update must preserve the other patch",
+    );
 
     result = await apiRequest(baseUrl, `/api/v1/tournaments/${createdCoachTournament.id}?selectedBranchId=branch-gangnam`, {
       userId: "user-coach",
@@ -347,6 +414,19 @@ async function main() {
     const songpaDeleteAudit = tournamentAudits.find(
       (log) => log.action === "tournament.delete" && log.targetId === "tournament-owner-songpa",
     );
+    const concurrentCreateRecords = persisted.tournaments.filter((item) => concurrentCreateTitles.includes(item.title));
+    const concurrentCreateAudits = tournamentAudits.filter(
+      (log) => log.action === "tournament.create" && concurrentCreateTitles.includes(log.after?.title),
+    );
+    const concurrentPatchAudits = tournamentAudits.filter(
+      (log) => log.action === "tournament.update" && log.targetId === createdCoachTournament.id,
+    );
+    assert.equal(concurrentCreateRecords.length, 2, "concurrent tournament creates must both persist");
+    assert.equal(new Set(concurrentCreateRecords.map((item) => item.id)).size, 2, "concurrent tournament IDs must be unique");
+    assert.equal(concurrentCreateAudits.length, 2, "concurrent tournament creates must preserve both audits");
+    assert.equal(new Set(concurrentCreateAudits.map((log) => log.id)).size, 2, "concurrent create audit IDs must be unique");
+    assert.equal(concurrentPatchAudits.length, 3, "concurrent and serial tournament patches must preserve every audit");
+    assert.equal(new Set(concurrentPatchAudits.map((log) => log.id)).size, 3, "tournament update audit IDs must be unique");
     assert.equal(coachCreateAudit?.branchId, "branch-gangnam", "branch create audit must use resource branchId");
     assert.equal(coachUpdateAudit?.branchId, "branch-gangnam", "branch update audit must use resource branchId");
     assert.equal(globalCreateAudit?.branchId, null, "global create audit must keep null branchId");
@@ -405,6 +485,8 @@ async function main() {
         "role x branch x author mutation matrix",
         "legacy global compatibility",
         "global and branch creation scope",
+        "input type and exact calendar validation",
+        "serialized concurrent create and update audit integrity",
         "server-side snapshot visibility",
         "resource branchId audit accuracy",
         "390px delete cancel and confirm",

@@ -9,7 +9,7 @@ import type { BeltPromotion, BeltPromotionResult } from "@/lib/domain";
 import { beltPromotionResultLabels } from "@/lib/domain";
 import { getExactNextCompatiblePromotionBelt } from "@/lib/final-common-promotion-policy";
 import { formatDate, formatDateKey } from "@/lib/format";
-import { getPromotionEligibility, isSchedulablePromotionExamDate } from "@/lib/promotions";
+import { getPromotionEligibility, isSchedulablePromotionExamDate, promotionInputLimits } from "@/lib/promotions";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
@@ -351,6 +351,7 @@ export function PromotionsScreen() {
             <input
               className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none placeholder:text-zinc-400 focus:border-teal-500"
               aria-describedby="promotion-public-note-help"
+              maxLength={promotionInputLimits.note}
               placeholder="가정에서도 확인할 준비 사항"
               value={note}
               onChange={(event) => setNote(event.target.value)}

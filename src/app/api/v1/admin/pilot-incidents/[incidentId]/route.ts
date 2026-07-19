@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, PilotIncidentStatus } from "@/lib/domain";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { exceedsPilotInputLimit, pilotOperationsInputLimits } from "@/lib/pilot-operations-input-policy";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { pilotOperationsStateLockKey } from "@/server/pilot-operations-state";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -12,6 +15,22 @@ type PilotIncidentUpdateBody = {
   status?: PilotIncidentStatus;
   workaround?: string;
 };
+
+function getPilotIncidentUpdateBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "운영 이슈 변경 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const field of ["owner", "status", "workaround"] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return "운영 이슈 변경 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  return null;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -41,57 +60,97 @@ export async function PATCH(
     return jsonError(404, "NOT_FOUND", "운영 이슈를 찾을 수 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as PilotIncidentUpdateBody | null;
-  const status = body?.status;
-  const owner = body?.owner?.trim();
-  const workaround = body?.workaround?.trim();
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getPilotIncidentUpdateBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as PilotIncidentUpdateBody;
+
+  if (
+    exceedsPilotInputLimit(body.owner, pilotOperationsInputLimits.owner) ||
+    exceedsPilotInputLimit(body.workaround, pilotOperationsInputLimits.workaround)
+  ) {
+    return jsonError(400, "VALIDATION_ERROR", "운영 이슈 변경 입력이 허용 길이를 초과했습니다.");
+  }
+
+  const status = body.status;
+  const owner = body.owner?.trim();
+  const workaround = body.workaround?.trim();
 
   if (status && !statusValues.has(status)) {
     return jsonError(400, "VALIDATION_ERROR", "운영 이슈 상태가 올바르지 않습니다.");
   }
 
-  const nextStatus = status ?? targetIncident.status;
-  const nextWorkaround = workaround ?? targetIncident.workaround;
+  return withServerDbLock(pilotOperationsStateLockKey, async () => {
+    const latestDb = await readServerDb();
+    const { user: latestUser, response: latestResponse } = requireSession(request, latestDb);
 
-  if ((nextStatus === "monitoring" || nextStatus === "resolved") && nextWorkaround.trim().length < 5) {
-    return jsonError(400, "VALIDATION_ERROR", "모니터링 또는 해결 상태에는 5자 이상의 우회책/조치 메모가 필요합니다.");
-  }
+    if (!latestUser) {
+      return latestResponse;
+    }
 
-  const now = new Date().toISOString();
-  const nextIncident = {
-    ...targetIncident,
-    owner: owner || targetIncident.owner,
-    status: nextStatus,
-    workaround: nextWorkaround,
-    updatedAt: now,
-    resolvedAt: nextStatus === "resolved" ? now : undefined,
-  };
-  const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId: targetIncident.branchId,
-    actorUserId: user.id,
-    action: "pilot_incident.update",
-    targetType: "pilot_incident",
-    targetId: targetIncident.id,
-    before: {
-      owner: targetIncident.owner,
-      status: targetIncident.status,
-      workaround: targetIncident.workaround || null,
-    },
-    after: {
-      owner: nextIncident.owner,
-      status: nextIncident.status,
-      workaround: nextIncident.workaround || null,
-    },
-    result: "success",
-    message: "운영 이슈 상태를 변경했습니다.",
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb({
-    ...db,
-    pilotIncidents: db.pilotIncidents.map((incident) => (incident.id === incidentId ? nextIncident : incident)),
-    auditLogs: [auditLog, ...db.auditLogs],
+    if (latestUser.role !== "admin") {
+      return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈 상태를 변경할 수 있습니다.");
+    }
+
+    const latestScope = requireSelectedBranchScope(request, latestUser, latestDb);
+
+    if (latestScope.response) {
+      return latestScope.response;
+    }
+
+    const latestIncident = latestDb.pilotIncidents.find((incident) => incident.id === incidentId);
+
+    if (!latestIncident) {
+      return jsonError(404, "NOT_FOUND", "운영 이슈를 찾을 수 없습니다.");
+    }
+
+    const nextStatus = status ?? latestIncident.status;
+    const nextWorkaround = workaround ?? latestIncident.workaround;
+
+    if ((nextStatus === "monitoring" || nextStatus === "resolved") && nextWorkaround.trim().length < 5) {
+      return jsonError(400, "VALIDATION_ERROR", "모니터링 또는 해결 상태에는 5자 이상의 우회책/조치 메모가 필요합니다.");
+    }
+
+    const now = new Date().toISOString();
+    const nextIncident = {
+      ...latestIncident,
+      owner: owner || latestIncident.owner,
+      status: nextStatus,
+      workaround: nextWorkaround,
+      updatedAt: now,
+      resolvedAt: nextStatus === "resolved" ? now : undefined,
+    };
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId: latestIncident.branchId,
+      actorUserId: latestUser.id,
+      action: "pilot_incident.update",
+      targetType: "pilot_incident",
+      targetId: latestIncident.id,
+      before: {
+        owner: latestIncident.owner,
+        status: latestIncident.status,
+        workaround: latestIncident.workaround || null,
+      },
+      after: {
+        owner: nextIncident.owner,
+        status: nextIncident.status,
+        workaround: nextIncident.workaround || null,
+      },
+      result: "success",
+      message: "운영 이슈 상태를 변경했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...latestDb,
+      pilotIncidents: latestDb.pilotIncidents.map((incident) => (incident.id === incidentId ? nextIncident : incident)),
+      auditLogs: [auditLog, ...latestDb.auditLogs],
+    });
+
+    return jsonOk(createBootstrapPayload(nextDb, latestUser, latestScope.selectedBranchId));
   });
-
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
 }

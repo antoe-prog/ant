@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-payment-provider-draft-"));
+const signedOffAt = new Date(Date.now() + 60_000).toISOString();
 
 function outPath(name) {
   return path.join(directory, name);
@@ -98,7 +99,7 @@ const ready = await runDraft(
     "--recurring-billing-check-evidence=https://github.com/antoe-prog/ant/actions/runs/311",
     "--smoke-check-evidence=https://github.com/antoe-prog/ant/actions/runs/312",
     "--signed-off-by=정유진",
-    "--signed-off-at=2026-07-16T05:30:00.000Z",
+    `--signed-off-at=${signedOffAt}`,
     "--signoff-evidence=https://evidence.finaljudo.kr/payment/signoff",
   ],
   {
@@ -135,7 +136,7 @@ const missingMapping = await runDraft(
     "--recurring-billing-check-evidence=https://github.com/antoe-prog/ant/actions/runs/311",
     "--smoke-check-evidence=https://github.com/antoe-prog/ant/actions/runs/312",
     "--signed-off-by=정유진",
-    "--signed-off-at=2026-07-16T05:30:00.000Z",
+    `--signed-off-at=${signedOffAt}`,
     "--signoff-evidence=https://evidence.finaljudo.kr/payment/signoff",
   ],
 );

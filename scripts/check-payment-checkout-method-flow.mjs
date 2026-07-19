@@ -602,6 +602,21 @@ try {
     /실제 결제 승인은|승인 완료|결제 완료/i,
     "bank transfer confirmation must avoid live approval copy",
   );
+  assert.equal(
+    await page.getByTestId("payment-payer-name-input").getAttribute("maxlength"),
+    "50",
+    "payer name input must expose the server 50-character boundary",
+  );
+  assert.equal(
+    await page.getByTestId("payment-payer-phone-middle-input").getAttribute("maxlength"),
+    "4",
+    "payer phone middle input must stay four digits",
+  );
+  assert.equal(
+    await page.getByTestId("payment-payer-phone-last-input").getAttribute("maxlength"),
+    "4",
+    "payer phone last input must stay four digits",
+  );
   await page.getByTestId("payment-payer-name-input").fill("최민재 확인");
   assert.equal(
     await page.getByTestId("payment-confirm-feedback").getAttribute("data-confirmation-state"),

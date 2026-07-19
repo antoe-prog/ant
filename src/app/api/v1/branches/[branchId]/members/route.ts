@@ -1,14 +1,72 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Member, MemberStatus } from "@/lib/domain";
+import { memberInputLimits } from "@/lib/member-input-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 import { findAcceptedBranchOperatorId } from "@/server/user-operational-reassignment";
 
 export const runtime = "nodejs";
 
 const memberStatuses: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
 const ageGroups: Member["ageGroup"][] = ["kids", "teen", "adult"];
+
+type MemberBody = {
+  name?: string;
+  status?: MemberStatus;
+  ageGroup?: Member["ageGroup"];
+  level?: string;
+  belt?: string;
+  emergencyContact?: string;
+  gender?: Member["gender"] | "";
+  birthDate?: string;
+  address?: string;
+};
+
+function getMemberBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "회원 등록 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+  const fields = [
+    ["name", "회원명"],
+    ["status", "회원 상태"],
+    ["ageGroup", "연령 그룹"],
+    ["level", "레벨"],
+    ["belt", "띠"],
+    ["emergencyContact", "비상 연락처"],
+    ["gender", "성별"],
+    ["birthDate", "생년월일"],
+    ["address", "주소"],
+  ] as const;
+
+  for (const [field, label] of fields) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  return null;
+}
+
+function isDateOnly(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const [, year, month, day] = match;
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+
+  return (
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() === Number(month) - 1 &&
+    parsed.getUTCDate() === Number(day)
+  );
+}
 
 export async function POST(
   request: NextRequest,
@@ -40,22 +98,30 @@ export async function POST(
     return jsonError(403, "FORBIDDEN", "선택한 지점에 회원을 등록할 수 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | {
-        name?: string;
-        status?: MemberStatus;
-        ageGroup?: Member["ageGroup"];
-        level?: string;
-        belt?: string;
-        emergencyContact?: string;
-        gender?: Member["gender"] | "";
-        birthDate?: string;
-        address?: string;
-      }
-    | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getMemberBodyTypeError(rawBody);
 
-  if (!body?.name?.trim() || !body.level?.trim() || !body.belt?.trim() || !body.emergencyContact?.trim()) {
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as MemberBody;
+  const name = body.name?.trim() ?? "";
+  const level = body.level?.trim() ?? "";
+  const belt = body.belt?.trim() ?? "";
+  const emergencyContact = body.emergencyContact?.trim() ?? "";
+
+  if (!name || !level || !belt || !emergencyContact) {
     return jsonError(400, "VALIDATION_ERROR", "회원명, 레벨, 띠, 비상 연락처가 필요합니다.");
+  }
+
+  if (
+    name.length > memberInputLimits.nameLength ||
+    level.length > memberInputLimits.levelLength ||
+    belt.length > memberInputLimits.beltLength ||
+    emergencyContact.length > memberInputLimits.emergencyContactLength
+  ) {
+    return jsonError(400, "VALIDATION_ERROR", "회원명·레벨·띠는 30자, 비상 연락처는 40자 이내로 입력해 주세요.");
   }
 
   if (!body.ageGroup || !ageGroups.includes(body.ageGroup)) {
@@ -75,7 +141,7 @@ export async function POST(
   const birthDate = body.birthDate?.trim() || undefined;
 
   if (birthDate !== undefined) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(birthDate))) {
+    if (!isDateOnly(birthDate)) {
       return jsonError(400, "VALIDATION_ERROR", "생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.");
     }
 
@@ -86,7 +152,7 @@ export async function POST(
 
   const address = body.address?.trim() || undefined;
 
-  if (address !== undefined && address.length > 100) {
+  if (address !== undefined && address.length > memberInputLimits.addressLength) {
     return jsonError(400, "VALIDATION_ERROR", "주소는 100자 이내로 입력해 주세요.");
   }
 
@@ -95,29 +161,29 @@ export async function POST(
   if (!branchOperatorId) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "같은 지점의 승인된 코치, 대표 또는 어드민을 먼저 배정해 주세요.");
   }
-  const memberId = `member-${Date.now()}`;
+  const memberId = createRuntimeId("member");
   const now = new Date().toISOString();
   const nextMember: Member = {
     id: memberId,
     branchId,
-    name: body.name.trim(),
+    name,
     status: body.status ?? "active",
     ageGroup: body.ageGroup,
-    level: body.level.trim(),
-    belt: body.belt.trim(),
+    level,
+    belt,
     gender,
     birthDate,
     address,
     guardianIds: [],
     primaryCoachId: branchOperatorId,
-    emergencyContact: body.emergencyContact.trim(),
+    emergencyContact,
     alerts: [],
     createdAt: now,
     statusChangedAt: now,
     withdrawnAt: body.status === "withdrawn" ? now : undefined,
   };
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "member.create",

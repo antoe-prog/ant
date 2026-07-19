@@ -116,11 +116,13 @@ export function AttendanceStatusBadge({ status }: { status?: AttendanceStatus })
 export function AttendanceStatusButton({
   status,
   selected,
+  disabled = false,
   onSelect,
   testId,
 }: {
   status: AttendanceStatus;
   selected: boolean;
+  disabled?: boolean;
   onSelect: (status: AttendanceStatus) => void;
   testId?: string;
 }) {
@@ -129,9 +131,10 @@ export function AttendanceStatusButton({
   return (
     <button
       data-testid={testId}
-      className={`inline-flex min-h-12 min-w-24 items-center justify-center gap-1 rounded-md border px-2 text-xs font-semibold transition ${
+      className={`inline-flex min-h-12 min-w-24 items-center justify-center gap-1 rounded-md border px-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
         selected ? "border-zinc-950 bg-zinc-950 text-white" : `${attendanceToneClasses[status]} hover:brightness-95`
       }`}
+      disabled={disabled}
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(status)}

@@ -3,6 +3,7 @@ import type { AuditLog, Payment } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import {
   getManualPaymentManagementBlockReason,
+  validateManualPaymentDelete,
   validateManualPaymentUpdate,
 } from "@/lib/manual-payment-management";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
@@ -194,12 +195,14 @@ export async function DELETE(
     return context.response;
   }
 
-  const body = (await request.json().catch(() => null)) as { reason?: unknown } | null;
-  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const body = await request.json().catch(() => null);
+  const validated = validateManualPaymentDelete(body);
 
-  if (!reason) {
-    return jsonError(400, "VALIDATION_ERROR", "삭제 사유를 입력해 주세요.");
+  if (!validated.ok) {
+    return jsonError(400, "VALIDATION_ERROR", validated.message);
   }
+
+  const { reason } = validated.value;
 
   return withServerDbLock(`payment-mutation:${paymentId}`, async () => {
     const latestContext = await requireManualPaymentRequestContext(request, paymentId);

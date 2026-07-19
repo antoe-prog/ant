@@ -80,8 +80,9 @@ assert.equal(changes[0]?.after, "₩120,000", "audit detail must format next pay
 assert.equal(changes[2]?.before, "예정", "audit detail must translate previous status values");
 assert.equal(changes[2]?.after, "납부 완료", "audit detail must translate next status values");
 
-const [serverDbSource, adminAuditScreenSource, backendSchemaSource] = await Promise.all([
+const [serverDbSource, serverApiSource, adminAuditScreenSource, backendSchemaSource] = await Promise.all([
   readFile("src/server/db.ts", "utf8"),
+  readFile("src/server/api.ts", "utf8"),
   readFile("src/components/screens/admin-audit-logs-screen.tsx", "utf8"),
   readFile("docs/BACKEND_DB_SCHEMA.md", "utf8"),
 ]);
@@ -94,6 +95,16 @@ assert(
 assert(
   serverDbSource.includes("serverDbStore.write(sanitizeDatabaseAuditLogs(db))"),
   "server DB writes must enforce audit privacy centrally",
+);
+assert(
+  serverApiSource.includes('log.branchId !== null && branchIds.includes(log.branchId)'),
+  "owner bootstrap must exclude global and out-of-scope audit logs",
+);
+assert(
+  serverApiSource.includes('log.targetType === "attendance"') &&
+    serverApiSource.includes("log.actorUserId === user.id") &&
+    serverApiSource.includes(": []"),
+  "coach bootstrap must only include own scoped attendance history and family roles must receive no audit logs",
 );
 assert(adminAuditScreenSource.includes("getAuditPayloadChanges"), "admin audit detail must use readable change rows");
 assert(adminAuditScreenSource.includes('data-testid="admin-audit-change-row"'), "admin audit detail must expose change rows");

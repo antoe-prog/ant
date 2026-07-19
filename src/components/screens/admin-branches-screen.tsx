@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Building2, Save, Settings2, PlusCircle, ShieldCheck } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
+import { branchInputLimits } from "@/lib/branch-input-policy";
 import type { Branch, BranchSettings, BranchStatus } from "@/lib/domain";
 import { formatBranchTimezone, normalizeBranchSettings, supportedBranchTimezones } from "@/lib/domain";
 import { useAppStore } from "@/store/app-store";
@@ -307,6 +308,7 @@ export function AdminBranchesScreen() {
                   <span className="sr-only">지점명</span>
                   <input
                     className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                    maxLength={branchInputLimits.nameLength}
                     placeholder="지점명 입력"
                     value={newBranchName}
                     onChange={(event) => setNewBranchName(event.target.value)}
@@ -316,6 +318,7 @@ export function AdminBranchesScreen() {
                   <span className="sr-only">지역</span>
                   <input
                     className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                    maxLength={branchInputLimits.districtLength}
                     placeholder="지역 입력"
                     value={newBranchDistrict}
                     onChange={(event) => setNewBranchDistrict(event.target.value)}
@@ -480,6 +483,7 @@ export function AdminBranchesScreen() {
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">지점명</span>
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        maxLength={branchInputLimits.nameLength}
                         value={edit.name}
                         onChange={(event) => updateBranchEdit(branch.id, { name: event.target.value })}
                       />
@@ -488,6 +492,7 @@ export function AdminBranchesScreen() {
                       <span className="pointer-events-none absolute left-2 top-1 text-[9px] font-semibold leading-3 text-zinc-500">지역</span>
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-2 pb-1 pt-4 text-xs outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        maxLength={branchInputLimits.districtLength}
                         value={edit.district}
                         onChange={(event) => updateBranchEdit(branch.id, { district: event.target.value })}
                       />
@@ -538,6 +543,7 @@ export function AdminBranchesScreen() {
                       <span className="sr-only">지점 변경 사유</span>
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                        maxLength={branchInputLimits.reasonLength}
                         placeholder="변경 사유"
                         value={edit.reason}
                         onChange={(event) => updateBranchEdit(branch.id, { reason: event.target.value })}

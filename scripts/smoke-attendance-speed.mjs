@@ -6,6 +6,8 @@ const sessionId = process.env.ATTENDANCE_SPEED_SESSION_ID ?? "class-kids-am";
 const selectedBranchId = process.env.ATTENDANCE_SPEED_BRANCH_ID ?? "branch-gangnam";
 const skipDevReset = process.env.ATTENDANCE_SPEED_SKIP_DEV_RESET === "1";
 const stamp = Date.now();
+const ownerEmail = "owner@finaljudo.kr";
+const ownerPassword = process.env.SMOKE_OWNER_PASSWORD ?? "FinalJudoPilot!2026";
 const coachEmail = "coach@finaljudo.kr";
 const coachPassword = process.env.SMOKE_COACH_PASSWORD ?? "FinalJudoPilot!2026";
 
@@ -71,8 +73,31 @@ async function resetDemoData(phase) {
 }
 
 async function run() {
+  const owner = createClient();
+  let result = await owner.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: ownerEmail, password: ownerPassword }),
+  });
+
+  assert(result.payload.data.user.role === "owner", "owner login failed");
+
+  const attendanceWindow = {
+    startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+    endsAt: new Date(Date.now() + 58 * 60_000).toISOString(),
+  };
+  result = await owner.request(`/api/v1/classes/${sessionId}?selectedBranchId=${selectedBranchId}`, {
+    method: "PATCH",
+    body: JSON.stringify(attendanceWindow),
+  });
+  const preparedSession = result.payload.data.db.classes.find((item) => item.id === sessionId);
+
+  assert(
+    preparedSession?.startsAt === attendanceWindow.startsAt,
+    "attendance speed smoke must prepare a deterministic started session",
+  );
+
   const client = createClient();
-  let result = await client.request("/api/v1/auth/login", {
+  result = await client.request("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ email: coachEmail, password: coachPassword }),
   });
@@ -130,6 +155,7 @@ async function run() {
         durationMs,
         limitMs,
         checked: [
+          "deterministic started-session setup",
           "coach credential login",
           "coach session scope",
           "whole-class attendance save",

@@ -11,6 +11,9 @@ import {
 } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+const parsedBaseUrl = new URL(baseUrl);
+const managedHostname = parsedBaseUrl.hostname.replace(/^\[(.*)\]$/, "$1");
+const managedPort = parsedBaseUrl.port || "3000";
 const outDir = process.env.PHONE_SIGNUP_LOGIN_FLOW_OUT_DIR ?? ".data/mobile-builds/ios/phone-signup-login-flow-20260705";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const password = "FinalJudoSignup!2026";
@@ -97,11 +100,15 @@ async function ensureLocalAppServer() {
     return;
   }
 
-  managedAppServer = spawn(npmCommand, ["run", "dev", "--", "--webpack"], {
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", managedHostname, "--port", managedPort],
+    {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+    },
+  );
 
   await waitForManagedAppServer();
 }
@@ -181,12 +188,62 @@ async function main() {
   const registeredLoginScreenshotPath = join(outDir, "phone-signup-registered-login-mobile.png");
   const dashboardScreenshotPath = join(outDir, "phone-signup-dashboard-mobile.png");
 
+  for (const payload of [
+    { branchId: "branch-gangnam", name: "가".repeat(31), password, phone },
+    { branchId: "branch-gangnam", name: "가입확인", password: "P".repeat(257), phone },
+    { branchId: "b".repeat(161), name: "가입확인", password, phone },
+    { branchId: "branch-gangnam", name: "가입확인", password, phone: "0".repeat(41) },
+  ]) {
+    const response = await context.request.post(`${baseUrl}/api/v1/auth/register`, { data: payload });
+    assert.equal(response.status(), 400, "oversized public registration input must be rejected before account creation");
+  }
+
+  for (const payload of [
+    { password: "P".repeat(257), phone: "01050504927" },
+    { loginId: "i".repeat(255), password },
+  ]) {
+    const response = await context.request.post(`${baseUrl}/api/v1/auth/login`, { data: payload });
+    assert.equal(response.status(), 400, "oversized public login input must be rejected before credential verification");
+  }
+
+  const oversizedReset = await context.request.post(`${baseUrl}/api/v1/auth/password-reset`, {
+    data: { identifier: "i".repeat(255) },
+  });
+  assert.equal(oversizedReset.status(), 400, "oversized password-reset identifiers must be rejected before account lookup");
+
   await page.goto(`${baseUrl}/signup`, { waitUntil: "networkidle" });
   await page.waitForSelector('[data-testid="phone-signup-form"]', { timeout: 15000 });
-  await page.screenshot({ path: signupScreenshotPath, fullPage: false, caret: "initial" });
+  await page.waitForSelector('[data-testid="signup-branch-input"]', { timeout: 15000 });
+  const signupLayout = await page.evaluate(() => {
+    const branchInput = document.querySelector('[data-testid="signup-branch-input"]');
+
+    return {
+      branchInputHeight: Math.round(branchInput?.getBoundingClientRect().height ?? 0),
+      branchOptionCount: branchInput instanceof HTMLSelectElement ? branchInput.options.length : 1,
+      branchSelectorVisible: branchInput instanceof HTMLSelectElement,
+      inputMaxLengths: {
+        name: Number(document.querySelector('[data-testid="signup-name-input"]')?.getAttribute("maxlength")),
+        password: Number(document.querySelector('[data-testid="signup-password-input"]')?.getAttribute("maxlength")),
+        passwordConfirm: Number(document.querySelector('[data-testid="signup-password-confirm-input"]')?.getAttribute("maxlength")),
+        phone: Number(document.querySelector('[data-testid="signup-phone-input"]')?.getAttribute("maxlength")),
+      },
+      overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    };
+  });
+  assert.equal(signupLayout.branchSelectorVisible, true, "multi-branch signup must render a branch selector");
+  assert(signupLayout.branchOptionCount >= 3, "multi-branch signup must include a placeholder and available branches");
+  assert(signupLayout.branchInputHeight >= 44, "signup branch selector must keep a 44px touch height");
+  assert.deepEqual(
+    signupLayout.inputMaxLengths,
+    { name: 30, password: 256, passwordConfirm: 256, phone: 11 },
+    "signup fields must expose the public authentication input limits",
+  );
+  assert.equal(signupLayout.overflowX, 0, "signup branch selector must not cause horizontal overflow");
+  await page.screenshot({ path: signupScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
 
   await page.getByTestId("signup-name-input").fill("가입확인");
   await page.getByTestId("signup-phone-input").fill(phone);
+  await page.getByTestId("signup-branch-input").selectOption("branch-gangnam");
   await page.getByTestId("signup-password-input").fill(password);
   await page.getByTestId("signup-password-confirm-input").fill(password);
   await page.getByTestId("signup-submit-button").click();
@@ -204,7 +261,9 @@ async function main() {
       hasInvalidPasswordCopy: noticeText.includes("비밀번호가 올바르지") || noticeText.includes("비밀번호가 아니"),
       noticeVisible: noticeText.includes("회원가입이 완료되었습니다. 휴대폰 번호와 비밀번호로 로그인해 주세요."),
       passwordInputHeight: Math.round(passwordInput?.getBoundingClientRect().height ?? 0),
+      passwordMaxLength: Number(passwordInput?.getAttribute("maxlength")),
       phoneInputHeight: Math.round(phoneInput?.getBoundingClientRect().height ?? 0),
+      phoneMaxLength: Number(phoneInput?.getAttribute("maxlength")),
       phoneValue: phoneInput instanceof HTMLInputElement ? phoneInput.value.replace(/[^\d]/g, "") : "",
       submitHeight: Math.round(submit?.getBoundingClientRect().height ?? 0),
       overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
@@ -216,10 +275,12 @@ async function main() {
   assert.equal(registeredLoginLayout.phoneValue, phone, "registered login screen must prefill the signed-up phone number");
   assert(registeredLoginLayout.phoneInputHeight >= 44, "registered login phone input must keep a 44px touch height");
   assert(registeredLoginLayout.passwordInputHeight >= 44, "registered login password input must keep a 44px touch height");
+  assert.equal(registeredLoginLayout.passwordMaxLength, 256, "login password must expose the server input limit");
+  assert.equal(registeredLoginLayout.phoneMaxLength, 40, "login phone must expose the server input limit");
   assert(registeredLoginLayout.submitHeight >= 44, "registered login submit button must keep a 44px touch height");
   assert.equal(registeredLoginLayout.overflowX, 0, "registered login screen must not overflow horizontally");
   assert(registeredLoginLayout.bodyTextLength > 80, "registered login screen must not be blank");
-  await page.screenshot({ path: registeredLoginScreenshotPath, fullPage: false, caret: "initial" });
+  await page.screenshot({ path: registeredLoginScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
 
   await page.locator("#login-password-input").fill(password);
   await page.locator('button[type="submit"]').click();
@@ -240,7 +301,7 @@ async function main() {
   });
   const cookies = await context.cookies(baseUrl);
   const sessionCookie = cookies.find((cookie) => cookie.name === sessionCookieName);
-  await page.screenshot({ path: dashboardScreenshotPath, fullPage: false, caret: "initial" });
+  await page.screenshot({ path: dashboardScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
 
   assert.equal(
     dashboardLayout.memberPriorityPanelVisible,
@@ -273,6 +334,8 @@ async function main() {
     baseUrl,
     checked: [
       "phone signup creates a member account with the entered password",
+      "oversized register, login, and reset inputs fail before account or password work",
+      "phone signup assigns the branch selected by the member",
       "registered login screen pre-fills the signed-up phone number",
       "registered login screen avoids premature invalid-password copy",
       "same password logs in and reaches the member dashboard",
@@ -280,6 +343,7 @@ async function main() {
       "390px signup/login/dashboard flow stays horizontally contained",
     ],
     phoneSuffix: phone.slice(-4),
+    signupLayout,
     registeredLoginLayout,
     dashboardLayout,
     screenshots: {

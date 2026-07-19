@@ -247,8 +247,16 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
   const auditLogs = user.role === "admin"
     ? db.auditLogs
     : user.role === "owner"
-      ? db.auditLogs.filter((log) => log.branchId === null || branchIds.includes(log.branchId))
-      : db.auditLogs.filter((log) => log.actorUserId === user.id);
+      ? db.auditLogs.filter((log) => log.branchId !== null && branchIds.includes(log.branchId))
+      : user.role === "coach"
+        ? db.auditLogs.filter(
+            (log) =>
+              log.actorUserId === user.id &&
+              log.targetType === "attendance" &&
+              log.branchId !== null &&
+              branchIds.includes(log.branchId),
+          )
+        : [];
   const pushSubscriptions = db.pushSubscriptions
     .filter((subscription) => {
       if (user.role === "admin") {

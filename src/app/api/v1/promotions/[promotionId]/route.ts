@@ -8,8 +8,10 @@ import {
 } from "@/lib/final-common-promotion-policy";
 import { formatDateKey } from "@/lib/format";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
+import { promotionInputLimits } from "@/lib/promotions";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -20,6 +22,28 @@ type PromotionPatchBody = {
   score?: number;
   note?: string;
 };
+
+function getPromotionPatchBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "승급 심사 결과가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  if (body.result !== undefined && typeof body.result !== "string") {
+    return "심사 결과 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.score !== undefined && (typeof body.score !== "number" || !Number.isFinite(body.score))) {
+    return "심사 점수 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.note !== undefined && typeof body.note !== "string") {
+    return "메모 값의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -37,7 +61,14 @@ export async function PATCH(
     return jsonError(403, "FORBIDDEN", "승급 심사 결과를 기록할 권한이 없습니다.");
   }
 
-  const body = (await request.json().catch(() => null)) as PromotionPatchBody | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getPromotionPatchBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const body = rawBody as PromotionPatchBody;
   const result = body?.result;
 
   if (!result || !decidableResults.includes(result)) {
@@ -46,6 +77,12 @@ export async function PATCH(
 
   if (body?.score !== undefined && (typeof body.score !== "number" || body.score < 0 || body.score > 100)) {
     return jsonError(400, "VALIDATION_ERROR", "심사 점수는 0~100 사이여야 합니다.");
+  }
+
+  const note = body?.note?.trim() || undefined;
+
+  if (note && note.length > promotionInputLimits.note) {
+    return jsonError(400, "VALIDATION_ERROR", `공개 메모는 ${promotionInputLimits.note}자 이하로 입력해 주세요.`);
   }
 
   return withServerDbLock(finalPromotionStateLockKey, async () => {
@@ -108,7 +145,6 @@ export async function PATCH(
       return jsonError(409, "CONFLICT", "심사 등록 후 회원의 띠가 변경되어 승급을 확정할 수 없습니다.");
     }
 
-    const note = body?.note?.trim() || undefined;
     const now = new Date().toISOString();
     const nextPromotion = {
       ...promotion,
@@ -120,7 +156,7 @@ export async function PATCH(
     };
     const shouldUpdateBelt = result === "passed";
     const auditLog: AuditLog = {
-      id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+      id: createRuntimeId("audit"),
       branchId: promotion.branchId,
       actorUserId: user.id,
       action: "promotion.update",

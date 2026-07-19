@@ -1,6 +1,8 @@
 import type { Payment } from "@/lib/domain";
 import type { PaymentWebhookEvent } from "@/server/online-payments";
 
+export const paymentWebhookStateLockKey = "payment-webhook-state";
+
 export type PaymentWebhookTransitionResult =
   | { ok: true }
   | {
@@ -11,6 +13,10 @@ export type PaymentWebhookTransitionResult =
 
 export function isPositiveSafeIntegerPaymentAmount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+export function isNonNegativeSafeIntegerPaymentAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function getLatestWebhookOccurredAt(payment: Payment) {

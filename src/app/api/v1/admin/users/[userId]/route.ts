@@ -4,6 +4,7 @@ import { userRoles } from "@/lib/domain";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getNoticeReadByUserIds } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
+import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
@@ -34,6 +35,41 @@ type UserUpdateBody = {
 type UserDeleteBody = {
   reason?: unknown;
 };
+
+const userUpdateFields = [
+  "branchIds",
+  "childMemberIds",
+  "email",
+  "memberIds",
+  "name",
+  "password",
+  "phone",
+  "role",
+  "title",
+] as const satisfies readonly (keyof UserUpdateBody)[];
+
+function isObjectBody(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getUserUpdateBodyTypeError(body: Record<string, unknown>) {
+  for (const field of ["email", "name", "password", "phone", "reason", "role", "title"] as const) {
+    if (field in body && typeof body[field] !== "string") {
+      return "수정할 사용자 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  for (const field of ["branchIds", "childMemberIds", "memberIds"] as const) {
+    if (
+      field in body &&
+      (!Array.isArray(body[field]) || body[field].some((memberId) => typeof memberId !== "string"))
+    ) {
+      return "사용자 연결 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  return null;
+}
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -189,7 +225,29 @@ export async function PATCH(
     return initialScope.response;
   }
 
-  const body = (await request.json().catch(() => null)) as UserUpdateBody | null;
+  const rawBody = await request.json().catch(() => null);
+
+  if (!isObjectBody(rawBody)) {
+    return jsonError(400, "VALIDATION_ERROR", "수정할 사용자 정보를 확인해 주세요.");
+  }
+
+  const bodyTypeError = getUserUpdateBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const inputLimitError = getUserAdministrationInputLimitError(rawBody);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as UserUpdateBody;
+
+  if (!userUpdateFields.some((field) => field in body)) {
+    return jsonError(400, "VALIDATION_ERROR", "수정할 사용자 정보가 필요합니다.");
+  }
 
   return withServerDbLock(authSecurityLockKey, async () => {
     const db = await readServerDb();
@@ -447,8 +505,24 @@ export async function DELETE(
     return initialScope.response;
   }
 
-  const body = (await request.json().catch(() => null)) as UserDeleteBody | null;
-  const reason = cleanText(body?.reason);
+  const rawBody = await request.json().catch(() => null);
+
+  if (!isObjectBody(rawBody)) {
+    return jsonError(400, "VALIDATION_ERROR", "사용자 삭제 정보를 확인해 주세요.");
+  }
+
+  if (typeof rawBody.reason !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "사용자 삭제 사유의 형식이 올바르지 않습니다.");
+  }
+
+  const inputLimitError = getUserAdministrationInputLimitError(rawBody);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as UserDeleteBody;
+  const reason = cleanText(body.reason);
 
   if (!reason) {
     return jsonError(400, "VALIDATION_ERROR", "사용자 삭제 사유가 필요합니다.");

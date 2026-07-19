@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { normalizeLocalAutoLoginNextPath } from "@/lib/local-auto-login";
 import { createSessionCookieOptions } from "@/server/auth-policy";
 import { createAuthSession } from "@/server/auth-session";
 import { readServerDb, writeServerDb } from "@/server/db";
@@ -16,16 +17,6 @@ const localAutoLoginUserIds = {
   member: "user-member",
   owner: "user-owner",
 } as const;
-
-function getSafeNextPath(request: NextRequest) {
-  const next = request.nextUrl.searchParams.get("next");
-
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/app/dashboard";
-  }
-
-  return next;
-}
 
 function getLocalRedirectOrigin(request: NextRequest) {
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
@@ -52,7 +43,7 @@ export async function GET(request: NextRequest) {
   const role = request.nextUrl.searchParams.get("role");
   const userId = localAutoLoginUserIds[role as keyof typeof localAutoLoginUserIds];
 
-  if (!localAutoLoginHosts.has(request.nextUrl.hostname) || !userId) {
+  if (process.env.NODE_ENV === "production" || !localAutoLoginHosts.has(request.nextUrl.hostname) || !userId) {
     return NextResponse.json({ error: "Not available" }, { status: 404 });
   }
 
@@ -85,7 +76,8 @@ export async function GET(request: NextRequest) {
     now,
   );
   await writeServerDb(issuedSession.db);
-  const response = NextResponse.redirect(new URL(getSafeNextPath(request), getLocalRedirectOrigin(request)));
+  const nextPath = normalizeLocalAutoLoginNextPath(request.nextUrl.searchParams.get("next"));
+  const response = NextResponse.redirect(new URL(nextPath, getLocalRedirectOrigin(request)));
 
   response.cookies.set(sessionCookieName, issuedSession.token, cookieOptions);
 

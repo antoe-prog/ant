@@ -48,6 +48,7 @@ assert.match(promotionsScreen, /FinalPromotionPolicyReference/);
 assert.match(promotionsScreen, /getExactNextCompatiblePromotionBelt/);
 assert.match(promotionsScreen, /promotion-create-target-belt/);
 assert.match(promotionsScreen, /promotion-create-error/);
+assert.match(promotionsScreen, /maxLength=\{promotionInputLimits\.note\}/);
 assert.match(promotionsScreen, /disabled=\{pending \|\| !suggestedBelt\}/);
 assert.doesNotMatch(promotionsScreen, /judoBelts\.map/);
 assert.doesNotMatch(promotionsScreen, /isFinalMainBranch/);

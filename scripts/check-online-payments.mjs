@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const { createCheckoutUrl, getOnlinePaymentAmount, getOnlinePaymentProvider, getOnlinePaymentRuntimeReadiness, getWebhookSecret } =
+const {
+  createCheckoutUrl,
+  getOnlinePaymentAmount,
+  getOnlinePaymentProvider,
+  getOnlinePaymentRuntimeReadiness,
+  getWebhookSecret,
+  isValidPaymentReceiptUrl,
+  normalizePaymentCheckoutBaseUrl,
+} =
   await import("../src/server/online-payments.ts");
 const { isPositiveSafeIntegerPaymentAmount, validatePaymentWebhookTransition } =
   await import("../src/server/payment-mutation-policy.ts");
@@ -88,6 +96,24 @@ assert.deepEqual(
   ["PAYMENT_CHECKOUT_BASE_URL_MISSING", "PAYMENT_WEBHOOK_SECRET_MISSING"],
   "production online payment runtime must block missing checkout and webhook settings",
 );
+assert.deepEqual(
+  getOnlinePaymentRuntimeReadiness({
+    NODE_ENV: "production",
+    FINAL_JUDO_PAYMENT_PROVIDER: "external",
+    FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "http://payments.finaljudo.kr/path?token=secret",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "secret",
+  }).blockers,
+  ["PAYMENT_CHECKOUT_BASE_URL_INVALID"],
+  "production online payment runtime must reject an insecure or non-origin checkout base URL",
+);
+assert.deepEqual(
+  getOnlinePaymentRuntimeReadiness({
+    NODE_ENV: "development",
+    FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "javascript:alert(1)",
+  }).blockers,
+  ["PAYMENT_CHECKOUT_BASE_URL_INVALID"],
+  "mock runtime must not create an executable checkout link from a configured base URL",
+);
 assert.throws(
   () => getOnlinePaymentProvider({ NODE_ENV: "production" }),
   /PAYMENT_PROVIDER_NOT_CONFIGURED/,
@@ -97,6 +123,17 @@ assert.equal(isPositiveSafeIntegerPaymentAmount(1), true, "one KRW must be a val
 assert.equal(isPositiveSafeIntegerPaymentAmount(0.4), false, "fractional KRW must be rejected");
 assert.equal(isPositiveSafeIntegerPaymentAmount(Number.POSITIVE_INFINITY), false, "infinite amounts must be rejected");
 assert.equal(isPositiveSafeIntegerPaymentAmount(Number.MAX_SAFE_INTEGER + 1), false, "unsafe integer amounts must be rejected");
+assert.equal(isValidPaymentReceiptUrl("https://payments.finaljudo.test/receipt/1"), true, "HTTPS receipt URLs must be accepted");
+assert.equal(isValidPaymentReceiptUrl("javascript:alert(1)"), false, "executable receipt URLs must be rejected");
+assert.equal(
+  isValidPaymentReceiptUrl("https://user:secret@payments.finaljudo.test/receipt/1"),
+  false,
+  "credential-bearing receipt URLs must be rejected",
+);
+assert.equal(isValidPaymentReceiptUrl({}), false, "non-string receipt URLs must be rejected");
+assert.equal(normalizePaymentCheckoutBaseUrl("https://payments.finaljudo.kr/"), "https://payments.finaljudo.kr");
+assert.equal(normalizePaymentCheckoutBaseUrl("https://user:secret@payments.finaljudo.kr"), null);
+assert.equal(normalizePaymentCheckoutBaseUrl("https://payments.finaljudo.kr/base"), null);
 assert.equal(
   validatePaymentWebhookTransition(
     { ...samplePayment, onlinePayment, refundedAmount: 180000, status: "refunded" },
@@ -186,12 +223,37 @@ assert(sources.recurringAgreementRoute.includes("getOnlinePaymentRuntimeReadines
 assert(sources.recurringAgreementRoute.includes("온라인 결제 설정 확인이 필요합니다."), "recurring agreement route must return app-safe setup copy");
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-webhook-secret"), "webhook route must verify secret header");
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-event-id"), "webhook route must accept provider event id header");
-assert(sources.paymentWebhookRoute.includes("processedWebhookEventIds?.includes"), "webhook route must dedupe provider event ids");
-assert(sources.paymentWebhookRoute.includes("payment-mutation:${paymentId}"), "webhook route must share the payment mutation lock key");
+assert(
+  sources.paymentWebhookRoute.includes("findPaymentByProcessedWebhookEventId") &&
+    sources.paymentWebhookRoute.includes('entry.event === "webhook"') &&
+    sources.paymentWebhookRoute.includes('"PROVIDER_EVENT_CONFLICT"'),
+  "webhook route must dedupe provider event ids globally across retained status history",
+);
+assert(
+  sources.paymentWebhookRoute.includes("providerEventIdMaxLength = 160"),
+  "webhook provider event IDs must match the database varchar(160) contract",
+);
+assert(
+  sources.paymentWebhookRoute.includes("providerPaymentIdMaxLength = 160") &&
+    sources.paymentWebhookRoute.includes("receiptIdMaxLength = 160") &&
+    sources.paymentWebhookRoute.includes("isValidPaymentReceiptUrl(receiptUrl)"),
+  "webhook payment and receipt metadata must match storage limits and reject unsafe links",
+);
+assert(
+  sources.paymentWebhookRoute.includes("withServerDbLock(paymentWebhookStateLockKey"),
+  "webhook route must serialize the global provider event namespace",
+);
+assert(
+  sources.paymentWebhookRoute.includes('withServerDbLock(`payment-mutation:${paymentId}`'),
+  "webhook route must also serialize against same-payment operator mutations",
+);
 assert(sources.paymentWebhookRoute.includes("const db = await readServerDb()"), "webhook route must re-read payment state inside the lock");
 assert(sources.paymentWebhookRoute.includes("CONCURRENT_MODIFICATION"), "webhook route must expose stable concurrent conflict responses");
 assert(sources.paymentWebhookRoute.includes("hasValidOccurredAt"), "follow-up webhook events must require a valid provider occurrence time");
-assert(sources.paymentWebhookRoute.includes("isPositiveSafeIntegerPaymentAmount(webhookBody.amount)"), "webhook refunds must reject fractional or unsafe amounts");
+assert(
+  sources.paymentWebhookRoute.includes('event === "refunded" && !isPositiveSafeIntegerPaymentAmount(body.amount)'),
+  "webhook refunds must require a positive safe-integer amount before reading payment state",
+);
 assert(sources.paymentWebhookRoute.includes("payment.webhook"), "webhook route must audit provider events");
 assert(sources.paymentWebhookRoute.includes("createPaymentReceipt"), "webhook route must persist receipt metadata");
 assert(sources.paymentWebhookRoute.includes("결제 승인 상태를 확인해 주세요."), "webhook route must use app-safe payment failure reason");
@@ -214,6 +276,21 @@ assert(sources.apiContract.includes("/api/v1/payments/webhook"), "API contract m
 assert(sources.smokeApi.includes("/online-checkout"), "smoke test must exercise online checkout route");
 assert(sources.smokeApi.includes("/api/v1/payments/webhook"), "smoke test must exercise payment webhook route");
 assert(sources.smokeApi.includes("duplicate provider webhook event must be idempotent"), "smoke test must verify webhook idempotency");
+assert(
+  sources.smokeApi.includes("payment refund webhook must require an explicit refund amount") &&
+    sources.smokeApi.includes("missing refund amount must not change refunded amount"),
+  "smoke test must verify that a missing refund amount cannot become a full refund",
+);
+assert(
+  sources.smokeApi.includes("provider event id must not be reusable across payments") &&
+    sources.smokeApi.includes("cross-payment provider event conflict must not mutate the second payment"),
+  "smoke test must verify global provider event id uniqueness",
+);
+assert(
+  sources.smokeApi.includes("concurrent webhook and recurring agreement creation must preserve both final states") &&
+    sources.smokeApi.includes("append both history events once"),
+  "smoke test must verify webhook serialization against operator payment mutations",
+);
 
 assert.equal(
   packageJson.scripts["test:online-payments"],

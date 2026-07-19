@@ -49,16 +49,30 @@ assert(sources.recurringAgreementRoute.includes("export async function POST"), "
 assert(sources.recurringAgreementRoute.includes("export async function DELETE"), "recurring agreement route must cancel agreements");
 assert(sources.recurringAgreementRoute.includes("payment.recurring_agreement.create"), "recurring create route must audit changes");
 assert(sources.recurringAgreementRoute.includes("payment.recurring_agreement.cancel"), "recurring cancel route must audit changes");
+assert(
+  sources.recurringAgreementRoute.includes('withServerDbLock(`payment-mutation:${paymentId}`'),
+  "recurring agreement mutations must share the payment mutation lock",
+);
+assert(
+  sources.recurringAgreementRoute.includes("requireRecurringAgreementContext(request, paymentId") &&
+    sources.recurringAgreementRoute.includes("RuntimeStateMergeConflictError"),
+  "recurring agreement mutations must recheck current authorization and map storage conflicts",
+);
+assert(
+  sources.recurringAgreementRoute.includes("실제 달력의 YYYY-MM-DD") &&
+    sources.recurringAgreementRoute.includes("해지 사유 형식이 올바르지 않습니다."),
+  "recurring agreement route must reject impossible dates and malformed cancel reasons",
+);
 assertAppearsAfter(
-  recurringPostRouteSource,
-  "request.json()",
-  "getAccessibleBranchIds(user, db).includes(payment.branchId)",
+  recurringPostRouteSource.split("export async function POST")[1] ?? "",
+  "readRecurringAgreementBody(request)",
+  'requireRecurringAgreementContext(request, paymentId, "create")',
   "recurring agreement create route must require authentication and branch access before body validation",
 );
 assertAppearsAfter(
   recurringDeleteRouteSource,
-  "request.json()",
-  "getAccessibleBranchIds(user, db).includes(payment.branchId)",
+  "readRecurringAgreementBody(request)",
+  'requireRecurringAgreementContext(request, paymentId, "cancel")',
   "recurring agreement cancel route must require authentication and branch access before body validation",
 );
 assert(sources.apiClient.includes("createRecurringAgreement"), "api client must expose recurring create");
@@ -98,6 +112,7 @@ console.log(
       checked: [
         "recurring agreement helper dates and ids",
         "recurring agreement create/cancel API",
+        "recurring agreement payload validation and shared payment lock",
         "recurring agreement routes authenticate and check branch scope before body validation",
         "payments screen recurring agreement UI",
         "payment CSV recurring columns",

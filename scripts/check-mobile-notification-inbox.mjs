@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
-import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
+import {
+  cleanupReleaseSmokeEnvironment,
+  prepareStandaloneSmokeEnvironment,
+  resetOwnedSmokeServer,
+} from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const outDir = process.env.MOBILE_NOTIFICATION_INBOX_OUT_DIR ?? ".data/mobile-builds/ios/mobile-notification-inbox-20260701";
@@ -19,6 +25,9 @@ const familyCases = [
   { id: "member", role: "member" },
   { id: "guardian", role: "guardian" },
 ];
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+let managedAppServer = null;
+let smokeEnvironmentPlan = null;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
@@ -28,6 +37,78 @@ function canResetDevData() {
   const { hostname, protocol } = new URL(baseUrl);
 
   return protocol === "http:" && ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"].includes(hostname);
+}
+
+async function canReachAppServer() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1000);
+
+  try {
+    const response = await fetch(baseUrl, { method: "GET", redirect: "manual", signal: controller.signal });
+    return response.status >= 200 && response.status < 500;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function ensureLocalAppServer() {
+  smokeEnvironmentPlan = await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "mobile notification inbox check",
+  });
+
+  if (await canReachAppServer()) {
+    return "existing";
+  }
+
+  const target = new URL(baseUrl);
+  const hostname = target.hostname.replace(/^\[(.*)\]$/, "$1");
+  const port = target.port || "3000";
+
+  managedAppServer = spawn(
+    npmCommand,
+    ["run", "dev", "--", "--webpack", "--hostname", hostname, "--port", port],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 30_000) {
+    if (await canReachAppServer()) {
+      return "managed-next-dev-webpack";
+    }
+    if (managedAppServer.exitCode !== null) {
+      throw new Error(`Mobile notification inbox server exited before ${baseUrl} became reachable.`);
+    }
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for mobile notification inbox server at ${baseUrl}.`);
+}
+
+async function cleanupLocalAppServer() {
+  if (managedAppServer?.exitCode === null) {
+    const closed = new Promise((resolve) => managedAppServer.once("close", resolve));
+    managedAppServer.kill("SIGINT");
+    await Promise.race([
+      closed,
+      sleep(5000).then(() => {
+        if (managedAppServer?.exitCode === null) {
+          managedAppServer.kill("SIGTERM");
+        }
+      }),
+    ]);
+  }
+
+  if (smokeEnvironmentPlan?.created) {
+    await cleanupReleaseSmokeEnvironment({ dataDir: smokeEnvironmentPlan.dataDir });
+  }
 }
 
 async function resetDevData(label) {
@@ -94,6 +175,7 @@ async function collectInboxState(page) {
           "notification-filter-promotion",
           "notification-bulk-read-filtered",
           "notification-read-action",
+          "family-push-enable-action",
         ].includes(box.testId) &&
         (box.width < 44 || box.height < 44),
     );
@@ -154,6 +236,8 @@ async function collectInboxState(page) {
         .map((box) => box.width),
       readCardCount: document.querySelectorAll('[data-notification-read-state="read"]').length,
       readFeedback: text('[data-testid="notification-read-feedback"]'),
+      familyPushConnectionVisible: Boolean(document.querySelector('[data-testid="family-push-connection-row"]')),
+      familyPushEnableLabel: text('[data-testid="family-push-enable-action"]'),
       safeAreaCount: document.querySelectorAll('[data-testid="notification-bottom-safe-area"]').length,
       safeAreaHeight: safeAreaRect?.height ?? 0,
       scrollWidth: document.documentElement.scrollWidth,
@@ -176,6 +260,16 @@ async function seedGuardianPendingOnlinePayment(page) {
   loginUrl.searchParams.set("role", "owner");
   loginUrl.searchParams.set("next", "/app/payments");
   await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForURL((url) => url.pathname === "/app/payments", { timeout: 15000 });
+    await page.getByRole("heading", { name: "결제 상태" }).waitFor({ timeout: 10000 });
+  } catch (error) {
+    const diagnostic = {
+      bodyText: (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500),
+      url: page.url(),
+    };
+    throw new Error(`Owner payment seed login did not complete: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
 
   const result = await page.evaluate(async () => {
     const response = await fetch("/api/v1/payments/pay-yuna/online-checkout?selectedBranchId=branch-gangnam", {
@@ -203,9 +297,57 @@ async function verifyFamilyCase(browser, testCase) {
     deviceScaleFactor: 2,
     isMobile: true,
   });
+  await context.addInitScript(() => {
+    let permission = "default";
+    const subscription = {
+      endpoint: "https://push.example.test/final-judo-device",
+      expirationTime: null,
+      keys: {
+        auth: "test-auth-key",
+        p256dh: "test-p256dh-key",
+      },
+    };
+    const pushManager = {
+      getSubscription: async () => null,
+      subscribe: async () => ({
+        endpoint: subscription.endpoint,
+        expirationTime: subscription.expirationTime,
+        toJSON: () => subscription,
+      }),
+    };
+
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: {
+        get permission() {
+          return permission;
+        },
+        requestPermission: async () => {
+          permission = "granted";
+          return permission;
+        },
+      },
+    });
+    Object.defineProperty(window, "PushManager", {
+      configurable: true,
+      value: class PushManager {},
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        addEventListener: () => {},
+        getRegistration: async () => null,
+        getRegistrations: async () => [],
+        register: async () => ({ pushManager }),
+        removeEventListener: () => {},
+      },
+    });
+  });
   const page = await context.newPage();
   const messages = [];
+  const pushSubscriptionRequests = [];
   const beforeScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-before.png`);
+  const afterPushScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-after-push.png`);
   const afterReadScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-after-read.png`);
   const scrollEndScreenshotPath = join(outDir, `${testCase.id}-notifications-mobile-browser-scroll-end.png`);
   const pendingPaymentSeed = testCase.role === "guardian" ? await seedGuardianPendingOnlinePayment(page) : null;
@@ -218,6 +360,41 @@ async function verifyFamilyCase(browser, testCase) {
   page.on("pageerror", (error) => {
     messages.push(`pageerror: ${error instanceof Error ? error.message : String(error)}`);
   });
+  await page.route("**/api/v1/notifications/push-config", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          activeSubscriptionCount: 0,
+          configured: true,
+          currentUserSubscribed: false,
+          publicKey: "AQIDBA",
+          subject: "mailto:qa@example.test",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/v1/notifications/subscriptions", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    pushSubscriptionRequests.push(route.request().postDataJSON());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          activeSubscriptionCount: 1,
+          subscription: {
+            disabledAt: null,
+            endpointHint: "...device",
+            id: `push-${testCase.id}`,
+          },
+        },
+      }),
+    });
+  });
 
   try {
     const loginUrl = new URL("/login", baseUrl);
@@ -228,7 +405,17 @@ async function verifyFamilyCase(browser, testCase) {
       testCase.role === "guardian" ? "/app/notifications?memberId=member-yuna" : "/app/notifications",
     );
     await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
-    await page.waitForSelector('[data-testid="notifications-screen"]', { timeout: 10000 });
+    try {
+      await page.waitForSelector('[data-testid="notifications-screen"]', { timeout: 10000 });
+    } catch (error) {
+      const diagnostic = {
+        bodyText: (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500),
+        messages,
+        role: testCase.role,
+        url: page.url(),
+      };
+      throw new Error(`Notification inbox did not render: ${JSON.stringify(diagnostic)}`, { cause: error });
+    }
     if (testCase.role === "guardian") {
       const targetChild = page.getByTestId("guardian-child-chip").filter({ hasText: "한유나" });
       await targetChild.click();
@@ -240,12 +427,15 @@ async function verifyFamilyCase(browser, testCase) {
         { timeout: 10000 },
       );
     }
+    await page.waitForSelector('[data-testid="family-push-connection-row"]', { timeout: 10000 });
     await page.screenshot({ path: beforeScreenshotPath, fullPage: true });
     const beforeState = await collectInboxState(page);
 
     assert.equal(messages.length, 0, `${testCase.id} notifications must not log console/page errors: ${messages.join(" | ")}`);
     assert.equal(beforeState.frameworkOverlayCount, 0, `${testCase.id} notifications must not show a framework error overlay`);
     assert.equal(beforeState.heading, "알림함", `${testCase.id} notifications must render the inbox heading`);
+    assert.equal(beforeState.familyPushConnectionVisible, true, `${testCase.id} notifications must offer device push activation`);
+    assert.equal(beforeState.familyPushEnableLabel, "알림 켜기", `${testCase.id} notifications must use a clear push activation label`);
     assert(beforeState.cardCount > 0, `${testCase.id} notifications must render at least one inbox card`);
     assert(
       Math.max(0, ...beforeState.noticeCardHeights) <= 132,
@@ -323,6 +513,24 @@ async function verifyFamilyCase(browser, testCase) {
       `${testCase.id} notifications must keep visible filter/read targets at least 44px: ${JSON.stringify(beforeState.undersizedVisibleTargets)}`,
     );
 
+    await page.getByTestId("family-push-enable-action").click();
+    await page.waitForFunction(
+      () => !document.querySelector('[data-testid="family-push-connection-row"]'),
+      null,
+      { timeout: 10000 },
+    );
+    await page.screenshot({ path: afterPushScreenshotPath, fullPage: true });
+    const afterPushState = await collectInboxState(page);
+
+    assert.equal(afterPushState.familyPushConnectionVisible, false, `${testCase.id} notifications must clear activation guidance after subscribing`);
+    assert.equal(pushSubscriptionRequests.length, 1, `${testCase.id} notifications must persist one device push subscription`);
+    assert.equal(
+      pushSubscriptionRequests[0]?.subscription?.endpoint,
+      "https://push.example.test/final-judo-device",
+      `${testCase.id} notifications must persist the subscription returned by PushManager`,
+    );
+    assert.equal(afterPushState.scrollWidth, afterPushState.clientWidth, `${testCase.id} notifications must not overflow after push activation`);
+
     await page.locator('[data-testid="notification-read-action"]').first().click();
     await page.waitForFunction(
       (previousReadActionCount) =>
@@ -377,20 +585,25 @@ async function verifyFamilyCase(browser, testCase) {
     );
     assert(statSync(scrollEndScreenshotPath).size > 10_000, `${testCase.id} scroll-end screenshot must be non-empty`);
     assert(statSync(beforeScreenshotPath).size > 10_000, `${testCase.id} before screenshot must be non-empty`);
+    assert(statSync(afterPushScreenshotPath).size > 10_000, `${testCase.id} after-push screenshot must be non-empty`);
     assert(statSync(afterReadScreenshotPath).size > 10_000, `${testCase.id} after-read screenshot must be non-empty`);
 
     return {
       id: testCase.id,
       role: testCase.role,
       beforeScreenshotPath,
+      afterPushScreenshotPath,
       afterReadScreenshotPath,
       scrollEndScreenshotPath,
       beforeScreenshotSizeBytes: statSync(beforeScreenshotPath).size,
+      afterPushScreenshotSizeBytes: statSync(afterPushScreenshotPath).size,
       afterReadScreenshotSizeBytes: statSync(afterReadScreenshotPath).size,
       scrollEndScreenshotSizeBytes: statSync(scrollEndScreenshotPath).size,
       messages,
       beforeState,
+      afterPushState,
       afterReadState,
+      pushSubscriptionRequestCount: pushSubscriptionRequests.length,
       pendingPaymentSeed,
       scrollEndState,
     };
@@ -404,6 +617,7 @@ async function main() {
 
   assert(executablePath, "Chrome or Chromium is required for mobile notification inbox proof");
   mkdirSync(outDir, { recursive: true });
+  const appServer = await ensureLocalAppServer();
   const resetBefore = await resetDevData("before");
   const browser = await chromium.launch({
     executablePath,
@@ -424,8 +638,9 @@ async function main() {
     resetAfter = await resetDevData("after");
     const summary = {
       ok: true,
+      appServer,
       baseUrl,
-      browserPath: "Browser plugin unavailable; Playwright fallback used",
+      browserPath: "repository-managed Playwright mobile regression",
       resetBefore,
       resetAfter,
       cases,
@@ -438,6 +653,7 @@ async function main() {
       await resetDevData("after-failure").catch(() => null);
     }
     await browser.close();
+    await cleanupLocalAppServer();
   }
 }
 

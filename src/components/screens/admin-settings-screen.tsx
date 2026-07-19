@@ -28,6 +28,7 @@ import {
   type UserRole,
 } from "@/lib/domain";
 import { addDaysToDateKey, formatDateKey } from "@/lib/format";
+import { pilotOperationsInputLimits } from "@/lib/pilot-operations-input-policy";
 import { roleAccessDescriptions, roleLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
 import { SectionHeader } from "@/components/ui/primitives";
@@ -1041,6 +1042,7 @@ export function AdminSettingsScreen() {
                           담당자
                           <input
                             className="min-h-11 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950"
+                            maxLength={pilotOperationsInputLimits.owner}
                             value={draft.owner}
                             onChange={(event) => updateDraft(check, { owner: event.target.value })}
                           />
@@ -1049,6 +1051,7 @@ export function AdminSettingsScreen() {
                           확인 메모
                           <textarea
                             className="min-h-24 rounded-md border border-zinc-300 px-3 py-2 text-sm leading-6 text-zinc-950"
+                            maxLength={pilotOperationsInputLimits.evidence}
                             placeholder="확인 일시, 담당자, 기기, 결과를 기록"
                             value={draft.evidence}
                             onChange={(event) => updateDraft(check, { evidence: event.target.value })}
@@ -1245,6 +1248,7 @@ export function AdminSettingsScreen() {
                 담당자
                 <input
                   className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.owner}
                   value={operationDraft.owner}
                   onChange={(event) => updateOperationDraft({ owner: event.target.value })}
                 />
@@ -1287,6 +1291,7 @@ export function AdminSettingsScreen() {
                   모바일 출석 확인 기록
                   <input
                     className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                    maxLength={pilotOperationsInputLimits.mobileAttendanceEvidence}
                     placeholder="현장 확인 내용"
                     value={operationDraft.mobileAttendanceEvidence}
                     onChange={(event) => updateOperationDraft({ mobileAttendanceEvidence: event.target.value })}
@@ -1298,6 +1303,7 @@ export function AdminSettingsScreen() {
                 확인 메모
                 <textarea
                   className="min-h-24 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.evidence}
                   placeholder="수업 확인, 출석 저장, 결제 상태 점검 내용을 기록"
                   value={operationDraft.evidence}
                   onChange={(event) => updateOperationDraft({ evidence: event.target.value })}
@@ -1307,6 +1313,7 @@ export function AdminSettingsScreen() {
                 확인 필요/특이사항
                 <textarea
                   className="min-h-20 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.blockerSummary}
                   placeholder="확인할 사유와 후속 조치를 기록"
                   value={operationDraft.blockerSummary}
                   onChange={(event) => updateOperationDraft({ blockerSummary: event.target.value })}
@@ -1435,6 +1442,7 @@ export function AdminSettingsScreen() {
                 제목
                 <input
                   className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.title}
                   placeholder="이슈 제목 입력"
                   value={incidentDraft.title}
                   onChange={(event) => updateIncidentDraft({ title: event.target.value })}
@@ -1489,6 +1497,7 @@ export function AdminSettingsScreen() {
                   화면
                   <input
                     className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                    maxLength={pilotOperationsInputLimits.screen}
                     placeholder="관련 화면"
                     value={incidentDraft.screen}
                     onChange={(event) => updateIncidentDraft({ screen: event.target.value })}
@@ -1499,6 +1508,7 @@ export function AdminSettingsScreen() {
                 담당자
                 <input
                   className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.owner}
                   value={incidentDraft.owner}
                   onChange={(event) => updateIncidentDraft({ owner: event.target.value })}
                 />
@@ -1507,6 +1517,7 @@ export function AdminSettingsScreen() {
                 상세/재현 절차
                 <textarea
                   className="min-h-24 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.description}
                   placeholder="발생 시간, 상황, 기대한 상태, 실제 상태를 기록"
                   value={incidentDraft.description}
                   onChange={(event) => updateIncidentDraft({ description: event.target.value })}
@@ -1516,6 +1527,7 @@ export function AdminSettingsScreen() {
                 현장 조치 메모
                 <textarea
                   className="min-h-20 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950"
+                  maxLength={pilotOperationsInputLimits.workaround}
                   placeholder="현장 조치와 후속 확인 내용을 기록"
                   value={incidentDraft.workaround}
                   onChange={(event) => updateIncidentDraft({ workaround: event.target.value })}
@@ -1621,6 +1633,7 @@ export function AdminSettingsScreen() {
                             담당자
                             <input
                               className="min-h-11 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950"
+                              maxLength={pilotOperationsInputLimits.owner}
                               value={draft.owner}
                               onChange={(event) => updateIncidentUpdateDraft(incident, { owner: event.target.value })}
                             />
@@ -1629,6 +1642,7 @@ export function AdminSettingsScreen() {
                             우회책/조치 메모
                             <textarea
                               className="min-h-20 rounded-md border border-zinc-300 px-3 py-2 text-sm leading-6 text-zinc-950"
+                              maxLength={pilotOperationsInputLimits.workaround}
                               value={draft.workaround}
                               onChange={(event) => updateIncidentUpdateDraft(incident, { workaround: event.target.value })}
                             />

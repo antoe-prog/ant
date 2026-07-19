@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, LoaderCircle, UserCheck } from "lucide-react";
+import { authInputLimits } from "@/lib/auth-input-policy";
 import { Button } from "@/components/ui/primitives";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
@@ -71,6 +72,7 @@ export function InviteAcceptScreen({ token }: { token: string }) {
                   autoComplete="new-password"
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   id="invite-password-input"
+                  maxLength={authInputLimits.passwordLength}
                   minLength={12}
                   placeholder="12자 이상"
                   type={showPassword ? "text" : "password"}
@@ -98,6 +100,7 @@ export function InviteAcceptScreen({ token }: { token: string }) {
                 autoComplete="new-password"
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 id="invite-password-confirm-input"
+                maxLength={authInputLimits.passwordLength}
                 minLength={12}
                 placeholder="다시 입력"
                 type={showPassword ? "text" : "password"}

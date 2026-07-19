@@ -15,15 +15,15 @@
 - [x] `npm run test:final-common-fee-policy` 공통 회비 상품·할인·1+1 연장 규칙과 유효 날짜 경계 통과
 - [x] `npm run test:final-main-schedule-policy` 본관 전용 수업 시간표·훈련 프로그램과 전 지점 공통 정책 분리 통과
 - [x] `npm run test:final-common-promotion-policy` 전 지점 공통 승급 기간·월 수련시간·1일 최대 인정시간·심사일·정확한 다음 띠·코치 범위 통과
-- [x] `npm run test:promotion-api-integrity` 격리 저장소·서버 기반 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위와 동시 요청 중복 반영 차단 통과
+- [x] `npm run test:promotion-api-integrity` 격리 저장소·서버 기반 잘못된 생성·결과 본문과 201자 회원 ID·501자 공개 메모 무변경 차단, 서버·UI 500자 공개 메모 상한, 비심사일 등록, 미래 결과, 띠 건너뛰기, 지점·코치 범위, 동시 등록 고유 ID와 같은 대상 중복 반영 차단 통과
 - [x] `npm run test:final-policy-ui` 회비·본관 시간표·승급 기준의 역할별 UI 연결과 정책 원문 정합성 통과
-- [x] `npm run test:role-csv-export-gates` 회원/학부모 CSV 내보내기 비노출, 대표/총괄 export API/UI 전용 가드, 회원/학부모 CSV export API 403 smoke 증거 통과
+- [x] `npm run test:role-csv-export-gates` 회원/학부모 CSV 내보내기 비노출, 대표/총괄 export API/UI 전용 가드, 최신 계정·지점 권한 재검사, 동시 CSV 감사 보존, 회원/학부모 CSV export API 403 smoke 증거 통과
 - [x] `npm run test:deleted-request-surface` 삭제된 `/app/requests`, `/requests`, 요청 생성/승인/반려 API, 보강 메뉴/카드/알림 링크 재유입 차단과 release runner/문서 등록 검증 통과
 - [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과
 - [x] `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. 읽기 검증은 기존 데이터를 자동 변경하지 않고, 쓰기는 기존 스냅샷과 비교해 새 무결성 결함만 차단하며, 명시적 복구는 변경마다 `system.integrity.repair` 감사 기록을 남긴다. 출석·결제 이력은 자동 삭제하지 않고 운영 복제본 검사는 레코드 식별자·개인정보를 출력하지 않는다.
-- [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책 통과
-- [x] `npm run test:auth-session-security` 원시 사용자 ID 쿠키 차단, 불투명 토큰 해시 저장, 만료·단일/전체 세션 폐기, 로그인·로그아웃·계정 보안 변경 공통 잠금, 차단 재시도 잠금 연장·미일치 로그아웃 쓰기 방지 검증 통과
-- [x] `npm run test:invitation-token-security` 256-bit 초대 원문 1회 응답, SHA-256 저장, 7일 만료, timing-safe 비교, 사용자별 비밀번호 실패 제한, `Retry-After`, 동시 수락 단일 성공, 권한·지점 범위 재발급과 이전 링크 무효화, bootstrap 해시·비밀정보 미노출 검증 통과
+- [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책, 로그인·회원가입·초대 수락·재설정 요청의 서버/UI 입력 상한, 로컬 자동로그인 `next`의 같은 오리진·길이 제한 통과
+- [x] `npm run test:auth-session-security` 원시 사용자 ID 쿠키 차단, 불투명 토큰 해시 저장, 만료·단일/전체 세션 폐기, 로그인·회원가입·비밀번호 재설정 payload 런타임 타입 검증, 로그인·로그아웃·계정 보안 변경 공통 잠금, 차단 재시도 잠금 연장 방지, 정상 자격증명 로그인 복구, 미일치 로그아웃 쓰기 방지 검증 통과
+- [x] `npm run test:invitation-token-security` 256-bit 초대 원문 1회 응답, SHA-256 저장, 7일 만료, timing-safe 비교, 사용자별 비밀번호 실패 제한, 257자 비밀번호 해시 전 차단·원문 미저장, `Retry-After`, 동시 수락 단일 성공, 권한·지점 범위 재발급과 이전 링크 무효화, bootstrap 해시·비밀정보 미노출 검증 통과
 - [x] `npm run test:local-demo-password-rotation` 격리 JSON 계정별 비밀번호 회전과 원본/비밀정보 보호 검증 통과
 - [x] `npm run test:dev-reset-guard` production reset API 기본 차단 정책 통과
 - [x] `npm run test:env-readiness` 개발/운영 env 예시, 환경 변수 매트릭스, 위험 플래그, PostgreSQL/결제/푸시 필수 변수 문서 정합성 통과
@@ -31,10 +31,11 @@
 - [x] `npm run test:deployment-handoff` 운영 배포 handoff manifest, secret store, production preflight/release, HTTPS/provider URI 증빙, ISO 생성/승인 시각과 생성 이후 승인 순서, `localhost`/`.example`/TODO 운영 origin·checkout·mailto subject 차단, 원문 secret 미보관 fixture 검증 통과
 - [x] `npm run test:e2e` 모바일 출석, 수업별 처리율/미처리 인원, 명단 검색/검색 빈 상태, 출석 상태 빠른 필터/상태별 빈 상태, 빠른 메모 칩/메모 조합, 미처리만 보기 필터/빈 상태, 최근 변경 되돌리기, 계정 액션, 미읽음 공지 배지, 공지 미읽음/중요 필터, 확인할 공지, 보이는 공지 읽음 처리, 하단 네비게이션 safe area/활성 메뉴 브라우저 E2E 통과
 - [x] `npm run test:release` 통합 릴리즈 검증 통과, `npm audit --audit-level=moderate`와 `test:preflight` 포함
-- [x] `npm run test:smoke` 통과. 회원 등록/수정, 보호자 연결, 상담/주의 메모 작성, 출석 저장/사유 기록, 수업 생성/수정, 삭제된 요청 화면/API 404, 공지 작성/일괄 읽음, 알림 구독/해지, 파일럿 준비 상태/운영 이슈/로그 API의 인증·역할·지점·회원/담당 수업·대상 접근 권한 선확인 포함
+- [x] `npm run test:smoke` 통과. 회원 등록·수정의 잘못된 본문/날짜·공통 필드 길이 400·동시 생성/수정·고유 감사 ID 보존, 보호자 연결·변경·해제의 잘못된 본문·201자 ID 400·잠금 밖 본문 파싱·양방향 관계/동시 감사 ID 보존, 상담/주의 메모 작성, 출석 저장/사유 기록, 수업 생성·수정의 잘못된 본문/시간/공통 필드·원본 등록회원 길이 400·동시 수정 직렬화·고유 감사 ID 보존, 가족 납부 요청의 잘못된 본문 무변경과 운영자 결제 정정 교차 동시성·감사 기록 보존, 삭제된 요청 화면/API 404, 공지 작성의 잘못된 본문 400·동시 생성 ID/감사 보존·일괄 읽음, 알림 구독/해지, 파일럿 준비 상태/운영 이슈/로그 API의 인증·역할·지점 선확인과 잘못된 본문·초과 확인 메모/상세/우회책/모바일 증빙 400 무변경·동시 생성/갱신 직렬화·고유 감사 ID 보존 포함
+- [x] `npm run test:smoke`, `npm run test:member-profile-guardian-edit`, `npm run test:member-management-touch-targets` 상담/주의 메모 2,000자 서버·UI 공통 상한, 2,001자 요청 `400`·메모/감사 무변경, 정상 저장·공개 범위 회귀, 390px 입력·터치·오버플로 검증 통과
 - [x] `/app/dashboard` smoke 통과
 - [x] `npm run test:pilot` 파일럿 데이터 intake 템플릿 검증 통과, 2개 지점 샘플 포함
-- [x] `npm run test:pilot-readiness-contract` 파일럿 준비 항목/import/preflight 계약 정합성 통과
+- [x] `npm run test:pilot-readiness-contract` 파일럿 준비 항목/import/preflight 계약, 준비·이슈·운영 저장 문자열 상한, 잠금 전 차단, 관리자 설정 `maxLength` 정합성 통과
 - [x] `npm run test:pilot-import` 파일럿 CSV import dry-run 통과
 - [x] `npm run test:pilot-prelaunch-draft` 파일럿 준비 초안 workspace 생성과 blocked next action summary 검증 통과
 - [x] `npm run test:pilot-launch-package` 파일럿 시작 전 CSV/import/evidence/manifest 템플릿/운영 문서 명령 묶음 검증 통과
@@ -83,34 +84,35 @@
 - [x] `npm run test:owner-decision-register` `owner:decision-register -- --workspace=.data --out=.data/p1-owner-decision-register.json --markdown=.data/p1-owner-decision-register.md --csv=.data/p1-owner-decision-register.csv --guide=.data/p1-owner-decision-register.guide.md`가 대표 결정 문항, 담당 lane, 필수 증빙, 검증 명령, 담당자/기한/증빙 입력 열과 CSV 작성 안내 guide를 생성하고 missing/secret-like fixture를 차단
 - [x] `npm run test:owner-decision-register-apply-csv` `owner:decision-register:apply-csv -- --workspace=.data --csv=.data/p1-owner-decision-register.csv --json=.data/p1-owner-decision-register.json --out=.data/p1-owner-decision-register.completed.json --markdown=.data/p1-owner-decision-register.completed.md`가 대표가 채운 담당자/기한/증빙 책임자 입력을 별도 completed JSON/Markdown으로 적용하고 고정 열 변조, placeholder, 잘못된 날짜, HTTP 증빙 URL, secret-like fixture를 차단
 - [x] `npm run test:owner-briefing-package` `owner:briefing-package -- --workspace=.data --out=.data/p1-owner-briefing-package.json --markdown=.data/p1-owner-briefing-package.md --package-dir=.data/p1-owner-briefing-package`가 대표 보고서, [docs/TEAM_AGENT_PROMPTS.md](docs/TEAM_AGENT_PROMPTS.md) P1 6인 팀 목표 프롬프트, 현재 초안, 대표 의사결정 등록표와 `.data/p1-owner-decision-register.guide.md`, optional `.data/p1-owner-decision-register.completed.*`, 운영자 상태판, 완료 기준 매트릭스, 외부 blocker CSV, 패키지 README와 한국어 대표 요약 Markdown을 SHA-256/byte size manifest로 묶고 누락/secret-like fixture를 차단
-- [x] `npm run test:payment-lifecycle` 결제 생성 `Idempotency-Key`의 처리자·지점 범위 재시도/충돌/삭제 원본 보호, 일반 상태 확인값 하위 호환, 취소·환불 완료 등록 사유 필수와 상태 이력·감사 스냅샷 반영, Payment 루트 감사 사유 중복 방지, 0원 환불 완료/환불액 누락 부분 환불 수정·삭제 차단, UUID 식별자, 수기 부분 환불 직접 생성 차단, 실제 달력 날짜·납부일/만료일 순서 검증, 동일 결제 수기 변경·온라인 요청 직렬화, 삭제 전 취소·상태 이력 감사 스냅샷, 수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
-- [x] `npm run test:online-payments` provider-neutral 온라인 결제 요청, webhook secret, provider event ID 중복 처리, 영수증 메타, 결제 CSV provider 컬럼, 코치 금액/링크 마스킹, production provider/checkout/webhook secret 누락 차단 검증 통과
-- [x] `npm run test:family-payment-checkout` 회원/학부모 결제 카드에서 내부 결제 준비 화면 이동, 성인 회원 직접 결제 허용, 유소년/청소년 회원 직접 결제 차단과 학부모 자녀 결제 허용, 실 PG/API 미연결 상태 및 iOS Simulator 증빙 검증 통과
+- [x] `npm run test:payment-lifecycle` 결제 생성 `Idempotency-Key`의 처리자·지점 범위 재시도/충돌/삭제 원본 보호, 등록·환불·취소 본문 필드 타입 선검증과 잘못된 객체·배열 입력 400·무변경 차단, 회원권명 100자와 등록·수정·삭제·환불/취소 사유 500자 공통 상한, 일반 상태 확인값 하위 호환, 취소·환불 완료 등록 사유 필수와 상태 이력·감사 스냅샷 반영, Payment 루트 감사 사유 중복 방지, 0원 환불 완료/환불액 누락 부분 환불 수정·삭제 차단, UUID 식별자, 수기 부분 환불 직접 생성 차단, 실제 달력 날짜·납부일/만료일 순서 검증, 동일 결제 수기 변경·온라인 요청 직렬화, 삭제 전 취소·상태 이력 감사 스냅샷, 수기 결제 수정·삭제/환불/취소 결제 상태 이력, 인증·지점 범위·외부/환불 이력 보호, `/app/payments` 사유 기반 수정·삭제 확인과 결제 CSV lifecycle 컬럼 검증 통과
+- [x] `npm run test:online-payments` provider-neutral 온라인 결제 요청, webhook secret, provider event ID 중복 처리, 전역 event 잠금 뒤 결제별 잠금을 얻는 동일 결제 웹훅·운영 변경 직렬화, HTTPS 결제창 origin·영수증 메타 검증, 결제 CSV provider 컬럼, 코치 금액/링크 마스킹, production provider/checkout/webhook secret 누락·오설정 차단 검증 통과
+- [x] `npm run test:family-payment-checkout` 회원/학부모 결제 카드에서 내부 결제 준비 화면 이동, 성인 회원 직접 결제 허용, 유소년/청소년 회원 직접 결제 차단과 학부모 자녀 결제 허용, 납부 요청 JSON 객체·이름 50자·연락처 원문 20자·방법 코드 32자·방법명 60자 검증, 본문 잠금 밖 처리·잠금 안 최신 권한 재확인, 타 가족 결제 존재 은닉·운영 결제 변경 공통 잠금 계약, 실 PG/API 미연결 상태 및 iOS Simulator 증빙 검증 통과
 - [x] `npm run test:payment-checkout-method-flow` 성인 회원/학부모 결제 상세의 compact 납부 요약, 결제자 정보 필수 입력, 주소·일반전화·이메일 추가 영역 기본 접힘/펼침, 이메일 placeholder, 무통장입금/신용카드/가상계좌/계좌이체 선택, 카드사 그리드, 우리WON페이 모달, 학부모 자녀 결제 화면이 390px 모바일에서 overflow/콘솔 오류 없이 동작하고 `납부 정보 확인` 버튼/`온라인 결제 준비` 안내가 하단 고정 내비게이션에 가리지 않으며 실제 PG/API 호출이 없는지 검증 통과
-- [x] `npm run test:tournament-access` 역할·지점별 대회 조회와 관리 권한 계약 검증 통과
+- [x] `npm run test:tournament-access` 역할·지점별 대회 조회/관리 권한, 본문 타입·실제 달력 날짜, 동시 등록·수정 보존과 UUID 감사 ID 계약 검증 통과
 - [x] `npm run test:payment-create-touch-targets` 대표/총괄 수기 결제 등록 폼의 기본 접힘, 회원 검색 결과 선택, 취소·환불 완료 상태의 44px 사유 입력과 빈 사유 제출 차단, 등록 중 중복 제출 차단, 저장 후 응답 유실 시 동일 `Idempotency-Key` 재시도와 정확히 1건 목록 반영, 수정 사유·날짜 검증, 삭제 사유·완료 안내 교체, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과. iPhone 16e 네이티브 등록·정정·삭제 증빙은 `.data/mobile-builds/ios/manual-payment-management-20260713/simulator-summary.json`, 취소 상태 조건부 사유 증빙은 `.data/mobile-builds/ios/manual-payment-create-audit-reason-20260713/simulator-summary.json`에 보관하며 실 PG·운영 데이터·IPA 준비 완료를 의미하지 않음
-- [x] `npm run test:class-management-touch-targets` 대표/총괄 수업 생성/수정 입력과 코치 출석 메모 토글/입력/빠른 메모/사유 저장 44px 터치 목표, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
+- [x] `npm run test:class-management-touch-targets` 대표/총괄 수업 생성/수정 입력과 코치 출석 메모 토글/입력/빠른 메모/사유 저장 44px 터치 목표, 수업명 80자·레벨 40자·장소 80자·출석 메모 80자 UI 상한, overflow 0, 콘솔 오류 없음 390px 모바일 검증 통과
 - [x] `npm run test:member-management-touch-targets` 대표 회원 관리 컨트롤 44px, 회원 상세 결제·회원권 요약의 가족 금액 비노출·코치 비노출, 학부모 자녀·결제 딥링크와 이후 수동 자녀 선택 유지, overflow 0, 콘솔 오류 없음, iPhone 16e 네이티브 셸 검증 통과
-- [x] `npm run test:admin-user-management-touch-targets` 총괄 사용자 관리의 초대 폼 기본 접힘, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙 검증 통과
+- [x] `npm run test:admin-user-management-touch-targets` 총괄 사용자 관리의 초대 폼 기본 접힘, 초대 이름 80자·휴대폰 40자·이메일 254자, 수정 설명 120자·비밀번호 256자, 삭제·재발급 사유 500자 상한, 목록 액션, 초대/수정/삭제/비밀번호 재발급 입력과 저장 버튼 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, iOS Simulator 앱 chrome 증빙 검증 통과
 - [x] `npm run test:operator-list-search` 운영자 결제 목록과 공지함 `q` 검색 딥링크/검색어 지우기, 0건 검색 빈 상태, 공지 0건 상태의 읽음 처리 액션 숨김, 검색 입력/인라인 지우기/빈 상태 지우기 44px 터치 목표와 하단 내비 clearance가 390px 모바일에서 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태를 유지하는지 검증 통과
 - [x] `npm run test:global-search` 대표/총괄 상단 통합 검색의 메뉴·회원·결제·공지·사용자 권한 범위, 코치 민감 결제/사용자 결과 차단, 실제 목록 검색 딥링크 연결 검증 통과
 - [x] `npm run test:admin-role-search` 총괄 권한 관리 `q` 검색 딥링크, 검색 입력/인라인 지우기/0건 검색 빈 상태 `전체 보기` 44px 액션, 검색 중 부가 패널 숨김, 하단 safe-area spacer와 내비 clearance, 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태 유지 검증 통과
 - [x] `npm run test:admin-user-search` 총괄 사용자 관리 `role`+`q` 검색 딥링크, 검색어 지우기 시 역할 필터 보존, 0건 검색 빈 상태 `전체 보기` q/role 복구, 검색 입력/인라인 지우기/필터 초기화/빈 상태 초기화 44px 터치 목표와 하단 내비 clearance, 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태 유지 검증 통과
-- [x] `npm run test:admin-audit-search` 총괄 변경 기록 `q` 검색·`detail` 상세 딥링크 복원, 상세 열기/닫기·검색어 지우기·`전체 보기` URL 동기화, 0건 검색 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표와 하단 내비 clearance, 목록 축소, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨, 승급 심사·대회 공지 API 필터 허용, 동일 조회 5초 중복 저장 방지, 한국 시간 종료일 전체 포함과 역전 날짜 범위 차단 검증 통과
+- [x] `npm run test:admin-audit-search` 총괄 변경 기록 `q` 검색·`detail` 상세 딥링크 복원, 검색 입력 120자 상한, 상세 열기/닫기·검색어 지우기·`전체 보기` URL 동기화, 0건 검색 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표와 하단 내비 clearance, 목록 축소, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨, 승급 심사·대회 공지 API 필터 허용, 검색어 121자·사유 501자·지점 ID 201자 잠금 전 400 무감사 차단, 동일 조회 5초 중복 저장 방지와 동시 재시도 1건 보존, 한국 시간 종료일 전체 포함과 역전 날짜 범위 차단 검증 통과
 - [x] `npm run test:audit-action-contract` 앱 `AuditAction`, 공통 표시 라벨, API 사용값, PostgreSQL `audit_action` 마이그레이션, DB 스키마 문서 완전성 검증 통과
 - [x] `npm run test:audit-log-privacy` 변경 기록 개인정보·자격 증명·민감 메모 최소화, 중앙 저장 정책, 원문 JSON 없는 한국어 변경 전후 비교 검증 통과
-- [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과
+- [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 실제 달력 날짜·1-28 청구일·문자열 해지 사유 검증, 공통 결제 잠금과 최신 권한·상태 재검증, 저장 충돌 409 매핑, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과. 격리 `test:smoke`의 동시 생성 `200/409`, 동시 해지 `200/422`, 단일 이력·감사 기록도 통과
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과
 - [x] `npm run test:payment-provider-handoff` 실 PG/VAN provider handoff manifest, webhook 서명/idempotency, checkout/영수증/정기결제 보관 정책, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, ISO 생성/승인 시각과 생성 이후 승인 순서, 원문 secret 미보관 fixture 검증 통과
 - [x] `npm run test:next-build-readiness` 현재 Next dist의 `BUILD_ID`·빌드 입력 SHA-256 지문 누락/불일치와 빌드 후 수정·삭제·이름 변경, 격리 dist의 기본 `.next` manifest 덮어쓰기를 차단하고, 검증 시작·종료에 같은 최신 빌드만 `next start` 기반 개별 게이트에 허용
 - [x] `npm run test:release-smoke-isolation` 빈 로컬 포트·run-owned 임시 JSON 디렉터리/실제 `PILOT_DB_FILE`/마커 강제, 상속 토큰 교체, 공유/심볼릭 링크 경로·원격/기존 서버 재사용 차단, 임시 데이터 정리를 행동 검증
-- [x] `npm run test:admin-user-management-api` 최신 production build 확인 후 임시 DB와 임시 `next start` 서버에서 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경 API, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete`/`user.role.update` 변경 기록 검증 통과
+- [x] `npm run test:admin-user-management-api` 최신 production build 확인 후 임시 DB와 임시 `next start` 서버에서 공개 가입 지점 최소 필드 목록, 복수 지점 선택 필수, 위조 지점 차단, 선택 지점 귀속, 동시 휴대폰 가입 유일성, 총괄 사용자 수정/삭제/역할 변경의 숫자·배열·빈 본문과 객체형 계정 필드·혼합 연결 배열·사유/비밀번호 초과 입력 400·무변경, 초대 본문 타입·계정 필드/원본 지점 배열 길이·동시 사용자/감사 ID·휴대폰 유일성, 비밀번호 재발급·역할 변경의 잘못된 본문과 사유/비밀번호/원본 지점 배열 길이 무변경, 계정 단위 로그인 제한 중 정상 비밀번호 복구, 코치 역할 제거 시 수업·회원 자동 인계, 단독 대표 보호, 선택 비밀번호 변경, 원문 비밀번호/password hash 미노출, `user.update`/`user.delete`/`user.role.update` 변경 기록 검증 통과
 - [x] iPhone 16e Simulator에서 사용자 삭제 API 실패 시 폼을 유지하고 현재 계정·총괄 유지·지점 대표 배정 상태 확인 안내가 하단 내비게이션 위에 완전히 표시됨 (`.data/mobile-builds/ios/admin-user-policy-feedback-20260713/summary.json`, 내부 QA 전용)
 - [x] `npm run test:dashboard-priority-kpi` 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시하는지 검증 통과
-- [x] `npm run test:member-profile-guardian-edit` 운영자 회원 상세 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위 검증 통과
+- [x] `npm run test:member-profile-guardian-edit` 운영자 회원 상세 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자 ID 200자 상한, 인증·지점 선검사, 잠금 밖 본문 파싱과 잠금 안 최신 권한 재검사, 보호자-자녀 양방향 링크·동시 감사 ID 갱신, 접근 불가 회원 수정 대상 404와 연결 불가 학부모 계정 존재 은닉 API 회귀 범위 검증 통과
 - [x] `npm run test:guardian-age-policy-ui` 운영자 회원 상세 연령 정책, 보호자 연결 후보 렌더링, 회원 검색 지우기 44px 터치 목표 검증 통과
 - [x] `npm run test:admin-user-guardian-bottom-safe-area` 관리자 사용자 목록 액션 버튼과 상세 보호자 연결 편집/해제 화면의 모바일 하단 내비 안전 여백 검증 통과
-- [x] `npm run test:api-auth-order` 보호 API route handler 본문 읽기 전 세션 확인 순서와 공개 body route allowlist 검증 통과
+- [x] `npm run test:api-auth-order` 보호 API route handler 본문 읽기 전 세션 확인 순서, 보호자 연결 공통 컨텍스트의 세션 검사, 공개 body route allowlist 검증 통과
+- [x] `npm run test:attendance-mutation-safety` 출석 변경의 공통 잠금, 선택 지점 일치, 수업 시작 전 차단, 본문 잠금 밖 검증과 잠금 안 최신 권한 재확인, 느린 일괄 본문 중 별도 출석 사유 선완료 통합 회귀, 일괄 저장 JSON 구조·항목 타입·200건 상한·회원 ID 200자·메모/사유 80자·회원 중복 차단, 저장 실패 재시도 큐 계약 검증 통과
 - [x] `npm run test:login-keep-signed-in` 로그인 상태 유지 30일 쿠키, 기본 8시간 쿠키, 390px 로그인 화면 터치 영역/overflow 검증 통과
 - [x] `npm run test:implementation-backlog` 구현 백로그 ID 중복, 섹션 번호 불일치, 그룹별 순번 누락, 빈 작업/완료 기준, 상태 값 drift, `바로 다음 작업` 운영 순서 번호 중복/누락 검증 통과
 - [x] `npm run test:qa-plan` QA 시나리오 ID 중복, 빈 실행/기대 결과, 문서 내 `npm run` 스크립트 오타 검증 통과
@@ -212,7 +214,9 @@
 - [ ] 최종 P1 readiness와 evidence intake 통과 후 `npm run p1:release-package -- --workspace=.data --out=.data/p1-release-package.json`로 P1 readiness, P1 evidence intake report, 7개 필수 readiness 리포트의 SHA-256/byte size 포함 release package manifest 보관
 - [ ] 최종 P1 release package 생성 후 `npm run p1:release-archive -- --package=.data/p1-release-package.json --archive-dir=.data/p1-release-archives/final-judo-p1-20260715`로 package와 9개 필수 리포트 원본 해시를 재검증하고 fresh archive 폴더/`p1-release-archive-manifest.json` 보관
 - [ ] P1 release archive 업로드 전 `npm run p1:release-storage-receipt:draft -- --archive=.data/p1-release-archives/final-judo-p1-20260715/p1-release-archive-manifest.json --out=.data/p1-release-storage-receipt.json`로 장기 보관 receipt 초안을 생성하고, ISO uploadedAt, HTTPS/provider URI 업로드 위치, 담당자, HTTPS/provider URI 업로드 증빙, 보존 정책 증빙을 채운 뒤 `npm run p1:release-storage-receipt -- --file=.data/p1-release-storage-receipt.json --archive=.data/p1-release-archives/final-judo-p1-20260715/p1-release-archive-manifest.json` 통과 및 receipt 보관
-- [x] `npm run test:notification-readiness` 공지 화면 알림 권한 UI, VAPID 구성 상태, PushSubscription 저장/해지 API, 역할별 활성 구독 수 스코프, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 확인할 공지, AppShell 상단 공지 버튼 미읽음 배지, 테스트 알림 표시, push/click 경로, 브라우저/서비스 워커 구현 문구 비노출 검증 통과
+- [x] `npm run test:notification-readiness` 공지 화면 알림 권한 UI, VAPID 구성 상태, PushSubscription 저장/해지 API, 잘못된 해지 타입 무변경, 회원·학부모 항상 켜짐, 역할별 활성 구독 수 스코프, 동일 endpoint 계정 이전 잠금·진행 중 발송 보호·감사 기록, 공지별 push dispatch API, 중요 공지 발행/배지/푸시 제목, 작성·수정 제목/본문·대상 개수 입력 제한, 공지함 미읽음/중요 필터와 빈 상태, 보이는 공지 읽음 처리, 일괄 읽음 원본 50건·문자열 ID 입력 제한과 무부분변경, 접근 불가 공지 존재·식별자 목록 비노출, 확인할 공지, AppShell 상단 공지 버튼 미읽음 배지, 테스트 알림 표시, push/click 경로, 브라우저/서비스 워커 구현 문구 비노출 검증 통과
+- [x] `npm run test:smoke` 및 `npm run test:notification-readiness` 푸시 구독 endpoint의 HTTPS·2,048자 상한과 key의 Base64URL·512자 상한, 초과 등록·해지 `400`, 기존 활성 구독 무변경, 회원·학부모 항상 켜짐 회귀 검증 통과
+- [x] `npm run test:mobile-notification-inbox` 회원·학부모 모바일 알림함에서 권한 요청부터 PushSubscription 서버 저장까지의 연결 흐름, 44px 터치 영역, 가로 오버플로 0, 공지 읽음 톤다운 검증 통과
 - [x] `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 구독별 durable 작업, lease/revision/backoff/dead letter, 수동 재발송 멱등 digest, 공지 변경 전송 취소 경계, provider timeout·불확실 전송·stale settlement 감사, 발송 직전 권한 재검증, 시도별 감사 기록, CRON_SECRET 보호 검증 통과
 - [x] 스모크 테스트 실행 전후 JSON 데모 데이터 기준 상태 복구
 - [x] 데모 역할 로그인 production 기본 비활성화와 명시 플래그 허용 검증
@@ -225,7 +229,7 @@
 - [x] 모바일 출석 상태 빠른 필터, 빠른 메모 칩, 미처리만 보기 필터, 완료 회원 숨김, 완료/상태별 빈 상태 E2E 통과. 390px 코치 화면에서는 상태 필터를 가로 칩 레일로 유지하고 중복 상태 요약 카드는 숨기며 기본 저장 문구는 한 줄로 압축한다.
 - [x] 모바일 공지 미읽음/중요 필터, 표시 건수, pressed 상태, 확인할 공지, 보이는 공지 읽음 처리, 터치 영역 E2E 통과
 - [x] 모바일 출석 오프라인 대기 큐 새로고침 복구와 재동기화 E2E 통과
-- [x] 총괄 어드민 임시 비밀번호 발급 API/UI와 `auth.password_reset.complete` smoke 검증
+- [x] 총괄 어드민 임시 비밀번호 발급 API/UI와 `auth.password_reset.complete` smoke 검증. 대기 초대 동시 승인은 `200/409`, 1회 표시 임시 비밀번호·`user.invite.approve` 감사 기록 각 한 건으로 직렬화
 - [x] `/app/admin/branches` 총괄 지점 관리 smoke 통과
 - [x] `/app/admin/roles` 총괄 어드민 smoke 통과
 - [x] `/app/notices`, `/app/account`, `/app/notifications`, `/select-role` 역할 선택 IA route smoke 통과
@@ -246,7 +250,7 @@
 
 - [x] 실제 로그인/로그아웃 route handler 연결
 - [x] 운영 계정 이메일/임시 비밀번호 로그인 연결
-- [x] `/login`의 회원가입 진입은 `/signup`에서 이름·휴대폰 번호·비밀번호를 받아 성인 회원 사용자와 회원 프로필을 생성하고 같은 비밀번호로 로그인 가능. 초대 수락은 `/invite/:token`에만 남기며 `/signup` 초대 링크 입력 회귀를 차단
+- [x] `/login`의 회원가입 진입은 `/signup`에서 공개 가능한 활성 지점 중 가입 지점과 이름·휴대폰 번호·비밀번호를 받아 같은 지점의 성인 회원 사용자·회원 프로필을 생성하고 같은 비밀번호로 로그인 가능. 서버는 복수 지점 미선택과 위조·비활성·운영자 미배정 지점, 이름 30자·비밀번호 256자 등 공개 인증 입력 상한 초과를 저장·PBKDF2 전에 차단하며 초대 수락은 `/invite/:token`에만 남긴다
 - [x] 비밀번호 재설정 또는 초대 가입 플로우 연결. 초대 수락은 12자 이상 초기 비밀번호 설정이 필요하고 기본 임시 비밀번호/사용된 링크 재사용을 차단
 - [x] 총괄 어드민 사용자별 임시 비밀번호 발급과 원문 비밀번호 변경 기록 미저장 검증
 - [x] 5개 역할의 메뉴/스코프 smoke 검증
@@ -264,16 +268,16 @@
 
 ## 4. 운영 기능
 
-- [x] 총괄 지점 생성/수정/비활성화/대표 배정 서버 API 검증
+- [x] 총괄 지점 생성/수정/비활성화/대표 배정의 잘못된 타입·지점명 81자·지역 101자·시간대 65자·사유 501자·대표 ID 201자 무변경, 인증·선택 지점 선검사, 잠금 밖 본문 파싱과 잠금 안 최신 상태 재검사, 느린 본문 중 다른 지점 변경 선완료, UUID 감사 ID, 같은 이름 동시 생성과 생성·이름 변경 교차 요청 직렬화 서버 API 검증
 - [x] 대표 지점 범위 코치/학부모/회원 초대 서버/UI 검증
 - [x] 코치 전체 출석 일괄 저장/개별 저장/수정 사유/충돌/오프라인 대기 큐 복구/재동기화 검증
-- [x] 대표/총괄 회원 등록/상태 변경 서버 API 검증
+- [x] 대표/총괄 회원 등록/상태 변경 서버 API, 등록 필드 타입·실제 달력 생년월일·이름/레벨/띠/연락처 길이 400 차단, UUID 기반 동시 회원 등록 2건과 감사 기록 보존 검증
 - [x] 대표/총괄 보호자-자녀 연결 서버/UI 검증
-- [x] 대표/총괄 수업 생성/수정 서버 API 검증
+- [x] 대표/총괄 수업 생성/수정 서버 API, 생성 필드 타입과 공통 텍스트·식별자·원본 등록회원 길이 400 차단, UUID 기반 동시 수업 등록 2건과 감사 기록 보존 검증
 - [x] 대표/총괄 수기 결제 등록·취소/환불 완료 등록 사유·사유 기반 수정·삭제 서버 API와 iPhone 16e 네이티브 흐름 검증
 - [x] 대표/총괄 결제 할인/환불/취소 처리와 사유 변경 기록 검증
 - [x] 대표/총괄 결제 상태 이력, 확인할 결제, CSV lifecycle 컬럼 검증
-- [x] 대표/총괄 온라인 결제 요청, provider webhook 성공/실패/환불 상태 반영, 영수증 메타, 코치 금액/결제 링크 비노출 검증
+- [x] 대표/총괄 온라인 결제 요청, provider webhook 성공/실패/환불 상태 반영, 전역 event ID 멱등·교차 결제 순차/동시 재사용 차단, 영수증 메타, 코치 금액/결제 링크 비노출 검증
 - [x] 요청 생성/승인/반려 API 라우트 삭제, `404`, 데이터 무변경 검증
 - [x] 상담/주의 메모 작성과 공개 범위 서버/UI 검증
 - [x] 공지 작성/중요 공지/지점 전체/반/개인 대상 지정/읽음 처리/보이는 공지 읽음 처리/확인할 공지/미읽음·중요 필터 검증

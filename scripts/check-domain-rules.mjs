@@ -315,12 +315,18 @@ assert(
   "payments screen CSV export action must stay hidden from member/guardian roles",
 );
 assert(
-  serverApiSource.includes(': db.auditLogs.filter((log) => log.actorUserId === user.id);'),
-  "non-owner/admin bootstrap snapshots must only include actor-authored audit logs",
+  serverApiSource.includes('const auditLogs = user.role === "admin"') &&
+    serverApiSource.includes('? db.auditLogs') &&
+    serverApiSource.includes('user.role === "owner"') &&
+    serverApiSource.includes('log.branchId !== null && branchIds.includes(log.branchId)'),
+  "admin bootstrap must include all audit logs while owner bootstrap remains branch scoped",
 );
 assert(
-  !serverApiSource.includes("log.actorUserId === user.id || (log.branchId !== null && branchIds.includes(log.branchId))"),
-  "non-owner/admin bootstrap snapshots must not include branch-wide audit logs",
+  serverApiSource.includes('user.role === "coach"') &&
+    serverApiSource.includes('log.actorUserId === user.id') &&
+    serverApiSource.includes('log.targetType === "attendance"') &&
+    /const auditLogs = user\.role === "admin"[\s\S]{0,700}: \[\];/.test(serverApiSource),
+  "coach bootstrap must only include own scoped attendance history and family roles must receive no audit logs",
 );
 assert(
   serverApiSource.includes('const payments = user.role === "coach"') &&

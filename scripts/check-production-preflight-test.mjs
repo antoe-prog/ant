@@ -446,6 +446,15 @@ try {
     "preflight must catch missing production payment checkout base URL",
   );
 
+  const invalidPaymentCheckoutRun = await runPreflight(validFile, [], {
+    FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "http://user:secret@payments.finaljudo.kr/path?token=unsafe",
+  });
+  assert.notEqual(invalidPaymentCheckoutRun.code, 0, "production invalid payment checkout base URL must fail strict preflight");
+  assert(
+    blockerCodes(parseReport(invalidPaymentCheckoutRun.stdout)).has("PAYMENT_CHECKOUT_BASE_URL_INVALID"),
+    "preflight must catch insecure or non-origin production payment checkout base URLs",
+  );
+
   const missingPaymentWebhookRun = await runPreflight(validFile, [], { FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "" });
   assert.notEqual(missingPaymentWebhookRun.code, 0, "production missing payment webhook secret must fail strict preflight");
   assert(

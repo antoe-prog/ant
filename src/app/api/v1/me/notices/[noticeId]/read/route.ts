@@ -26,14 +26,12 @@ export async function POST(
     }
 
     const { branchIds, selectedBranchId } = selectedScope;
-    const notice = db.notices.find((item) => item.id === noticeId);
+    const notice = db.notices.find(
+      (item) => item.id === noticeId && canReadNotice(user, db, item, branchIds),
+    );
 
     if (!notice) {
       return jsonError(404, "NOT_FOUND", "공지를 찾을 수 없습니다.");
-    }
-
-    if (!canReadNotice(user, db, notice, branchIds)) {
-      return jsonError(403, "FORBIDDEN", "읽음 처리할 수 있는 공지가 아닙니다.");
     }
 
     const nextDb = await writeServerDb(markNoticeRead(db, notice.id, user.id));

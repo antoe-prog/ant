@@ -375,7 +375,11 @@ assert(memberCreateRouteSource.includes("statusChangedAt: now"), "member create 
 assert(memberUpdateRouteSource.includes("patch.statusChangedAt = now"), "member update route must refresh statusChangedAt");
 assert(memberUpdateRouteSource.includes("patch.withdrawnAt"), "member update route must persist withdrawnAt transitions");
 assert(backendSchemaSource.includes("status_changed_at timestamptz NOT NULL DEFAULT now()"), "DB schema must persist member status changes");
-assert(apiContractSource.includes("회원 생성은 `createdAt`, `statusChangedAt`을 서버 시각으로 저장"), "API contract must document member lifecycle fields");
+assert(
+  apiContractSource.includes("`createdAt`, `statusChangedAt`은 서버 시각으로 저장") &&
+    apiContractSource.includes("`withdrawnAt`"),
+  "API contract must document member lifecycle fields",
+);
 assert(apiContractSource.includes("new_members`, `withdrawn_members`, `net_member_change`"), "API contract must document member lifecycle CSV columns");
 assert(operationsExportSource.includes("trend_period"), "operations CSV must include trend rows");
 assert(operationsExportSource.includes("net_member_change"), "operations CSV must include net member change");

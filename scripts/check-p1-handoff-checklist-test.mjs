@@ -139,7 +139,7 @@ assert(ownerBriefSources.every((source) => source.includes("## 우선 action")))
 assert(ownerBriefSources.every((source) => source.includes("## 실행 명령")));
 assert(ownerPackageSources.some((source) => source.includes("# P1 Handoff Owner Brief - Mobile/Release")));
 assert(ownerPackageSources.some((source) => source.includes("# P1 Handoff Owner Brief - iOS/Release")));
-assert(ownerPackageSources.some((source) => source.includes("파이널 유도 멀티짐 P1 6인 팀 에이전트 목표 프롬프트")));
+assert(ownerPackageSources.some((source) => source.includes("파이널 유도 멀티짐 11팀 하위 에이전트 운영 프롬프트")));
 assert(ownerPackageSources.some((source) => source.includes('"checked"')));
 
 assert(!combinedOutput.includes(rawPaymentSecret), "checklist outputs must not include raw payment webhook secret");

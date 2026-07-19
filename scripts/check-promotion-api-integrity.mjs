@@ -7,6 +7,7 @@ import path from "node:path";
 import { getFinalPromotionExamKind } from "../src/lib/final-common-promotion-policy.ts";
 import { formatDateKey } from "../src/lib/format.ts";
 import { createMockData } from "../src/lib/mock-data.ts";
+import { promotionInputLimits } from "../src/lib/promotions.ts";
 
 const nextBin = "node_modules/next/dist/bin/next";
 
@@ -126,6 +127,14 @@ async function main() {
   const nonPolicyFutureDate = findDateKey(today, 1, (candidate) => getFinalPromotionExamKind(candidate) === null);
   const db = createMockData();
   const createdAt = new Date().toISOString();
+  const promotionsScreenSource = await readFile("src/components/screens/promotions-screen.tsx", "utf8");
+
+  assert.equal(promotionInputLimits.memberId, 200, "promotion member IDs must have a 200-character limit");
+  assert.equal(promotionInputLimits.note, 500, "promotion public notes must have a 500-character limit");
+  assert(
+    promotionsScreenSource.includes("maxLength={promotionInputLimits.note}"),
+    "promotion public note UI must mirror the 500-character server limit",
+  );
 
   db.classes = db.classes.map((session) => ({
     ...session,
@@ -181,6 +190,12 @@ async function main() {
       createdAt,
     },
   ];
+  const harin = db.members.find((member) => member.id === "member-harin");
+  assert(harin, "promotion test member must exist");
+  db.members.push(
+    { ...harin, id: "member-promotion-create-a", name: "동시승급A" },
+    { ...harin, id: "member-promotion-create-b", name: "동시승급B" },
+  );
 
   await Promise.all([
     writeFile(dbFile, `${JSON.stringify(db, null, 2)}\n`, "utf8"),
@@ -223,7 +238,81 @@ async function main() {
   try {
     await waitForServer(baseUrl, child);
 
+    const beforeMalformedCreate = await readDb(dbFile);
     let result = await apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
+      body: { memberId: { invalid: true }, toBelt: "주황띠", examDate: futurePolicyDate },
+    });
+    assert.equal(result.response.status, 400, "malformed create fields must be rejected before normalization");
+    let persisted = await readDb(dbFile);
+    assert.equal(persisted.promotions.length, beforeMalformedCreate.promotions.length, "invalid create must not add an exam");
+    assert.equal(
+      persisted.auditLogs.filter((log) => log.action === "promotion.create").length,
+      beforeMalformedCreate.auditLogs.filter((log) => log.action === "promotion.create").length,
+      "invalid create must not add an audit log",
+    );
+
+    const beforeOversizedCreate = await readDb(dbFile);
+    result = await apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
+      body: {
+        memberId: "m".repeat(promotionInputLimits.memberId + 1),
+        toBelt: "주황띠",
+        examDate: futurePolicyDate,
+      },
+    });
+    assert.equal(result.response.status, 400, "oversized promotion member IDs must be rejected");
+    result = await apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
+      body: {
+        memberId: "member-harin",
+        toBelt: "주황띠",
+        examDate: futurePolicyDate,
+        note: "가".repeat(promotionInputLimits.note + 1),
+      },
+    });
+    assert.equal(result.response.status, 400, "oversized promotion create notes must be rejected");
+    persisted = await readDb(dbFile);
+    assert.equal(persisted.promotions.length, beforeOversizedCreate.promotions.length, "oversized notes must not add an exam");
+    assert.equal(
+      persisted.auditLogs.filter((log) => log.action === "promotion.create").length,
+      beforeOversizedCreate.auditLogs.filter((log) => log.action === "promotion.create").length,
+      "oversized notes must not add a promotion audit log",
+    );
+
+    result = await apiRequest(
+      baseUrl,
+      "/api/v1/promotions/promotion-future-result?selectedBranchId=branch-gangnam",
+      { method: "PATCH", body: { result: "cancelled", note: { invalid: true } } },
+    );
+    assert.equal(result.response.status, 400, "malformed patch notes must be rejected before normalization");
+    persisted = await readDb(dbFile);
+    assert.equal(
+      persisted.promotions.find((promotion) => promotion.id === "promotion-future-result")?.result,
+      "scheduled",
+      "invalid result updates must not mutate the exam",
+    );
+
+    const beforeOversizedPatch = await readDb(dbFile);
+    result = await apiRequest(
+      baseUrl,
+      "/api/v1/promotions/promotion-future-result?selectedBranchId=branch-gangnam",
+      {
+        method: "PATCH",
+        body: { result: "cancelled", note: "가".repeat(promotionInputLimits.note + 1) },
+      },
+    );
+    assert.equal(result.response.status, 400, "oversized promotion result notes must be rejected");
+    persisted = await readDb(dbFile);
+    assert.deepEqual(
+      persisted.promotions.find((promotion) => promotion.id === "promotion-future-result"),
+      beforeOversizedPatch.promotions.find((promotion) => promotion.id === "promotion-future-result"),
+      "oversized result notes must not mutate the exam",
+    );
+    assert.equal(
+      persisted.auditLogs.filter((log) => log.action === "promotion.update").length,
+      beforeOversizedPatch.auditLogs.filter((log) => log.action === "promotion.update").length,
+      "oversized result notes must not add a promotion audit log",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
       body: { memberId: "member-harin", toBelt: "주황띠", examDate: nonPolicyFutureDate },
     });
     assert.equal(result.response.status, 422, "non-policy grading dates must be rejected");
@@ -233,7 +322,7 @@ async function main() {
       body: { memberId: "member-yuna", toBelt: "노란띠", examDate: futurePolicyDate },
     });
     assert.equal(result.response.status, 200, "primary coach must create an exam without a current class enrollment");
-    let persisted = await readDb(dbFile);
+    persisted = await readDb(dbFile);
     const coachPromotion = persisted.promotions.find(
       (promotion) => promotion.memberId === "member-yuna" && promotion.result === "scheduled",
     );
@@ -283,6 +372,33 @@ async function main() {
       "concurrent decisions must commit exactly once",
     );
 
+    const distinctConcurrentCreates = await Promise.all([
+      apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
+        body: { memberId: "member-promotion-create-a", toBelt: "주황띠", examDate: futurePolicyDate },
+      }),
+      apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
+        body: { memberId: "member-promotion-create-b", toBelt: "주황띠", examDate: futurePolicyDate },
+      }),
+    ]);
+    assert.deepEqual(
+      distinctConcurrentCreates.map(({ response }) => response.status).sort(),
+      [200, 200],
+      "concurrent creates for different members must both persist",
+    );
+    persisted = await readDb(dbFile);
+    const distinctPromotions = persisted.promotions.filter((promotion) =>
+      ["member-promotion-create-a", "member-promotion-create-b"].includes(promotion.memberId),
+    );
+    assert.equal(distinctPromotions.length, 2, "both concurrent exams must persist");
+    assert.equal(new Set(distinctPromotions.map((promotion) => promotion.id)).size, 2, "concurrent exam IDs must be unique");
+    assert.equal(
+      persisted.auditLogs.filter(
+        (log) => log.action === "promotion.create" && distinctPromotions.some((promotion) => promotion.id === log.targetId),
+      ).length,
+      2,
+      "both concurrent exam audit logs must persist",
+    );
+
     const concurrentCreates = await Promise.all([
       apiRequest(baseUrl, "/api/v1/promotions?selectedBranchId=branch-songpa", {
         body: { memberId: "member-harin", toBelt: "주황띠", examDate: futurePolicyDate },
@@ -312,12 +428,14 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       checked: [
+        "malformed create and result input rejection without mutation",
+        "member ID and public note length limits without mutation",
         "second- or fourth-Friday registration",
         "primary-coach create and cancel without class enrollment",
         "future-result rejection",
         "legacy skipped-belt rejection",
         "successful reached exact-next result",
-        "atomic concurrent create and result decisions",
+        "unique concurrent create identities and atomic duplicate/result decisions",
       ],
     }, null, 2));
   } catch (error) {

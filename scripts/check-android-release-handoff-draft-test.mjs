@@ -10,6 +10,7 @@ const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-android-handoff-draft-"));
 const releaseSha256 = "10:11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20:21:22:23:24:25:26:27:28:29:2A:2B:2C:2D:2E:2F";
 const productionOrigin = "https://app.finaljudo.kr";
+const signedOffAt = new Date(Date.now() + 60_000).toISOString();
 
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
@@ -90,7 +91,7 @@ const draftReport = await runScript("scripts/create-android-release-handoff-draf
   "--device-smoke-passed",
   "--device-evidence=https://evidence.finaljudo.kr/android/device-smoke-recording",
   "--signed-off-by=정유진",
-  "--signed-off-at=2026-07-16T03:00:00.000Z",
+  `--signed-off-at=${signedOffAt}`,
   "--signoff-evidence=https://evidence.finaljudo.kr/android/signoff",
 ]);
 assert.equal(draftReport.ok, true);

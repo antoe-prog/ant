@@ -89,6 +89,28 @@ export type NotificationOutboxMutationFailure = {
     | "stale_lease";
 };
 
+export function hasInFlightPushDispatchForSubscription(
+  db: NotificationOutboxDatabase,
+  subscriptionId: string,
+  now = new Date(),
+) {
+  const nowMs = now.getTime();
+
+  return db.pushDispatchJobs.some((job) => {
+    if (
+      job.subscriptionId !== subscriptionId ||
+      job.status !== "leased" ||
+      !job.providerCallStartedAt ||
+      job.providerCallCompletedAt
+    ) {
+      return false;
+    }
+
+    const leaseExpiresAt = Date.parse(job.leaseExpiresAt ?? "");
+    return !Number.isFinite(leaseExpiresAt) || leaseExpiresAt > nowMs;
+  });
+}
+
 const defaultRetryPolicy: NotificationOutboxRetryPolicy = {
   baseDelayMs: 30_000,
   maxDelayMs: 30 * 60_000,

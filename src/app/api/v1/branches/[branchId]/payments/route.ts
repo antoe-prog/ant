@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, MockDatabase, Payment, PaymentStatus } from "@/lib/domain";
 import {
   getManualPaymentDateRangeError,
+  manualPaymentInputLimits,
   manualPaymentCreatableStatuses,
   requiresManualPaymentCreateReason,
 } from "@/lib/manual-payment-management";
@@ -21,6 +22,7 @@ import {
   type FinalCommonFeeBenefitCode,
 } from "@/lib/final-common-fee-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { isNonNegativeSafeIntegerPaymentAmount } from "@/server/payment-mutation-policy";
 import { createRuntimeId } from "@/server/runtime-id";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 
@@ -40,6 +42,43 @@ type PaymentBody = {
   expiresAt?: string;
   reason?: string;
 };
+
+function getPaymentBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "결제 등록 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+  const stringFields = [
+    ["memberId", "회원"],
+    ["planName", "회원권명"],
+    ["status", "결제 상태"],
+    ["discountReason", "할인 근거"],
+    ["feeProductId", "공통 회비 상품"],
+    ["benefitCode", "등록 혜택"],
+    ["benefitVerificationReason", "1+1 자격 확인 근거"],
+    ["dueDate", "납부일"],
+    ["expiresAt", "만료일"],
+    ["reason", "등록 사유"],
+  ] as const;
+
+  for (const [field, label] of stringFields) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  for (const [field, label] of [
+    ["amount", "결제 금액"],
+    ["discountAmount", "할인 금액"],
+  ] as const) {
+    if (body[field] !== undefined && typeof body[field] !== "number") {
+      return `${label} 값의 형식이 올바르지 않습니다.`;
+    }
+  }
+
+  return null;
+}
 
 async function persistPayment({
   branchId,
@@ -201,23 +240,14 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", parsedIdempotencyKey.message);
   }
 
-  const body = (await request.json().catch(() => null)) as PaymentBody | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getPaymentBodyTypeError(rawBody);
 
-  if (body?.feeProductId !== undefined && typeof body.feeProductId !== "string") {
-    return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품 값이 올바르지 않습니다.");
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
   }
 
-  if (body?.reason !== undefined && typeof body.reason !== "string") {
-    return jsonError(400, "VALIDATION_ERROR", "등록 사유가 올바르지 않습니다.");
-  }
-
-  if (body?.benefitVerificationReason !== undefined && typeof body.benefitVerificationReason !== "string") {
-    return jsonError(400, "VALIDATION_ERROR", "1+1 자격 확인 근거가 올바르지 않습니다.");
-  }
-
-  if (body?.discountReason !== undefined && typeof body.discountReason !== "string") {
-    return jsonError(400, "VALIDATION_ERROR", "할인 적용 근거가 올바르지 않습니다.");
-  }
+  const body = rawBody as PaymentBody;
 
   const memberId = body?.memberId?.trim() ?? "";
   let planName = body?.planName?.trim() ?? "";
@@ -232,6 +262,30 @@ export async function POST(
   const feeProductId = body?.feeProductId?.trim() ?? "";
   const benefitCode = body?.benefitCode;
   let feeQuote: ReturnType<typeof quoteFinalCommonFeeProduct> | null = null;
+
+  if (memberId.length > manualPaymentInputLimits.externalId) {
+    return jsonError(400, "VALIDATION_ERROR", "회원 식별자가 너무 깁니다.");
+  }
+
+  if (planName.length > manualPaymentInputLimits.planName) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `회원권명은 ${manualPaymentInputLimits.planName}자 이하로 입력해 주세요.`,
+    );
+  }
+
+  if (feeProductId.length > manualPaymentInputLimits.externalId) {
+    return jsonError(400, "VALIDATION_ERROR", "공통 회비 상품 식별자가 너무 깁니다.");
+  }
+
+  if (reason.length > manualPaymentInputLimits.reason) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `취소 또는 환불 완료 등록 사유는 ${manualPaymentInputLimits.reason}자 이하로 입력해 주세요.`,
+    );
+  }
 
   if (benefitCode && benefitCode !== finalCommonPublicServiceBenefit.id) {
     return jsonError(400, "VALIDATION_ERROR", "등록 혜택이 올바르지 않습니다.");
@@ -249,8 +303,12 @@ export async function POST(
     );
   }
 
-  if (benefitVerificationReason.length > 200) {
-    return jsonError(400, "VALIDATION_ERROR", "1+1 자격 확인 근거는 200자 이하로 입력해 주세요.");
+  if (benefitVerificationReason.length > manualPaymentInputLimits.verificationReason) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `1+1 자격 확인 근거는 ${manualPaymentInputLimits.verificationReason}자 이하로 입력해 주세요.`,
+    );
   }
 
   if (feeProductId) {
@@ -281,20 +339,24 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "취소 또는 환불 완료 등록 사유를 입력해 주세요.");
   }
 
-  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
-    return jsonError(400, "VALIDATION_ERROR", "금액은 0원 이상의 숫자여야 합니다.");
+  if (!isNonNegativeSafeIntegerPaymentAmount(amount)) {
+    return jsonError(400, "VALIDATION_ERROR", "금액은 0원 이상의 원 단위 정수여야 합니다.");
   }
 
-  if (typeof discountAmount !== "number" || !Number.isFinite(discountAmount) || discountAmount < 0 || discountAmount > amount) {
-    return jsonError(400, "VALIDATION_ERROR", "할인 금액은 결제 금액 이하의 0원 이상 숫자여야 합니다.");
+  if (!isNonNegativeSafeIntegerPaymentAmount(discountAmount) || discountAmount > amount) {
+    return jsonError(400, "VALIDATION_ERROR", "할인 금액은 결제 금액 이하의 0원 이상 원 단위 정수여야 합니다.");
   }
 
   if (discountAmount > 0 && !discountReason) {
     return jsonError(400, "VALIDATION_ERROR", "할인 금액을 적용하려면 할인 근거를 입력해 주세요.");
   }
 
-  if (discountReason.length > 200) {
-    return jsonError(400, "VALIDATION_ERROR", "할인 근거는 200자 이하로 입력해 주세요.");
+  if (discountReason.length > manualPaymentInputLimits.verificationReason) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `할인 근거는 ${manualPaymentInputLimits.verificationReason}자 이하로 입력해 주세요.`,
+    );
   }
 
   const dateRangeError = getManualPaymentDateRangeError(dueDate, expiresAt);
@@ -326,23 +388,8 @@ export async function POST(
       ...(reason ? { reason } : {}),
     }),
   };
-  const idempotencyFingerprint = parsedIdempotencyKey.value
-    ? await createPaymentCreateFingerprint(snapshot)
-    : null;
-
-  if (!parsedIdempotencyKey.value) {
-    return persistPayment({
-      branchId,
-      db,
-      idempotencyFingerprint,
-      idempotencyKey: null,
-      selectedBranchId: selectedScope.selectedBranchId,
-      snapshot,
-      user,
-    });
-  }
-
   const idempotencyKey = parsedIdempotencyKey.value;
+  const idempotencyFingerprint = await createPaymentCreateFingerprint(snapshot);
 
   return withServerDbLock(`payment-create:${user.id}:${branchId}:${idempotencyKey}`, async () => {
     const latestDb = await readServerDb();

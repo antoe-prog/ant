@@ -46,6 +46,10 @@ function assertOwnerAdminExportRoute(source, label) {
   assert(source.includes("return jsonError(403"), `${label} must return 403 for unauthorized CSV export`);
   assert(source.includes("requireSelectedBranchScope(request, user, db)"), `${label} must reject invalid selectedBranchId before exporting`);
   assert(source.includes('"export.create"'), `${label} must audit successful CSV export`);
+  assert(
+    source.includes("withServerDbLock(authSecurityLockKey") && source.includes('createRuntimeId("audit")'),
+    `${label} must recheck current account access under the auth lock and use collision-resistant audit IDs`,
+  );
   assert(source.includes('"Content-Type": "text/csv; charset=utf-8"'), `${label} must return an explicit CSV content type`);
 }
 
@@ -148,7 +152,8 @@ for (const snippet of [
   "결제 상태",
   'label: "공지"',
   "guardian-learning-summary-panel",
-  "단계별 수련 수준",
+  "띠 단계",
+  "현재 {selectedBelt}",
   "코치 피드백",
   "심사결과",
   "대회",
@@ -263,7 +268,8 @@ console.log(
     "owner report CSV screen remains owner-only",
     "admin CSV audit/settings contexts remain admin-only",
     "payments and operations CSV APIs reject non-owner/admin roles",
-    "payments and operations CSV APIs reject invalid selectedBranchId before exporting",
+        "payments and operations CSV APIs reject invalid selectedBranchId before exporting",
+        "CSV exports serialize with account mutations and use collision-resistant audit IDs",
     "smoke API verifies member/guardian CSV export endpoints return 403",
         "CSV export API calls appear only in approved owner/admin screens",
         "member dashboard keeps mobile status checks without CSV export controls",

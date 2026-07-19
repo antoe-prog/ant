@@ -53,6 +53,7 @@ async function startPostgresAppServer(connectionString, distDir, tsconfigPath) {
         FINAL_JUDO_NEXT_TSCONFIG_PATH: tsconfigPath,
         FINAL_JUDO_POSTGRES_STATE_KEY: "postgres-payment-route-smoke",
         FINAL_JUDO_POSTGRES_URL: connectionString,
+        FINAL_JUDO_ROLL_DEMO_DATES: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -149,6 +150,7 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
     const registrationStamp = String(Date.now() % 100000000).padStart(8, "0");
     const registrationPhone = `010${registrationStamp}`;
     const registrationBody = JSON.stringify({
+      branchId: "branch-gangnam",
       name: "PostgreSQL 동시 가입",
       password: `FJ-Postgres-${registrationStamp}!`,
       phone: registrationPhone,
@@ -176,6 +178,16 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
         1,
         "PostgreSQL runtime state must contain one user for a concurrently registered phone",
       );
+      const registrationDb = registrationState.rows[0]?.data;
+      const attendanceSession = registrationDb?.classes.find((candidate) => candidate.id === "class-kids-am");
+
+      assert(attendanceSession, "PostgreSQL runtime state must contain the attendance smoke session");
+      attendanceSession.startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      attendanceSession.endsAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      await registrationPool.query(
+        "update app_runtime_state set data = $2::jsonb, revision = revision + 1, updated_at = now() where key = $1",
+        ["postgres-payment-route-smoke", JSON.stringify(registrationDb)],
+      );
     } finally {
       await registrationPool.end();
     }
@@ -186,6 +198,7 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
     const paymentBody = JSON.stringify({
       amount: 175000,
       discountAmount: 5000,
+      discountReason: "PostgreSQL 동시 등록 할인 검증",
       dueDate: "2026-07-13",
       expiresAt: "2026-08-13",
       memberId: "member-seo",

@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import type { AuditLog } from "@/lib/domain";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getLatestPaymentStatusChange } from "@/lib/payment-lifecycle";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { authSecurityLockKey } from "@/server/auth-session";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { jsonError, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -18,6 +20,27 @@ function csvCell(value: string | number | null | undefined) {
 }
 
 export async function GET(request: NextRequest) {
+  const authDb = await readServerDb();
+  const { user, response } = requireSession(request, authDb);
+
+  if (!user) {
+    return response;
+  }
+
+  if (!["owner", "admin"].includes(user.role)) {
+    return jsonError(403, "FORBIDDEN", "결제 내보내기 권한이 없습니다.");
+  }
+
+  const selectedScope = requireSelectedBranchScope(request, user, authDb);
+
+  if (selectedScope.response) {
+    return selectedScope.response;
+  }
+
+  return withServerDbLock(authSecurityLockKey, () => exportPayments(request));
+}
+
+async function exportPayments(request: NextRequest) {
   const db = await readServerDb();
   const { user, response } = requireSession(request, db);
 
@@ -102,12 +125,12 @@ export async function GET(request: NextRequest) {
   ];
   const csv = `${rows.map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: selectedBranchId,
     actorUserId: user.id,
     action: "export.create",
     targetType: "export",
-    targetId: `payments-${Date.now()}`,
+    targetId: createRuntimeId("payments-export"),
     before: null,
     after: {
       type: "payments",

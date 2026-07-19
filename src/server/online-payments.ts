@@ -17,6 +17,7 @@ export type PaymentWebhookBody = {
 export type OnlinePaymentRuntimeBlocker =
   | "PAYMENT_PROVIDER_NOT_CONFIGURED"
   | "PAYMENT_CHECKOUT_BASE_URL_MISSING"
+  | "PAYMENT_CHECKOUT_BASE_URL_INVALID"
   | "PAYMENT_WEBHOOK_SECRET_MISSING";
 
 export type OnlinePaymentRuntimeReadiness = {
@@ -25,17 +26,66 @@ export type OnlinePaymentRuntimeReadiness = {
   provider: OnlinePaymentProvider;
 };
 
+export const paymentReceiptUrlMaxLength = 2048;
+
+export function isValidPaymentReceiptUrl(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || trimmed.length > paymentReceiptUrlMaxLength) {
+    return false;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+export function normalizePaymentCheckoutBaseUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value.trim());
+
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (url.pathname !== "/" && url.pathname !== "") ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 export function getOnlinePaymentRuntimeReadiness(env: NodeJS.ProcessEnv = process.env): OnlinePaymentRuntimeReadiness {
   const isProduction = env.NODE_ENV === "production";
   const hasExternalProvider = Boolean(env.FINAL_JUDO_PAYMENT_PROVIDER?.trim());
+  const checkoutBaseUrl = env.FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL?.trim();
   const blockers: OnlinePaymentRuntimeBlocker[] = [];
 
   if (isProduction && !hasExternalProvider) {
     blockers.push("PAYMENT_PROVIDER_NOT_CONFIGURED");
   }
 
-  if (isProduction && hasExternalProvider && !env.FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL?.trim()) {
+  if (isProduction && hasExternalProvider && !checkoutBaseUrl) {
     blockers.push("PAYMENT_CHECKOUT_BASE_URL_MISSING");
+  } else if (checkoutBaseUrl && !normalizePaymentCheckoutBaseUrl(checkoutBaseUrl)) {
+    blockers.push("PAYMENT_CHECKOUT_BASE_URL_INVALID");
   }
 
   if (isProduction && hasExternalProvider && !env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET?.trim()) {
@@ -99,7 +149,13 @@ export function createCheckoutUrl(providerPaymentId: string) {
     return `/app/payments?checkout=${encodeURIComponent(providerPaymentId)}`;
   }
 
-  return `${configuredBaseUrl.replace(/\/$/, "")}/checkout/${encodeURIComponent(providerPaymentId)}`;
+  const checkoutBaseUrl = normalizePaymentCheckoutBaseUrl(configuredBaseUrl);
+
+  if (!checkoutBaseUrl) {
+    throw new Error("PAYMENT_CHECKOUT_BASE_URL_INVALID");
+  }
+
+  return `${checkoutBaseUrl}/checkout/${encodeURIComponent(providerPaymentId)}`;
 }
 
 export function getWebhookSecret() {
@@ -117,10 +173,13 @@ export function createPaymentReceipt(
   body: PaymentWebhookBody,
   occurredAt: string,
 ): PaymentReceipt {
+  const receiptId = typeof body.receiptId === "string" ? body.receiptId.trim() : "";
+  const receiptUrl = typeof body.receiptUrl === "string" ? body.receiptUrl.trim() : "";
+
   return {
-    id: body.receiptId?.trim() || `receipt-${payment.id}-${Date.now()}`,
+    id: receiptId || `receipt-${payment.id}-${Date.now()}`,
     issuedAt: occurredAt,
     providerPaymentId: payment.onlinePayment?.providerPaymentId ?? body.providerPaymentId ?? payment.id,
-    ...(body.receiptUrl?.trim() ? { receiptUrl: body.receiptUrl.trim() } : {}),
+    ...(receiptUrl ? { receiptUrl } : {}),
   };
 }

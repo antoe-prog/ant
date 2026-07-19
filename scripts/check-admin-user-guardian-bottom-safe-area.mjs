@@ -207,6 +207,7 @@ async function collectListActionLayout(page) {
     const listSafeAreaRect = listSafeArea?.getBoundingClientRect();
     const actionButtons = Array.from(document.querySelectorAll('[data-testid^="admin-user-action-stack-"] button'));
     const navTop = navRect?.top ?? window.innerHeight;
+    const scrollRegionStyle = scrollRegion ? window.getComputedStyle(scrollRegion) : null;
     const visibleActionOverlaps = actionButtons.filter((button) => {
       const rect = button.getBoundingClientRect();
       const visibleTop = Math.max(rect.top, scrollRegionRect?.top ?? 0, 0);
@@ -222,8 +223,10 @@ async function collectListActionLayout(page) {
         const rect = button.getBoundingClientRect();
         const visibleTop = Math.max(rect.top, scrollRegionRect?.top ?? 0, 0);
         const visibleBottom = Math.min(rect.bottom, scrollRegionRect?.bottom ?? window.innerHeight, window.innerHeight);
+        const visibleLeft = Math.max(rect.left, scrollRegionRect?.left ?? 0, 0);
+        const visibleRight = Math.min(rect.right, scrollRegionRect?.right ?? window.innerWidth, window.innerWidth);
 
-        return Math.max(0, visibleBottom - visibleTop);
+        return visibleBottom > visibleTop && visibleRight > visibleLeft ? rect.height : 0;
       })
       .filter((height) => height > 0);
 
@@ -233,8 +236,13 @@ async function collectListActionLayout(page) {
       listSafeAreaHeight: Math.round(listSafeAreaRect?.height ?? 0),
       listScrollRegionBottom: Math.round(scrollRegionRect?.bottom ?? 0),
       listScrollRegionBottomClearance: Math.round(navTop - (scrollRegionRect?.bottom ?? 0)),
+      listScrollRegionClassName: scrollRegion?.getAttribute("class") ?? "",
       listScrollRegionCount: document.querySelectorAll('[data-testid="admin-user-list-scroll-region"]').length,
       listScrollRegionHeight: Math.round(scrollRegionRect?.height ?? 0),
+      listScrollRegionMaxHeight: scrollRegionStyle?.maxHeight ?? "",
+      listScrollRegionOverflowY: scrollRegionStyle?.overflowY ?? "",
+      listScrollRegionTop: Math.round(scrollRegionRect?.top ?? 0),
+      mobileNavTop: Math.round(navTop),
       visibleActionButtonCount: visibleActionHeights.length,
       visibleActionMinHeight: visibleActionHeights.length > 0 ? Math.round(Math.min(...visibleActionHeights)) : 0,
       visibleActionOverlapBottomNavCount: visibleActionOverlaps.length,
@@ -362,7 +370,18 @@ async function main() {
     assert.equal(layout.screenVisible, true, "admin users screen must stay visible");
     assert.equal(layout.listScrollRegionCount, 1, "admin users mobile list must render one bounded scroll region");
     assert(layout.listScrollRegionHeight >= 144, "admin users mobile list scroll region must keep the first user row readable");
-    assert(layout.listScrollRegionBottomClearance >= 24, "admin users mobile list scroll region must stop above the bottom navigation");
+    assert(
+      layout.listScrollRegionBottomClearance >= 24,
+      `admin users mobile list scroll region must stop above the bottom navigation: ${JSON.stringify({
+        bottomClearance: layout.listScrollRegionBottomClearance,
+        className: layout.listScrollRegionClassName,
+        height: layout.listScrollRegionHeight,
+        maxHeight: layout.listScrollRegionMaxHeight,
+        navTop: layout.mobileNavTop,
+        overflowY: layout.listScrollRegionOverflowY,
+        top: layout.listScrollRegionTop,
+      })}`,
+    );
     assert.equal(layout.listSafeAreaCount, 1, "admin users mobile list must render one internal bottom safe-area spacer");
     assert(layout.listSafeAreaHeight >= 96, "admin users mobile list bottom safe-area spacer must reserve at least 96px");
     assert(layout.visibleActionButtonCount >= 2, "admin users mobile list must keep visible row actions available");

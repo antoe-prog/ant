@@ -17,6 +17,7 @@ const domain = readFileSync("src/lib/domain.ts", "utf8");
 const noticeHelpers = readFileSync("src/lib/notices.ts", "utf8");
 const noticePermissions = readFileSync("src/lib/notice-permissions.ts", "utf8");
 const noticeMemberSearch = readFileSync("src/lib/notice-member-search.ts", "utf8");
+const noticeInputPolicy = readFileSync("src/lib/notice-input-policy.ts", "utf8");
 const paymentCheckoutAccess = readFileSync("src/lib/payment-checkout-access.ts", "utf8");
 const serverDb = readFileSync("src/server/db.ts", "utf8");
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
@@ -93,6 +94,24 @@ assert(
     !/before:\s*\{[\s\S]*?body:\s*notice\.body,/.test(noticeUpdateRoute) &&
     !/after:\s*\{[\s\S]*?body:\s*noticeBody,/.test(noticeUpdateRoute),
   "notice updates must validate input, preserve coach audience scope, reset read state on visible edits, and avoid audit body storage",
+);
+assert(
+  noticeInputPolicy.includes("titleLength: 120") &&
+    noticeInputPolicy.includes("bodyLength: 5_000") &&
+    noticeInputPolicy.includes("classTargetItems: 100") &&
+    noticeInputPolicy.includes("memberTargetItems: 500") &&
+    noticeCreateRoute.includes("getNoticeStringListLimitError(body.targetMemberIds") &&
+    noticeCreateRoute.includes("getNoticeTextLimitError({ body: noticeBody, title })") &&
+    noticeUpdateRoute.includes("getNoticeTextLimitError({") &&
+    noticesScreen.includes("maxLength={noticeInputLimits.titleLength}") &&
+    noticesScreen.includes("maxLength={noticeInputLimits.bodyLength}"),
+  "notice create/edit UI and APIs must share bounded content and target input policy",
+);
+assert(
+  smokeApi.includes("oversized notice create input must be rejected") &&
+    smokeApi.includes("oversized notice input must not create audit records") &&
+    smokeApi.includes("oversized notice updates must preserve the existing notice"),
+  "smoke API must keep oversized notice create/update no-mutation coverage",
 );
 assert(
   noticeHelpers.includes('export const noticeStateLockKey = "notice-state"') &&
@@ -184,6 +203,10 @@ assert(apiClient.includes("getPushConfig()"), "api client must keep push config 
 assert(apiClient.includes("subscribeToPush(subscription: PushSubscriptionJSON"), "api client must keep push subscription API access");
 assert(apiClient.includes("unsubscribeFromPush(endpoint: string)"), "api client must keep push unsubscribe API access");
 assert(apiClient.includes("dispatchNoticePush(branchId: string"), "api client must keep notice push dispatch API access");
+assert(notificationsScreen.includes("Notification.requestPermission()"), "family notification inbox must request device permission from an explicit action");
+assert(notificationsScreen.includes("registration.pushManager.subscribe"), "family notification inbox must create a browser push subscription");
+assert(notificationsScreen.includes("apiClient.subscribeToPush"), "family notification inbox must persist the device subscription");
+assert(notificationsScreen.includes('data-testid="family-push-enable-action"'), "family push opt-in must keep an explicit mobile action");
 assertExcludes(noticesScreen, "이 기기에서는 알림을 받을 수 없습니다.", "notification panel unsupported-device hard failure copy");
 assertExcludes(noticesScreen, "공지 알림은 준비 중입니다.", "notification panel app UI copy");
 assertExcludes(noticesScreen, "이 브라우저에서는 알림을 사용할 수 없습니다.", "notification panel app UI copy");
@@ -344,7 +367,10 @@ assertExcludes(notificationsScreen, 'label: "공지 미확인"', "notification i
 assert(notificationsScreen.includes('item.kind === "notice" && !item.read'), "notification inbox unread filter must only count unread notices");
 assert(notificationsScreen.includes("notification-bulk-read-filtered"), "notification inbox must expose a filtered read action");
 assert(notificationsScreen.includes("notificationBulkReadAriaLabel"), "notification inbox bulk read action must explain notice-only scope");
-assert(notificationsScreen.includes('"공지 읽음 처리"'), "notification inbox bulk action must stay distinct from per-card read actions");
+assert(
+  notificationsScreen.includes('"공지 전체 읽음"') && notificationsScreen.includes('"현재 보기 읽음"'),
+  "notification inbox bulk action must disclose all-notice versus filtered scope",
+);
 assert(notificationsScreen.includes('"공지 읽음 완료"'), "notification inbox bulk action must name its completed notice scope");
 assert(notificationsScreen.includes("data-notification-bulk-read-state"), "notification inbox bulk read action must expose active/done state for regression checks");
 assert(
@@ -509,13 +535,42 @@ assert(
   "push config route must not expose global active subscription counts",
 );
 assert(pushSubscriptionRoute.includes("normalizePushSubscription"), "push subscription route must validate subscription shape");
+assert(
+  pushHelper.includes('endpointUrl.protocol === "https:"') &&
+    pushHelper.includes("normalizePushEndpoint") &&
+    pushHelper.includes("pushEndpointMaxLength") &&
+    pushHelper.includes("pushKeyMaxLength") &&
+    pushHelper.includes("pushKeyPattern"),
+  "push subscription normalization must bound and validate endpoint and key material",
+);
+assert(
+  pushSubscriptionRoute.includes("pushUserAgentMaxLength") &&
+    pushSubscriptionRoute.includes('typeof body.userAgent !== "string"'),
+  "push subscription route must reject malformed or oversized user-agent metadata",
+);
 assert(pushSubscriptionRoute.includes("notification.subscribe"), "push subscription route must audit subscribe");
 assert(pushSubscriptionRoute.includes("notification.unsubscribe"), "push subscription route must audit unsubscribe");
+assert(
+  pushSubscriptionRoute.includes('typeof body.endpoint !== "string"') &&
+    pushSubscriptionRoute.includes("normalizePushEndpoint(body.endpoint)"),
+  "push unsubscribe must reject malformed, insecure, or oversized endpoints",
+);
+assert(pushSubscriptionRoute.includes('createRuntimeId("audit")'), "push subscription audits must use runtime IDs");
+assert(pushHelper.includes('createRuntimeId("push")'), "push subscriptions must use runtime IDs");
 assert(
   pushSubscriptionRoute.includes("getVisibleActivePushSubscriptionCount(nextDb, user)"),
   "push subscription route must return role-scoped active subscription counts",
 );
 assert(pushSubscriptionRoute.includes("familyNotificationAlwaysOnRoles"), "push subscription route must keep family notifications always on");
+assert(
+  (pushSubscriptionRoute.match(/withServerDbLock\(notificationOutboxLockKey/g) ?? []).length === 2,
+  "push subscription ownership and disable mutations must share the notification outbox lock",
+);
+assert(
+  pushSubscriptionRoute.includes("hasInFlightPushDispatchForSubscription") &&
+    pushSubscriptionRoute.includes('"PUSH_SUBSCRIPTION_TRANSFER_PENDING"'),
+  "push subscription ownership transfer must wait while an old-account provider call is in flight",
+);
 assert(pushSubscriptionRoute.includes("family_notification_always_on"), "push subscription route must audit family notification always-on policy");
 assert(pushSubscriptionRoute.includes("enforcedAlwaysOn: true"), "push subscription route must tell clients family notifications stayed on");
 assert(
@@ -587,9 +642,28 @@ assert(noticeCreateRoute.includes("push: {"), "notice create route must return d
 assert(noticeReadRoute.includes("requireSelectedBranchScope"), "notice read route must reject invalid selected branch scope");
 assert(noticeReadRoute.includes("canReadNotice"), "notice read route must enforce readable notice scope");
 assert(noticeBulkReadRoute.includes("canReadNotice"), "notice bulk read route must enforce readable notice scope");
+assert(
+  noticeReadRoute.includes("item.id === noticeId && canReadNotice") &&
+    noticeBulkReadRoute.includes("notice.id === noticeId && canReadNotice") &&
+    !noticeBulkReadRoute.includes("forbiddenNoticeIds") &&
+    !noticeBulkReadRoute.includes("missingNoticeIds"),
+  "notice read APIs must not disclose inaccessible notice existence or identifier lists",
+);
 assert(noticeBulkReadRoute.includes("requireSelectedBranchScope"), "notice bulk read route must reject invalid selected branch scope");
 assert(noticeBulkReadRoute.includes("markNoticeRead"), "notice bulk read route must reuse audited read persistence");
-assert(noticeBulkReadRoute.includes("noticeIds.length > 50"), "notice bulk read route must limit batch size");
+assert(
+  noticeBulkReadRoute.includes("value.length > maximumNoticeBatchSize") &&
+    noticeBulkReadRoute.includes('value.some((item) => typeof item !== "string")') &&
+    noticeBulkReadRoute.includes("noticeId.length > maximumNoticeIdLength") &&
+    noticeBulkReadRoute.indexOf("value.length > maximumNoticeBatchSize") < noticeBulkReadRoute.indexOf("new Set(normalizedIds)"),
+  "notice bulk read route must validate the raw batch size and every ID before deduplication",
+);
+assert(
+  smokeApi.includes("mixed-type notice batches must be rejected") &&
+    smokeApi.includes("raw notice batches over 50 items must be rejected before deduplication") &&
+    smokeApi.includes("invalid notice batches must not partially mark readable notices as read"),
+  "smoke API must keep malformed and oversized notice batch no-partial-read coverage",
+);
 assert(!noticePushRoute.includes("dispatchNoticePushNotifications"), "notice push route must use durable outbox jobs");
 assert(
   noticePushRoute.includes("createNoticePushDispatchRequestAuditLog") &&

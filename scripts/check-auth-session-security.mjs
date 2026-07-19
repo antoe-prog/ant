@@ -247,13 +247,18 @@ const passwordRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/pa
 const roleRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8");
 const userRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/route.ts", "utf8");
 const resetRouteSource = readFileSync("src/app/api/v1/auth/password-reset/route.ts", "utf8");
+const registerRouteSource = readFileSync("src/app/api/v1/auth/register/route.ts", "utf8");
 const logoutRouteSource = readFileSync("src/app/api/v1/auth/logout/route.ts", "utf8");
 
 assert(loginRouteSource.includes("withServerDbLock(authSecurityLockKey"));
+assert(loginRouteSource.includes("function isLoginBody(value: unknown)"));
+assert(loginRouteSource.indexOf("if (!isLoginBody(rawBody))") < loginRouteSource.indexOf("loginId ="));
 assert(loginRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < loginRouteSource.indexOf("const db = await readServerDb()"));
 assert(loginRouteSource.indexOf("const throttle = getAccountLoginThrottle") < loginRouteSource.indexOf("verifyPassword(password"));
 assert(loginRouteSource.includes("const canBypassAccountThrottle = passwordMatches && !usesBlockedSharedPassword;"));
 assert(loginRouteSource.indexOf("verifyPassword(password") < loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"));
+assert(loginRouteSource.includes('process.env.NODE_ENV === "production"'));
+assert(loginRouteSource.includes("password === defaultPilotPassword"));
 assert(loginRouteSource.includes("if (shouldRecordBlockedLoginAudit(db, user.id, now))"));
 assert(loginRouteSource.includes('rateLimitedResponse.headers.set("Retry-After"'));
 assert(!loginRouteSource.includes("after: { phone:"), "login audits must not persist raw identifiers");
@@ -269,7 +274,9 @@ assert(userRouteSource.match(/withServerDbLock\(authSecurityLockKey/g)?.length =
 assert(userRouteSource.includes("readUnmodifiedPassword(body.password)"));
 assert(resetRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(resetRouteSource.includes("hasReachedPasswordResetRequestLimit"));
+assert(resetRouteSource.indexOf("비밀번호 재설정 입력 형식이 올바르지 않습니다.") < resetRouteSource.indexOf("withServerDbLock(authSecurityLockKey"));
 assert(!resetRouteSource.includes("after: { identifier }"), "reset audits must not persist the supplied identifier");
+assert(registerRouteSource.indexOf("회원가입 입력 형식이 올바르지 않습니다.") < registerRouteSource.indexOf("withServerDbLock(`auth-register-phone:${phone}`"));
 
 console.log(JSON.stringify({
   ok: true,
@@ -283,7 +290,7 @@ console.log(JSON.stringify({
     "password input whitespace preserved",
     "malformed password hashes fail closed without throwing",
     "five failures activate throttling with one blocked audit per failure window",
-    "valid active-account credentials bypass throttling and clear earlier failures on success",
+    "valid active-account credentials recover from account-only throttling while the production shared password stays blocked",
     "successful login resets the failure window",
     "password reset writes stop after three account requests per hour",
     "barrier transition rejects stale password and session state",

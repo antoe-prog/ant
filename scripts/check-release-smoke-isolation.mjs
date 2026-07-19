@@ -235,13 +235,13 @@ try {
       standaloneSpawnerCount += 1;
       assert.match(
         source,
-        /await prepareStandaloneSmokeEnvironment\(/,
+        /await (?:prepareStandaloneSmokeEnvironment|createReleaseSmokeEnvironment)\(/,
         `${scriptPath} must create or verify run-owned temporary data before starting a reset-capable server`,
       );
     }
   }
-  assert.equal(resetCallerCount, 24, "release reset ownership contract must cover every reset-capable script");
-  assert.equal(standaloneSpawnerCount, 17, "every standalone JSON reset server must use run-owned temporary data");
+  assert.equal(resetCallerCount, 25, "release reset ownership contract must cover every reset-capable script");
+  assert.equal(standaloneSpawnerCount, 19, "every standalone JSON reset server must use run-owned temporary data");
 
   for (const plan of plans) {
     await cleanupReleaseSmokeEnvironment(plan);

@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-notification-push-draft-"));
+const signedOffAt = new Date(Date.now() + 60_000).toISOString();
 
 function outPath(name) {
   return path.join(directory, name);
@@ -90,7 +91,7 @@ const ready = await runDraft(
     "--notification-readiness-evidence=https://github.com/antoe-prog/ant/actions/runs/410",
     "--smoke-check-evidence=https://github.com/antoe-prog/ant/actions/runs/411",
     "--signed-off-by=정유진",
-    "--signed-off-at=2026-07-18T06:00:00.000Z",
+    `--signed-off-at=${signedOffAt}`,
     "--signoff-evidence=https://evidence.finaljudo.kr/push/signoff",
   ],
   {

@@ -57,9 +57,57 @@ async function loginWithCredentials(page, phone) {
 
 async function loginWithRoleShortcut(page, role) {
   await page.context().clearCookies();
-  const next = encodeURIComponent("/app/dashboard");
-  await page.goto(`${baseUrl}/api/v1/dev/auto-login?role=${role}&next=${next}`, { waitUntil: "domcontentloaded" });
-  await page.waitForURL("**/app/dashboard", { timeout: 10000 });
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
+  loginUrl.searchParams.set("next", "/app/dashboard");
+
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+
+  try {
+    await page.waitForURL((url) => url.pathname === "/app/dashboard", { timeout: 30000 });
+  } catch (error) {
+    const bodyText = (await page.locator("body").innerText().catch(() => ""))
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+    throw new Error(
+      `Mobile E2E auto-login failed for ${role}: expected /app/dashboard, got ${page.url()}; body=${JSON.stringify(bodyText)}`,
+      { cause: error },
+    );
+  }
+}
+
+async function prepareStartedAttendanceSessions(page) {
+  await loginWithRoleShortcut(page, "owner");
+  const now = Date.now();
+  const updates = [
+    { classId: "class-kids-am", startsAt: new Date(now - 120_000).toISOString(), endsAt: new Date(now + 48 * 60_000).toISOString() },
+    { classId: "class-adult-night", startsAt: new Date(now - 60_000).toISOString(), endsAt: new Date(now + 79 * 60_000).toISOString() },
+  ];
+  const results = await page.evaluate(async (items) => {
+    return Promise.all(
+      items.map(async (item) => {
+        const response = await fetch(
+          `/api/v1/classes/${encodeURIComponent(item.classId)}?selectedBranchId=branch-gangnam`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ startsAt: item.startsAt, endsAt: item.endsAt }),
+          },
+        );
+
+        return { classId: item.classId, status: response.status };
+      }),
+    );
+  }, updates);
+
+  assert.deepEqual(
+    results,
+    updates.map((item) => ({ classId: item.classId, status: 200 })),
+    "isolated mobile E2E must prepare deterministic started attendance sessions",
+  );
+  await logoutWithApi(page);
 }
 
 async function logoutWithApi(page) {
@@ -94,9 +142,30 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
     const retiredGuidancePattern =
       /다음 행동 큐|오늘 확인 브리프|주간 확인 리듬|오늘 복귀 안내 레일|수업 전 준비 보드|확인 리마인드 큐|24시간 팔로업 큐|우선순위 타임라인|확인 마감 슬롯|7일 유지 신호|재방문 약속 큐|확인 누락 방지 보드|오늘 마감 액션 보드|3분 복귀 체크 보드|유지 루틴/;
 
-    for (const label of ["단계별 수련 수준", "코치 피드백", "심사결과", "대회"]) {
+    for (const label of ["띠 단계", "이전", "현재", "다음", "다음 수업", "코치 피드백"]) {
       await learningPanel.getByText(label, { exact: true }).first().waitFor({ timeout: 10000 });
     }
+
+    assert.equal(
+      await learningPanel.getByTestId("guardian-learning-insight-cell").count(),
+      2,
+      "guardian learning summary must keep its two always-available learning insights",
+    );
+    assert.equal(
+      await learningPanel.getByTestId("guardian-learning-action-link").count(),
+      2,
+      "guardian learning summary must keep payment and notice actions",
+    );
+    assert.equal(
+      await learningPanel.locator('a[href="/app/payments"]').count(),
+      1,
+      "guardian learning summary must keep the child payment action",
+    );
+    assert.equal(
+      await learningPanel.locator('a[href="/app/notifications"]').count(),
+      1,
+      "guardian learning summary must keep the child notice action",
+    );
 
     const learningPanelBox = await learningPanel.boundingBox();
     const learningPanelText = await learningPanel.textContent();
@@ -216,6 +285,19 @@ async function run() {
   });
   const page = await context.newPage();
   let attendanceFailureBudget = 0;
+  const attendanceResponses = [];
+
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+
+    if (/\/api\/v1\/class-sessions\/[^/]+\/attendance(?:\/[^/?]+)?$/.test(url.pathname)) {
+      attendanceResponses.push({
+        method: response.request().method(),
+        path: url.pathname,
+        status: response.status(),
+      });
+    }
+  });
 
   await page.route(/\/api\/v1\/class-sessions\/[^/]+\/attendance(?:\?.*)?$/, async (route) => {
     if (route.request().method() === "PUT" && attendanceFailureBudget > 0) {
@@ -245,6 +327,7 @@ async function run() {
     await verifyFamilyMobilePriorityPanel(page, "guardian");
     await logoutWithApi(page);
 
+    await prepareStartedAttendanceSessions(page);
     await loginWithCredentials(page, coachPhone);
     const coachUserId = await getCurrentUserId(page);
 
@@ -383,7 +466,21 @@ async function run() {
     await mainContent.getByRole("heading", { name: "출석 처리" }).waitFor({ timeout: 10000 });
     await page.getByTestId("mobile-account-menu-toggle").waitFor({ timeout: 10000 });
 
+    const coachMobileToolsToggle = page.getByTestId("coach-mobile-tools-toggle");
     const coachMobileSpeedPanel = page.getByTestId("coach-mobile-speed-panel");
+    await coachMobileToolsToggle.waitFor({ timeout: 10000 });
+    assert.equal(
+      await coachMobileToolsToggle.getAttribute("aria-expanded"),
+      "false",
+      "coach mobile support tools must start collapsed so attendance work remains first",
+    );
+    assert.equal(await coachMobileSpeedPanel.isVisible(), false, "collapsed coach support tools must hide the speed panel");
+    await coachMobileToolsToggle.click();
+    assert.equal(
+      await coachMobileToolsToggle.getAttribute("aria-expanded"),
+      "true",
+      "coach mobile support tools must expose their expanded state",
+    );
     await coachMobileSpeedPanel.waitFor({ timeout: 10000 });
     assert.equal(await coachMobileSpeedPanel.getAttribute("aria-label"), "빠른 조치", "coach mobile speed panel must expose its accessible label");
     await page.getByTestId("coach-mobile-speed-unchecked-action").waitFor({ timeout: 10000 });
@@ -528,6 +625,11 @@ async function run() {
       `mobile bottom navigation must be anchored to viewport bottom, got y=${mobileNavBox.y} height=${mobileNavBox.height}`,
     );
 
+    const coachClassListToggle = page.getByTestId("coach-class-list-toggle");
+    if ((await coachClassListToggle.count()) > 0 && (await coachClassListToggle.getAttribute("aria-expanded")) !== "true") {
+      await coachClassListToggle.click();
+    }
+
     const attendanceProgress = page.getByTestId("attendance-progress-class-kids-am");
     const attendanceUnchecked = page.getByTestId("attendance-unchecked-class-kids-am");
 
@@ -560,11 +662,6 @@ async function run() {
     const adultRosterToggle = page.getByTestId("coach-class-roster-toggle-class-adult-night");
 
     await kidsRosterToggle.waitFor({ timeout: 10000 });
-    // 모바일에서는 첫 수업만 보이므로 접힌 수업 목록을 먼저 펼친다.
-    const coachClassListToggle = page.getByTestId("coach-class-list-toggle");
-    if ((await coachClassListToggle.count()) > 0 && (await coachClassListToggle.getAttribute("aria-expanded")) !== "true") {
-      await coachClassListToggle.click();
-    }
     await adultRosterToggle.waitFor({ timeout: 10000 });
     if ((await adultRosterToggle.getAttribute("aria-expanded")) !== "true") {
       await adultRosterToggle.click();
@@ -667,7 +764,6 @@ async function run() {
 
     await lateStatusFilter.click();
     await kidsClassCard.getByText("이서").waitFor({ timeout: 10000 });
-    await page.getByTestId("attendance-filter-empty-class-adult-night").waitFor({ timeout: 10000 });
 
     const statusFilterVerification = await page.evaluate(() => {
       const kidsCard = document.querySelector('[data-testid="attendance-unchecked-class-kids-am"]')?.closest("article");
@@ -689,10 +785,8 @@ async function run() {
     assert(statusFilterVerification.statusCountText.includes("지각 1명"), "attendance status filter must show the selected status count");
     assert(statusFilterVerification.kidsText.includes("이서"), "attendance status filter must keep matching members visible");
     assert(!statusFilterVerification.kidsText.includes("이준"), "attendance status filter must hide non-matching members");
-    assert(
-      statusFilterVerification.adultText.includes("지각 상태 회원 없음"),
-      "attendance status filter must show a status-specific empty state",
-    );
+    assert(!statusFilterVerification.adultText.includes("최민재"), "attendance status filter must hide adult members without the selected status");
+    assert(!statusFilterVerification.adultText.includes("오지호"), "attendance status filter must keep non-matching adult rosters collapsed");
     assert.equal(
       statusFilterVerification.scrollWidth,
       statusFilterVerification.clientWidth,
@@ -702,7 +796,7 @@ async function run() {
     await page.getByTestId("attendance-status-filter-all").click();
     await kidsClassCard.getByText("이준").waitFor({ timeout: 10000 });
 
-    await page.getByTestId("attendance-class-adult-night-member-jiho-absent").click();
+    await page.getByTestId("attendance-class-kids-am-member-jun-absent").click();
     await page.waitForFunction(
       () => /사유 필요\s+2/.test(document.querySelector('[data-testid="coach-mobile-speed-reason-action"]')?.textContent ?? ""),
       null,
@@ -715,7 +809,6 @@ async function run() {
       { timeout: 10000 },
     );
     await kidsClassCard.getByText("이서").waitFor({ timeout: 10000 });
-    await adultClassCard.getByText("오지호").waitFor({ timeout: 10000 });
 
     const reasonRequiredFilterVerification = await page.evaluate(() => {
       const kidsCard = document.querySelector('[data-testid="attendance-unchecked-class-kids-am"]')?.closest("article");
@@ -748,8 +841,8 @@ async function run() {
       "coach reason quick action must show the reason-required count in filter metadata",
     );
     assert(reasonRequiredFilterVerification.kidsText.includes("이서"), "coach reason quick action must keep the late member visible");
-    assert(!reasonRequiredFilterVerification.kidsText.includes("이준"), "coach reason quick action must hide members without missing reasons");
-    assert(reasonRequiredFilterVerification.adultText.includes("오지호"), "coach reason quick action must include absent members with missing reasons");
+    assert(reasonRequiredFilterVerification.kidsText.includes("이준"), "coach reason quick action must include absent members with missing reasons");
+    assert(!reasonRequiredFilterVerification.adultText.includes("오지호"), "coach reason quick action must hide members without missing reasons");
     assert(!reasonRequiredFilterVerification.adultText.includes("최민재"), "coach reason quick action must hide members without missing reasons");
     assert.equal(
       reasonRequiredFilterVerification.scrollWidth,
@@ -778,20 +871,32 @@ async function run() {
 
     assert(wholeClassButtonCount > 0, "whole-class attendance buttons must render");
 
-    const firstWholeClassButton = wholeClassButtons.first();
-    const wholeClassButtonBox = await firstWholeClassButton.boundingBox();
+    const kidsWholeClassButton = page.getByTestId("attendance-bulk-request-class-kids-am");
+    await kidsWholeClassButton.waitFor({ timeout: 10000 });
+    const wholeClassButtonBox = await kidsWholeClassButton.boundingBox();
 
     assert(wholeClassButtonBox, "whole-class attendance button must have a visible bounding box");
     assert(wholeClassButtonBox.height >= 44, `whole-class attendance button height must be at least 44px, got ${wholeClassButtonBox.height}`);
+    assert.equal(await kidsWholeClassButton.isEnabled(), true, "kids whole-class attendance button must be actionable for this scenario");
 
     attendanceFailureBudget = 1;
-    await firstWholeClassButton.click();
+    await kidsWholeClassButton.click();
+    const batchConfirmDialog = page.getByTestId("attendance-bulk-confirm-dialog");
+    await batchConfirmDialog.waitFor({ timeout: 10000 });
+    const batchConfirmSubmit = batchConfirmDialog.getByTestId("attendance-bulk-confirm-submit");
+    const batchChangedCount = Number.parseInt((await batchConfirmSubmit.textContent()) ?? "", 10);
+    assert(Number.isInteger(batchChangedCount) && batchChangedCount > 0, "whole-class confirmation must expose its changed-member count");
+    await batchConfirmSubmit.click();
     await page.waitForFunction(
       (queueKey) => {
         const sync = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
         const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
 
-        return sync?.getAttribute("data-attendance-sync-state") === "failed" && Array.isArray(queue) && queue.length > 1;
+        return (
+          sync?.getAttribute("data-attendance-sync-state") === "failed" &&
+          Array.isArray(queue) &&
+          queue.some((item) => item.sessionId === "class-kids-am" && item.status === "present")
+        );
       },
       coachAttendanceQueueKey,
       { timeout: 10000 },
@@ -827,8 +932,8 @@ async function run() {
     );
     assert.equal(
       batchFailureVerification.queuedCount,
-      batchFailureVerification.enrolledCount,
-      "failed whole-class attendance must retain every member in the retry queue",
+      batchChangedCount,
+      "failed whole-class attendance must retain every changed member in the retry queue",
     );
     assert.equal(batchFailureVerification.localJunPresent, true, "failed whole-class attendance must keep the queued local state explicit");
     assert.equal(batchFailureVerification.localSeoPresent, true, "failed whole-class attendance must keep all queued members explicit");
@@ -837,21 +942,37 @@ async function run() {
     const batchRetryButton = page.getByTestId("attendance-retry-mobile");
     await batchRetryButton.waitFor({ timeout: 10000 });
     await batchRetryButton.click();
-    await page.waitForFunction(
-      () => {
-        const junPresent = document.querySelector('[data-testid="attendance-class-kids-am-member-jun-present"]');
-        const seoPresent = document.querySelector('[data-testid="attendance-class-kids-am-member-seo-present"]');
-        const sync = document.querySelector('[data-testid="attendance-sync-status"]');
+    try {
+      await page.waitForFunction(
+        (queueKey) => {
+          const sync = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
+          const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
 
-        return (
-          junPresent?.getAttribute("aria-pressed") === "true" &&
-          seoPresent?.getAttribute("aria-pressed") === "true" &&
-          sync?.getAttribute("data-attendance-sync-state") === "saved"
-        );
-      },
-      null,
-      { timeout: 10000 },
-    );
+          return (
+            sync?.getAttribute("data-attendance-sync-state") === "saved" &&
+            Array.isArray(queue) &&
+            queue.length === 0
+          );
+        },
+        coachAttendanceQueueKey,
+        { timeout: 10000 },
+      );
+    } catch (error) {
+      const diagnostic = await page.evaluate((queueKey) => {
+        const queue = JSON.parse(window.localStorage.getItem(queueKey) ?? "[]");
+        const sync = document.querySelector('[data-testid="attendance-sync-status-mobile"]');
+
+        return {
+          queueCount: Array.isArray(queue) ? queue.length : null,
+          syncState: sync?.getAttribute("data-attendance-sync-state") ?? null,
+          syncText: sync?.parentElement?.textContent?.replace(/\s+/g, " ").trim().slice(0, 240) ?? null,
+        };
+      }, coachAttendanceQueueKey);
+      throw new Error(
+        `Attendance batch retry did not settle: ${JSON.stringify({ ...diagnostic, responses: attendanceResponses.slice(-8) })}`,
+        { cause: error },
+      );
+    }
     await page.waitForFunction(() => document.querySelectorAll("button[aria-pressed]").length > 0, null, { timeout: 10000 });
 
     const bulkVerification = await page.evaluate(async () => {
@@ -907,7 +1028,9 @@ async function run() {
 
     assert(noteToggleBox, "attendance note toggle must have a visible bounding box");
     assert(noteToggleBox.height >= 40, `attendance note toggle must be touchable, got ${noteToggleBox.height}`);
-    await noteToggle.click();
+    if ((await noteToggle.getAttribute("aria-expanded")) !== "true") {
+      await noteToggle.click();
+    }
 
     const quickNotePreset = page.getByTestId("attendance-note-preset-class-kids-am-member-jun-late-arrival");
     await quickNotePreset.waitFor({ timeout: 10000 });
@@ -1250,6 +1373,7 @@ async function main() {
         viewport: "390x844",
         checked: [
           "coach credential UI login",
+          "isolated started-session attendance setup",
           "credential login form submit",
           "member mobile priority dashboard panel",
           "guardian mobile priority dashboard panel",

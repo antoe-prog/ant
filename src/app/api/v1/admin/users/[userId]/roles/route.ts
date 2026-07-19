@@ -6,6 +6,7 @@ import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, 
 import { createRuntimeId } from "@/server/runtime-id";
 import { authSecurityLockKey, revokeUserAuthSessions } from "@/server/auth-session";
 import { isActiveAdmin } from "@/server/user-administration";
+import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import {
   findOwnerCoverageBlockers,
   reassignUserOperationalLinks,
@@ -19,6 +20,31 @@ type RoleUpdateBody = {
   role?: UserRole;
   reason?: string;
 };
+
+function getRoleUpdateBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "역할 변경 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  if (body.role !== undefined && typeof body.role !== "string") {
+    return "변경할 역할 값의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.reason !== undefined && typeof body.reason !== "string") {
+    return "권한 변경 사유의 형식이 올바르지 않습니다.";
+  }
+
+  if (
+    body.branchIds !== undefined &&
+    (!Array.isArray(body.branchIds) || body.branchIds.some((branchId) => typeof branchId !== "string"))
+  ) {
+    return "담당 지점 값의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
 
 export async function PUT(
   request: NextRequest,
@@ -42,11 +68,24 @@ export async function PUT(
     return initialScope.response;
   }
 
-  const body = (await request.json().catch(() => null)) as RoleUpdateBody | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getRoleUpdateBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const inputLimitError = getUserAdministrationInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as RoleUpdateBody;
   const nextRole = body?.role;
   const reason = body?.reason?.trim() ?? "";
   const requestedBranchIds = Array.isArray(body?.branchIds)
-    ? [...new Set(body.branchIds.filter((branchId): branchId is string => typeof branchId === "string" && branchId.length > 0))]
+    ? [...new Set(body.branchIds.map((branchId) => branchId.trim()).filter(Boolean))]
     : [];
 
   if (!nextRole || !userRoles.includes(nextRole)) {

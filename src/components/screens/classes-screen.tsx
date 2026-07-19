@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, type FormEvent, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarPlus, CheckCheck, ChevronDown, ChevronUp, ClipboardList, RefreshCw, Save, Search, Undo2, X } from "lucide-react";
 import type {
   AttendanceRecord,
@@ -18,6 +18,8 @@ import { useApiContext } from "@/hooks/use-api-context";
 import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
+import { attendanceInputLimits, hasAttendanceWindowOpened } from "@/lib/attendance-policy";
+import { classInputLimits } from "@/lib/class-input-policy";
 import { formatCompactTimeRange, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
 import { isFinalMainBranch } from "@/lib/final-main-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
@@ -271,12 +273,18 @@ export function ClassesScreen() {
   const [coachClassListExpanded, setCoachClassListExpanded] = useState(false);
   const [coachToolsOpen, setCoachToolsOpen] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
-  const [familyReferenceTime] = useState(() => Date.now());
+  const [screenReferenceTime, setScreenReferenceTime] = useState(() => Date.now());
   const { data, loading, error, reload } = useResource(
     () => apiClient.getClasses(context),
     [context.user.id, context.selectedBranchId, context.version],
   );
   const isCoachRole = context.user.role === "coach";
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setScreenReferenceTime(Date.now()), 30_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
   const selectedCreateBranchId = newClassBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const activePolicyBranch = context.selectedBranchId
     ? context.db.branches.find((branch) => branch.id === context.selectedBranchId) ?? null
@@ -394,6 +402,10 @@ export function ClassesScreen() {
     nextStatus: AttendanceStatus,
     noteValue: string,
   ) {
+    if (!hasAttendanceWindowOpened(session.startsAt)) {
+      return;
+    }
+
     if (previousRecord?.status !== nextStatus) {
       setLastAttendanceBatchChange(null);
       setLastAttendanceChange({
@@ -445,6 +457,10 @@ export function ClassesScreen() {
   }
 
   function requestSessionAttendanceConfirmation(session: EnrichedClassSession) {
+    if (!hasAttendanceWindowOpened(session.startsAt)) {
+      return;
+    }
+
     const changes = session.enrolledMembers.flatMap((member) => {
       const previousRecord = getAttendanceRecord(session, member.id);
 
@@ -545,7 +561,7 @@ export function ClassesScreen() {
           }))
       : data;
   const todayDateKey = formatDateKey(new Date());
-  const familySortedSessions = isFamilyRole ? sortFamilyClassSessions(scopedSessions, familyReferenceTime) : scopedSessions;
+  const familySortedSessions = isFamilyRole ? sortFamilyClassSessions(scopedSessions, screenReferenceTime) : scopedSessions;
   const visibleSessions = isCoachRole
     ? scopedSessions
         .filter((session) => formatDateKey(session.startsAt) === todayDateKey)
@@ -557,10 +573,10 @@ export function ClassesScreen() {
         })
     : familySortedSessions;
   const familyUpcomingSessions = isFamilyRole
-    ? visibleSessions.filter((session) => !isPastClassSession(session, familyReferenceTime))
+    ? visibleSessions.filter((session) => !isPastClassSession(session, screenReferenceTime))
     : [];
   const familyPastSessions = isFamilyRole
-    ? visibleSessions.filter((session) => isPastClassSession(session, familyReferenceTime))
+    ? visibleSessions.filter((session) => isPastClassSession(session, screenReferenceTime))
     : [];
   const firstFamilyUpcomingSessionId = familyUpcomingSessions[0]?.id ?? null;
   const firstFamilyPastSessionId = familyPastSessions[0]?.id ?? null;
@@ -811,6 +827,7 @@ export function ClassesScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="class-create-field"
+                  maxLength={classInputLimits.nameLength}
                   placeholder="수업명 입력"
                   value={newClassName}
                   onChange={(event) => setNewClassName(event.target.value)}
@@ -836,6 +853,7 @@ export function ClassesScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="class-create-field"
+                  maxLength={classInputLimits.levelLength}
                   value={newClassLevel}
                   onChange={(event) => setNewClassLevel(event.target.value)}
                 />
@@ -895,6 +913,7 @@ export function ClassesScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="class-create-field"
+                  maxLength={classInputLimits.roomLength}
                   value={newClassRoom}
                   onChange={(event) => setNewClassRoom(event.target.value)}
                 />
@@ -1316,7 +1335,8 @@ export function ClassesScreen() {
               const allPresent =
                 allMemberIds.length > 0 &&
                 allMemberIds.every((memberId) => getAttendanceRecord(session, memberId)?.status === "present");
-              const familySessionPast = isFamilyRole && isPastClassSession(session, familyReferenceTime);
+              const attendanceWindowOpen = hasAttendanceWindowOpened(session.startsAt, new Date(screenReferenceTime));
+              const familySessionPast = isFamilyRole && isPastClassSession(session, screenReferenceTime);
               const showFamilyUpcomingHeading = isFamilyRole && session.id === firstFamilyUpcomingSessionId;
               const showFamilyPastHeading = isFamilyRole && session.id === firstFamilyPastSessionId;
 
@@ -1381,14 +1401,15 @@ export function ClassesScreen() {
 	                      }
                     >
                       <button
-	                        className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-md border border-emerald-300 bg-white px-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={allMemberIds.length === 0 || allPresent || attendanceSyncPending}
+		                        aria-describedby={!attendanceWindowOpen ? `attendance-window-${session.id}` : undefined}
+		                        className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-md border border-emerald-300 bg-white px-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+	                        disabled={!attendanceWindowOpen || allMemberIds.length === 0 || allPresent || attendanceSyncPending}
                         data-testid={`attendance-bulk-request-${session.id}`}
                         type="button"
                         onClick={() => requestSessionAttendanceConfirmation(session)}
 	                      >
 		                        <CheckCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
-		                        <span className="whitespace-nowrap">전체 출석</span>
+		                        <span className="whitespace-nowrap">{attendanceWindowOpen ? "전체 출석" : "출석 시작 전"}</span>
 	                      </button>
 		                      <div
 		                        className={`flex min-w-0 flex-col justify-center rounded-md bg-zinc-50 px-2 text-zinc-600 ${
@@ -1446,10 +1467,15 @@ export function ClassesScreen() {
 	                            style={{ width: `${attendanceProgress.checkedPercent}%` }}
 	                          />
 	                        </div>
-	                      </div>
+		                      </div>
 	                    </div>
 	                  ) : null}
                 </div>
+		                {canEditAttendance && !attendanceWindowOpen ? (
+		                  <p className="sr-only" data-testid={`attendance-window-pending-${session.id}`} id={`attendance-window-${session.id}`}>
+		                    수업 시작 후 출석을 처리할 수 있습니다.
+		                  </p>
+		                ) : null}
 
                 {canManageClasses ? (
                   <form
@@ -1462,6 +1488,7 @@ export function ClassesScreen() {
                       <input
                         className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                         data-testid="class-edit-input"
+                        maxLength={classInputLimits.roomLength}
                         value={getClassEdit(session).room}
                         onChange={(event) => updateClassEdit(session, "room", event.target.value)}
                       />
@@ -1549,6 +1576,7 @@ export function ClassesScreen() {
 
                                       return (
                                         <AttendanceStatusButton
+	                                          disabled={!attendanceWindowOpen || attendanceSyncPending}
                                           key={option}
                                           status={option}
                                           selected={selected}
@@ -1568,6 +1596,7 @@ export function ClassesScreen() {
                                     aria-expanded={noteEditorOpen}
                                     className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
                                     data-testid={`attendance-note-toggle-${session.id}-${member.id}`}
+	                                  disabled={!attendanceWindowOpen || attendanceSyncPending}
                                     type="button"
                                     onClick={() => setAttendanceNoteEditorOpen(attendanceNoteKey, !noteEditorOpen)}
                                   >
@@ -1582,7 +1611,8 @@ export function ClassesScreen() {
                                         data-testid={`attendance-note-${session.id}-${member.id}`}
                                         className="mt-2 h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                                         id={`attendance-note-${attendanceNoteKey}`}
-                                        maxLength={80}
+                                        maxLength={attendanceInputLimits.noteLength}
+	                                      disabled={!attendanceWindowOpen || attendanceSyncPending}
                                         onChange={(event) => {
                                           setReasonSavedKey(null);
                                           setAttendanceNotes((current) => ({
@@ -1605,6 +1635,7 @@ export function ClassesScreen() {
                                           <button
                                             className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
                                             data-testid={`attendance-note-preset-${session.id}-${member.id}-${preset.id}`}
+	                                          disabled={!attendanceWindowOpen || attendanceSyncPending}
                                             key={preset.id}
                                             type="button"
                                             onClick={() => applyAttendanceNotePreset(attendanceNoteKey, noteValue, preset.label)}
@@ -1615,7 +1646,13 @@ export function ClassesScreen() {
                                         <button
                                           className="inline-flex min-h-11 items-center justify-center rounded-md bg-zinc-900 px-3 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                                           data-testid={`attendance-note-save-${session.id}-${member.id}`}
-                                          disabled={!attendanceRecord || !noteValue.trim() || reasonSavingKey === attendanceNoteKey}
+	                                        disabled={
+	                                          !attendanceWindowOpen ||
+	                                          attendanceSyncPending ||
+	                                          !attendanceRecord ||
+	                                          !noteValue.trim() ||
+	                                          reasonSavingKey === attendanceNoteKey
+	                                        }
                                           type="button"
                                           onClick={() => {
                                             if (!attendanceRecord) {

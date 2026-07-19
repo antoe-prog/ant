@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword, generateTemporaryPassword } from "@/server/auth-password";
 import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,24 @@ type PasswordIssueBody = {
   reason?: string;
   temporaryPassword?: string;
 };
+
+function getPasswordIssueBodyTypeError(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "비밀번호 재발급 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  if (body.reason !== undefined && typeof body.reason !== "string") {
+    return "비밀번호 재발급 사유의 형식이 올바르지 않습니다.";
+  }
+
+  if (body.temporaryPassword !== undefined && typeof body.temporaryPassword !== "string") {
+    return "새 비밀번호 값의 형식이 올바르지 않습니다.";
+  }
+
+  return null;
+}
 
 export async function POST(
   request: NextRequest,
@@ -34,7 +54,20 @@ export async function POST(
     return selectedScope.response;
   }
 
-  const body = (await request.json().catch(() => null)) as PasswordIssueBody | null;
+  const rawBody = await request.json().catch(() => null);
+  const bodyTypeError = getPasswordIssueBodyTypeError(rawBody);
+
+  if (bodyTypeError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyTypeError);
+  }
+
+  const inputLimitError = getUserAdministrationInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as PasswordIssueBody;
   const reason = body?.reason?.trim() ?? "";
   const suppliedTemporaryPassword = readUnmodifiedPassword(body?.temporaryPassword);
   const temporaryPassword = suppliedTemporaryPassword || generateTemporaryPassword();
@@ -81,7 +114,7 @@ export async function POST(
 
     const now = new Date().toISOString();
     const auditLog: AuditLog = {
-      id: `audit-${Date.now()}-${freshDb.auditLogs.length + 1}`,
+      id: createRuntimeId("audit"),
       branchId: targetUser.branchIds[0] ?? null,
       actorUserId: freshUser.id,
       action: "auth.password_reset.complete",

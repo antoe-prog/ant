@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { getAuthInputLimitError } from "@/lib/auth-input-policy";
 import { normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
-import { jsonOk } from "@/server/api";
+import { jsonError, jsonOk } from "@/server/api";
 import { authSecurityLockKey, hasReachedPasswordResetRequestLimit } from "@/server/auth-session";
 
 export const runtime = "nodejs";
@@ -12,8 +13,27 @@ type PasswordResetBody = {
 };
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as PasswordResetBody | null;
-  const identifier = body?.identifier?.trim().toLowerCase() ?? "";
+  const rawBody = await request.json().catch(() => null);
+
+  if (
+    !rawBody ||
+    typeof rawBody !== "object" ||
+    Array.isArray(rawBody) ||
+    ("identifier" in rawBody &&
+      (rawBody as Record<string, unknown>).identifier !== undefined &&
+      typeof (rawBody as Record<string, unknown>).identifier !== "string")
+  ) {
+    return jsonError(400, "VALIDATION_ERROR", "비밀번호 재설정 입력 형식이 올바르지 않습니다.");
+  }
+
+  const inputLimitError = getAuthInputLimitError(rawBody as Record<string, unknown>);
+
+  if (inputLimitError) {
+    return jsonError(400, "VALIDATION_ERROR", inputLimitError);
+  }
+
+  const body = rawBody as PasswordResetBody;
+  const identifier = body.identifier?.trim().toLowerCase() ?? "";
   const phone = normalizePhoneNumber(identifier);
   return withServerDbLock(authSecurityLockKey, async () => {
     const db = await readServerDb();

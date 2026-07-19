@@ -23,6 +23,7 @@ import {
 import {
   canManageManualPayment,
   getManualPaymentDateRangeError,
+  manualPaymentInputLimits,
   manualPaymentCreatableStatuses,
   requiresManualPaymentCreateReason,
   type ManualPaymentUpdatePayload,
@@ -345,9 +346,13 @@ export function PaymentsScreen() {
     // URL 딥링크는 최초 진입에만 적용하고 이후 사용자의 자녀 선택은 유지한다.
     setSelectedChildId(requestedMemberId);
   }, [context.user.role, requestedGuardianPaymentChild, requestedMemberId, setSelectedChildId]);
+  const pendingRequestedGuardianPaymentChild =
+    requestedGuardianPaymentChild && appliedRequestedMemberIdRef.current !== requestedMemberId
+      ? requestedGuardianPaymentChild
+      : null;
   const selectedGuardianPaymentChild =
     context.user.role === "guardian" && !invalidGuardianPaymentTarget
-      ? requestedGuardianPaymentChild ??
+      ? pendingRequestedGuardianPaymentChild ??
         guardianPaymentChildren.find((member) => member.id === selectedChildId) ??
         null
       : null;
@@ -1336,6 +1341,7 @@ export function PaymentsScreen() {
               <input
                 className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                 data-testid="payment-create-plan-input"
+                maxLength={manualPaymentInputLimits.planName}
                 required
                 value={newPaymentPlanName}
                 onChange={(event) => {
@@ -1374,6 +1380,7 @@ export function PaymentsScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                   data-testid="payment-create-reason-input"
+                  maxLength={manualPaymentInputLimits.reason}
                   placeholder="예: 이중 납부 확인"
                   required
                   value={newPaymentReason}
@@ -2110,6 +2117,7 @@ export function PaymentsScreen() {
                             <input
                               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                               data-testid="payment-adjustment-reason-input"
+                              maxLength={manualPaymentInputLimits.reason}
                               placeholder="환불/취소 사유"
                               value={draft.reason}
                               disabled={adjustmentPending}
@@ -2190,6 +2198,7 @@ export function PaymentsScreen() {
                             <input
                               className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                               placeholder="해지 요청 사유"
+                              maxLength={manualPaymentInputLimits.reason}
                               value={draft.reason}
                               onChange={(event) =>
                                 updatePaymentAdjustmentDraft(payment, { reason: event.target.value, feedback: undefined })

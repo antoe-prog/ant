@@ -11,19 +11,29 @@ type BulkReadBody = {
   noticeIds?: unknown;
 };
 
+const maximumNoticeBatchSize = 50;
+const maximumNoticeIdLength = 200;
+
 function normalizeNoticeIds(value: unknown) {
   if (!Array.isArray(value)) {
-    return null;
+    return { error: "invalid" as const, noticeIds: [] };
   }
 
-  return [
-    ...new Set(
-      value
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  ];
+  if (value.length > maximumNoticeBatchSize) {
+    return { error: "limit" as const, noticeIds: [] };
+  }
+
+  if (value.length === 0 || value.some((item) => typeof item !== "string")) {
+    return { error: "invalid" as const, noticeIds: [] };
+  }
+
+  const normalizedIds = value.map((item) => item.trim());
+
+  if (normalizedIds.some((noticeId) => !noticeId || noticeId.length > maximumNoticeIdLength)) {
+    return { error: "invalid" as const, noticeIds: [] };
+  }
+
+  return { error: null, noticeIds: [...new Set(normalizedIds)] };
 }
 
 function isNotice(value: Notice | undefined): value is Notice {
@@ -39,15 +49,17 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => null)) as BulkReadBody | null;
-  const noticeIds = normalizeNoticeIds(body?.noticeIds);
+  const parsedNoticeIds = normalizeNoticeIds(body?.noticeIds);
 
-  if (!noticeIds || noticeIds.length === 0) {
+  if (parsedNoticeIds.error === "limit") {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "한 번에 읽음 처리할 수 있는 공지는 50건까지입니다.");
+  }
+
+  if (parsedNoticeIds.error || parsedNoticeIds.noticeIds.length === 0) {
     return jsonError(400, "VALIDATION_ERROR", "읽음 처리할 공지를 선택해 주세요.");
   }
 
-  if (noticeIds.length > 50) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "한 번에 읽음 처리할 수 있는 공지는 50건까지입니다.");
-  }
+  const noticeIds = parsedNoticeIds.noticeIds;
 
   return withServerDbLock(noticeStateLockKey, async () => {
     const db = await readServerDb();
@@ -64,22 +76,17 @@ export async function POST(request: NextRequest) {
     }
 
     const { branchIds, selectedBranchId } = selectedScope;
-    const notices = noticeIds.map((noticeId) => db.notices.find((notice) => notice.id === noticeId));
-    const missingNoticeIds = noticeIds.filter((_, index) => !notices[index]);
+    const notices = noticeIds.map((noticeId) =>
+      db.notices.find(
+        (notice) => notice.id === noticeId && canReadNotice(user, db, notice, branchIds),
+      ),
+    );
 
-    if (missingNoticeIds.length > 0) {
-      return jsonError(404, "NOT_FOUND", "공지 일부를 찾을 수 없습니다.", { missingNoticeIds });
+    if (notices.some((notice) => !notice)) {
+      return jsonError(404, "NOT_FOUND", "공지 일부를 찾을 수 없습니다.");
     }
 
     const foundNotices = notices.filter(isNotice);
-    const forbiddenNoticeIds = foundNotices
-      .filter((notice) => !canReadNotice(user, db, notice, branchIds))
-      .map((notice) => notice.id);
-
-    if (forbiddenNoticeIds.length > 0) {
-      return jsonError(403, "FORBIDDEN", "읽음 처리할 수 없는 공지가 포함되어 있습니다.", { forbiddenNoticeIds });
-    }
-
     const unreadNoticeIds = foundNotices
       .filter((notice) => !isNoticeReadByUser(notice, user.id))
       .map((notice) => notice.id);

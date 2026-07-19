@@ -248,25 +248,35 @@ function assertStaticContracts() {
   }
 }
 
-async function gotoOwnerMembers(page) {
-  const next = "/app/members";
-  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
-  loginUrl.searchParams.set("role", "owner");
+async function autoLoginTo(page, role, next) {
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
+  loginUrl.searchParams.set("role", role);
   loginUrl.searchParams.set("next", next);
 
   await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
-  await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
+  try {
+    await page.waitForURL((url) => url.pathname === next, { timeout: 30000 });
+  } catch (error) {
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).trim().slice(0, 500);
+    throw new Error(
+      `Member management auto-login failed for ${role}: expected ${next}, got ${page.url()}; body=${JSON.stringify(bodyText)}`,
+      { cause: error },
+    );
+  }
+}
+
+async function gotoOwnerMembers(page) {
+  const next = "/app/members";
+
+  await autoLoginTo(page, "owner", next);
   await page.waitForSelector('[data-testid="member-create-toggle"]', { timeout: 15000 });
 }
 
 async function gotoMembersAsRole(page, role) {
   const next = "/app/members";
-  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
-  loginUrl.searchParams.set("role", role);
-  loginUrl.searchParams.set("next", next);
 
-  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
-  await page.waitForURL((url) => url.pathname === next, { timeout: 15000 });
+  await autoLoginTo(page, role, next);
   await page.waitForSelector("[data-member-id]", { timeout: 15000 });
 }
 
@@ -362,12 +372,15 @@ async function captureOwnerMembers(context) {
     let guardianDialogFound = false;
     for (let index = 0; index < detailToggleCount && !guardianDialogFound; index += 1) {
       await detailToggles.nth(index).click();
-      await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+      await page.waitForSelector('dialog[open][data-testid^="member-detail-dialog-"]', { timeout: 15000 });
       guardianDialogFound =
         (await page.locator('[data-testid^="member-guardian-search-input-"]').count()) > 0;
       if (!guardianDialogFound) {
         await page.keyboard.press("Escape");
-        await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 0, { timeout: 15000 });
+        await page.waitForFunction(
+          () => document.querySelectorAll('dialog[open][data-testid^="member-detail-dialog-"]').length === 0,
+          { timeout: 15000 },
+        );
       }
     }
     assert(guardianDialogFound, "at least one member detail dialog must expose a guardian search input");
@@ -384,6 +397,10 @@ async function captureOwnerMembers(context) {
     await firstNoteToggle.waitFor({ state: "visible", timeout: 15000 });
     await firstNoteToggle.click();
     await page.waitForSelector('[data-testid="member-note-field"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="member-note-body"]', { timeout: 15000 });
+
+    const noteBodyMaxLength = await page.getByTestId("member-note-body").getAttribute("maxlength");
+    assert.equal(noteBodyMaxLength, "2000", "member note editor must match the server body limit");
 
     const openControlHeights = {
       createFields: await readHeights(page, '[data-testid="member-create-field"]'),
@@ -394,6 +411,7 @@ async function captureOwnerMembers(context) {
       inviteFields: await readHeights(page, '[data-testid="member-invite-field"]'),
       inviteSubmit: await readHeights(page, '[data-testid="member-invite-submit"]'),
       noteFields: await readHeights(page, '[data-testid="member-note-field"]'),
+      noteBody: await readHeights(page, '[data-testid="member-note-body"]'),
       noteSubmit: await readHeights(page, '[data-testid="member-note-submit"]'),
       profileFields: await readHeights(page, '[data-touch-target="member-profile-field"]'),
       statusSelects: await readHeights(page, '[data-testid="member-status-select"]'),
@@ -419,6 +437,7 @@ async function captureOwnerMembers(context) {
       collapsedLayout,
       deepLinkCreateFormCount,
       messages,
+      noteBodyMaxLength,
       openControlHeights,
       openHealth,
       screenshots: [
@@ -437,14 +456,17 @@ async function openOwnerPaymentSummary(page) {
 
   for (let index = 0; index < detailToggleCount; index += 1) {
     await detailToggles.nth(index).click();
-    await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+    await page.waitForSelector('dialog[open][data-testid^="member-detail-dialog-"]', { timeout: 15000 });
 
     if ((await page.locator('[data-testid^="member-payment-summary-link-"]').count()) > 0) {
       return;
     }
 
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 0, { timeout: 15000 });
+    await page.waitForFunction(
+      () => document.querySelectorAll('dialog[open][data-testid^="member-detail-dialog-"]').length === 0,
+      { timeout: 15000 },
+    );
   }
 
   assert.fail("owner members must expose at least one member detail with payment history");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowRight, Bell, CheckCheck, CreditCard, MailOpen, Medal, Trash2 } from "lucide-react";
@@ -32,6 +32,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-bloc
 type NotificationFilter = "all" | "unread" | "important" | "payment" | "promotion";
 type NotificationKind = "notice" | "payment" | "promotion";
 type NotificationTone = "critical" | "warning" | "teal" | "zinc";
+type FamilyPushStatus = "checking" | "prompt" | "saving" | "ready" | "blocked" | "error" | "hidden";
 
 type NotificationItem = {
   body: string;
@@ -50,6 +51,14 @@ type NotificationItem = {
   title: string;
   tone: NotificationTone;
 };
+
+function decodeVapidPublicKey(publicKey: string) {
+  const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
+  const base64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = window.atob(base64);
+
+  return Uint8Array.from(bytes, (character) => character.charCodeAt(0));
+}
 
 function audienceLabel(notice: Notice) {
   return notice.audience.map((item) => (item === "all" ? "전체" : roleLabels[item])).join(", ");
@@ -265,8 +274,10 @@ export function NotificationsScreen() {
   const [deleteConfirmNoticeId, setDeleteConfirmNoticeId] = useState<string | null>(null);
   const [deletingNoticeId, setDeletingNoticeId] = useState<string | null>(null);
   const [bulkReadPending, setBulkReadPending] = useState(false);
+  const [familyPushStatus, setFamilyPushStatus] = useState<FamilyPushStatus>("checking");
   const notificationFeedback = deleteFeedback ?? readFeedback;
   const canManageNoticeNotifications = context.user.role === "owner" || context.user.role === "admin" || context.user.role === "coach";
+  const familyNotificationsAlwaysOn = context.user.role === "member" || context.user.role === "guardian";
   const { data, loading, error, reload } = useResource(
     async () => {
       const [notices, payments] = await Promise.all([
@@ -278,6 +289,88 @@ export function NotificationsScreen() {
     },
     [context.user.id, context.selectedBranchId, context.version],
   );
+
+  const connectFamilyPush = useCallback(async ({ requestPermission }: { requestPermission: boolean }) => {
+    if (
+      !familyNotificationsAlwaysOn ||
+      !("Notification" in window) ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
+      return "hidden" as const;
+    }
+
+    const config = await apiClient.getPushConfig();
+
+    if (!config.configured || !config.publicKey) {
+      return "hidden" as const;
+    }
+
+    let permission = Notification.permission;
+
+    if (permission === "default" && requestPermission) {
+      permission = await Notification.requestPermission();
+    }
+
+    if (permission === "denied") {
+      return "blocked" as const;
+    }
+
+    if (permission !== "granted") {
+      return "prompt" as const;
+    }
+
+    const registration =
+      (await navigator.serviceWorker.getRegistration("/")) ??
+      (await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }));
+    const existingSubscription = await registration.pushManager.getSubscription();
+    const subscription =
+      existingSubscription ??
+      (await registration.pushManager.subscribe({
+        applicationServerKey: decodeVapidPublicKey(config.publicKey),
+        userVisibleOnly: true,
+      }));
+
+    if (!config.currentUserSubscribed || !existingSubscription) {
+      await apiClient.subscribeToPush(subscription.toJSON(), window.navigator.userAgent);
+    }
+
+    return "ready" as const;
+  }, [familyNotificationsAlwaysOn]);
+
+  useEffect(() => {
+    if (!familyNotificationsAlwaysOn) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void connectFamilyPush({ requestPermission: false })
+      .then((status) => {
+        if (!cancelled) {
+          setFamilyPushStatus(status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFamilyPushStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectFamilyPush, context.user.id, familyNotificationsAlwaysOn]);
+
+  async function handleEnableFamilyPush() {
+    setFamilyPushStatus("saving");
+
+    try {
+      setFamilyPushStatus(await connectFamilyPush({ requestPermission: true }));
+    } catch {
+      setFamilyPushStatus("error");
+    }
+  }
   const notificationItems = useMemo(() => {
     if (!data) {
       return [];
@@ -452,6 +545,39 @@ export function NotificationsScreen() {
       ) : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white" aria-label="알림 목록">
+        {familyNotificationsAlwaysOn && ["prompt", "saving", "blocked", "error"].includes(familyPushStatus) ? (
+          <div
+            className="flex min-h-14 items-center justify-between gap-3 border-b border-teal-100 bg-teal-50 px-3 py-2 sm:px-4"
+            data-testid="family-push-connection-row"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-teal-950">
+                {familyPushStatus === "blocked" ? "휴대폰 알림이 꺼져 있습니다" : "새 공지를 휴대폰으로 받기"}
+              </p>
+              <p className="mt-0.5 text-xs leading-4 text-teal-800">
+                {familyPushStatus === "blocked"
+                  ? "기기 설정에서 FINAL 알림을 허용해 주세요."
+                  : familyPushStatus === "error"
+                    ? "연결하지 못했습니다. 다시 시도해 주세요."
+                    : "공지와 중요 안내를 놓치지 않도록 연결합니다."}
+              </p>
+            </div>
+            {familyPushStatus !== "blocked" ? (
+              <Button
+                aria-label="휴대폰 공지 알림 켜기"
+                className="shrink-0"
+                data-testid="family-push-enable-action"
+                disabled={familyPushStatus === "saving"}
+                onClick={() => void handleEnableFamilyPush()}
+                size="sm"
+                variant="secondary"
+              >
+                <Bell className="h-4 w-4" aria-hidden />
+                <span>{familyPushStatus === "saving" ? "연결 중" : "알림 켜기"}</span>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="grid gap-2 border-b border-zinc-100 px-3 py-2.5 sm:px-4">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7.25rem]">
             <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="notification-filter-toolbar" role="group" aria-label="알림 보기">

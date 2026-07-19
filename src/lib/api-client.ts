@@ -285,9 +285,20 @@ export type LoginCredentials = {
 };
 
 export type PhoneSignupPayload = {
+  branchId: string;
   name: string;
   password: string;
   phone: string;
+};
+
+export type PublicSignupBranch = {
+  district: string;
+  id: string;
+  name: string;
+};
+
+type PublicSignupBranchesResponse = {
+  branches: PublicSignupBranch[];
 };
 
 type PhoneSignupResponse = {
@@ -562,6 +573,10 @@ export const apiClient = {
     });
   },
 
+  getPublicSignupBranches() {
+    return apiRequest<PublicSignupBranchesResponse>("/api/v1/auth/register");
+  },
+
   signOut() {
     return apiRequest<{ ok: boolean }>("/api/v1/auth/logout", {
       method: "POST",
@@ -766,13 +781,13 @@ export const apiClient = {
     branchId: string,
     payload: PaymentCreatePayload,
     selectedBranchId: string | null,
-    idempotencyKey?: string,
+    idempotencyKey: string,
   ) {
     return apiRequest<BootstrapPayload>(
       `/api/v1/branches/${encodeURIComponent(branchId)}/payments${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "POST",
-        ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+        headers: { "Idempotency-Key": idempotencyKey },
         body: JSON.stringify(payload),
       },
     );

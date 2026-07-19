@@ -3,6 +3,7 @@
 import { type FormEvent, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, KeyRound, LoaderCircle } from "lucide-react";
+import { authInputLimits } from "@/lib/auth-input-policy";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/primitives";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
@@ -57,6 +58,7 @@ export function PasswordResetScreen() {
               <input
                 className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                 inputMode="tel"
+                maxLength={authInputLimits.identifierLength}
                 placeholder="휴대폰 번호 또는 사용자 이름 입력"
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}

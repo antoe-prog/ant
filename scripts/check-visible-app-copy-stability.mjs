@@ -809,6 +809,10 @@ async function main() {
           authSignupInvitationInputCount: document.querySelectorAll('[data-testid="signup-invitation-input"]').length,
           authSignupNameInputCount: document.querySelectorAll('[data-testid="signup-name-input"]').length,
           authSignupPhoneInputCount: document.querySelectorAll('[data-testid="signup-phone-input"]').length,
+          authSignupBranchInputCount: document.querySelectorAll('[data-testid="signup-branch-input"]').length,
+          authSignupBranchInputMinHeight: Math.round(
+            document.querySelector('[data-testid="signup-branch-input"]')?.getBoundingClientRect().height ?? 0,
+          ),
           authSelectRoleLoginLinkHeight:
             Math.round(document.querySelector('[data-testid="select-role-login-link"]')?.getBoundingClientRect().height ?? 0),
           authSelectRoleProductionCopyVisible: document.body.innerText.includes("휴대폰 번호 로그인으로 계정을 변경합니다."),
@@ -2310,6 +2314,8 @@ async function main() {
           assert.equal(layout.authSignupInvitationInputCount, 0, "signup must not render an invitation link/code input");
           assert.equal(layout.authSignupNameInputCount, 1, "signup must render one name input");
           assert.equal(layout.authSignupPhoneInputCount, 1, "signup must render one phone input");
+          assert.equal(layout.authSignupBranchInputCount, 1, "multi-branch signup must render one branch selector");
+          assert(layout.authSignupBranchInputMinHeight >= 44, "signup branch selector must keep a 44px touch height");
           assert.equal(layout.authPasswordInputCount, 2, "signup must render password and confirmation fields");
           assert.equal(layout.authPasswordVisibilityToggleCount, 1, "signup must render one password visibility toggle");
           assert(layout.authPasswordVisibilityToggleMinHeight >= 44, "signup password visibility toggle must keep a 44px touch height");
@@ -3465,6 +3471,9 @@ async function main() {
                     formHeight: Math.round(form?.getBoundingClientRect().height ?? 0),
                     panelHeight: Math.round(panel?.getBoundingClientRect().height ?? 0),
                     inputCount: document.querySelectorAll("#admin-branch-create-form input").length,
+                    inputMaxLengths: Array.from(document.querySelectorAll("#admin-branch-create-form input")).map(
+                      (input) => input.maxLength,
+                    ),
                     selectCount: document.querySelectorAll("#admin-branch-create-form select").length,
                     panelWidth: Math.round(panel?.getBoundingClientRect().width ?? 0),
                     formWidth: Math.round(form?.getBoundingClientRect().width ?? 0),
@@ -3482,6 +3491,7 @@ async function main() {
                 assert.equal(createOpenState.expandedToggleCount, 1, "admin branches create toggle must expose expanded state");
                 assert.equal(createOpenState.formCount, 1, "admin branches create toggle must open one create form");
                 assert.equal(createOpenState.inputCount, 2, "admin branches create form must show branch name and district inputs");
+                assert.deepEqual(createOpenState.inputMaxLengths, [80, 100], "admin branches create inputs must match server length limits");
                 assert.equal(createOpenState.selectCount, 1, "admin branches create form must show owner assignment select");
                 assert(
                   createOpenState.panelWidth > layout.adminBranchCreatePanelWidth + 40,
@@ -3557,6 +3567,9 @@ async function main() {
                     form: rect(form),
                     formCount: document.querySelectorAll('[data-testid^="admin-branch-settings-form-"]').length,
                     inputCount: form?.querySelectorAll("input").length ?? 0,
+                    textInputMaxLengths: Array.from(form?.querySelectorAll('input:not([type="checkbox"])') ?? []).map(
+                      (input) => input.maxLength,
+                    ),
                     policyControl: rect(policyControl),
                     policyGrid: rect(policyGrid),
                     save: rect(saveButton),
@@ -3570,6 +3583,11 @@ async function main() {
                 assert.equal(settingsOpenState.formCount, 1, "admin branches settings toggle must open one settings form");
                 assert.equal(settingsOpenState.selectCount, 2, "admin branches settings form must show status and timezone selects");
                 assert.equal(settingsOpenState.checkboxCount, 1, "admin branches settings form must remove deleted request policy toggles");
+                assert.deepEqual(
+                  settingsOpenState.textInputMaxLengths,
+                  [80, 100, 500],
+                  "admin branches settings inputs must match server length limits",
+                );
                 assert.equal(settingsOpenState.detailGridCount, 0, "admin branches settings form must hide repeated branch summary tiles while editing");
                 assert(settingsOpenState.form.height <= 204, "admin branches settings form must stay compact after opening");
                 assert(settingsOpenState.card.height <= 280, "admin branches opened card must stay compact enough for mobile");
@@ -3599,6 +3617,7 @@ async function main() {
                     createOpenPanelWidth: createOpenState.panelWidth,
                     createOpenFormWidth: createOpenState.formWidth,
                     createOpenMinFieldWidth: createOpenState.minFieldWidth,
+                    createOpenInputMaxLengths: createOpenState.inputMaxLengths,
                     createOpenSubmitButtonHeight: createOpenState.submitButtonHeight,
                     settingsOpenScreenshotPath,
                     settingsOpenScreenshotSizeBytes,
@@ -3609,6 +3628,7 @@ async function main() {
                     settingsOpenFieldGridMinControlWidth: settingsOpenState.fieldGridMinControlWidth,
                     settingsOpenFormHeight: settingsOpenState.form.height,
                     settingsOpenPolicyControlHeight: settingsOpenState.policyControl.height,
+                    settingsOpenTextInputMaxLengths: settingsOpenState.textInputMaxLengths,
                     settingsOpenSaveBottom: settingsOpenState.save.bottom,
                     settingsOpenSaveHeight: settingsOpenState.save.height,
                   },
@@ -4159,9 +4179,15 @@ async function main() {
                       (element) => element.getAttribute("aria-expanded") === "true",
                     ).length,
                     formCount: document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"]').length,
+                    inputMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"] input[maxlength]'),
+                    ).map((input) => input.maxLength),
                     selectCount: document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"] select').length,
                     text: document.querySelector('[aria-labelledby="pilot-readiness-heading"]')?.textContent?.replace(/\s+/g, " ").trim() ?? "",
                     textareaCount: document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"] textarea').length,
+                    textareaMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"] textarea[maxlength]'),
+                    ).map((textarea) => textarea.maxLength),
                     submitButtonText: Array.from(document.querySelectorAll('[data-testid="admin-settings-readiness-editor-list"] button'))
                       .map((button) => button.textContent?.trim() ?? "")
                       .join(" | "),
@@ -4176,6 +4202,14 @@ async function main() {
                   assert(readinessOpenState.formCount > 0, "admin settings readiness edit toggle must open readiness controls");
                   assert(readinessOpenState.selectCount > 0, "admin settings readiness editor must expose status selects");
                   assert(readinessOpenState.textareaCount > 0, "admin settings readiness editor must expose memo textareas");
+                  assert(
+                    readinessOpenState.inputMaxLengths.every((maxLength) => maxLength === 80),
+                    "admin settings readiness owner inputs must enforce the shared 80 character limit",
+                  );
+                  assert(
+                    readinessOpenState.textareaMaxLengths.every((maxLength) => maxLength === 1_000),
+                    "admin settings readiness evidence inputs must enforce the shared 1000 character limit",
+                  );
                   assert(readinessOpenState.submitButtonText.includes("점검 상태 저장"), "admin settings readiness editor must expose save actions");
                   assert.equal(
                     readinessOpenForbiddenHits.length,
@@ -4201,8 +4235,14 @@ async function main() {
                     ).length,
                     formCount: document.querySelectorAll('[data-testid="admin-settings-operation-log-form"]').length,
                     inputCount: document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] input').length,
+                    inputMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] input[maxlength]'),
+                    ).map((input) => input.maxLength),
                     selectCount: document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] select').length,
                     textareaCount: document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] textarea').length,
+                    textareaMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] textarea[maxlength]'),
+                    ).map((textarea) => textarea.maxLength),
                     submitButtonText: Array.from(document.querySelectorAll('[data-testid="admin-settings-operation-log-form"] button'))
                       .map((button) => button.textContent?.trim() ?? "")
                       .join(" | "),
@@ -4214,6 +4254,16 @@ async function main() {
                   assert(operationOpenState.inputCount >= 8, "admin settings operation log form must expose date/count/evidence inputs");
                   assert(operationOpenState.selectCount >= 2, "admin settings operation log form must expose branch and status selects");
                   assert(operationOpenState.textareaCount >= 2, "admin settings operation log form must expose memo textareas");
+                  assert.deepEqual(
+                    [...operationOpenState.inputMaxLengths].sort((left, right) => left - right),
+                    [80, 500],
+                    "admin settings operation owner and mobile evidence inputs must enforce shared limits",
+                  );
+                  assert.deepEqual(
+                    operationOpenState.textareaMaxLengths,
+                    [1_000, 1_000],
+                    "admin settings operation memo inputs must enforce shared limits",
+                  );
                   assert(operationOpenState.submitButtonText.includes("운영 기록 저장"), "admin settings operation record form must expose save action");
                   assert(
                     operationOpenScreenshotSizeBytes > 10_000,
@@ -4234,8 +4284,14 @@ async function main() {
                     ).length,
                     formCount: document.querySelectorAll('[data-testid="admin-settings-incident-create-form"]').length,
                     inputCount: document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] input').length,
+                    inputMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] input[maxlength]'),
+                    ).map((input) => input.maxLength),
                     selectCount: document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] select').length,
                     textareaCount: document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] textarea').length,
+                    textareaMaxLengths: Array.from(
+                      document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] textarea[maxlength]'),
+                    ).map((textarea) => textarea.maxLength),
                     submitButtonText: Array.from(document.querySelectorAll('[data-testid="admin-settings-incident-create-form"] button'))
                       .map((button) => button.textContent?.trim() ?? "")
                       .join(" | "),
@@ -4247,6 +4303,16 @@ async function main() {
                   assert(incidentCreateOpenState.inputCount >= 3, "admin settings incident create form must expose title/screen/owner inputs");
                   assert(incidentCreateOpenState.selectCount >= 3, "admin settings incident create form must expose severity/branch/role selects");
                   assert(incidentCreateOpenState.textareaCount >= 2, "admin settings incident create form must expose detail and workaround textareas");
+                  assert.deepEqual(
+                    [...incidentCreateOpenState.inputMaxLengths].sort((left, right) => left - right),
+                    [80, 120, 120],
+                    "admin settings incident title, screen, and owner inputs must enforce shared limits",
+                  );
+                  assert.deepEqual(
+                    incidentCreateOpenState.textareaMaxLengths,
+                    [2_000, 1_000],
+                    "admin settings incident detail and workaround inputs must enforce shared limits",
+                  );
                   assert(incidentCreateOpenState.submitButtonText.includes("이슈 기록"), "admin settings incident create form must expose create action");
                   assert(
                     incidentCreateOpenScreenshotSizeBytes > 10_000,
@@ -4257,11 +4323,35 @@ async function main() {
                     timeout: 10000,
                   });
 
+                  const incidentSeedStatus = await page.evaluate(async () => {
+                    const response = await fetch("/api/v1/admin/pilot-incidents", {
+                      body: JSON.stringify({
+                        branchId: null,
+                        description: "화면 입력 제한 확인을 위한 격리 운영 기록",
+                        owner: "총괄 PM",
+                        role: "admin",
+                        screen: "/app/admin/settings",
+                        severity: "p2",
+                        title: "현장 운영 확인",
+                        workaround: "격리 환경에서 확인",
+                      }),
+                      headers: { "Content-Type": "application/json" },
+                      method: "POST",
+                    });
+
+                    return response.status;
+                  });
+                  assert.equal(incidentSeedStatus, 200, "admin settings incident editor proof must seed one isolated incident");
+                  await page.reload({ waitUntil: "domcontentloaded" });
+                  await page.locator('[data-testid="admin-settings-incident-list-toggle"]').click();
+                  await page.waitForSelector('[data-testid="admin-settings-incident-editor-toggle"]', { timeout: 10000 });
+
                   const incidentEditorToggleCount = await page.locator('[data-testid="admin-settings-incident-editor-toggle"]').count();
                   let incidentEditorOpenScreenshotPath = null;
                   let incidentEditorOpenScreenshotSizeBytes = 0;
                   let incidentEditorOpenState = null;
 
+                  assert(incidentEditorToggleCount > 0, "admin settings incident editor proof must expose the isolated incident");
                   if (incidentEditorToggleCount > 0) {
                     await incidentEditorToggle.click();
                     await page.waitForSelector('[data-testid="admin-settings-incident-editor-form"]', { timeout: 10000 });
@@ -4273,8 +4363,14 @@ async function main() {
                       ).length,
                       formCount: document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"]').length,
                       inputCount: document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] input').length,
+                      inputMaxLengths: Array.from(
+                        document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] input[maxlength]'),
+                      ).map((input) => input.maxLength),
                       selectCount: document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] select').length,
                       textareaCount: document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] textarea').length,
+                      textareaMaxLengths: Array.from(
+                        document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] textarea[maxlength]'),
+                      ).map((textarea) => textarea.maxLength),
                       submitButtonText: Array.from(document.querySelectorAll('[data-testid="admin-settings-incident-editor-form"] button'))
                         .map((button) => button.textContent?.trim() ?? "")
                         .join(" | "),
@@ -4286,6 +4382,16 @@ async function main() {
                     assert.equal(incidentEditorOpenState.inputCount, 1, "admin settings incident editor must expose one owner input");
                     assert.equal(incidentEditorOpenState.selectCount, 1, "admin settings incident editor must expose one status select");
                     assert.equal(incidentEditorOpenState.textareaCount, 1, "admin settings incident editor must expose one workaround textarea");
+                    assert.deepEqual(
+                      incidentEditorOpenState.inputMaxLengths,
+                      [80],
+                      "admin settings incident editor owner input must enforce the shared limit",
+                    );
+                    assert.deepEqual(
+                      incidentEditorOpenState.textareaMaxLengths,
+                      [1_000],
+                      "admin settings incident editor workaround input must enforce the shared limit",
+                    );
                     assert(incidentEditorOpenState.submitButtonText.includes("이슈 상태 저장"), "admin settings incident editor must expose save action");
                     assert(
                       incidentEditorOpenScreenshotSizeBytes > 10_000,
@@ -4520,6 +4626,7 @@ async function main() {
       adminBranchCreateOpenPanelWidth: interaction?.branches?.createOpenPanelWidth ?? 0,
       adminBranchCreateOpenFormWidth: interaction?.branches?.createOpenFormWidth ?? 0,
       adminBranchCreateOpenMinFieldWidth: interaction?.branches?.createOpenMinFieldWidth ?? 0,
+      adminBranchCreateOpenInputMaxLengths: interaction?.branches?.createOpenInputMaxLengths ?? [],
       adminBranchCreateOpenSubmitButtonHeight: interaction?.branches?.createOpenSubmitButtonHeight ?? 0,
       adminBranchSettingsOpenScreenshotPath: interaction?.branches?.settingsOpenScreenshotPath ?? null,
       adminBranchSettingsOpenScreenshotSizeBytes: interaction?.branches?.settingsOpenScreenshotSizeBytes ?? 0,
@@ -4530,6 +4637,7 @@ async function main() {
       adminBranchSettingsOpenFieldGridMinControlWidth: interaction?.branches?.settingsOpenFieldGridMinControlWidth ?? 0,
       adminBranchSettingsOpenFormHeight: interaction?.branches?.settingsOpenFormHeight ?? 0,
       adminBranchSettingsOpenPolicyControlHeight: interaction?.branches?.settingsOpenPolicyControlHeight ?? 0,
+      adminBranchSettingsOpenTextInputMaxLengths: interaction?.branches?.settingsOpenTextInputMaxLengths ?? [],
       adminBranchSettingsOpenSaveBottom: interaction?.branches?.settingsOpenSaveBottom ?? 0,
       adminBranchSettingsOpenSaveHeight: interaction?.branches?.settingsOpenSaveHeight ?? 0,
       adminBranchCardCount: layout.adminBranchCardCount,
@@ -4961,12 +5069,20 @@ async function main() {
       adminSettingsReadinessOpenScreenshotPath: interaction?.settings?.readinessOpenScreenshotPath ?? null,
       adminSettingsReadinessOpenScreenshotSizeBytes: interaction?.settings?.readinessOpenScreenshotSizeBytes ?? 0,
       adminSettingsReadinessOpenForbiddenHitCount: interaction?.settings?.readinessForbiddenHits?.length ?? 0,
+      adminSettingsReadinessOwnerMaxLengths: interaction?.settings?.readiness?.inputMaxLengths ?? [],
+      adminSettingsReadinessEvidenceMaxLengths: interaction?.settings?.readiness?.textareaMaxLengths ?? [],
       adminSettingsOperationOpenScreenshotPath: interaction?.settings?.operationOpenScreenshotPath ?? null,
       adminSettingsOperationOpenScreenshotSizeBytes: interaction?.settings?.operationOpenScreenshotSizeBytes ?? 0,
+      adminSettingsOperationInputMaxLengths: interaction?.settings?.operation?.inputMaxLengths ?? [],
+      adminSettingsOperationMemoMaxLengths: interaction?.settings?.operation?.textareaMaxLengths ?? [],
       adminSettingsIncidentCreateOpenScreenshotPath: interaction?.settings?.incidentCreateOpenScreenshotPath ?? null,
       adminSettingsIncidentCreateOpenScreenshotSizeBytes: interaction?.settings?.incidentCreateOpenScreenshotSizeBytes ?? 0,
+      adminSettingsIncidentCreateInputMaxLengths: interaction?.settings?.incidentCreate?.inputMaxLengths ?? [],
+      adminSettingsIncidentCreateMemoMaxLengths: interaction?.settings?.incidentCreate?.textareaMaxLengths ?? [],
       adminSettingsIncidentEditorOpenScreenshotPath: interaction?.settings?.incidentEditorOpenScreenshotPath ?? null,
       adminSettingsIncidentEditorOpenScreenshotSizeBytes: interaction?.settings?.incidentEditorOpenScreenshotSizeBytes ?? 0,
+      adminSettingsIncidentEditorInputMaxLengths: interaction?.settings?.incidentEditor?.inputMaxLengths ?? [],
+      adminSettingsIncidentEditorMemoMaxLengths: interaction?.settings?.incidentEditor?.textareaMaxLengths ?? [],
       adminSettingsPolicyScreenshotPath: interaction?.settings?.views?.policyScreenshotPath ?? null,
       adminSettingsPolicyScreenshotSizeBytes: interaction?.settings?.views?.policyScreenshotSizeBytes ?? 0,
       adminSettingsPolicySelectedBeforeSwitch: interaction?.settings?.views?.beforeSwitch?.policySelected ?? null,

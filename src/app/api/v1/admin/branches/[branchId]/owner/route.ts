@@ -1,15 +1,14 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { getBranchOwnerBodyError } from "@/lib/branch-input-policy";
+import { branchManagementStateLockKey } from "@/server/branch-management";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
-type OwnerAssignBody = {
-  ownerUserId?: string;
-};
-
-export async function PUT(
+async function requireBranchOwnerRequestContext(
   request: NextRequest,
   { params }: { params: Promise<{ branchId: string }> },
 ) {
@@ -18,29 +17,47 @@ export async function PUT(
   const { user, response } = requireSession(request, db);
 
   if (!user) {
-    return response;
+    return { context: null, response };
   }
 
   if (user.role !== "admin") {
-    return jsonError(403, "FORBIDDEN", "총괄 어드민만 지점 대표를 배정할 수 있습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점 대표를 배정할 수 있습니다."),
+    };
   }
 
   const selectedScope = requireSelectedBranchScope(request, user, db);
 
   if (selectedScope.response) {
-    return selectedScope.response;
+    return { context: null, response: selectedScope.response };
   }
 
   if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== branchId) {
-    return jsonError(403, "FORBIDDEN", "선택한 지점의 대표만 배정할 수 있습니다.");
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "선택한 지점의 대표만 배정할 수 있습니다."),
+    };
   }
 
-  const body = (await request.json().catch(() => null)) as OwnerAssignBody | null;
-  const ownerUserId = body?.ownerUserId?.trim() ?? "";
+  return {
+    context: { branchId, db, selectedBranchId: selectedScope.selectedBranchId, user },
+    response: null,
+  };
+}
 
-  if (!ownerUserId) {
-    return jsonError(400, "VALIDATION_ERROR", "대표 사용자 ID가 필요합니다.");
+async function assignBranchOwner(
+  request: NextRequest,
+  routeContext: { params: Promise<{ branchId: string }> },
+  ownerUserId: string,
+) {
+  const currentContext = await requireBranchOwnerRequestContext(request, routeContext);
+
+  if (!currentContext.context) {
+    return currentContext.response;
   }
+
+  const { branchId, db, selectedBranchId, user } = currentContext.context;
 
   const branch = db.branches.find((candidate) => candidate.id === branchId);
 
@@ -62,7 +79,7 @@ export async function PUT(
     .filter((candidate) => candidate.role === "owner" && candidate.branchIds.includes(branchId))
     .map((candidate) => candidate.id);
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId,
     actorUserId: user.id,
     action: "branch.owner.assign",
@@ -84,5 +101,33 @@ export async function PUT(
     auditLogs: [auditLog, ...db.auditLogs],
   });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId));
+  return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
+}
+
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ branchId: string }> },
+) {
+  const initialContext = await requireBranchOwnerRequestContext(request, context);
+
+  if (!initialContext.context) {
+    return initialContext.response;
+  }
+
+  const rawBody = await request.json().catch(() => null);
+  const bodyError = getBranchOwnerBodyError(rawBody);
+
+  if (bodyError) {
+    return jsonError(400, "VALIDATION_ERROR", bodyError);
+  }
+
+  const ownerUserId = (rawBody as { ownerUserId?: string }).ownerUserId?.trim() ?? "";
+
+  if (!ownerUserId) {
+    return jsonError(400, "VALIDATION_ERROR", "대표 사용자 ID가 필요합니다.");
+  }
+
+  return withServerDbLock(branchManagementStateLockKey, () =>
+    assignBranchOwner(request, context, ownerUserId),
+  );
 }

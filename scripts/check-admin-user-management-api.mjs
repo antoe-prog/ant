@@ -177,6 +177,77 @@ async function runAssertions(baseUrl) {
   const admin = createClient(baseUrl);
   await loginRole(admin, "admin");
 
+  const beforeMalformedUserMutation = await admin.request("/api/v1/me/bootstrap");
+  const ownerBeforeMalformedUserMutation = beforeMalformedUserMutation.payload.data.db.users.find(
+    (candidate) => candidate.id === "user-owner",
+  );
+  const userMutationAuditCountBeforeMalformed = beforeMalformedUserMutation.payload.data.db.auditLogs.filter(
+    (log) => ["user.update", "user.delete"].includes(log.action) && log.targetId === "user-owner",
+  ).length;
+
+  for (const invalidBody of [
+    1,
+    [],
+    {},
+    { email: { invalid: true } },
+    { name: [] },
+    { reason: { invalid: true }, title: "대표" },
+    { branchIds: ["branch-gangnam", 1] },
+    { memberIds: ["member-jun", null] },
+    { childMemberIds: { invalid: true } },
+  ]) {
+    const malformedUpdate = await admin.request(
+      "/api/v1/admin/users/user-owner",
+      { method: "PATCH", body: JSON.stringify(invalidBody) },
+      { allowError: true },
+    );
+    assert.equal(malformedUpdate.response.status, 400, "malformed or empty user updates must be rejected");
+  }
+  for (const invalidBody of [1, { reason: { invalid: true } }, { reason: "삭".repeat(501) }]) {
+    const malformedDelete = await admin.request(
+      "/api/v1/admin/users/user-owner",
+      { method: "DELETE", body: JSON.stringify(invalidBody) },
+      { allowError: true },
+    );
+    assert.equal(malformedDelete.response.status, 400, "malformed or oversized user deletes must be rejected");
+  }
+
+  for (const oversizedField of [
+    { name: "이".repeat(81) },
+    { email: "e".repeat(255) },
+    { phone: "0".repeat(41) },
+    { role: "r".repeat(33) },
+    { reason: "사".repeat(501), title: "대표" },
+    { title: "설".repeat(121) },
+    { password: "P".repeat(257) },
+    { branchIds: Array.from({ length: 101 }, () => "branch-gangnam") },
+    { branchIds: ["b".repeat(201)] },
+    { memberIds: Array.from({ length: 101 }, () => "member-jun") },
+    { memberIds: ["m".repeat(201)] },
+    { childMemberIds: Array.from({ length: 101 }, () => "member-jun") },
+    { childMemberIds: ["m".repeat(201)] },
+  ]) {
+    const oversizedUpdate = await admin.request(
+      "/api/v1/admin/users/user-owner",
+      { method: "PATCH", body: JSON.stringify(oversizedField) },
+      { allowError: true },
+    );
+    assert.equal(oversizedUpdate.response.status, 400, "oversized user updates must be rejected");
+  }
+  const afterMalformedUserMutation = await admin.request("/api/v1/me/bootstrap");
+  assert.deepEqual(
+    afterMalformedUserMutation.payload.data.db.users.find((candidate) => candidate.id === "user-owner"),
+    ownerBeforeMalformedUserMutation,
+    "malformed user updates and deletes must preserve the target account",
+  );
+  assert.equal(
+    afterMalformedUserMutation.payload.data.db.auditLogs.filter(
+      (log) => ["user.update", "user.delete"].includes(log.action) && log.targetId === "user-owner",
+    ).length,
+    userMutationAuditCountBeforeMalformed,
+    "malformed user updates and deletes must not append audit records",
+  );
+
   const owner = createClient(baseUrl);
   await loginRole(owner, "owner");
 
@@ -190,11 +261,55 @@ async function runAssertions(baseUrl) {
 
   const publicSignupClient = createClient(baseUrl);
   const publicRegisterPhone = `010${stampPhoneSuffix}`;
+  const publicSignupBranches = await publicSignupClient.request("/api/v1/auth/register");
+  assert.deepEqual(
+    publicSignupBranches.payload.data?.branches?.map((branch) => branch.id),
+    ["branch-gangnam", "branch-songpa"],
+    "public signup branch API must list active branches with an accepted operator",
+  );
+  assert.deepEqual(
+    Object.keys(publicSignupBranches.payload.data.branches[0]).sort(),
+    ["district", "id", "name"],
+    "public signup branch API must expose only public branch identity fields",
+  );
+
+  const missingPublicRegisterBranch = await publicSignupClient.request(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: "휴대폰 가입 확인",
+        password: `FJ-Public-${stamp}!`,
+        phone: publicRegisterPhone,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(missingPublicRegisterBranch.response.status, 400, "multi-branch signup must require an explicit branch selection");
+  assert.equal(missingPublicRegisterBranch.payload.error?.code, "VALIDATION_ERROR", "missing signup branch must use the stable validation code");
+
+  const forgedPublicRegisterBranch = await publicSignupClient.request(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        branchId: "branch-inactive-or-forged",
+        name: "휴대폰 가입 확인",
+        password: `FJ-Public-${stamp}!`,
+        phone: publicRegisterPhone,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(forgedPublicRegisterBranch.response.status, 400, "signup must reject an unavailable or forged branch selection");
+  assert.equal(forgedPublicRegisterBranch.payload.error?.code, "VALIDATION_ERROR", "forged signup branch must use the stable validation code");
+
   const publicRegister = await publicSignupClient.request(
     "/api/v1/auth/register",
     {
       method: "POST",
       body: JSON.stringify({
+        branchId: "branch-songpa",
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -205,6 +320,12 @@ async function runAssertions(baseUrl) {
   assert.equal(publicRegister.payload.data?.ok, true, "public register API must return success");
   assert(publicRegister.payload.data?.userId, "public register API must return a user id");
   assert(publicRegister.payload.data?.memberId, "public register API must return a linked member id");
+  assert.deepEqual(publicRegister.payload.data?.user?.branchIds, ["branch-songpa"], "public register API must assign the selected branch");
+  assert.equal(
+    publicRegister.payload.data?.db?.members?.find((candidate) => candidate.id === publicRegister.payload.data.memberId)?.branchId,
+    "branch-songpa",
+    "public register API must persist the member in the selected branch",
+  );
 
   const publicRegisterLogin = await publicSignupClient.request("/api/v1/auth/login", {
     method: "POST",
@@ -220,6 +341,7 @@ async function runAssertions(baseUrl) {
   const concurrentPhoneSuffix = String((Number(stampPhoneSuffix) + 3) % 100000000).padStart(8, "0");
   const concurrentRegisterPhone = `010${concurrentPhoneSuffix}`;
   const concurrentRegisterBody = JSON.stringify({
+    branchId: "branch-gangnam",
     name: "동시 가입 확인",
     password: `FJ-Concurrent-${stamp}!`,
     phone: concurrentRegisterPhone,
@@ -392,6 +514,130 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(ownerBranchOwnerAssign.response.status, 403, "owner must not reach branch owner validation through admin branch API");
 
+  const malformedInvitation = await admin.request(
+    "/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        name: { invalid: true },
+        phone: `010${String((Number(stampPhoneSuffix) + 29) % 100000000).padStart(8, "0")}`,
+        role: "member",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(malformedInvitation.response.status, 400, "malformed invitation fields must be rejected before normalization");
+
+  const invitationLimitSnapshotBefore = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  const invitationUserCountBeforeLengthRejections = invitationLimitSnapshotBefore.payload.data.db.users.length;
+  const invitationAuditCountBeforeLengthRejections = invitationLimitSnapshotBefore.payload.data.db.auditLogs.filter(
+    (log) => log.action === "user.invite.create",
+  ).length;
+  const lengthLimitedInvitationPhone = `010${String((Number(stampPhoneSuffix) + 28) % 100000000).padStart(8, "0")}`;
+
+  for (const oversizedField of [
+    { name: "이".repeat(81) },
+    { email: "e".repeat(255) },
+    { phone: "0".repeat(41) },
+    { role: "r".repeat(33) },
+    { branchIds: Array.from({ length: 101 }, () => "branch-gangnam") },
+    { branchIds: ["b".repeat(201)] },
+  ]) {
+    const oversizedInvitation = await admin.request(
+      "/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          branchIds: ["branch-gangnam"],
+          email: `length-invite-${stamp}@example.com`,
+          name: "길이 제한 초대",
+          phone: lengthLimitedInvitationPhone,
+          role: "member",
+          ...oversizedField,
+        }),
+      },
+      { allowError: true },
+    );
+
+    assert.equal(oversizedInvitation.response.status, 400, "oversized invitation input must be rejected");
+  }
+
+  const invitationLimitSnapshotAfter = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert.equal(
+    invitationLimitSnapshotAfter.payload.data.db.users.length,
+    invitationUserCountBeforeLengthRejections,
+    "oversized invitations must not create users",
+  );
+  assert.equal(
+    invitationLimitSnapshotAfter.payload.data.db.auditLogs.filter((log) => log.action === "user.invite.create").length,
+    invitationAuditCountBeforeLengthRejections,
+    "oversized invitations must not create audit records",
+  );
+
+  const concurrentInvitationInputs = [30, 31].map((offset) => ({
+    branchIds: ["branch-gangnam"],
+    email: `concurrent-invite-${offset}-${stamp}@example.com`,
+    name: `동시 초대 ${offset}`,
+    phone: `010${String((Number(stampPhoneSuffix) + offset) % 100000000).padStart(8, "0")}`,
+    role: "coach",
+  }));
+  const concurrentInvitations = await Promise.all(
+    concurrentInvitationInputs.map((body) =>
+      admin.request("/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    ),
+  );
+  assert(
+    concurrentInvitations.every(({ response }) => response.status === 200),
+    "concurrent distinct invitations must both succeed",
+  );
+  const concurrentInvitationIds = concurrentInvitations.map(({ payload }) => payload.data.invitation.userId);
+  assert.equal(new Set(concurrentInvitationIds).size, 2, "concurrent invitation user IDs must be unique");
+  let concurrentInvitationSnapshot = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    concurrentInvitationIds.every((userId) => concurrentInvitationSnapshot.payload.data.db.users.some((user) => user.id === userId)),
+    "concurrent invitation users must both persist",
+  );
+  const concurrentInvitationAuditIds = concurrentInvitationSnapshot.payload.data.db.auditLogs
+    .filter((log) => log.action === "user.invite.create" && concurrentInvitationIds.includes(log.targetId))
+    .map((log) => log.id);
+  assert.equal(concurrentInvitationAuditIds.length, 2, "concurrent invitation audits must both persist");
+  assert.equal(new Set(concurrentInvitationAuditIds).size, 2, "concurrent invitation audit IDs must be unique");
+
+  const duplicateInvitationPhone = `010${String((Number(stampPhoneSuffix) + 32) % 100000000).padStart(8, "0")}`;
+  const duplicateInvitations = await Promise.all(
+    ["a", "b"].map((suffix) =>
+      admin.request(
+        "/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            branchIds: ["branch-gangnam"],
+            email: `duplicate-invite-${suffix}-${stamp}@example.com`,
+            name: `중복 초대 ${suffix}`,
+            phone: duplicateInvitationPhone,
+            role: "member",
+          }),
+        },
+        { allowError: true },
+      ),
+    ),
+  );
+  assert.deepEqual(
+    duplicateInvitations.map(({ response }) => response.status).sort(),
+    [200, 409],
+    "concurrent duplicate-phone invitations must commit exactly once",
+  );
+  concurrentInvitationSnapshot = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert.equal(
+    concurrentInvitationSnapshot.payload.data.db.users.filter((user) => user.phone === duplicateInvitationPhone).length,
+    1,
+    "concurrent duplicate-phone invitations must persist one user",
+  );
+
   const inviteEmail = `admin-user-api-${stamp}@example.com`;
   const invitePhone = `011${stampPhoneSuffix}`;
   let result = await admin.request("/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam", {
@@ -458,9 +704,25 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(invalidApprovalScope.response.status, 403, "invitation approval must reject invalid selectedBranchId");
 
-  result = await admin.request(`/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`, {
-    method: "POST",
-  });
+  const concurrentApprovalResults = await Promise.all([
+    admin.request(
+      `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`,
+      { method: "POST" },
+      { allowError: true },
+    ),
+    admin.request(
+      `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`,
+      { method: "POST" },
+      { allowError: true },
+    ),
+  ]);
+  assert.deepEqual(
+    concurrentApprovalResults.map(({ response }) => response.status).sort((left, right) => left - right),
+    [200, 409],
+    "concurrent invitation approvals must accept exactly one request",
+  );
+  result = concurrentApprovalResults.find(({ response }) => response.status === 200);
+  assert(result, "concurrent invitation approval must return one successful response");
   const approval = result.payload.data.approval;
   const approvedUser = result.payload.data.db.users.find((user) => user.id === approvalUserId);
   const approveAudit = result.payload.data.db.auditLogs.find(
@@ -473,6 +735,11 @@ async function runAssertions(baseUrl) {
   assert(approval.temporaryPassword.length >= 12, "invitation approval temporary password must be 12+ characters");
   assert(approvedUser, "invitation approval must return approved user in snapshot");
   assert(approveAudit, "invitation approval audit log missing");
+  assert.equal(
+    result.payload.data.db.auditLogs.filter((log) => log.action === "user.invite.approve" && log.targetId === approvalUserId).length,
+    1,
+    "concurrent invitation approvals must create exactly one approval audit log",
+  );
   assert.equal(approvedUser?.invitationStatus, "accepted", "invitation approval must persist accepted status");
   assert(approvedUser?.acceptedAt, "invitation approval must set accepted timestamp");
   assert(!approvedUser?.invitationToken, "invitation approval snapshot must clear invitation token");
@@ -651,6 +918,72 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(ownerPasswordIssue.response.status, 403, "owner must not reach admin password validation through password API");
 
+  const malformedPasswordIssue = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}/password?selectedBranchId=branch-songpa`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason: { invalid: true }, temporaryPassword: `FJ-Malformed-${stamp}!` }),
+    },
+    { allowError: true },
+  );
+  assert.equal(malformedPasswordIssue.response.status, 400, "malformed password issue fields must be rejected");
+  const passwordAfterMalformedIssue = createClient(baseUrl);
+  const passwordAfterMalformedBootstrap = await loginCredentials(passwordAfterMalformedIssue, updatedPhone, updatedPassword);
+  assert.equal(
+    passwordAfterMalformedBootstrap.user.id,
+    invitedUserId,
+    "malformed password issue must preserve the existing password",
+  );
+
+  const passwordIssueBeforeLengthRejections = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-songpa");
+  const passwordIssueTargetBeforeLengthRejections = passwordIssueBeforeLengthRejections.payload.data.db.users.find(
+    (candidate) => candidate.id === invitedUserId,
+  );
+  const passwordIssueAuditCountBeforeLengthRejections = passwordIssueBeforeLengthRejections.payload.data.db.auditLogs.filter(
+    (log) => log.action === "auth.password_reset.complete" && log.targetId === invitedUserId,
+  ).length;
+
+  for (const oversizedField of [
+    { reason: "사".repeat(501), temporaryPassword: `FJ-Length-${stamp}!` },
+    { reason: `length-limited password issue ${stamp}`, temporaryPassword: "P".repeat(257) },
+  ]) {
+    const oversizedPasswordIssue = await admin.request(
+      `/api/v1/admin/users/${invitedUserId}/password?selectedBranchId=branch-songpa`,
+      {
+        method: "POST",
+        body: JSON.stringify(oversizedField),
+      },
+      { allowError: true },
+    );
+
+    assert.equal(oversizedPasswordIssue.response.status, 400, "oversized password issue input must be rejected");
+  }
+
+  const passwordIssueAfterLengthRejections = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-songpa");
+  assert.deepEqual(
+    passwordIssueAfterLengthRejections.payload.data.db.users.find((candidate) => candidate.id === invitedUserId),
+    passwordIssueTargetBeforeLengthRejections,
+    "oversized password issue input must preserve the target account",
+  );
+  assert.equal(
+    passwordIssueAfterLengthRejections.payload.data.db.auditLogs.filter(
+      (log) => log.action === "auth.password_reset.complete" && log.targetId === invitedUserId,
+    ).length,
+    passwordIssueAuditCountBeforeLengthRejections,
+    "oversized password issue input must not append audit records",
+  );
+  const passwordAfterLengthRejections = createClient(baseUrl);
+  const passwordAfterLengthRejectionsBootstrap = await loginCredentials(
+    passwordAfterLengthRejections,
+    updatedPhone,
+    updatedPassword,
+  );
+  assert.equal(
+    passwordAfterLengthRejectionsBootstrap.user.id,
+    invitedUserId,
+    "oversized password issue input must preserve the existing password",
+  );
+
   const reissuedPassword = `FJ-Reissued-${stamp}!`;
   result = await admin.request(`/api/v1/admin/users/${invitedUserId}/password?selectedBranchId=branch-songpa`, {
     method: "POST",
@@ -674,6 +1007,65 @@ async function runAssertions(baseUrl) {
   const reissuedLogin = createClient(baseUrl);
   const reissuedBootstrap = await loginCredentials(reissuedLogin, updatedPhone, reissuedPassword);
   assert.equal(reissuedBootstrap.user.id, invitedUserId, "admin-reissued password must allow login");
+
+  const malformedRoleUpdate = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ role: "coach", branchIds: ["branch-songpa"], reason: { invalid: true } }),
+    },
+    { allowError: true },
+  );
+  assert.equal(malformedRoleUpdate.response.status, 400, "malformed role update fields must be rejected");
+  const roleAfterMalformedUpdate = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-songpa");
+  assert.equal(
+    roleAfterMalformedUpdate.payload.data.db.users.find((candidate) => candidate.id === invitedUserId)?.role,
+    "member",
+    "malformed role updates must preserve the existing role",
+  );
+  const roleUpdateTargetBeforeLengthRejections = roleAfterMalformedUpdate.payload.data.db.users.find(
+    (candidate) => candidate.id === invitedUserId,
+  );
+  const roleUpdateAuditCountBeforeLengthRejections = roleAfterMalformedUpdate.payload.data.db.auditLogs.filter(
+    (log) => log.action === "user.role.update" && log.targetId === invitedUserId,
+  ).length;
+
+  for (const oversizedField of [
+    { reason: "사".repeat(501) },
+    { role: "r".repeat(33) },
+    { branchIds: Array.from({ length: 101 }, () => "branch-songpa") },
+    { branchIds: ["b".repeat(201)] },
+  ]) {
+    const oversizedRoleUpdate = await admin.request(
+      `/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          role: "coach",
+          branchIds: ["branch-songpa"],
+          reason: `length-limited role update ${stamp}`,
+          ...oversizedField,
+        }),
+      },
+      { allowError: true },
+    );
+
+    assert.equal(oversizedRoleUpdate.response.status, 400, "oversized role update input must be rejected");
+  }
+
+  const roleAfterLengthRejections = await admin.request("/api/v1/me/bootstrap?selectedBranchId=branch-songpa");
+  assert.deepEqual(
+    roleAfterLengthRejections.payload.data.db.users.find((candidate) => candidate.id === invitedUserId),
+    roleUpdateTargetBeforeLengthRejections,
+    "oversized role updates must preserve the target user",
+  );
+  assert.equal(
+    roleAfterLengthRejections.payload.data.db.auditLogs.filter(
+      (log) => log.action === "user.role.update" && log.targetId === invitedUserId,
+    ).length,
+    roleUpdateAuditCountBeforeLengthRejections,
+    "oversized role updates must not create audit records",
+  );
 
   const missingRoleBranchScope = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
     method: "PUT",
@@ -1146,12 +1538,41 @@ async function runAssertions(baseUrl) {
   }
 
   const secondAdminPhone = `010${String((Number(stampPhoneSuffix) + 11) % 100000000).padStart(8, "0")}`;
+  const secondAdminPassword = `FJ-Concurrent-Admin-B-${stamp}!`;
   const secondAdmin = await createAcceptedAdmin(baseUrl, admin, {
     email: `concurrent-admin-second-${stamp}@example.com`,
     name: `동시 관리자 B ${stamp}`,
-    password: `FJ-Concurrent-Admin-B-${stamp}!`,
+    password: secondAdminPassword,
     phone: secondAdminPhone,
   });
+  const throttledAdminLoginClient = createClient(baseUrl);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const failedLogin = await throttledAdminLoginClient.request(
+      "/api/v1/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ phone: secondAdminPhone, password: `wrong-password-${attempt}` }),
+      },
+      { allowError: true },
+    );
+    assert.equal(failedLogin.response.status, 401, `failed login attempt ${attempt} must be recorded before throttling`);
+  }
+  const blockedLogin = await throttledAdminLoginClient.request(
+    "/api/v1/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ phone: secondAdminPhone, password: "wrong-password-blocked" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedLogin.response.status, 429, "an additional invalid password must remain account-throttled");
+  assert(Number(blockedLogin.response.headers.get("retry-after")) > 0, "throttled login must include Retry-After");
+  const recoveredLogin = await throttledAdminLoginClient.request("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ phone: secondAdminPhone, password: secondAdminPassword }),
+  });
+  assert.equal(recoveredLogin.response.status, 200, "verified credentials must recover an account from identifier-only failures");
+  assert.equal(recoveredLogin.payload.data.user.id, secondAdmin.userId, "throttle recovery must authenticate the intended account");
   const [roleDemotion, originalAdminDelete] = await Promise.all([
     admin.request(
       `/api/v1/admin/users/${secondAdmin.userId}/roles`,
@@ -1242,19 +1663,23 @@ async function runAssertions(baseUrl) {
 
   return [
     "admin-only user update/delete",
+    "user update/delete input safety without mutation",
     "authentication-first admin user API guards",
     "raw user-id session cookie forgery rejection",
     "coach bootstrap payment record exclusion",
     "public register API phone signup login flow",
+    "public register branch discovery and server-validated selection",
     "concurrent phone signup uniqueness",
     "authentication-first admin user role and invitation guards",
+    "invitation input safety and concurrent identity uniqueness",
     "authentication-first admin branch API guards",
-    "admin invitation approval login flow",
+    "serialized admin invitation approval and login flow",
     "user update profile and branch assignment",
     "member app link update and bootstrap visibility",
     "adult members are rejected as guardian children",
     "optional password update login",
     "dedicated password issue login and audit redaction",
+    "password issue and role update input safety without mutation",
     "password hash and raw password redaction",
     "audit phone and email masking",
     "short/default password rejection",
@@ -1267,6 +1692,7 @@ async function runAssertions(baseUrl) {
     "user.update and user.delete audit logs",
     "shared-lock active admin protection across profile, role, and delete mutations",
     "shared-lock accepted branch owner protection",
+    "verified credentials recover from account-only login throttling",
   ];
 }
 

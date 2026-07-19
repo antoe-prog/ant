@@ -22,7 +22,63 @@ export type TournamentValidation =
   | { ok: false; error: string }
   | { ok: true; value: TournamentValue };
 
-export function validateTournamentBody(body: TournamentBody): TournamentValidation {
+const tournamentBodyFields = [
+  "title",
+  "organizer",
+  "eventDate",
+  "location",
+  "registrationDeadline",
+  "sourceUrl",
+  "description",
+] as const;
+
+export const tournamentStateLockKey = "tournament-state";
+
+function isDateOnly(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const [, year, month, day] = match;
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+
+  return (
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() === Number(month) - 1 &&
+    parsed.getUTCDate() === Number(day)
+  );
+}
+
+export function getTournamentBodyTypeError(value: unknown, requireSupportedField = false) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "대회 정보가 올바른 JSON 객체가 아닙니다.";
+  }
+
+  const body = value as Record<string, unknown>;
+
+  for (const field of tournamentBodyFields) {
+    if (body[field] !== undefined && typeof body[field] !== "string") {
+      return "대회 정보 값의 형식이 올바르지 않습니다.";
+    }
+  }
+
+  if (requireSupportedField && !tournamentBodyFields.some((field) => body[field] !== undefined)) {
+    return "변경할 대회 정보를 입력해 주세요.";
+  }
+
+  return null;
+}
+
+export function validateTournamentBody(value: unknown): TournamentValidation {
+  const bodyTypeError = getTournamentBodyTypeError(value);
+
+  if (bodyTypeError) {
+    return { ok: false, error: bodyTypeError };
+  }
+
+  const body = value as TournamentBody;
   const title = body.title?.trim() ?? "";
   const organizer = body.organizer?.trim() ?? "";
   const eventDate = body.eventDate?.trim() ?? "";
@@ -39,16 +95,16 @@ export function validateTournamentBody(body: TournamentBody): TournamentValidati
     return { ok: false, error: "주최 단체를 40자 이내로 입력해 주세요." };
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(eventDate))) {
+  if (!isDateOnly(eventDate)) {
     return { ok: false, error: "대회일은 YYYY-MM-DD 형식으로 입력해 주세요." };
   }
 
   if (registrationDeadline !== undefined) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(registrationDeadline) || Number.isNaN(Date.parse(registrationDeadline))) {
+    if (!isDateOnly(registrationDeadline)) {
       return { ok: false, error: "접수 마감일은 YYYY-MM-DD 형식으로 입력해 주세요." };
     }
 
-    if (Date.parse(registrationDeadline) > Date.parse(eventDate)) {
+    if (registrationDeadline > eventDate) {
       return { ok: false, error: "접수 마감일은 대회일 이전이어야 합니다." };
     }
   }
