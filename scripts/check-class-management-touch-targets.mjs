@@ -325,6 +325,7 @@ async function captureOwnerClasses(context) {
   const messages = collectConsoleMessages(page);
   const collapsedScreenshotPath = join(outDir, "owner-classes-create-collapsed-mobile.png");
   const openScreenshotPath = join(outDir, "owner-classes-create-open-mobile.png");
+  const weeklyScreenshotPath = join(outDir, "owner-classes-create-weekly-mobile.png");
 
   try {
     await gotoRole(page, "owner", "/app/classes");
@@ -382,20 +383,49 @@ async function captureOwnerClasses(context) {
     assert.equal(messages.length, 0, `owner classes must not log console/page warnings: ${messages.join(" | ")}`);
     await page.screenshot({ fullPage: false, path: openScreenshotPath });
 
+    const branchSelect = page.getByLabel("지점", { exact: true });
+    if (await branchSelect.count()) {
+      await branchSelect.selectOption("branch-gangnam");
+    }
+    await page.getByTestId("class-create-mode-weekly").click();
+    await page.waitForSelector('[data-testid="class-create-weekdays"]', { timeout: 15000 });
+    await page.getByTestId("class-create-main-schedule").scrollIntoViewIfNeeded();
+    const weeklyLayout = {
+      health: await collectPageHealth(page),
+      mainScheduleHeights: await readHeights(page, '[data-testid="class-create-main-schedule"]'),
+      mainScheduleSelectCount: await page.getByTestId("class-create-main-schedule").count(),
+      modeHeights: await readHeights(page, '[data-testid^="class-create-mode-"]'),
+      occurrenceSummary: await page.locator('[data-testid="class-create-form"]').getByText(/선택한 기간에 \d+회 수업을 등록합니다\./).count(),
+      weekdayHeights: await readHeights(page, '[data-testid="class-create-weekday"]'),
+    };
+
+    assert.equal(weeklyLayout.health.frameworkOverlayCount, 0, "weekly class form must not show a framework overlay");
+    assert.equal(weeklyLayout.health.scrollWidth, weeklyLayout.health.clientWidth, "weekly class form must not overflow horizontally");
+    assert.equal(weeklyLayout.mainScheduleSelectCount, 1, "main branch weekly registration must expose the official timetable");
+    assert.equal(weeklyLayout.occurrenceSummary, 1, "weekly class form must show the generated class count");
+    assertHeightsAtLeast("class create main timetable", weeklyLayout.mainScheduleHeights);
+    assertHeightsAtLeast("class create schedule mode", weeklyLayout.modeHeights);
+    assertHeightsAtLeast("class create weekday", weeklyLayout.weekdayHeights);
+    await page.screenshot({ fullPage: false, path: weeklyScreenshotPath });
+
     assert(statSync(collapsedScreenshotPath).size > 10_000, "owner classes collapsed screenshot must be non-empty");
     assert(statSync(openScreenshotPath).size > 10_000, "owner classes open screenshot must be non-empty");
+    assert(statSync(weeklyScreenshotPath).size > 10_000, "owner classes weekly screenshot must be non-empty");
 
     return {
       collapsedLayout,
       messages,
       openLayout,
+      weeklyLayout,
       screenshots: {
         collapsed: collapsedScreenshotPath,
         open: openScreenshotPath,
+        weekly: weeklyScreenshotPath,
       },
       screenshotSizeBytes: {
         collapsed: statSync(collapsedScreenshotPath).size,
         open: statSync(openScreenshotPath).size,
+        weekly: statSync(weeklyScreenshotPath).size,
       },
       url: page.url(),
     };

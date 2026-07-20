@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Ban, ChevronDown, CreditCard, Download, PlusCircle, ReceiptText, RefreshCcw, Repeat2, WalletCards, X } from "lucide-react";
 import type { OnlinePaymentStatus, Payment, PaymentStatus, RecurringBillingStatus } from "@/lib/domain";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { ApiClientError, apiClient } from "@/lib/api-client";
@@ -14,6 +14,7 @@ import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { ManualPaymentManagement } from "@/components/domain/manual-payment-management";
 import { FinalCommonFeeReference } from "@/components/domain/final-common-fee-reference";
 import { formatCurrency, formatDate, formatDateKey, formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import {
   finalCommonFeeProducts,
   finalCommonPublicServiceBenefit,
@@ -265,17 +266,13 @@ export function PaymentsScreen() {
   const guardianPaymentChildren = useMemo(
     () =>
       context.user.role === "guardian"
-        ? context.db.members.filter(
-            (member) =>
-              (context.user.childMemberIds ?? []).includes(member.id) &&
-              member.guardianIds.includes(context.user.id),
-          )
+        ? getGuardianFamilyMembers(context.user, context.db)
         : [],
-    [context.db.members, context.user.childMemberIds, context.user.id, context.user.role],
+    [context.db, context.user],
   );
   const guardianChildIds =
     context.user.role === "guardian" ? guardianPaymentChildren.map((member) => member.id) : undefined;
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(context.user.id, guardianChildIds);
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(context.user.id, guardianChildIds);
   const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
   const appliedRequestedMemberIdRef = useRef<string | null>(null);
   const [paymentAdjustmentDrafts, setPaymentAdjustmentDrafts] = useState<Record<string, PaymentAdjustmentDraft>>({});
@@ -343,7 +340,7 @@ export function PaymentsScreen() {
     }
 
     appliedRequestedMemberIdRef.current = requestedMemberId;
-    // URL 딥링크는 최초 진입에만 적용하고 이후 사용자의 자녀 선택은 유지한다.
+    // URL 딥링크는 최초 진입에만 적용하고 이후 사용자의 가족 프로필 선택은 유지한다.
     setSelectedChildId(requestedMemberId);
   }, [context.user.role, requestedGuardianPaymentChild, requestedMemberId, setSelectedChildId]);
   const pendingRequestedGuardianPaymentChild =
@@ -1002,6 +999,7 @@ export function PaymentsScreen() {
           items={guardianPaymentChildren.map((child) => ({
             id: child.id,
             name: child.name,
+            relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, child)),
             ...getChildSwitcherPresentation(child),
           }))}
           selectedChildId={selectedGuardianPaymentChildId}
@@ -1015,9 +1013,9 @@ export function PaymentsScreen() {
           data-testid="guardian-payment-invalid-target"
           role="status"
         >
-          <p className="text-sm font-semibold text-amber-900">요청한 자녀의 결제 정보를 확인할 수 없습니다.</p>
+          <p className="text-sm font-semibold text-amber-900">요청한 가족 회원의 결제 정보를 확인할 수 없습니다.</p>
           <p className="mt-1 text-sm leading-5 text-amber-800">
-            다른 자녀의 결제로 자동 전환하지 않았습니다. 연결된 자녀를 위에서 직접 선택해 주세요.
+            다른 가족 회원의 결제로 자동 전환하지 않았습니다. 연결된 수련 프로필을 위에서 직접 선택해 주세요.
           </p>
         </section>
       ) : selectedGuardianPaymentChild && !selectedGuardianPaymentChildIsEligible ? (
@@ -1033,7 +1031,7 @@ export function PaymentsScreen() {
             </span>
           </div>
           <p className="mt-1 text-sm leading-5 text-zinc-600">
-            퇴회한 자녀는 새 납부 요청을 진행할 수 없으며, 등록된 결제 이력만 확인할 수 있습니다.
+            퇴회한 회원은 새 납부 요청을 진행할 수 없으며, 등록된 결제 이력만 확인할 수 있습니다.
           </p>
         </section>
       ) : null}
@@ -1661,9 +1659,9 @@ export function PaymentsScreen() {
             paymentSearchKeyword
               ? `"${paymentSearchKeyword}"와 일치하는 회원 또는 회원권이 없습니다.`
               : invalidGuardianPaymentTarget
-                ? "연결된 자녀를 직접 선택하면 해당 자녀의 결제 내역만 표시합니다."
+                ? "연결된 수련 프로필을 직접 선택하면 해당 회원의 결제 내역만 표시합니다."
                 : selectedGuardianPaymentChild && !selectedGuardianPaymentChildIsEligible
-                  ? "퇴회한 자녀에게 등록된 과거 결제 내역이 없습니다."
+                  ? "퇴회한 회원에게 등록된 과거 결제 내역이 없습니다."
                   : undefined
           }
           action={

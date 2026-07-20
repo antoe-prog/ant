@@ -15,12 +15,15 @@ import type {
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { FinalMainScheduleReference } from "@/components/domain/final-main-schedule-reference";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { attendanceInputLimits, hasAttendanceWindowOpened } from "@/lib/attendance-policy";
+import { classWeekdayOptions, getClassWeeklyRecurrence } from "@/lib/class-recurrence";
 import { classInputLimits } from "@/lib/class-input-policy";
+import { finalMainClassRegistrationSlots } from "@/lib/final-main-schedule-policy";
 import { formatCompactTimeRange, formatDate, formatDateKey, formatDateTime } from "@/lib/format";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { isFinalMainBranch } from "@/lib/final-main-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { attendanceStatusLabels } from "@/lib/roles";
@@ -47,6 +50,34 @@ const ageGroupOptions: Array<{ value: Member["ageGroup"]; label: string }> = [
   { value: "teen", label: "청소년" },
   { value: "adult", label: "성인" },
 ];
+type ClassCreateScheduleMode = "single" | "weekly";
+
+const weekdayLabelByValue = new Map<number, string>(classWeekdayOptions.map((option) => [option.value, option.label]));
+const finalMainClassTimeOptions = Array.from(
+  finalMainClassRegistrationSlots.reduce(
+    (options, slot) => {
+      const value = `${slot.startTime}-${slot.endTime}`;
+      const existing = options.get(value);
+
+      if (existing) {
+        existing.weekdays.push(slot.weekday);
+      } else {
+        options.set(value, {
+          value,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          weekdays: [slot.weekday],
+        });
+      }
+
+      return options;
+    },
+    new Map<string, { value: string; startTime: string; endTime: string; weekdays: number[] }>(),
+  ).values(),
+).map((option) => ({
+  ...option,
+  label: `${option.startTime}–${option.endTime} · ${option.weekdays.map((weekday) => weekdayLabelByValue.get(weekday)).join("·")}`,
+}));
 
 type AttendanceUndoSnapshot = {
   sessionId: string;
@@ -85,6 +116,21 @@ function createInitialStartAt() {
   date.setHours(18, 0, 0, 0);
 
   return toDatetimeLocalValue(date);
+}
+
+function createInitialDateKey() {
+  return createInitialStartAt().slice(0, 10);
+}
+
+function addDaysToDateKey(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function addMinutes(value: string, minutes: number) {
@@ -240,10 +286,10 @@ export function ClassesScreen() {
   const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
   const guardianChildren =
     context.user.role === "guardian"
-      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      ? getGuardianFamilyMembers(context.user, context.db)
       : [];
   const guardianChildIds = guardianChildren.map((member) => member.id);
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     context.user.id,
     context.user.role === "guardian" ? guardianChildIds : undefined,
   );
@@ -254,10 +300,22 @@ export function ClassesScreen() {
   const [newClassCoachId, setNewClassCoachId] = useState("");
   const [newClassStartsAt, setNewClassStartsAt] = useState(createInitialStartAt);
   const [newClassEndsAt, setNewClassEndsAt] = useState(() => addMinutes(createInitialStartAt(), 50));
+  const [newClassScheduleMode, setNewClassScheduleMode] = useState<ClassCreateScheduleMode>("single");
+  const [newClassRepeatStartsOn, setNewClassRepeatStartsOn] = useState(createInitialDateKey);
+  const [newClassRepeatEndsOn, setNewClassRepeatEndsOn] = useState(() => addDaysToDateKey(createInitialDateKey(), 27));
+  const [newClassWeekdays, setNewClassWeekdays] = useState<number[]>(() => {
+    const weekday = new Date(`${createInitialDateKey()}T00:00:00Z`).getUTCDay();
+    return [weekday === 0 ? 1 : weekday];
+  });
+  const [newClassFixedStartTime, setNewClassFixedStartTime] = useState("18:00");
+  const [newClassFixedEndTime, setNewClassFixedEndTime] = useState("19:00");
+  const [newClassMainTimeKey, setNewClassMainTimeKey] = useState("18:00-19:00");
   const [newClassRoom, setNewClassRoom] = useState("매트 A");
   const [newClassCapacity, setNewClassCapacity] = useState("12");
   const [newClassMemberIds, setNewClassMemberIds] = useState<string[]>([]);
   const [classCreateFormOpen, setClassCreateFormOpen] = useState(false);
+  const [classCreatePending, setClassCreatePending] = useState(false);
+  const [classCreateFeedback, setClassCreateFeedback] = useState<string | null>(null);
   const [classEdits, setClassEdits] = useState<Record<string, { room: string; capacity: string }>>({});
   const [attendanceNotes, setAttendanceNotes] = useState<Record<string, string>>({});
   const [attendanceNoteEditorOpenByKey, setAttendanceNoteEditorOpenByKey] = useState<Record<string, boolean>>({});
@@ -286,6 +344,40 @@ export function ClassesScreen() {
     return () => window.clearInterval(interval);
   }, []);
   const selectedCreateBranchId = newClassBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
+  const selectedCreateBranch = context.db.branches.find((branch) => branch.id === selectedCreateBranchId) ?? null;
+  const usesFinalMainSchedule = isFinalMainBranch(selectedCreateBranch);
+  const selectedMainTimeOption =
+    finalMainClassTimeOptions.find((option) => option.value === newClassMainTimeKey) ?? finalMainClassTimeOptions[0] ?? null;
+  const recurringStartTime = usesFinalMainSchedule
+    ? selectedMainTimeOption?.startTime ?? ""
+    : newClassFixedStartTime;
+  const recurringEndTime = usesFinalMainSchedule
+    ? selectedMainTimeOption?.endTime ?? ""
+    : newClassFixedEndTime;
+  const classRecurrenceResult = getClassWeeklyRecurrence({
+    mode: "weekly",
+    startsOn: newClassRepeatStartsOn,
+    endsOn: newClassRepeatEndsOn,
+    weekdays: newClassWeekdays,
+    startTime: recurringStartTime,
+    endTime: recurringEndTime,
+  });
+  const hasInvalidFinalMainWeekday = Boolean(
+    usesFinalMainSchedule &&
+      selectedMainTimeOption &&
+      newClassWeekdays.some((weekday) => !selectedMainTimeOption.weekdays.includes(weekday)),
+  );
+  const classRecurrenceError =
+    newClassScheduleMode === "weekly"
+      ? hasInvalidFinalMainWeekday
+        ? "선택한 시간에 운영하는 요일만 고를 수 있습니다."
+        : classRecurrenceResult.ok
+          ? null
+          : classRecurrenceResult.error
+      : null;
+  const recurringClassCount = classRecurrenceResult.ok && !hasInvalidFinalMainWeekday
+    ? classRecurrenceResult.occurrences.length
+    : 0;
   const activePolicyBranch = context.selectedBranchId
     ? context.db.branches.find((branch) => branch.id === context.selectedBranchId) ?? null
     : context.user.branchIds.length === 1
@@ -313,17 +405,25 @@ export function ClassesScreen() {
     [context.db.members, selectedCreateBranchId],
   );
 
-  function handleCreateClass(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const capacity = Number(newClassCapacity);
-    const startsAt = new Date(newClassStartsAt);
-    const endsAt = new Date(newClassEndsAt);
+    const recurrence = newClassScheduleMode === "weekly" && classRecurrenceResult.ok && !hasInvalidFinalMainWeekday
+      ? classRecurrenceResult
+      : null;
+    const startsAt = recurrence
+      ? new Date(recurrence.occurrences[0].startsAt)
+      : new Date(newClassStartsAt);
+    const endsAt = recurrence
+      ? new Date(recurrence.occurrences[0].endsAt)
+      : new Date(newClassEndsAt);
 
     if (
       !selectedCreateBranchId ||
       !selectedCoachId ||
       !newClassName.trim() ||
+      (newClassScheduleMode === "weekly" && !recurrence) ||
       !Number.isInteger(capacity) ||
       Number.isNaN(startsAt.getTime()) ||
       Number.isNaN(endsAt.getTime())
@@ -331,7 +431,10 @@ export function ClassesScreen() {
       return;
     }
 
-    createClassSession(selectedCreateBranchId, {
+    setClassCreatePending(true);
+    setClassCreateFeedback(null);
+
+    const created = await createClassSession(selectedCreateBranchId, {
       name: newClassName.trim(),
       level: newClassLevel.trim() || "입문-초급",
       ageGroup: newClassAgeGroup,
@@ -341,9 +444,41 @@ export function ClassesScreen() {
       room: newClassRoom.trim() || "매트 A",
       capacity,
       enrolledMemberIds: newClassMemberIds,
+      ...(recurrence ? { recurrence: recurrence.recurrence } : {}),
     });
+
+    setClassCreatePending(false);
+
+    if (!created) {
+      return;
+    }
+
+    const createdCount = recurrence?.occurrences.length ?? 1;
+    setClassCreateFeedback(
+      newClassScheduleMode === "weekly"
+        ? `${createdCount}회의 요일 고정 수업을 등록했습니다.`
+        : "수업을 등록했습니다.",
+    );
     setNewClassName("");
     setNewClassMemberIds([]);
+  }
+
+  function toggleNewClassWeekday(weekday: number) {
+    setClassCreateFeedback(null);
+    setNewClassWeekdays((current) =>
+      current.includes(weekday) ? current.filter((value) => value !== weekday) : [...current, weekday].sort(),
+    );
+  }
+
+  function keepAvailableMainWeekdays(option: (typeof finalMainClassTimeOptions)[number] | null) {
+    if (!option) {
+      return;
+    }
+
+    setNewClassWeekdays((current) => {
+      const available = current.filter((weekday) => option.weekdays.includes(weekday));
+      return available.length > 0 ? available : [option.weekdays[0] ?? 1];
+    });
   }
 
   function toggleNewClassMember(memberId: string) {
@@ -586,6 +721,7 @@ export function ClassesScreen() {
   const childSwitcherItems = guardianChildren.map((member) => ({
     id: member.id,
     name: member.name,
+    relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, member)),
     ...getChildSwitcherPresentation(member),
   }));
   const totalEnrolled = visibleSessions.reduce((sum, session) => sum + session.enrolledMembers.length, 0);
@@ -809,9 +945,15 @@ export function ClassesScreen() {
                     data-testid="class-create-field"
                     value={selectedCreateBranchId}
                     onChange={(event) => {
-                      setNewClassBranchId(event.target.value);
+                      const nextBranchId = event.target.value;
+                      const nextBranch = context.db.branches.find((branch) => branch.id === nextBranchId);
+                      setNewClassBranchId(nextBranchId);
                       setNewClassCoachId("");
                       setNewClassMemberIds([]);
+                      setClassCreateFeedback(null);
+                      if (newClassScheduleMode === "weekly" && isFinalMainBranch(nextBranch)) {
+                        keepAvailableMainWeekdays(selectedMainTimeOption);
+                      }
                     }}
                   >
                     {context.db.branches.map((branch) => (
@@ -885,29 +1027,192 @@ export function ClassesScreen() {
                   onChange={(event) => setNewClassCapacity(event.target.value)}
                 />
               </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold text-zinc-500">시작</span>
-                <input
-                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                  data-testid="class-create-field"
-                  type="datetime-local"
-                  value={newClassStartsAt}
-                  onChange={(event) => {
-                    setNewClassStartsAt(event.target.value);
-                    setNewClassEndsAt(addMinutes(event.target.value, 50));
-                  }}
-                />
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold text-zinc-500">종료</span>
-                <input
-                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                  data-testid="class-create-field"
-                  type="datetime-local"
-                  value={newClassEndsAt}
-                  onChange={(event) => setNewClassEndsAt(event.target.value)}
-                />
-              </label>
+              <fieldset className="lg:col-span-2">
+                <legend className="mb-1 block text-xs font-semibold text-zinc-500">등록 방식</legend>
+                <div className="grid grid-cols-2 rounded-md border border-zinc-200 bg-zinc-50 p-1" data-testid="class-create-schedule-mode">
+                  {([
+                    { label: "1회 등록", value: "single" },
+                    { label: "요일 고정", value: "weekly" },
+                  ] as const).map((option) => (
+                    <button
+                      aria-pressed={newClassScheduleMode === option.value}
+                      className={`min-h-11 rounded-md px-3 text-sm font-semibold transition ${
+                        newClassScheduleMode === option.value
+                          ? "bg-zinc-950 text-white shadow-sm"
+                          : "text-zinc-600 hover:bg-white"
+                      }`}
+                      data-testid={`class-create-mode-${option.value}`}
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setNewClassScheduleMode(option.value);
+                        setClassCreateFeedback(null);
+                        if (option.value === "weekly" && usesFinalMainSchedule) {
+                          keepAvailableMainWeekdays(selectedMainTimeOption);
+                        }
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              {newClassScheduleMode === "single" ? (
+                <>
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-500">시작</span>
+                    <input
+                      className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                      data-testid="class-create-field"
+                      type="datetime-local"
+                      value={newClassStartsAt}
+                      onChange={(event) => {
+                        setNewClassStartsAt(event.target.value);
+                        setNewClassEndsAt(addMinutes(event.target.value, 50));
+                        setClassCreateFeedback(null);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-500">종료</span>
+                    <input
+                      className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                      data-testid="class-create-field"
+                      type="datetime-local"
+                      value={newClassEndsAt}
+                      onChange={(event) => {
+                        setNewClassEndsAt(event.target.value);
+                        setClassCreateFeedback(null);
+                      }}
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-500">시작일</span>
+                    <input
+                      className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                      data-testid="class-create-field"
+                      type="date"
+                      value={newClassRepeatStartsOn}
+                      onChange={(event) => {
+                        const nextStart = event.target.value;
+                        setNewClassRepeatStartsOn(nextStart);
+                        if (newClassRepeatEndsOn < nextStart) {
+                          setNewClassRepeatEndsOn(addDaysToDateKey(nextStart, 27));
+                        }
+                        setClassCreateFeedback(null);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-500">종료일</span>
+                    <input
+                      className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                      data-testid="class-create-field"
+                      min={newClassRepeatStartsOn}
+                      type="date"
+                      value={newClassRepeatEndsOn}
+                      onChange={(event) => {
+                        setNewClassRepeatEndsOn(event.target.value);
+                        setClassCreateFeedback(null);
+                      }}
+                    />
+                  </label>
+                  {usesFinalMainSchedule ? (
+                    <label className="lg:col-span-2">
+                      <span className="mb-1 block text-xs font-semibold text-zinc-500">본관 시간표</span>
+                      <select
+                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                        data-testid="class-create-main-schedule"
+                        value={selectedMainTimeOption?.value ?? ""}
+                        onChange={(event) => {
+                          const nextTimeKey = event.target.value;
+                          const nextTimeOption = finalMainClassTimeOptions.find((option) => option.value === nextTimeKey) ?? null;
+                          setNewClassMainTimeKey(nextTimeKey);
+                          keepAvailableMainWeekdays(nextTimeOption);
+                          setClassCreateFeedback(null);
+                        }}
+                      >
+                        {finalMainClassTimeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <>
+                      <label>
+                        <span className="mb-1 block text-xs font-semibold text-zinc-500">고정 시작</span>
+                        <input
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="class-create-field"
+                          type="time"
+                          value={newClassFixedStartTime}
+                          onChange={(event) => {
+                            setNewClassFixedStartTime(event.target.value);
+                            setClassCreateFeedback(null);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-xs font-semibold text-zinc-500">고정 종료</span>
+                        <input
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="class-create-field"
+                          type="time"
+                          value={newClassFixedEndTime}
+                          onChange={(event) => {
+                            setNewClassFixedEndTime(event.target.value);
+                            setClassCreateFeedback(null);
+                          }}
+                        />
+                      </label>
+                    </>
+                  )}
+                  <fieldset className="lg:col-span-3" data-testid="class-create-weekdays">
+                    <legend className="mb-1 block text-xs font-semibold text-zinc-500">반복 요일</legend>
+                    <div className="grid grid-cols-7 gap-1">
+                      {classWeekdayOptions.map((option) => {
+                        const unavailable = Boolean(
+                          usesFinalMainSchedule &&
+                            selectedMainTimeOption &&
+                            !selectedMainTimeOption.weekdays.includes(option.value),
+                        );
+                        const selected = newClassWeekdays.includes(option.value);
+
+                        return (
+                          <button
+                            aria-label={`${option.label}요일`}
+                            aria-pressed={selected}
+                            className={`min-h-11 rounded-md border text-sm font-bold transition ${
+                              selected
+                                ? "border-teal-700 bg-teal-700 text-white"
+                                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                            } disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-300`}
+                            data-testid="class-create-weekday"
+                            disabled={unavailable}
+                            key={option.value}
+                            type="button"
+                            onClick={() => toggleNewClassWeekday(option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                  <div className="lg:col-span-3" aria-live="polite">
+                    {classRecurrenceError ? (
+                      <p className="text-sm font-medium text-red-700" role="alert">{classRecurrenceError}</p>
+                    ) : (
+                      <p className="text-sm font-medium text-teal-700">선택한 기간에 {recurringClassCount}회 수업을 등록합니다.</p>
+                    )}
+                  </div>
+                </>
+              )}
               <label>
                 <span className="mb-1 block text-xs font-semibold text-zinc-500">장소</span>
                 <input
@@ -941,11 +1246,26 @@ export function ClassesScreen() {
               <button
                 className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                 data-testid="class-create-submit"
-                disabled={!selectedCreateBranchId || !selectedCoachId || !newClassName.trim()}
+                disabled={
+                  classCreatePending ||
+                  !selectedCreateBranchId ||
+                  !selectedCoachId ||
+                  !newClassName.trim() ||
+                  (newClassScheduleMode === "weekly" && recurringClassCount === 0)
+                }
                 type="submit"
               >
-                생성
+                {classCreatePending
+                  ? "등록 중"
+                  : newClassScheduleMode === "weekly"
+                    ? `${recurringClassCount}회 등록`
+                    : "등록"}
               </button>
+              {classCreateFeedback ? (
+                <p className="self-center text-sm font-medium text-emerald-700 lg:col-span-2" data-testid="class-create-feedback" role="status">
+                  {classCreateFeedback}
+                </p>
+              ) : null}
             </form>
           ) : null}
         </section>

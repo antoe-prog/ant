@@ -37,14 +37,17 @@ function replaceMemberGuardians(member: Member, guardianUserId: string): Member 
 }
 
 function syncGuardianUserLinks(user: AppUser, members: Member[]): AppUser {
-  const linkedMembers = members.filter(
+  const linkedChildMembers = members.filter(
     (member) => canMemberHaveGuardianLink(member) && member.guardianIds.includes(user.id),
+  );
+  const linkedSelfMembers = members.filter(
+    (member) => member.ageGroup === "adult" && (user.memberIds ?? []).includes(member.id),
   );
 
   return {
     ...user,
-    branchIds: [...new Set(linkedMembers.map((member) => member.branchId))],
-    childMemberIds: linkedMembers.map((member) => member.id),
+    branchIds: [...new Set([...linkedSelfMembers, ...linkedChildMembers].map((member) => member.branchId))],
+    childMemberIds: linkedChildMembers.map((member) => member.id),
   };
 }
 

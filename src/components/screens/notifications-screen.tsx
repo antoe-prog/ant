@@ -18,12 +18,13 @@ import {
 } from "@/lib/notification-alerts";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMemberIds, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { canDeleteNotice } from "@/lib/notice-permissions";
 import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
 import { paymentStatusLabels, roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useAppStore } from "@/store/app-store";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -77,13 +78,15 @@ function noticeTargetLabel(notice: Notice, context: ReturnType<typeof useApiCont
     : null;
   const otherFamilyTargetCount = selectedChildId
     ? (notice.targetMemberIds ?? []).filter(
-        (memberId) => memberId !== selectedChildId && context.user.childMemberIds?.includes(memberId),
+        (memberId) =>
+          memberId !== selectedChildId &&
+          getGuardianFamilyMemberIds(context.user, context.db).includes(memberId),
       ).length
     : 0;
   const memberLabels = selectedChildId
     ? [
-        ...(selectedChildTargeted ? [`개인 ${selectedChildName ?? "선택한 자녀"}`] : []),
-        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 자녀 ${otherFamilyTargetCount}명`] : []),
+        ...(selectedChildTargeted ? [`개인 ${selectedChildName ?? "선택한 회원"}`] : []),
+        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 회원 ${otherFamilyTargetCount}명`] : []),
       ]
     : memberNames.map((name) => `개인 ${name}`);
 
@@ -253,11 +256,11 @@ export function NotificationsScreen() {
   const { deleteNotice, markNoticeAsRead, markNoticesAsRead } = useAppStore();
   const guardianChildren =
     context.user.role === "guardian"
-      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      ? getGuardianFamilyMembers(context.user, context.db)
       : [];
   const guardianChildIds = guardianChildren.map((member) => member.id);
   const requestedChildId = searchParams.get("memberId")?.trim() ?? "";
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     context.user.id,
     context.user.role === "guardian" ? guardianChildIds : undefined,
     context.user.role === "guardian" ? requestedChildId : null,
@@ -459,7 +462,9 @@ export function NotificationsScreen() {
     .map((item) => item.noticeId as string);
   const notificationScopeUser =
     context.user.role === "guardian" && selectedChildId
-      ? { ...context.user, childMemberIds: [selectedChildId] }
+      ? getGuardianMemberRelation(context.user, { id: selectedChildId }) === "self"
+        ? { ...context.user, memberIds: [selectedChildId], childMemberIds: [] }
+        : { ...context.user, memberIds: [], childMemberIds: [selectedChildId] }
       : context.user;
   const notificationCounts = getNotificationAlertCounts({
     db: context.db,
@@ -537,6 +542,7 @@ export function NotificationsScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
+            relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, member)),
             ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}

@@ -10,12 +10,15 @@ const noticeMemberSearch = await import("../src/lib/notice-member-search.ts");
 const notices = await import("../src/lib/notices.ts");
 const promotions = await import("../src/lib/promotions.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
+const classRecurrence = await import("../src/lib/class-recurrence.ts");
+const finalMainSchedule = await import("../src/lib/final-main-schedule-policy.ts");
 const [
   paymentsExportRouteSource,
   operationsExportRouteSource,
   paymentsScreenSource,
   serverApiSource,
   mockApiSource,
+  familyMembersSource,
   appStoreSource,
   ownerBranchesScreenSource,
   classesScreenSource,
@@ -30,6 +33,7 @@ const [
   readFile("src/components/screens/payments-screen.tsx", "utf8"),
   readFile("src/server/api.ts", "utf8"),
   readFile("src/lib/mock-api.ts", "utf8"),
+  readFile("src/lib/family-members.ts", "utf8"),
   readFile("src/store/app-store.tsx", "utf8"),
   readFile("src/components/screens/owner-branches-screen.tsx", "utf8"),
   readFile("src/components/screens/classes-screen.tsx", "utf8"),
@@ -191,6 +195,79 @@ const db = {
   ],
   auditLogs: [],
 };
+
+const weeklyClassRecurrence = classRecurrence.getClassWeeklyRecurrence({
+  mode: "weekly",
+  startsOn: "2026-07-20",
+  endsOn: "2026-07-31",
+  weekdays: [1, 3],
+  startTime: "18:00",
+  endTime: "19:00",
+});
+assert.equal(weeklyClassRecurrence.ok, true, "weekly class recurrence must accept valid weekdays and times");
+if (weeklyClassRecurrence.ok) {
+  assert.deepEqual(
+    weeklyClassRecurrence.occurrences.map((occurrence) => occurrence.date),
+    ["2026-07-20", "2026-07-22", "2026-07-27", "2026-07-29"],
+    "weekly class recurrence must create each selected weekday within the inclusive range",
+  );
+  assert.equal(
+    weeklyClassRecurrence.occurrences[0].startsAt,
+    "2026-07-20T09:00:00.000Z",
+    "weekly class recurrence must convert Korea schedule time to a stable instant",
+  );
+}
+assert.equal(
+  classRecurrence.getClassWeeklyRecurrence({
+    mode: "weekly",
+    startsOn: "2026-07-20",
+    endsOn: "2026-07-19",
+    weekdays: [1],
+    startTime: "18:00",
+    endTime: "19:00",
+  }).ok,
+  false,
+  "weekly class recurrence must reject reversed date ranges",
+);
+assert.equal(
+  classRecurrence.getClassWeeklyRecurrence({
+    mode: "weekly",
+    startsOn: "2026-07-20",
+    endsOn: "2026-07-31",
+    weekdays: [],
+    startTime: "18:00",
+    endTime: "19:00",
+  }).ok,
+  false,
+  "weekly class recurrence must require at least one weekday",
+);
+assert.equal(
+  classRecurrence.getClassWeeklyRecurrence({
+    mode: "weekly",
+    startsOn: "2026-07-20",
+    endsOn: "2026-07-31",
+    weekdays: [1],
+    startTime: "19:00",
+    endTime: "18:00",
+  }).ok,
+  false,
+  "weekly class recurrence must reject non-positive durations",
+);
+assert.equal(
+  finalMainSchedule.isFinalMainClassRegistrationSlot(1, "18:00", "19:00"),
+  true,
+  "main timetable must accept a registered Monday slot",
+);
+assert.equal(
+  finalMainSchedule.isFinalMainClassRegistrationSlot(5, "22:00", "23:00"),
+  false,
+  "main timetable must reject Friday times outside the registered schedule",
+);
+assert.equal(
+  finalMainSchedule.isFinalMainClassRegistrationSlot(6, "11:00", "12:30"),
+  true,
+  "main timetable must expose the fixed Saturday session",
+);
 
 const [admin, owner, coach, guardian, member, songpaGuardian] = db.users;
 
@@ -365,15 +442,17 @@ assert.deepEqual(
 );
 
 assert(
-  mockApiSource.includes("canMemberHaveGuardianLink(member)") &&
+  mockApiSource.includes("getGuardianFamilyMemberIds(user, db, branchIds)") &&
+    familyMembersSource.includes("canMemberHaveGuardianLink(member)") &&
     mockApiSource.includes("const linkedChildMemberIds = getAccessibleMemberIds(user, db, [notice.branchId]);"),
   "guardian scope helpers must reject stale adult child links for members and notices",
 );
 assert(
   serverApiSource.includes('safeUser.role === "guardian"') &&
-    serverApiSource.includes("allowedChildMemberIds") &&
+    serverApiSource.includes("allowedFamilyMemberIds") &&
+    serverApiSource.includes("safeUser.memberIds = (safeUser.memberIds ?? []).filter") &&
     serverApiSource.includes("safeUser.childMemberIds = (safeUser.childMemberIds ?? []).filter"),
-  "guardian bootstrap user must drop stale adult child ids",
+  "guardian bootstrap user must drop stale self and child ids",
 );
 assert(
   serverApiSource.includes("function createSafeUser(") &&
@@ -626,6 +705,13 @@ assert(
     classesScreenSource.includes("previousNote") &&
     classesScreenSource.includes('member.ageGroup !== "adult"'),
   "coach attendance UI must limit editing to today's sessions, restore notes on undo, and label adult follow-up correctly",
+);
+assert(
+  classesScreenSource.includes('data-testid="class-create-schedule-mode"') &&
+    classesScreenSource.includes('data-testid="class-create-weekdays"') &&
+    classesScreenSource.includes("finalMainClassTimeOptions") &&
+    classesScreenSource.includes("recurringClassCount"),
+  "class creation UI must expose single and fixed-weekday modes with timetable slots and an occurrence count",
 );
 assert(
   paymentCheckoutScreenSource.includes("confirmedInputFingerprint") &&

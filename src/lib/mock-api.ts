@@ -11,7 +11,7 @@ import type {
   Notice,
   UserRole,
 } from "@/lib/domain";
-import { canMemberHaveGuardianLink } from "./member-age-policy.ts";
+import { getGuardianFamilyMemberIds } from "./family-members.ts";
 import { getNoticeReadByUserIds, isNoticeReadByUser } from "./notices.ts";
 
 type ApiContext = {
@@ -77,16 +77,7 @@ export function getAccessibleMemberIds(user: AppUser, db: MockDatabase, branchId
   }
 
   if (user.role === "guardian") {
-    const childMemberIds = new Set(user.childMemberIds ?? []);
-
-    return db.members
-      .filter(
-        (member) =>
-          childMemberIds.has(member.id) &&
-          member.guardianIds.includes(user.id) &&
-          canMemberHaveGuardianLink(member),
-      )
-      .map((member) => member.id);
+    return getGuardianFamilyMemberIds(user, db, branchIds);
   }
 
   if (user.role === "coach") {

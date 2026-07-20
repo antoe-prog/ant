@@ -11,8 +11,9 @@ import { getExactNextCompatiblePromotionBelt } from "@/lib/final-common-promotio
 import { formatDate, formatDateKey } from "@/lib/format";
 import { getPromotionEligibility, isSchedulablePromotionExamDate, promotionInputLimits } from "@/lib/promotions";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState } from "@/components/ui/state-blocks";
 import { Button, SectionHeader } from "@/components/ui/primitives";
@@ -66,9 +67,9 @@ export function PromotionsScreen() {
   const { db, user } = context;
   const canManage = user.role === "coach" || user.role === "owner" || user.role === "admin";
   const guardianChildren =
-    user.role === "guardian" ? db.members.filter((member) => user.childMemberIds?.includes(member.id)) : [];
+    user.role === "guardian" ? getGuardianFamilyMembers(user, db) : [];
   const guardianChildIds = guardianChildren.map((member) => member.id);
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     user.id,
     user.role === "guardian" ? guardianChildIds : undefined,
   );
@@ -215,6 +216,7 @@ export function PromotionsScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
+            relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(user, member)),
             ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { AuditLog, MockDatabase, Notice, PushDispatchJob } from "@/lib/domain";
+import { getGuardianFamilyMemberIds } from "@/lib/family-members";
 import { isNoticeRecipient } from "@/lib/mock-api";
 import { isNoticeRelevantToMember } from "@/lib/notices";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -99,7 +100,7 @@ function createNoticeDeepLink(db: MockDatabase, notice: Notice, recipientUserId:
   const recipient = db.users.find((user) => user.id === recipientUserId);
   const candidateMemberIds =
     recipient?.role === "guardian"
-      ? recipient.childMemberIds ?? []
+      ? getGuardianFamilyMemberIds(recipient, db)
       : recipient?.role === "member"
         ? recipient.memberIds ?? []
         : [];

@@ -148,9 +148,10 @@ function createSafeUser(
   }
 
   if (db && safeUser.role === "guardian") {
-    const allowedChildMemberIds = new Set(getAccessibleMemberIds(safeUser, db));
+    const allowedFamilyMemberIds = new Set(getAccessibleMemberIds(safeUser, db));
 
-    safeUser.childMemberIds = (safeUser.childMemberIds ?? []).filter((memberId) => allowedChildMemberIds.has(memberId));
+    safeUser.memberIds = (safeUser.memberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
+    safeUser.childMemberIds = (safeUser.childMemberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
   }
 
   return safeUser;

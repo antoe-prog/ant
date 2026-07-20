@@ -2,105 +2,119 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const selectionEventName = "final-judo-guardian-child-selection";
+const selectionEventName = "final-judo-family-member-selection";
+const legacySelectionEventName = "final-judo-guardian-child-selection";
 
 function storageKey(userId: string) {
+  return `final-judo-family-member:${userId}`;
+}
+
+function legacyStorageKey(userId: string) {
   return `final-judo-guardian-child:${userId}`;
 }
 
-/**
- * 학부모의 자녀 선택을 기기(localStorage)에 계정별로 저장해
- * 대시보드/회원/결제 등 화면을 오가거나 재방문해도 같은 자녀가 유지되게 한다.
- * 저장된 id가 더 이상 유효하지 않으면 각 화면의 첫 자녀 폴백이 그대로 동작한다.
- */
-export function useGuardianChildSelection(
+export function useFamilyMemberSelection(
   userId: string,
-  validChildIds?: readonly string[],
-  preferredChildId?: string | null,
+  validMemberIds?: readonly string[],
+  preferredMemberId?: string | null,
 ) {
-  const [selectedChildId, setSelectedChildIdState] = useState<string | null>(() => {
-    if (preferredChildId) {
-      return preferredChildId;
+  const [selectedMemberId, setSelectedMemberIdState] = useState<string | null>(() => {
+    if (preferredMemberId) {
+      return preferredMemberId;
     }
 
     if (typeof window === "undefined") {
       return null;
     }
 
-    return window.localStorage.getItem(storageKey(userId));
+    return (
+      window.localStorage.getItem(storageKey(userId)) ??
+      window.localStorage.getItem(legacyStorageKey(userId))
+    );
   });
 
-  const setSelectedChildId = useCallback(
-    (childId: string | null) => {
-      setSelectedChildIdState(childId);
+  const setSelectedMemberId = useCallback(
+    (memberId: string | null) => {
+      setSelectedMemberIdState(memberId);
 
       if (typeof window === "undefined") {
         return;
       }
 
-      if (childId) {
-        window.localStorage.setItem(storageKey(userId), childId);
+      if (memberId) {
+        window.localStorage.setItem(storageKey(userId), memberId);
       } else {
         window.localStorage.removeItem(storageKey(userId));
       }
 
-      window.dispatchEvent(new CustomEvent(selectionEventName, { detail: { childId, userId } }));
+      window.localStorage.removeItem(legacyStorageKey(userId));
+      window.dispatchEvent(new CustomEvent(selectionEventName, { detail: { memberId, userId } }));
     },
     [userId],
   );
 
-  const effectiveSelectedChildId = validChildIds
-    ? selectedChildId && validChildIds.includes(selectedChildId)
-      ? selectedChildId
-      : validChildIds[0] ?? null
-    : selectedChildId;
+  const effectiveSelectedMemberId = validMemberIds
+    ? selectedMemberId && validMemberIds.includes(selectedMemberId)
+      ? selectedMemberId
+      : validMemberIds[0] ?? null
+    : selectedMemberId;
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
       if (event.key === storageKey(userId)) {
-        setSelectedChildIdState(event.newValue);
+        setSelectedMemberIdState(event.newValue);
       }
     }
 
     function handleSelection(event: Event) {
-      const detail = (event as CustomEvent<{ childId: string | null; userId: string }>).detail;
+      const detail = (event as CustomEvent<{ childId?: string | null; memberId?: string | null; userId: string }>).detail;
 
       if (detail?.userId === userId) {
-        setSelectedChildIdState(detail.childId);
+        setSelectedMemberIdState(detail.memberId ?? detail.childId ?? null);
       }
     }
 
     window.addEventListener("storage", handleStorage);
     window.addEventListener(selectionEventName, handleSelection);
+    window.addEventListener(legacySelectionEventName, handleSelection);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(selectionEventName, handleSelection);
+      window.removeEventListener(legacySelectionEventName, handleSelection);
     };
   }, [userId]);
 
   useEffect(() => {
-    if (!validChildIds || selectedChildId === effectiveSelectedChildId) {
+    if (!validMemberIds || selectedMemberId === effectiveSelectedMemberId) {
       return;
     }
 
     const key = storageKey(userId);
     const storedChildId = window.localStorage.getItem(key);
 
-    if (storedChildId === effectiveSelectedChildId) {
+    if (storedChildId === effectiveSelectedMemberId) {
       return;
     }
 
-    if (effectiveSelectedChildId) {
-      window.localStorage.setItem(key, effectiveSelectedChildId);
+    if (effectiveSelectedMemberId) {
+      window.localStorage.setItem(key, effectiveSelectedMemberId);
     } else {
       window.localStorage.removeItem(key);
     }
 
     window.dispatchEvent(
-      new CustomEvent(selectionEventName, { detail: { childId: effectiveSelectedChildId, userId } }),
+      new CustomEvent(selectionEventName, { detail: { memberId: effectiveSelectedMemberId, userId } }),
     );
-  }, [effectiveSelectedChildId, selectedChildId, userId, validChildIds]);
+  }, [effectiveSelectedMemberId, selectedMemberId, userId, validMemberIds]);
 
-  return [effectiveSelectedChildId, setSelectedChildId] as const;
+  return [effectiveSelectedMemberId, setSelectedMemberId] as const;
+}
+
+export function useGuardianChildSelection(
+  userId: string,
+  validChildIds?: readonly string[],
+  preferredChildId?: string | null,
+) {
+  return useFamilyMemberSelection(userId, validChildIds, preferredChildId);
 }

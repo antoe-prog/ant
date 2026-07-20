@@ -123,21 +123,25 @@ export function getFamilyPaymentCheckoutAccess(
   }
 
   if (user.role === "guardian") {
+    const canPayForSelf = member.ageGroup === "adult" && (user.memberIds ?? []).includes(payment.memberId);
     const canPayForChild =
       member.ageGroup !== "adult" &&
       (user.childMemberIds ?? []).includes(payment.memberId) &&
       member.guardianIds.includes(user.id);
 
-    if (!canPayForChild) {
+    if (!canPayForSelf && !canPayForChild) {
       return {
         canOpen: false,
         label: "결제 불가",
-        reason: "연결된 유소년/청소년 회원 결제만 진행할 수 있습니다.",
+        reason: "연결된 본인 또는 자녀의 결제만 진행할 수 있습니다.",
         state: "forbidden",
       };
     }
 
-    return authorizedPaymentCheckoutAccess(payment, "학부모 결제 대상입니다.");
+    return authorizedPaymentCheckoutAccess(
+      payment,
+      canPayForSelf ? "성인 회원 본인 결제 대상입니다." : "학부모 결제 대상입니다.",
+    );
   }
 
   return {

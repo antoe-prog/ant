@@ -64,7 +64,7 @@ export const rbacRoleLabels: Record<RbacRoleCode, string> = {
 export const roleAccessDescriptions: Record<UserRole, string> = {
   admin: "전체 지점, 사용자, 권한, 운영 기준 관리",
   coach: "담당 수업, 출석, 상담 메모, 보호자 안내",
-  guardian: "자녀 수업, 출석, 결제 상태, 공지 확인",
+  guardian: "본인·자녀 수업, 출석, 결제 상태, 공지 확인",
   member: "내 수업, 출석, 결제 상태, 공지 확인",
   owner: "담당 지점 운영 현황, 결제/공지/리포트 확인",
 };
@@ -72,7 +72,7 @@ export const roleAccessDescriptions: Record<UserRole, string> = {
 export const roleManagementScopeLabels: Record<UserRole, string> = {
   admin: "전체 지점/사용자",
   coach: "담당 수업/출석",
-  guardian: "자녀 확인",
+  guardian: "본인·자녀 확인",
   member: "본인 정보",
   owner: "담당 지점 운영",
 };
@@ -106,10 +106,10 @@ export const appRoutes: AppRouteConfig[] = [
     href: "/app/members",
     label: "회원",
     labelsByRole: {
-      guardian: "자녀",
+      guardian: "가족",
       member: "내 정보",
     },
-    description: "회원/자녀/담당 수련자 정보",
+    description: "회원/가족/담당 수련자 정보",
     roles: ["member", "guardian", "coach", "owner", "admin"],
   },
   {

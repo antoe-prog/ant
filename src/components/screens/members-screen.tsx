@@ -8,12 +8,13 @@ import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, Me
 import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
 import { counselingNoteInputLimits } from "@/lib/counseling-note-input-policy";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { memberInputLimits } from "@/lib/member-input-policy";
@@ -138,7 +139,7 @@ function getTitle(role: string) {
   }
 
   if (role === "guardian") {
-    return "자녀 회원";
+    return "가족 회원";
   }
 
   if (role === "coach") {
@@ -354,14 +355,12 @@ export function MembersScreen() {
   const guardianChildIds = useMemo(
     () =>
       context.user.role === "guardian"
-        ? context.db.members
-            .filter((member) => context.user.childMemberIds?.includes(member.id))
-            .map((member) => member.id)
+        ? getGuardianFamilyMembers(context.user, context.db).map((member) => member.id)
         : undefined,
-    [context.db.members, context.user.childMemberIds, context.user.role],
+    [context.db, context.user],
   );
   const requestedMemberId = searchParams.get("memberId")?.trim() ?? "";
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     context.user.id,
     guardianChildIds,
     context.user.role === "guardian" ? requestedMemberId : null,
@@ -438,12 +437,13 @@ export function MembersScreen() {
     () =>
       context.user.role === "guardian"
         ? (data ?? []).map((member) => ({
-            id: member.id,
-            name: member.name,
-            ...getChildSwitcherPresentation(member),
+          id: member.id,
+          name: member.name,
+          relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, member)),
+          ...getChildSwitcherPresentation(member),
           }))
         : [],
-    [context.user.role, data],
+    [context.user, data],
   );
   const authorNamesById = useMemo(
     () => new Map(context.db.users.map((user) => [user.id, user.name])),

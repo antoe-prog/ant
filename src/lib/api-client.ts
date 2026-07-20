@@ -26,6 +26,7 @@ import type {
   UserRole,
 } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds, getSelectedBranchIds, mockApi } from "@/lib/mock-api";
+import type { ClassWeeklyRecurrence } from "@/lib/class-recurrence";
 import type { ManualPaymentUpdatePayload } from "@/lib/manual-payment-management";
 
 export type { ManualPaymentUpdatePayload };
@@ -90,9 +91,11 @@ function createRequestTimeoutSignal(init?: RequestInit) {
 export type ClassSessionCreatePayload = Pick<
   ClassSession,
   "name" | "level" | "ageGroup" | "coachId" | "startsAt" | "endsAt" | "room" | "capacity" | "enrolledMemberIds"
->;
+> & {
+  recurrence?: ClassWeeklyRecurrence;
+};
 
-export type ClassSessionUpdatePayload = Partial<ClassSessionCreatePayload>;
+export type ClassSessionUpdatePayload = Partial<Omit<ClassSessionCreatePayload, "recurrence">>;
 
 export type PaymentCreatePayload = Pick<Payment, "memberId" | "planName" | "amount" | "dueDate" | "expiresAt"> & {
   benefitCode?: Payment["benefitCode"];

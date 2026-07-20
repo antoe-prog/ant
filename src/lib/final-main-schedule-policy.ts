@@ -341,6 +341,37 @@ export const finalMainTrainingProgram = finalMainWeekdayMetadata.map(({ day, wee
   items: weekdayTrainingPrograms[day],
 }));
 
+export const finalMainClassRegistrationSlots = [
+  ...finalMainRegularSchedule.flatMap((schedule) =>
+    schedule.items.map((item) => {
+      const [startTime, endTime] = item.time.split("-");
+
+      return {
+        id: `${schedule.id}-${item.id}`,
+        weekday: schedule.weekday,
+        weekdayLabel: schedule.label,
+        label: item.label,
+        startTime,
+        endTime,
+      };
+    }),
+  ),
+  ...finalMainDayPolicies.saturday.specialSessions.map((session) => ({
+    id: `saturday-${session.id}`,
+    weekday: 6,
+    weekdayLabel: "토요일",
+    label: session.label,
+    startTime: session.startTime,
+    endTime: session.endTime,
+  })),
+];
+
+export function isFinalMainClassRegistrationSlot(weekday: number, startTime: string, endTime: string) {
+  return finalMainClassRegistrationSlots.some(
+    (slot) => slot.weekday === weekday && slot.startTime === startTime && slot.endTime === endTime,
+  );
+}
+
 export function getFinalMainTrainingProgramForWeekday(weekday: number) {
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
     return null;

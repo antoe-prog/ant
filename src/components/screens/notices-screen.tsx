@@ -11,12 +11,13 @@ import { formatDateTime } from "@/lib/format";
 import { matchesNoticeMemberSearch, normalizeNoticeMemberSearchText } from "@/lib/notice-member-search";
 import { noticeInputLimits } from "@/lib/notice-input-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { canDeleteNotice, canEditNotice, noticePublisherRoles } from "@/lib/notice-permissions";
 import { getNoticeReadCount, isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { isNoticeRecipient } from "@/lib/mock-api";
 import { roleLabels } from "@/lib/roles";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { useAppStore } from "@/store/app-store";
@@ -142,8 +143,8 @@ function targetLabel(
     : 0;
   const memberLabels = selectedChildId
     ? [
-        ...(selectedChildTargeted ? [`개인 ${memberNameById.get(selectedChildId) ?? "선택한 자녀"}`] : []),
-        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 자녀 ${otherFamilyTargetCount}명`] : []),
+        ...(selectedChildTargeted ? [`개인 ${memberNameById.get(selectedChildId) ?? "선택한 회원"}`] : []),
+        ...(otherFamilyTargetCount > 0 ? [`가족 내 다른 회원 ${otherFamilyTargetCount}명`] : []),
       ]
     : memberNames.map((name) => `개인 ${name}`);
 
@@ -162,11 +163,11 @@ export function NoticesScreen() {
   const context = useApiContext();
   const guardianChildren =
     context.user.role === "guardian"
-      ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+      ? getGuardianFamilyMembers(context.user, context.db)
       : [];
   const guardianChildIds = guardianChildren.map((member) => member.id);
   const requestedChildId = searchParams.get("memberId")?.trim() ?? "";
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     context.user.id,
     context.user.role === "guardian" ? guardianChildIds : undefined,
     context.user.role === "guardian" ? requestedChildId : null,
@@ -780,6 +781,7 @@ export function NoticesScreen() {
           items={guardianChildren.map((member) => ({
             id: member.id,
             name: member.name,
+            relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, member)),
             ...getChildSwitcherPresentation(member),
           }))}
           selectedChildId={selectedChildId}

@@ -117,6 +117,26 @@ function findAdultGuardianChildMemberIds(db: Awaited<ReturnType<typeof readServe
   });
 }
 
+function findNonAdultGuardianSelfMemberIds(db: Awaited<ReturnType<typeof readServerDb>>, memberIds: string[]) {
+  return memberIds.filter((memberId) => {
+    const member = db.members.find((candidate) => candidate.id === memberId);
+
+    return member ? member.ageGroup !== "adult" : false;
+  });
+}
+
+function findMemberAccountConflicts(
+  db: Awaited<ReturnType<typeof readServerDb>>,
+  targetUserId: string,
+  memberIds: string[],
+) {
+  return memberIds.filter((memberId) =>
+    db.users.some(
+      (candidate) => candidate.id !== targetUserId && (candidate.memberIds ?? []).includes(memberId),
+    ),
+  );
+}
+
 function syncGuardianMemberLinks(
   db: Awaited<ReturnType<typeof readServerDb>>,
   targetUserId: string,
@@ -149,7 +169,9 @@ function syncMemberAccountProfileLinks(
   nextName: string,
   nextPhone: string,
 ) {
-  const nextMemberIdSet = new Set(nextRole === "member" ? nextMemberIds : []);
+  const nextMemberIdSet = new Set(
+    nextRole === "member" || nextRole === "guardian" ? nextMemberIds : [],
+  );
 
   return db.members.map((member) =>
     nextMemberIdSet.has(member.id)
@@ -352,7 +374,7 @@ export async function PATCH(
 
   const requestedMemberIds = body && "memberIds" in body ? cleanMemberIds(body.memberIds) : targetUser.memberIds ?? [];
   const requestedChildMemberIds = body && "childMemberIds" in body ? cleanMemberIds(body.childMemberIds) : targetUser.childMemberIds ?? [];
-  const nextMemberIds = nextRole === "member" ? requestedMemberIds : [];
+  const nextMemberIds = nextRole === "member" || nextRole === "guardian" ? requestedMemberIds : [];
   const nextChildMemberIds = nextRole === "guardian" ? requestedChildMemberIds : [];
   const invalidLinkedMemberIds = findInvalidLinkedMemberIds(db, [...nextMemberIds, ...nextChildMemberIds], nextBranchIds);
 
@@ -367,6 +389,31 @@ export async function PATCH(
   if (adultGuardianChildMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 자녀로 연결할 수 없습니다.", {
       memberIds: adultGuardianChildMemberIds,
+    });
+  }
+
+  const nonAdultGuardianSelfMemberIds =
+    nextRole === "guardian" ? findNonAdultGuardianSelfMemberIds(db, nextMemberIds) : [];
+
+  if (nonAdultGuardianSelfMemberIds.length > 0) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 본인 수련에는 성인 회원만 연결할 수 있습니다.", {
+      memberIds: nonAdultGuardianSelfMemberIds,
+    });
+  }
+
+  const duplicateFamilyMemberIds = nextMemberIds.filter((memberId) => nextChildMemberIds.includes(memberId));
+
+  if (duplicateFamilyMemberIds.length > 0) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "같은 회원을 본인과 자녀로 동시에 연결할 수 없습니다.", {
+      memberIds: duplicateFamilyMemberIds,
+    });
+  }
+
+  const memberAccountConflicts = findMemberAccountConflicts(db, targetUser.id, nextMemberIds);
+
+  if (memberAccountConflicts.length > 0) {
+    return jsonError(409, "CONFLICT", "이미 다른 계정의 본인 회원으로 연결된 회원입니다.", {
+      memberIds: memberAccountConflicts,
     });
   }
 
@@ -387,7 +434,7 @@ export async function PATCH(
     title: nextTitle,
   };
 
-  if (nextRole === "member") {
+  if (nextRole === "member" || nextRole === "guardian") {
     nextTargetUser.memberIds = nextMemberIds;
   } else {
     delete nextTargetUser.memberIds;

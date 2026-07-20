@@ -77,7 +77,11 @@ function getLinkedMemberAccountUsers(
   db: Awaited<ReturnType<typeof readServerDb>>,
   memberId: string,
 ) {
-  return db.users.filter((candidate) => candidate.role === "member" && (candidate.memberIds ?? []).includes(memberId));
+  return db.users.filter(
+    (candidate) =>
+      (candidate.role === "member" || candidate.role === "guardian") &&
+      (candidate.memberIds ?? []).includes(memberId),
+  );
 }
 
 export async function PATCH(
@@ -319,7 +323,8 @@ async function patchMember(request: NextRequest, memberId: string, body: MemberP
   }
 
   const shouldSyncLinkedMemberAccount =
-    canManageMember || (user.role === "member" && (user.memberIds ?? []).includes(member.id));
+    canManageMember ||
+    ((user.role === "member" || user.role === "guardian") && (user.memberIds ?? []).includes(member.id));
   const linkedMemberAccountUsers = shouldSyncLinkedMemberAccount ? getLinkedMemberAccountUsers(db, member.id) : [];
   const linkedMemberAccountUserIds = linkedMemberAccountUsers.map((candidate) => candidate.id);
   const linkedMemberAccountUserIdSet = new Set(linkedMemberAccountUserIds);

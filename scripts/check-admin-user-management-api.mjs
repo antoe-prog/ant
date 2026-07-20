@@ -850,6 +850,71 @@ async function runAssertions(baseUrl) {
     "admin user adult guardian-child rejection must explain the age policy",
   );
 
+  const invalidYouthGuardianSelfUpdate = await admin.request(
+    "/api/v1/admin/users/user-guardian?selectedBranchId=branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        childMemberIds: ["member-jun", "member-seo", "member-yuna"],
+        email: "guardian@finaljudo.kr",
+        memberIds: ["member-yuna"],
+        name: "이하린",
+        phone: "01072483619",
+        reason: `invalid youth guardian self ${stamp}`,
+        role: "guardian",
+        title: "학부모",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(invalidYouthGuardianSelfUpdate.response.status, 422, "guardian self links must require adult members");
+
+  const duplicateGuardianSelfUpdate = await admin.request(
+    "/api/v1/admin/users/user-guardian?selectedBranchId=branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        childMemberIds: ["member-jun", "member-seo", "member-yuna"],
+        email: "guardian@finaljudo.kr",
+        memberIds: ["member-minjae"],
+        name: "이하린",
+        phone: "01072483619",
+        reason: `duplicate guardian self ${stamp}`,
+        role: "guardian",
+        title: "학부모",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(duplicateGuardianSelfUpdate.response.status, 409, "a member profile must not be owned by two login accounts");
+
+  const guardianFamilyUpdate = await admin.request(
+    "/api/v1/admin/users/user-guardian?selectedBranchId=branch-gangnam",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        childMemberIds: ["member-jun", "member-seo", "member-yuna"],
+        email: "guardian@finaljudo.kr",
+        memberIds: ["member-jiho"],
+        name: "이하린",
+        phone: "01072483619",
+        reason: `guardian family profile ${stamp}`,
+        role: "guardian",
+        title: "학부모 겸 성인 회원",
+      }),
+    },
+  );
+  const guardianFamilyUser = guardianFamilyUpdate.payload.data.db.users.find((candidate) => candidate.id === "user-guardian");
+  assert.deepEqual(guardianFamilyUser?.memberIds, ["member-jiho"], "guardian update must persist the adult self member link");
+  assert.deepEqual(
+    guardianFamilyUser?.childMemberIds,
+    ["member-jun", "member-seo", "member-yuna"],
+    "guardian update must preserve child links alongside the self member link",
+  );
+
   result = await admin.request(`/api/v1/admin/users/${invitedUserId}`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -1677,6 +1742,7 @@ async function runAssertions(baseUrl) {
     "user update profile and branch assignment",
     "member app link update and bootstrap visibility",
     "adult members are rejected as guardian children",
+    "guardian adult self link and family profile validation",
     "optional password update login",
     "dedicated password issue login and audit redaction",
     "password issue and role update input safety without mutation",

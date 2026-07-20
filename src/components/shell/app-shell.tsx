@@ -34,7 +34,8 @@ import {
   roleLabels,
 } from "@/lib/roles";
 import { formatNotificationActionableLabel, getNotificationAlertCounts } from "@/lib/notification-alerts";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
 import { GlobalSearch } from "@/components/shell/global-search";
@@ -96,11 +97,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [logoutSyncPending, setLogoutSyncPending] = useState(false);
   const [logoutSyncError, setLogoutSyncError] = useState<string | null>(null);
-  const guardianChildIds =
+  const guardianFamilyMembers =
     user?.role === "guardian"
-      ? db.members.filter((member) => user.childMemberIds?.includes(member.id)).map((member) => member.id)
-      : undefined;
-  const [selectedGuardianChildId] = useGuardianChildSelection(user?.id ?? "anonymous", guardianChildIds);
+      ? getGuardianFamilyMembers(user, db)
+      : [];
+  const guardianFamilyMemberIds = user?.role === "guardian" ? guardianFamilyMembers.map((member) => member.id) : undefined;
+  const [selectedGuardianMemberId] = useFamilyMemberSelection(user?.id ?? "anonymous", guardianFamilyMemberIds);
 
   useEffect(() => {
     if (!user) {
@@ -288,8 +290,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : null;
   const mobileSecondaryGroupLabel = user.role === "member" || user.role === "guardian" ? "추가 메뉴" : "관리 메뉴";
   const notificationScopeUser =
-    user.role === "guardian" && selectedGuardianChildId
-      ? { ...user, childMemberIds: [selectedGuardianChildId] }
+    user.role === "guardian" && selectedGuardianMemberId
+      ? getGuardianMemberRelation(user, { id: selectedGuardianMemberId }) === "self"
+        ? { ...user, memberIds: [selectedGuardianMemberId], childMemberIds: [] }
+        : { ...user, memberIds: [], childMemberIds: [selectedGuardianMemberId] }
       : user;
   const notificationCounts = getNotificationAlertCounts({ db, selectedBranchId, user: notificationScopeUser });
   const notificationAlertCount = notificationCounts.actionableCount;

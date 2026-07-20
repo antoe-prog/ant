@@ -45,6 +45,7 @@ const files = {
   memberUpdateRoute: "src/app/api/v1/members/[memberId]/route.ts",
   memberGuardianRoute: "src/app/api/v1/members/[memberId]/guardians/route.ts",
   membersScreen: "src/components/screens/members-screen.tsx",
+  familyMembers: "src/lib/family-members.ts",
   mockApi: "src/lib/mock-api.ts",
   mockData: "src/lib/mock-data.ts",
   domain: "src/lib/domain.ts",
@@ -934,7 +935,7 @@ for (const snippet of ["operationError.status", "operationError.code"]) {
 for (const snippet of [
   'labelsByRole: {\n      coach: "홈",\n      guardian: "홈",\n      member: "홈",\n    }',
   'labelsByRole: {\n      guardian: "수업",\n      member: "수업",\n    }',
-  'labelsByRole: {\n      guardian: "자녀",\n      member: "내 정보",\n    }',
+  'labelsByRole: {\n      guardian: "가족",\n      member: "내 정보",\n    }',
   "export function getRouteLabel(route: AppRouteConfig, role: UserRole)",
 ]) {
   assertIncludes(sources.roles, snippet, "role-aware mobile navigation labels");
@@ -2781,7 +2782,7 @@ for (const snippet of [
   assertIncludes(sources.accountScreen, snippet, "all-role account actions stay on the account screen");
 }
 assertIncludes(sources.roles, "export const roleManagementScopeLabels", "shared role management scope descriptions");
-assertIncludes(sources.roles, 'guardian: "자녀 확인"', "shared guardian scope copy");
+assertIncludes(sources.roles, 'guardian: "본인·자녀 확인"', "shared guardian scope copy");
 assertIncludes(sources.adminUsersScreen, "roleManagementScopeLabels[user.role]", "admin users management column scope rendering");
 assertExcludes(
   sources.adminUsersScreen,
@@ -5112,7 +5113,7 @@ for (const snippet of [
   "formatDate(latestChildFeedback.createdAt)",
   "formatDate(latestChildPromotion.examDate)",
   "formatDate(nextTournament.eventDate)",
-  'aria-label={`${childName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}',
+  'aria-label={`${profileName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}',
   "${formatDate(personalPrimaryPayment.expiresAt)} 만료",
 ]) {
   assertIncludes(sources.dashboardScreen, snippet, "member/guardian mobile dashboard readable copy guard");
@@ -5250,7 +5251,7 @@ for (const snippet of [
   "등록된 승급 심사가 없습니다.",
   "예정된 수업 없음",
   "결제 정보 없음",
-  '<EmptyState title="연결된 자녀가 없습니다" />',
+  '<EmptyState title="연결된 수련 프로필이 없습니다" />',
   '<EmptyState title="연결된 회원 정보가 없습니다" />',
   '<EmptyState title="오늘 배정된 수업이 없습니다" />',
 ]) {
@@ -5642,12 +5643,25 @@ for (const snippet of [
 ]) {
   assertIncludes(sources.paymentCheckoutAccess, snippet, "family payment checkout access guard");
 }
+assertIncludes(
+  sources.mockApi,
+  'import { getGuardianFamilyMemberIds } from "./family-members.ts";',
+  "guardian payment/member data scope uses the shared family access contract",
+);
+assertIncludes(
+  sources.mockApi,
+  "return getGuardianFamilyMemberIds(user, db, branchIds);",
+  "guardian payment/member data scope uses the shared family access contract",
+);
 for (const snippet of [
+  "const selfMemberIds = new Set(user.memberIds ?? []);",
   "const childMemberIds = new Set(user.childMemberIds ?? []);",
+  "branchIdSet.has(member.branchId)",
+  'return member.ageGroup === "adult";',
   "member.guardianIds.includes(user.id)",
-  "childMemberIds.has(member.id)",
+  "canMemberHaveGuardianLink(member)",
 ]) {
-  assertIncludes(sources.mockApi, snippet, "guardian payment/member data scope requires bidirectional links");
+  assertIncludes(sources.familyMembers, snippet, "guardian family scope requires adult self and bidirectional child links");
 }
 for (const snippet of [
   "payment-checkout-ready",

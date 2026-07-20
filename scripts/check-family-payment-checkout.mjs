@@ -41,6 +41,7 @@ const guardianUser = {
   branchIds: ["branch-gangnam"],
   childMemberIds: ["member-yuna"],
   id: "user-guardian",
+  memberIds: ["member-minjae"],
   name: "이하린",
   role: "guardian",
   title: "학부모",
@@ -135,6 +136,21 @@ const guardianAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
 
 assert.equal(guardianAccess.canOpen, true, "guardian must be able to open child checkout preparation");
 assert.equal(guardianAccess.label, "납부 요청", "guardian checkout action label must avoid live payment copy");
+const guardianSelfAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
+  ...adultPayment,
+  member: adultMember,
+});
+assert.equal(guardianSelfAccess.canOpen, true, "guardian must be able to open their linked adult checkout preparation");
+assert.equal(
+  guardianSelfAccess.reason,
+  "성인 회원 본인 결제 대상입니다.",
+  "guardian self checkout must be distinguished from child checkout",
+);
+assert.deepEqual(
+  getAccessibleMemberIds(guardianUser, { members: [youthMember, adultMember] }, ["branch-gangnam"]),
+  ["member-minjae", "member-yuna"],
+  "guardian family scope must place the linked self profile before child profiles",
+);
 const guardianPendingAccess = getFamilyPaymentCheckoutAccess(guardianUser, {
   ...youthPayment,
   member: youthMember,
@@ -203,6 +219,7 @@ assert.equal(pendingCollectionAccess.label, "납부 확인 중", "persisted fami
 
 const [
   paymentCheckoutAccessSource,
+  familyMembersSource,
   mockApiSource,
   paymentsScreenSource,
   notificationsScreenSource,
@@ -212,6 +229,7 @@ const [
   collectionRequestRouteSource,
 ] = await Promise.all([
   readFile("src/lib/payment-checkout-access.ts", "utf8"),
+  readFile("src/lib/family-members.ts", "utf8"),
   readFile("src/lib/mock-api.ts", "utf8"),
   readFile("src/components/screens/payments-screen.tsx", "utf8"),
   readFile("src/components/screens/notifications-screen.tsx", "utf8"),
@@ -241,12 +259,14 @@ function openingTagWithTestId(source, testId) {
 }
 
 assert(
-  mockApiSource.includes("member.guardianIds.includes(user.id)") &&
-    mockApiSource.includes("childMemberIds.has(member.id)"),
-  "guardian data scope must enforce bidirectional guardian-child links before returning payments",
+  mockApiSource.includes("getGuardianFamilyMemberIds(user, db, branchIds)") &&
+    familyMembersSource.includes('member.ageGroup === "adult"') &&
+    familyMembersSource.includes("member.guardianIds.includes(user.id)") &&
+    familyMembersSource.includes("childMemberIds.has(member.id)"),
+  "guardian data scope must allow linked adult self profiles while enforcing bidirectional guardian-child links",
 );
 assert(
-    guardianPaymentChildrenSource.includes("member.guardianIds.includes(context.user.id)") &&
+    guardianPaymentChildrenSource.includes("getGuardianFamilyMembers(context.user, context.db)") &&
     !guardianPaymentChildrenSource.includes('member.status !== "withdrawn"') &&
     paymentsScreenSource.includes("selectedGuardianPaymentChildId") &&
     paymentsScreenSource.includes("<ChildSwitcher") &&
@@ -266,8 +286,8 @@ assert(
   guardianPaymentSelectionSource.includes("invalidGuardianPaymentTarget") &&
     guardianPaymentSelectionSource.includes('context.user.role === "guardian" && !invalidGuardianPaymentTarget') &&
     paymentsScreenSource.includes('data-testid="guardian-payment-invalid-target"') &&
-    paymentsScreenSource.includes("다른 자녀의 결제로 자동 전환하지 않았습니다"),
-  "invalid guardian memberId deep links must render an explicit failure state without another child's payments",
+    paymentsScreenSource.includes("다른 가족 회원의 결제로 자동 전환하지 않았습니다"),
+  "invalid guardian memberId deep links must render an explicit failure state without another family member's payments",
 );
 assert(
   paymentsScreenSource.includes("function handleGuardianPaymentChildSelect") &&
@@ -511,6 +531,7 @@ console.log(
       checked: [
         "adult member direct checkout preparation",
         "guardian child checkout preparation",
+        "guardian adult self checkout preparation",
         "guardian bidirectional child scope",
         "guardian payment child switcher scope",
         "guardian valid deep-link selection",

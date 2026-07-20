@@ -20,11 +20,12 @@ import {
 } from "lucide-react";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
-import { useGuardianChildSelection } from "@/hooks/use-guardian-child-selection";
+import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { beltPromotionResultLabels } from "@/lib/domain";
 import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format";
+import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { isNoticeReadByUser, isNoticeRelevantToMember } from "@/lib/notices";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
@@ -265,12 +266,12 @@ const guardianLearningToneClasses = {
 
 function GuardianLearningSummaryPanel({
   actions,
-  childName,
+  profileName,
   insights,
   selectedBelt,
 }: {
   actions: GuardianLearningAction[];
-  childName: string;
+  profileName: string;
   insights: GuardianLearningInsight[];
   selectedBelt: string;
 }) {
@@ -283,13 +284,13 @@ function GuardianLearningSummaryPanel({
 
   return (
     <section
-      aria-label="자녀 학습 리포트"
+      aria-label="수련 리포트"
       className="mb-4 rounded-lg border border-zinc-200 bg-white p-2 sm:p-3"
       data-testid="guardian-learning-summary-panel"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-base font-semibold text-zinc-950 sm:text-lg">{childName} 학습 리포트</h1>
+          <h1 className="text-base font-semibold text-zinc-950 sm:text-lg">{profileName} 수련 리포트</h1>
         </div>
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-teal-200 bg-teal-50 text-teal-700 sm:h-8 sm:w-8">
           <Award className="h-4 w-4" aria-hidden />
@@ -376,7 +377,7 @@ function GuardianLearningSummaryPanel({
           );
           const node = insight.actionHref && insight.actionLabel ? (
             <Link
-              aria-label={`${childName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}
+              aria-label={`${profileName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}
               className={cellClassName}
               data-testid="guardian-learning-insight-cell"
               href={insight.actionHref}
@@ -385,7 +386,7 @@ function GuardianLearningSummaryPanel({
             </Link>
           ) : (
             <article
-              aria-label={`${childName} ${insight.eyebrow}: ${insight.title}, ${insight.detail}`}
+              aria-label={`${profileName} ${insight.eyebrow}: ${insight.title}, ${insight.detail}`}
               className={cellClassName}
               data-testid="guardian-learning-insight-cell"
             >
@@ -410,12 +411,12 @@ export function DashboardScreen() {
   const guardianChildren = useMemo(
     () =>
       context.user.role === "guardian"
-        ? context.db.members.filter((member) => context.user.childMemberIds?.includes(member.id))
+        ? getGuardianFamilyMembers(context.user, context.db)
         : [],
-    [context.db.members, context.user.childMemberIds, context.user.role],
+    [context.db, context.user],
   );
   const guardianChildIds = useMemo(() => guardianChildren.map((child) => child.id), [guardianChildren]);
-  const [selectedChildId, setSelectedChildId] = useGuardianChildSelection(
+  const [selectedChildId, setSelectedChildId] = useFamilyMemberSelection(
     context.user.id,
     context.user.role === "guardian" ? guardianChildIds : undefined,
   );
@@ -828,6 +829,7 @@ export function DashboardScreen() {
           items={guardianChildren.map((child) => ({
             id: child.id,
             name: child.name,
+            relationLabel: getFamilyMemberRelationLabel(getGuardianMemberRelation(context.user, child)),
             ...getChildSwitcherPresentation(child),
           }))}
           selectedChildId={selectedChild?.id ?? null}
@@ -835,12 +837,12 @@ export function DashboardScreen() {
         />
 
         {!selectedChild ? (
-          <EmptyState title="연결된 자녀가 없습니다" />
+          <EmptyState title="연결된 수련 프로필이 없습니다" />
         ) : (
           <>
             <GuardianLearningSummaryPanel
               actions={guardianLearningActions}
-              childName={selectedChild.name}
+              profileName={selectedChild.name}
               insights={guardianLearningInsights}
               selectedBelt={selectedChild.belt}
             />

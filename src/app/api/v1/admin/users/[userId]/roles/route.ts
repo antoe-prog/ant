@@ -143,9 +143,23 @@ export async function PUT(
     });
   }
 
+  if (nextRole === "guardian") {
+    const invalidSelfMemberIds = (targetUser.memberIds ?? []).filter((memberId) => {
+      const member = db.members.find((candidate) => candidate.id === memberId);
+
+      return !member || member.ageGroup !== "adult" || !nextBranchIds.includes(member.branchId);
+    });
+
+    if (invalidSelfMemberIds.length > 0) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 본인 수련에는 담당 지점의 성인 회원만 연결할 수 있습니다.", {
+        memberIds: invalidSelfMemberIds,
+      });
+    }
+  }
+
   const nextTargetUser = { ...targetUser, role: nextRole, branchIds: nextBranchIds };
 
-  if (nextRole !== "member") {
+  if (nextRole !== "member" && nextRole !== "guardian") {
     delete nextTargetUser.memberIds;
   }
   if (nextRole !== "guardian") {

@@ -2125,6 +2125,77 @@ async function run() {
 
   assert(createdClass, "class create did not return created class");
 
+  const recurringClassName = `Smoke Weekly Class ${stamp}`;
+  const recurringClassPayload = {
+    name: recurringClassName,
+    level: "초급",
+    ageGroup: "adult",
+    coachId: "user-coach",
+    room: "매트 D",
+    capacity: 8,
+    enrolledMemberIds: [],
+    recurrence: {
+      mode: "weekly",
+      startsOn: "2026-07-20",
+      endsOn: "2026-07-31",
+      weekdays: [1, 3],
+      startTime: "18:00",
+      endTime: "19:00",
+    },
+  };
+  result = await owner.request("/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify(recurringClassPayload),
+  });
+  const recurringClasses = result.payload.data.db.classes.filter((item) => item.name === recurringClassName);
+  assert.equal(recurringClasses.length, 4, "weekly class creation must persist every selected weekday occurrence");
+  assert.deepEqual(
+    recurringClasses.map((item) => item.startsAt).sort(),
+    [
+      "2026-07-20T09:00:00.000Z",
+      "2026-07-22T09:00:00.000Z",
+      "2026-07-27T09:00:00.000Z",
+      "2026-07-29T09:00:00.000Z",
+    ],
+    "weekly class creation must use stable Korea timetable instants",
+  );
+  assert.equal(
+    result.payload.data.db.auditLogs.filter(
+      (log) => log.action === "class.create" && recurringClasses.some((item) => item.id === log.targetId),
+    ).length,
+    4,
+    "weekly class creation must preserve one audit record per generated class",
+  );
+
+  const duplicateRecurringClass = await owner.request(
+    "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify(recurringClassPayload),
+    },
+    { allowError: true },
+  );
+  assert.equal(duplicateRecurringClass.response.status, 409, "duplicate weekly class creation must fail atomically");
+
+  const invalidMainScheduleClass = await owner.request(
+    "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...recurringClassPayload,
+        name: `Smoke Invalid Main Slot ${stamp}`,
+        recurrence: {
+          ...recurringClassPayload.recurrence,
+          weekdays: [5],
+          startTime: "22:00",
+          endTime: "23:00",
+        },
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(invalidMainScheduleClass.response.status, 422, "main weekly classes must match the registered timetable");
+
   const concurrentClassNames = [`Smoke Concurrent Class A ${stamp}`, `Smoke Concurrent Class B ${stamp}`];
   const createConcurrentClass = (name) =>
     owner.request("/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam", {

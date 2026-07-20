@@ -190,7 +190,7 @@ type AppStore = AppState & {
   linkGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   unlinkGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
-  createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => void;
+  createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => Promise<boolean>;
   updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => void;
   createPayment: (branchId: string, payload: PaymentCreatePayload, idempotencyKey: string) => Promise<PaymentCreateResult>;
   updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
@@ -1460,15 +1460,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createClassSession = useCallback(
-    (branchId: string, payload: ClassSessionCreatePayload) => {
+    async (branchId: string, payload: ClassSessionCreatePayload) => {
       if (!state.user) {
-        return;
+        return false;
       }
 
-      void apiClient
-        .createClassSession(branchId, payload, state.selectedBranchId)
-        .then((nextPayload) => dispatch({ type: "serverSnapshot", payload: nextPayload }))
-        .catch((error) => reportOperationError(error, "수업을 생성하지 못했습니다."));
+      try {
+        const nextPayload = await apiClient.createClassSession(branchId, payload, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "수업을 생성하지 못했습니다.");
+        return false;
+      }
     },
     [reportOperationError, state.selectedBranchId, state.user],
   );

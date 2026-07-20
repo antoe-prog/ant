@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 const policyModule = await import("../src/lib/final-main-schedule-policy.ts");
 const { isFinalMainBranch } = await import("../src/lib/final-main-policy.ts");
 const {
+  finalMainClassRegistrationSlots,
   finalMainRegularSchedule,
   finalMainSchedulePolicy,
   finalMainSchedulePolicyVersion,
   finalMainSpecialSchedules,
   finalMainTrainingProgram,
   getFinalMainTrainingProgramForWeekday,
+  isFinalMainClassRegistrationSlot,
   resolveFinalMainDayPolicy,
 } = policyModule;
 
@@ -30,12 +32,14 @@ function assertTimeWindow(window, expectedStart, expectedEnd, expectedDuration) 
 assert.deepEqual(
   Object.keys(policyModule).sort(),
   [
+    "finalMainClassRegistrationSlots",
     "finalMainRegularSchedule",
     "finalMainSchedulePolicy",
     "finalMainSchedulePolicyVersion",
     "finalMainSpecialSchedules",
     "finalMainTrainingProgram",
     "getFinalMainTrainingProgramForWeekday",
+    "isFinalMainClassRegistrationSlot",
     "resolveFinalMainDayPolicy",
   ],
   "the main policy module must expose only static policy data and its day resolver",
@@ -99,6 +103,11 @@ for (const schedule of finalMainRegularSchedule) {
     assert.match(item.time, /^\d{2}:\d{2}-\d{2}:\d{2}$/);
   }
 }
+assert.equal(finalMainClassRegistrationSlots.length, 30, "main class registration must expose 29 weekday slots and one Saturday slot");
+assert.equal(isFinalMainClassRegistrationSlot(1, "22:00", "23:00"), true);
+assert.equal(isFinalMainClassRegistrationSlot(5, "22:00", "23:00"), false);
+assert.equal(isFinalMainClassRegistrationSlot(6, "11:00", "12:30"), true);
+assert.equal(isFinalMainClassRegistrationSlot(0, "18:00", "19:00"), false);
 
 const saturday = resolveFinalMainDayPolicy("saturday");
 assert.equal(saturday.regularJudo, null);

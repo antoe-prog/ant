@@ -2660,7 +2660,7 @@ async function main() {
           const expectedFamilyBottomNavRouteIds = "dashboard|classes|members|payments|tournaments";
           const expectedFamilyBottomNavLabels =
             testCase.role === "guardian"
-              ? "홈|수업|자녀|결제|대회"
+              ? "홈|수업|가족|결제|대회"
               : "홈|수업|내 정보|결제|대회";
           assert.equal(layout.mobileAccountMenuToggleCount, 1, `${testCase.id} must expose the same account-menu pattern used by other roles`);
           assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must not duplicate logout outside the account menu`);
@@ -4355,8 +4355,16 @@ async function main() {
                   if (incidentEditorToggleCount > 0) {
                     await incidentEditorToggle.click();
                     await page.waitForSelector('[data-testid="admin-settings-incident-editor-form"]', { timeout: 10000 });
+                    const incidentEditorForm = page.locator('[data-testid="admin-settings-incident-editor-form"]');
+                    await incidentEditorForm.scrollIntoViewIfNeeded();
+                    await page.evaluate(
+                      () =>
+                        new Promise((resolve) => {
+                          requestAnimationFrame(() => requestAnimationFrame(resolve));
+                        }),
+                    );
                     incidentEditorOpenScreenshotPath = join(outDir, "admin-settings-incident-editor-open.png");
-                    await page.screenshot({ path: incidentEditorOpenScreenshotPath, fullPage: false, caret: "initial" });
+                    await page.screenshot({ path: incidentEditorOpenScreenshotPath, fullPage: true, caret: "initial" });
                     incidentEditorOpenState = await page.evaluate(() => ({
                       expandedToggleCount: Array.from(document.querySelectorAll('[data-testid="admin-settings-incident-editor-toggle"]')).filter(
                         (element) => element.getAttribute("aria-expanded") === "true",

@@ -20,6 +20,7 @@ const adminUserRoleFilters: UserRole[] = ["owner", "coach", "guardian", "member"
 
 type UserEditDraft = {
   branchIds: string[];
+  childMemberLinkSearch: string;
   childMemberIds: string[];
   email: string;
   memberLinkSearch: string;
@@ -55,6 +56,7 @@ function sortUsersForInvitationReview(users: AppUser[]) {
 function createUserEditDraft(user: AppUser): UserEditDraft {
   return {
     branchIds: user.branchIds,
+    childMemberLinkSearch: "",
     childMemberIds: user.childMemberIds ?? [],
     email: getVisibleUserEmail(user.email) ?? "",
     memberLinkSearch: "",
@@ -117,7 +119,16 @@ function getLinkedMemberSummary(user: AppUser, linkedMembers: Member[], branchBy
     return null;
   }
 
-  const label = user.role === "guardian" ? "자녀" : "앱 연결";
+  if (user.role === "guardian") {
+    const selfCount = user.memberIds?.length ?? 0;
+    const childCount = user.childMemberIds?.length ?? 0;
+
+    return [selfCount > 0 ? `본인 ${selfCount}명` : null, childCount > 0 ? `자녀 ${childCount}명` : null]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  const label = "앱 연결";
   const visibleMembers = linkedMembers.slice(0, 2).map((member) => getLinkedMemberDisplay(member, branchById));
   const remaining = linkedMembers.length > visibleMembers.length ? ` 외 ${linkedMembers.length - visibleMembers.length}명` : "";
 
@@ -439,6 +450,7 @@ export function AdminUsersScreen() {
 
     updateUserEditDraft(user, {
       branchIds: nextBranchIds,
+      childMemberLinkSearch: "",
       childMemberIds: linkedMemberIdsInScope(draft.childMemberIds),
       memberLinkSearch: "",
       memberIds: linkedMemberIdsInScope(draft.memberIds),
@@ -529,7 +541,7 @@ export function AdminUsersScreen() {
       branchIds,
       childMemberIds: draft.role === "guardian" ? draft.childMemberIds : [],
       email: draft.email.trim() || undefined,
-      memberIds: draft.role === "member" ? draft.memberIds : [],
+      memberIds: draft.role === "member" || draft.role === "guardian" ? draft.memberIds : [],
       name: draft.name.trim(),
       ...(draft.password ? { password: draft.password } : {}),
       phone: draft.phone.trim(),
@@ -1045,12 +1057,16 @@ export function AdminUsersScreen() {
             const editBranchIds = editDraft.role === "admin" ? context.db.branches.map((branch) => branch.id) : editDraft.branchIds;
             const linkedMembers = linkedMembersByUserId.get(user.id) ?? [];
             const linkedMemberSummary = getLinkedMemberSummary(user, linkedMembers, branchById);
-            const linkableMembers = context.db.members.filter(
+            const selfLinkableMembers = context.db.members.filter(
               (member) =>
-                (editDraft.role !== "guardian" || canMemberHaveGuardianLink(member)) &&
+                (editDraft.role !== "guardian" || member.ageGroup === "adult") &&
                 (editBranchIds.includes(member.branchId) ||
-                  editDraft.memberIds.includes(member.id) ||
-                  editDraft.childMemberIds.includes(member.id)),
+                  editDraft.memberIds.includes(member.id)),
+            );
+            const childLinkableMembers = context.db.members.filter(
+              (member) =>
+                canMemberHaveGuardianLink(member) &&
+                (editBranchIds.includes(member.branchId) || editDraft.childMemberIds.includes(member.id)),
             );
             const selectedMember = editDraft.memberIds[0]
               ? context.db.members.find((member) => member.id === editDraft.memberIds[0]) ?? null
@@ -1059,9 +1075,21 @@ export function AdminUsersScreen() {
               .map((memberId) => context.db.members.find((member) => member.id === memberId))
               .filter((member): member is Member => Boolean(member));
             const memberLinkSearchQuery = editDraft.memberLinkSearch.trim();
+            const childMemberLinkSearchQuery = editDraft.childMemberLinkSearch.trim();
             const searchedLinkableMembers = memberLinkSearchQuery
-              ? linkableMembers.filter((member) =>
+              ? selfLinkableMembers.filter((member) =>
                   matchesMemberSearch(memberLinkSearchQuery, [
+                    member.name,
+                    member.level,
+                    member.belt,
+                    member.emergencyContact,
+                    branchById.get(member.branchId)?.name,
+                  ]),
+                )
+              : [];
+            const searchedChildLinkableMembers = childMemberLinkSearchQuery
+              ? childLinkableMembers.filter((member) =>
+                  matchesMemberSearch(childMemberLinkSearchQuery, [
                     member.name,
                     member.level,
                     member.belt,
@@ -1417,9 +1445,10 @@ export function AdminUsersScreen() {
                             updateUserEditDraft(user, {
                               role: nextRole,
                               branchIds: nextBranchIds,
+                              childMemberLinkSearch: "",
                               childMemberIds: nextRole === "guardian" ? editDraft.childMemberIds : [],
                               memberLinkSearch: "",
-                              memberIds: nextRole === "member" ? editDraft.memberIds : [],
+                              memberIds: nextRole === "member" || nextRole === "guardian" ? editDraft.memberIds : [],
                             });
                           }}
                         >
@@ -1467,9 +1496,11 @@ export function AdminUsersScreen() {
                         </div>
                       </fieldset>
                     )}
-                    {editDraft.role === "member" ? (
+                    {editDraft.role === "member" || editDraft.role === "guardian" ? (
                       <fieldset className="mb-32 scroll-mb-56 grid gap-2 rounded-md border border-zinc-200 bg-white p-2.5 lg:mb-0 lg:scroll-mb-0" data-testid={`admin-user-member-link-section-${user.id}`}>
-                        <legend className="px-1 text-xs font-semibold text-zinc-600">앱 연결 회원</legend>
+                        <legend className="px-1 text-xs font-semibold text-zinc-600">
+                          {editDraft.role === "guardian" ? "본인 수련 연결" : "앱 연결 회원"}
+                        </legend>
                         {selectedMember ? (
                           <div
                             className="flex min-h-11 flex-wrap items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2"
@@ -1490,12 +1521,14 @@ export function AdminUsersScreen() {
                           </div>
                         ) : null}
                         <label>
-                          <span className="mb-1 block text-xs font-semibold text-zinc-500">회원 앱에 표시할 본인 정보 검색</span>
+                          <span className="mb-1 block text-xs font-semibold text-zinc-500">
+                            {editDraft.role === "guardian" ? "본인 성인 회원 검색" : "회원 앱에 표시할 본인 정보 검색"}
+                          </span>
                           <input
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
                             data-admin-user-edit-control="true"
                             data-testid={`admin-user-member-link-search-input-${user.id}`}
-                            placeholder="이름, 연락처, 지점 검색"
+                            placeholder={editDraft.role === "guardian" ? "성인 회원 이름, 연락처, 지점 검색" : "이름, 연락처, 지점 검색"}
                             value={editDraft.memberLinkSearch}
                             onChange={(event) => updateUserEditDraft(user, { memberLinkSearch: event.target.value })}
                           />
@@ -1553,7 +1586,7 @@ export function AdminUsersScreen() {
                     {editDraft.role === "guardian" ? (
                       <fieldset className="mb-32 scroll-mb-56 grid gap-2 rounded-md border border-zinc-200 bg-white p-2.5 lg:mb-0 lg:scroll-mb-0" data-testid={`admin-user-guardian-link-section-${user.id}`}>
                         <legend className="px-1 text-xs font-semibold text-zinc-600">연결 자녀</legend>
-                        {linkableMembers.length > 0 ? (
+                        {childLinkableMembers.length > 0 ? (
                           <>
                             <div
                               className="scroll-mb-56 flex min-h-11 flex-wrap gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 lg:scroll-mb-0"
@@ -1591,17 +1624,17 @@ export function AdminUsersScreen() {
                                 data-admin-user-edit-control="true"
                                 data-testid={`admin-user-guardian-child-search-input-${user.id}`}
                                 placeholder="유소년/청소년 이름, 연락처, 지점 검색"
-                                value={editDraft.memberLinkSearch}
-                                onChange={(event) => updateUserEditDraft(user, { memberLinkSearch: event.target.value })}
+                                value={editDraft.childMemberLinkSearch}
+                                onChange={(event) => updateUserEditDraft(user, { childMemberLinkSearch: event.target.value })}
                               />
                             </label>
-                            {memberLinkSearchQuery ? (
+                            {childMemberLinkSearchQuery ? (
                               <div
                                 className="max-h-48 overflow-y-auto rounded-md border border-zinc-200 bg-white"
                                 data-testid={`admin-user-guardian-child-results-${user.id}`}
                               >
-                                {searchedLinkableMembers.length > 0 ? (
-                                  searchedLinkableMembers.map((member) => {
+                                {searchedChildLinkableMembers.length > 0 ? (
+                                  searchedChildLinkableMembers.map((member) => {
                                     const isSelected = editDraft.childMemberIds.includes(member.id);
 
                                     return (
