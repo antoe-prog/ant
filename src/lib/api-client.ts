@@ -39,6 +39,24 @@ export type BootstrapPayload = {
   db: MockDatabase;
 };
 
+export type AttendanceQrIssuePayload = {
+  className: string;
+  expiresAt: string;
+  payload: string;
+};
+
+export type AttendanceQrScanResult = {
+  alreadyRecorded: boolean;
+  className: string;
+  memberId: string;
+  memberName: string;
+  status: "present" | "late";
+};
+
+export type AttendanceQrScanPayload = BootstrapPayload & {
+  scan: AttendanceQrScanResult;
+};
+
 type ApiEnvelope<T> = {
   data?: T;
   error?: {
@@ -96,6 +114,44 @@ export type ClassSessionCreatePayload = Pick<
 };
 
 export type ClassSessionUpdatePayload = Partial<Omit<ClassSessionCreatePayload, "recurrence">>;
+
+export type ClassRegistrationOption = Pick<
+  ClassSession,
+  "id" | "branchId" | "name" | "level" | "ageGroup" | "startsAt" | "endsAt" | "room" | "capacity"
+> & {
+  branchName: string;
+  coachName: string;
+  enrolledCount: number;
+  isEnrolled: boolean;
+  canRegister: boolean;
+  canCancel: boolean;
+  unavailableReason: string | null;
+};
+
+export type ClassRegistrationOptionsPayload = {
+  memberId: string;
+  month: string;
+  options: ClassRegistrationOption[];
+};
+
+export type ClassEnrollmentResponsePayload = BootstrapPayload & {
+  enrollment: {
+    classId: string;
+    memberId: string;
+    status: "registered" | "cancelled";
+    unchanged: boolean;
+  };
+};
+
+export type ClassRosterCandidate = Pick<Member, "id" | "name" | "ageGroup" | "level" | "status"> & {
+  enrolled: boolean;
+  removalLocked: boolean;
+};
+
+export type ClassRosterCandidatesPayload = {
+  classId: string;
+  candidates: ClassRosterCandidate[];
+};
 
 export type PaymentCreatePayload = Pick<Payment, "memberId" | "planName" | "amount" | "dueDate" | "expiresAt"> & {
   benefitCode?: Payment["benefitCode"];
@@ -595,6 +651,20 @@ export const apiClient = {
     return apiRequest<BootstrapPayload | null>(`/api/v1/me/bootstrap${bootstrapQuery(selectedBranchId, { optional: true })}`);
   },
 
+  createAttendanceQr(sessionId: string, selectedBranchId: string | null) {
+    return apiRequest<AttendanceQrIssuePayload>(`/api/v1/me/attendance-qr${selectedBranchQuery(selectedBranchId)}`, {
+      method: "POST",
+      body: JSON.stringify({ sessionId }),
+    });
+  },
+
+  scanAttendanceQr(memberId: string, payload: string, selectedBranchId: string | null) {
+    return apiRequest<AttendanceQrScanPayload>(`/api/v1/attendance-qr/scan${selectedBranchQuery(selectedBranchId)}`, {
+      method: "POST",
+      body: JSON.stringify({ memberId, payload }),
+    });
+  },
+
   updateAttendanceBatch(
     sessionId: string,
     items: Array<{ memberId: string; status: AttendanceStatus; note?: string }>,
@@ -777,6 +847,41 @@ export const apiClient = {
         method: "PATCH",
         body: JSON.stringify(payload),
       },
+    );
+  },
+
+  getClassRegistrationOptions(memberId: string, month: string, selectedBranchId: string | null) {
+    const searchParams = new URLSearchParams({ memberId, month });
+    if (selectedBranchId) {
+      searchParams.set("selectedBranchId", selectedBranchId);
+    }
+
+    return apiRequest<ClassRegistrationOptionsPayload>(`/api/v1/classes/registration-options?${searchParams.toString()}`);
+  },
+
+  registerForClass(classId: string, memberId: string, selectedBranchId: string | null) {
+    return apiRequest<ClassEnrollmentResponsePayload>(
+      `/api/v1/classes/${encodeURIComponent(classId)}/enrollment${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ memberId }),
+      },
+    );
+  },
+
+  cancelClassRegistration(classId: string, memberId: string, selectedBranchId: string | null) {
+    return apiRequest<ClassEnrollmentResponsePayload>(
+      `/api/v1/classes/${encodeURIComponent(classId)}/enrollment${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ memberId }),
+      },
+    );
+  },
+
+  getClassRosterCandidates(classId: string, selectedBranchId: string | null) {
+    return apiRequest<ClassRosterCandidatesPayload>(
+      `/api/v1/classes/${encodeURIComponent(classId)}/roster-candidates${selectedBranchQuery(selectedBranchId)}`,
     );
   },
 

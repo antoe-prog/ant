@@ -59,6 +59,8 @@ export type AppUser = {
 };
 
 export type MemberStatus = "active" | "trial" | "paused" | "withdrawn";
+export type MemberAgeGroup = "kids" | "teen" | "adult";
+export type ClassAgeGroup = MemberAgeGroup | "all";
 
 export type MemberMembershipSummary = {
   expiresAt?: string;
@@ -77,7 +79,7 @@ export type Member = {
   branchId: string;
   name: string;
   status: MemberStatus;
-  ageGroup: "kids" | "teen" | "adult";
+  ageGroup: MemberAgeGroup;
   level: string;
   belt: string;
   gender?: MemberGender;
@@ -98,7 +100,7 @@ export type ClassSession = {
   branchId: string;
   name: string;
   level: string;
-  ageGroup: Member["ageGroup"];
+  ageGroup: ClassAgeGroup;
   coachId: string;
   startsAt: string;
   endsAt: string;
@@ -364,6 +366,17 @@ export type AuthSession = {
   revokedAt?: string;
 };
 
+export type AttendanceQrChallenge = {
+  id: string;
+  tokenHash: string;
+  userId: string;
+  branchId: string;
+  sessionId: string;
+  redeemedMemberIds: string[];
+  createdAt: string;
+  expiresAt: string;
+};
+
 export type PilotReadinessStatus = "pending" | "verified" | "blocked";
 
 export type PilotReadinessCheck = {
@@ -525,6 +538,7 @@ export type MockDatabase = {
   payments: Payment[];
   notices: Notice[];
   authSessions: AuthSession[];
+  attendanceQrChallenges: AttendanceQrChallenge[];
   pushSubscriptions: PushSubscriptionRecord[];
   pushDispatchJobs: PushDispatchJob[];
   pilotReadinessChecks: PilotReadinessCheck[];

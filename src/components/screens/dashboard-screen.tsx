@@ -18,6 +18,7 @@ import {
   MessageSquareText,
   Trophy,
 } from "lucide-react";
+import { CoachAttendanceQrCard, MemberAttendanceQrScannerCard } from "@/components/domain/attendance-qr";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
@@ -28,7 +29,7 @@ import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { isNoticeReadByUser, isNoticeRelevantToMember } from "@/lib/notices";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
-import { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine } from "@/lib/payment-checkout-access";
+import { getFamilyPaymentCheckoutAccess } from "@/lib/payment-checkout-access";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { paymentStatusLabels } from "@/lib/roles";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
@@ -82,13 +83,6 @@ function compactText(value: string, maxLength = 56) {
 function formatMobileClassSchedule(name: string, startsAt: string, endsAt: string) {
   return `${name} · ${formatDate(startsAt)} · ${formatCompactTimeRange(startsAt, endsAt)}`;
 }
-
-type MobilePriorityCard = {
-  actionHref?: string;
-  detail: string;
-  label: string;
-  status: string;
-};
 
 const beltProgression = ["흰띠", "노란띠", "주황띠", "초록띠", "파란띠", "갈색띠", "검은띠"] as const;
 const coachDashboardNoteTypeLabels: Record<string, string> = {
@@ -180,61 +174,6 @@ function CoachDashboardFlowGraph({
         })}
       </div>
     </div>
-  );
-}
-
-function FamilyMobilePriorityPanel({
-  cards,
-}: {
-  cards: MobilePriorityCard[];
-}) {
-  if (cards.length === 0) {
-    return null;
-  }
-
-  return (
-    <section
-      aria-label="회원 핵심 상태"
-      className="mb-3 rounded-lg border border-zinc-200 bg-white p-2 shadow-sm"
-      data-testid="member-guardian-mobile-priority-panel"
-    >
-      <div className="divide-y divide-zinc-100" data-testid="member-guardian-priority-grid">
-        {cards.map((card) => {
-          const content = (
-            <>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-zinc-950">{card.label}</p>
-                <p className="mt-0.5 line-clamp-2 break-words text-xs leading-4 text-zinc-500">{card.detail}</p>
-              </div>
-              <span className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md bg-teal-50 px-2 text-xs font-semibold tabular-nums text-teal-700">
-                {card.status}
-                {card.actionHref ? <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden /> : null}
-              </span>
-            </>
-          );
-
-          return card.actionHref ? (
-            <Link
-              aria-label={`${card.label} 보기`}
-              className="group grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-2 transition hover:bg-teal-50/60"
-              data-testid="member-guardian-priority-cell"
-              href={card.actionHref}
-              key={card.label}
-            >
-              {content}
-            </Link>
-          ) : (
-            <article
-              className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-2"
-              data-testid="member-guardian-priority-cell"
-              key={card.label}
-            >
-              {content}
-            </article>
-          );
-        })}
-      </div>
-    </section>
   );
 }
 
@@ -603,13 +542,6 @@ export function DashboardScreen() {
       ? [selectedPersonalMember.id]
       : personalMembers.map((member) => member.id),
   );
-  const personalClasses = context.db.classes.filter((session) =>
-    session.enrolledMemberIds.some((memberId) => personalMemberIds.has(memberId)),
-  );
-  const personalTodayClasses = data.todaysClasses.filter((session) =>
-    session.enrolledMemberIds.some((memberId) => personalMemberIds.has(memberId)),
-  );
-  const personalAttendanceRecords = context.db.attendance.filter((record) => personalMemberIds.has(record.memberId));
   const personalPayments = context.db.payments.filter((payment) => personalMemberIds.has(payment.memberId));
   const personalPrimaryPayment =
     selectedPersonalMember
@@ -623,83 +555,6 @@ export function DashboardScreen() {
     personalPaymentCheckoutAccess?.canOpen && personalPrimaryPayment
       ? `/app/payments/checkout?paymentId=${encodeURIComponent(personalPrimaryPayment.id)}`
       : "/app/payments";
-  const personalPaymentActionStatus =
-    personalPaymentCheckoutAccess?.label ?? (personalPrimaryPayment ? paymentStatusLabels[personalPrimaryPayment.status] : "결제 정보 없음");
-  const personalPaymentPlanLine =
-    personalPrimaryPayment && selectedPersonalMember
-      ? getFamilyPaymentPlanLine(personalPrimaryPayment.planName, selectedPersonalMember.ageGroup)
-      : null;
-  const personalNotices =
-    context.user.role === "guardian" && selectedPersonalMember
-      ? data.notices.filter((notice) =>
-          isNoticeRelevantToMember(notice, selectedPersonalMember.id, context.db.classes),
-        )
-      : data.notices;
-  const personalUnreadNotices = personalNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id));
-  const personalNoticeStatus = personalUnreadNotices.length > 0 ? `${personalUnreadNotices.length}건` : "확인 완료";
-  const personalNoticeDetail =
-    personalUnreadNotices.length > 0
-      ? `미확인 공지 ${personalUnreadNotices.length}건`
-      : personalNotices.length > 0
-        ? `공지 ${personalNotices.length}건 모두 확인`
-        : "도착한 공지 없음";
-  const personalPromotion = selectedPersonalMember
-    ? [...(context.db.promotions ?? [])]
-        .filter((promotion) => promotion.memberId === selectedPersonalMember.id)
-        .sort(
-          (left, right) =>
-            Number(right.result === "scheduled") - Number(left.result === "scheduled") ||
-            right.examDate.localeCompare(left.examDate),
-        )[0]
-    : null;
-  const personalUpcomingClasses = [...personalClasses]
-    .filter((session) => new Date(session.endsAt).getTime() > currentTime)
-    .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-  const personalUpcomingTodayClasses = [...personalTodayClasses]
-    .filter((session) => new Date(session.endsAt).getTime() > currentTime)
-    .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-  const nextPersonalClass =
-    personalUpcomingTodayClasses[0] ?? personalUpcomingClasses[0];
-  const nextPersonalClassStatus =
-    personalUpcomingTodayClasses.length > 0 ? `${personalUpcomingTodayClasses.length}개` : nextPersonalClass ? "예정" : "예정된 수업 없음";
-  const personalPanelCards: MobilePriorityCard[] = [
-    {
-      actionHref: "/app/classes",
-      detail: nextPersonalClass
-        ? formatMobileClassSchedule(nextPersonalClass.name, nextPersonalClass.startsAt, nextPersonalClass.endsAt)
-        : "다가오는 수업이 없습니다.",
-      label: "다음 수업",
-      status: nextPersonalClassStatus,
-    },
-    {
-      actionHref: "/app/classes",
-      detail: `출석 기록 ${personalAttendanceRecords.length}건`,
-      label: "출석",
-      status: `${personalAttendanceRecords.length}건`,
-    },
-    {
-      actionHref: personalPaymentActionHref,
-      detail: personalPrimaryPayment
-        ? `${personalPaymentPlanLine ?? personalPrimaryPayment.planName} · ${formatDate(personalPrimaryPayment.expiresAt)} 만료`
-        : "등록된 회원권이 없습니다.",
-      label: "결제 상태",
-      status: personalPaymentActionStatus,
-    },
-    {
-      actionHref: "/app/promotions",
-      detail: personalPromotion
-        ? `${personalPromotion.fromBelt} → ${personalPromotion.toBelt} · ${formatDate(personalPromotion.examDate)}`
-        : "등록된 승급 심사가 없습니다.",
-      label: "승급",
-      status: personalPromotion ? beltPromotionResultLabels[personalPromotion.result] : "확인",
-    },
-    {
-      actionHref: "/app/notices",
-      detail: personalNoticeDetail,
-      label: "공지",
-      status: personalNoticeStatus,
-    },
-  ];
   if (context.user.role === "guardian") {
     const selectedChildClasses = selectedChild
       ? context.db.classes.filter((session) => session.enrolledMemberIds.includes(selectedChild.id))
@@ -840,6 +695,11 @@ export function DashboardScreen() {
           <EmptyState title="연결된 수련 프로필이 없습니다" />
         ) : (
           <>
+            {getGuardianMemberRelation(context.user, selectedChild) === "self" ? (
+              <div className="mt-4">
+                <MemberAttendanceQrScannerCard member={selectedChild} />
+              </div>
+            ) : null}
             <GuardianLearningSummaryPanel
               actions={guardianLearningActions}
               profileName={selectedChild.name}
@@ -855,7 +715,11 @@ export function DashboardScreen() {
   if (context.user.role === "member") {
     return (
       <div>
-        {selectedPersonalMember ? <FamilyMobilePriorityPanel cards={personalPanelCards} /> : <EmptyState title="연결된 회원 정보가 없습니다" />}
+        {selectedPersonalMember ? (
+          <MemberAttendanceQrScannerCard member={selectedPersonalMember} />
+        ) : (
+          <EmptyState title="연결된 회원 정보가 없습니다" />
+        )}
       </div>
     );
   }
@@ -1325,6 +1189,14 @@ export function DashboardScreen() {
             ? <CoachDashboardFlowGraph rows={coachDashboardFlowRows} />
             : data.metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}
       </section>
+
+      {context.user.role === "coach" ? (
+        <CoachAttendanceQrCard
+          currentTime={currentTime}
+          selectedBranchId={context.selectedBranchId}
+          sessions={data.todaysClasses}
+        />
+      ) : null}
 
       <section className="mt-6 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <div

@@ -528,6 +528,7 @@ export function createMockData(): MockDatabase {
       },
     ],
     authSessions: [],
+    attendanceQrChallenges: [],
     pushSubscriptions: [],
     pushDispatchJobs: [],
     pilotReadinessChecks: createDefaultPilotReadinessChecks(),

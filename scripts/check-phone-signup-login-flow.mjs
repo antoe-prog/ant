@@ -294,8 +294,8 @@ async function main() {
     return {
       bodyTextLength: text.length,
       hasInvalidCredentialsCopy: text.includes("휴대폰 번호 또는 비밀번호가 올바르지 않습니다."),
-      memberPriorityCellCount: document.querySelectorAll('[data-testid="member-guardian-priority-cell"]').length,
-      memberPriorityPanelVisible: document.querySelector('[data-testid="member-guardian-mobile-priority-panel"]') !== null,
+      memberAttendanceQrCardVisible: document.querySelector('[data-testid="member-attendance-qr-card"]') !== null,
+      memberAttendanceQrScannerVisible: document.querySelector('[data-testid="member-attendance-qr-open"]') !== null,
       overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
     };
   });
@@ -304,13 +304,14 @@ async function main() {
   await page.screenshot({ path: dashboardScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
 
   assert.equal(
-    dashboardLayout.memberPriorityPanelVisible,
+    dashboardLayout.memberAttendanceQrCardVisible,
     true,
     `phone signup login must land on the member home dashboard: ${JSON.stringify(dashboardLayout)}`,
   );
-  assert(
-    dashboardLayout.memberPriorityCellCount > 0,
-    `phone signup member dashboard must show at least one priority cell: ${JSON.stringify(dashboardLayout)}`,
+  assert.equal(
+    dashboardLayout.memberAttendanceQrScannerVisible,
+    true,
+    `phone signup member dashboard must offer the attendance QR scanner: ${JSON.stringify(dashboardLayout)}`,
   );
   assert.equal(dashboardLayout.hasInvalidCredentialsCopy, false, "phone signup login must not show invalid credential copy after successful login");
   assert.equal(dashboardLayout.overflowX, 0, "phone signup dashboard must not overflow horizontally");

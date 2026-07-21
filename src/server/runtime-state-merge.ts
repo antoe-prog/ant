@@ -13,6 +13,7 @@ const runtimeCollectionKeys = [
   "payments",
   "notices",
   "authSessions",
+  "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
   "pilotReadinessChecks",
@@ -145,9 +146,9 @@ export function mergeRuntimeState(base: MockDatabase, requested: MockDatabase, l
     runtimeCollectionKeys.map((collection) => [
       collection,
       mergeCollection(
-        base[collection] as RuntimeItem[],
-        requested[collection] as RuntimeItem[],
-        latest[collection] as RuntimeItem[],
+        (base[collection] ?? []) as RuntimeItem[],
+        (requested[collection] ?? []) as RuntimeItem[],
+        (latest[collection] ?? []) as RuntimeItem[],
         collection,
       ),
     ]),

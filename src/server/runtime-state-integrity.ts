@@ -16,6 +16,7 @@ const runtimeCollectionKeys = [
   "payments",
   "notices",
   "authSessions",
+  "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
   "pilotReadinessChecks",
@@ -136,7 +137,7 @@ function isValidOperator(
 export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
   for (const collection of runtimeCollectionKeys) {
     assertUniqueValues(
-      db[collection].map((item) => ({ targetId: item.id, value: item.id })),
+      (db[collection] ?? []).map((item) => ({ targetId: item.id, value: item.id })),
       `${collection}.id`,
     );
   }
@@ -164,6 +165,28 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
       !db.users.some((user) => user.id === session.userId)
     ) {
       throw new RuntimeStateIntegrityError("authSessions.format", session.id);
+    }
+  }
+
+  assertUniqueValues(
+    (db.attendanceQrChallenges ?? []).map((challenge) => ({ targetId: challenge.id, value: challenge.tokenHash })),
+    "attendanceQrChallenges.tokenHash",
+  );
+
+  for (const challenge of db.attendanceQrChallenges ?? []) {
+    if (
+      !/^[a-f0-9]{64}$/.test(challenge.tokenHash) ||
+      !challenge.userId ||
+      !challenge.branchId ||
+      !challenge.sessionId ||
+      !Array.isArray(challenge.redeemedMemberIds) ||
+      new Set(challenge.redeemedMemberIds).size !== challenge.redeemedMemberIds.length ||
+      challenge.redeemedMemberIds.some((memberId) => typeof memberId !== "string" || memberId.length === 0) ||
+      !Number.isFinite(Date.parse(challenge.createdAt)) ||
+      !Number.isFinite(Date.parse(challenge.expiresAt)) ||
+      Date.parse(challenge.expiresAt) <= Date.parse(challenge.createdAt)
+    ) {
+      throw new RuntimeStateIntegrityError("attendanceQrChallenges.format", challenge.id);
     }
   }
 

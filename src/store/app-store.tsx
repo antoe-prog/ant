@@ -29,6 +29,7 @@ import {
   type AdminUserDeletePayload,
   type AdminUserUpdatePayload,
   type AdminPasswordResetPayload,
+  type AttendanceQrScanResult,
   type BranchCreatePayload,
   type BranchUpdatePayload,
   type BootstrapPayload,
@@ -153,6 +154,10 @@ type InvitationAcceptResult = { ok: true } | { ok: false; message: string };
 type NoticeCreateResult = { ok: true; message: string } | { ok: false; message: string };
 type NoticeDeleteResult = { ok: true; message: string } | { ok: false; message: string };
 type PaymentCreateResult = { ok: true; message: string } | { ok: false; message: string };
+type ClassEnrollmentActionResult = { ok: true; message: string } | { ok: false; message: string };
+type AttendanceQrScanActionResult =
+  | { ok: true; scan: AttendanceQrScanResult }
+  | { ok: false; message: string };
 
 type AppStore = AppState & {
   hydrated: boolean;
@@ -166,6 +171,7 @@ type AppStore = AppState & {
   signOut: () => void;
   clearOperationError: () => void;
   selectBranch: (branchId: string | null) => Promise<boolean>;
+  scanAttendanceQr: (memberId: string, payload: string) => Promise<AttendanceQrScanActionResult>;
   markAttendance: (sessionId: string, memberId: string, status: AttendanceStatus, note?: string) => void;
   clearAttendance: (sessionId: string, memberId: string) => void;
   markSessionAttendance: (sessionId: string, memberIds: string[], status: AttendanceStatus, note?: string) => void;
@@ -191,7 +197,9 @@ type AppStore = AppState & {
   unlinkGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   createClassSession: (branchId: string, payload: ClassSessionCreatePayload) => Promise<boolean>;
-  updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => void;
+  updateClassSession: (classId: string, payload: ClassSessionUpdatePayload) => Promise<boolean>;
+  registerForClass: (classId: string, memberId: string) => Promise<ClassEnrollmentActionResult>;
+  cancelClassRegistration: (classId: string, memberId: string) => Promise<ClassEnrollmentActionResult>;
   createPayment: (branchId: string, payload: PaymentCreatePayload, idempotencyKey: string) => Promise<PaymentCreateResult>;
   updateManualPayment: (paymentId: string, payload: ManualPaymentUpdatePayload) => Promise<boolean>;
   deleteManualPayment: (paymentId: string, payload: PaymentDeletePayload) => Promise<boolean>;
@@ -914,6 +922,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [accessibleBranchIds, reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const scanAttendanceQr = useCallback(
+    async (memberId: string, payload: string): Promise<AttendanceQrScanActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.scanAttendanceQr(memberId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return { ok: true, scan: nextPayload.scan };
+      } catch (error) {
+        return {
+          ok: false,
+          message: toUserFacingErrorMessage(error, "QR 출석을 처리하지 못했습니다."),
+        };
+      }
+    },
+    [state.selectedBranchId, state.user],
+  );
+
   const markAttendance = useCallback(
     (sessionId: string, memberId: string, status: AttendanceStatus, note?: string) => {
       if (!state.user) {
@@ -1478,15 +1507,61 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const updateClassSession = useCallback(
-    (classId: string, payload: ClassSessionUpdatePayload) => {
+    async (classId: string, payload: ClassSessionUpdatePayload) => {
       if (!state.user) {
-        return;
+        return false;
       }
 
-      void apiClient
-        .updateClassSession(classId, payload, state.selectedBranchId)
-        .then((nextPayload) => dispatch({ type: "serverSnapshot", payload: nextPayload }))
-        .catch((error) => reportOperationError(error, "수업 정보를 수정하지 못했습니다."));
+      try {
+        const nextPayload = await apiClient.updateClassSession(classId, payload, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "수업 정보를 수정하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const registerForClass = useCallback(
+    async (classId: string, memberId: string): Promise<ClassEnrollmentActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.registerForClass(classId, memberId, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return { ok: true, message: nextPayload.enrollment.unchanged ? "이미 신청한 수업입니다." : "수업을 신청했습니다." };
+      } catch (error) {
+        reportOperationError(error, "수업을 신청하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "수업을 신청하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const cancelClassRegistration = useCallback(
+    async (classId: string, memberId: string): Promise<ClassEnrollmentActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.cancelClassRegistration(classId, memberId, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return { ok: true, message: nextPayload.enrollment.unchanged ? "이미 취소된 수업입니다." : "수업 신청을 취소했습니다." };
+      } catch (error) {
+        reportOperationError(error, "수업 신청을 취소하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "수업 신청을 취소하지 못했습니다.",
+        };
+      }
     },
     [reportOperationError, state.selectedBranchId, state.user],
   );
@@ -2104,6 +2179,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       signOut,
       clearOperationError,
       selectBranch,
+      scanAttendanceQr,
       markAttendance,
       clearAttendance,
       markSessionAttendance,
@@ -2120,6 +2196,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       replaceGuardian,
       createClassSession,
       updateClassSession,
+      registerForClass,
+      cancelClassRegistration,
       createPayment,
       updateManualPayment,
       deleteManualPayment,
@@ -2168,6 +2246,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       reissueInvitationLink,
       createMember,
       createClassSession,
+      registerForClass,
+      cancelClassRegistration,
       createNotice,
       createOnlinePaymentCheckout,
       createFamilyPaymentRequest,
@@ -2194,6 +2274,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       markNoticesAsRead,
       resetUserPassword,
       refundPayment,
+      scanAttendanceQr,
       selectBranch,
       signIn,
       signOut,

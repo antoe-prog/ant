@@ -291,6 +291,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     payments,
     notices,
     authSessions: [],
+    attendanceQrChallenges: [],
     pushSubscriptions,
     pushDispatchJobs: [],
     pilotReadinessChecks: user.role === "admin" ? db.pilotReadinessChecks : [],

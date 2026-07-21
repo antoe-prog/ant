@@ -141,16 +141,8 @@ assert(
 );
 
 for (const snippet of [
-  "member-guardian-mobile-priority-panel",
-  "회원 핵심 상태",
-  'data-testid="member-guardian-priority-grid"',
-  'data-testid="member-guardian-priority-cell"',
-  "다음 수업",
-  "출석",
-  "출석 기록 ${personalAttendanceRecords.length}건",
-  "status: `${personalAttendanceRecords.length}건`",
-  "결제 상태",
-  'label: "공지"',
+  "MemberAttendanceQrScannerCard",
+  "CoachAttendanceQrCard",
   "guardian-learning-summary-panel",
   "띠 단계",
   "현재 {selectedBelt}",
@@ -169,8 +161,8 @@ assert(
 );
 assert(!guardianDashboardSource.includes("<FamilyMobilePriorityPanel"), "guardian dashboard must not render the today summary panel");
 assert(
-  memberDashboardSource.includes("<FamilyMobilePriorityPanel"),
-  "member dashboard must keep the compact today summary as the primary dashboard content",
+  memberDashboardSource.includes("<MemberAttendanceQrScannerCard"),
+  "member dashboard must keep the attendance QR scanner as the primary dashboard content",
 );
 assert(memberDashboardSource.includes("return ("), "member dashboard must return before the generic operations dashboard");
 for (const retiredFamilyHeading of ["회원 홈", "학부모 홈", "오늘 요약"]) {

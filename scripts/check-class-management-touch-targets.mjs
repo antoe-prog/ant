@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
@@ -27,6 +27,9 @@ const chromeCandidates = [
 ].filter(Boolean);
 let managedAppServer = null;
 let usingExistingAppServer = false;
+const managedRuntimeStamp = `${process.pid}-${Date.now()}`;
+const managedDistDir = `.next-class-management-touch-targets-${managedRuntimeStamp}`;
+const managedTsconfigPath = `.tsconfig.class-management-touch-targets-${managedRuntimeStamp}.json`;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
@@ -96,12 +99,30 @@ async function ensureLocalAppServer() {
   }
 
   const target = new URL(baseUrl);
+  writeFileSync(
+    managedTsconfigPath,
+    `${JSON.stringify({
+      extends: "./tsconfig.json",
+      include: [
+        "next-env.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        `${managedDistDir}/types/**/*.ts`,
+        `${managedDistDir}/dev/types/**/*.ts`,
+      ],
+    }, null, 2)}\n`,
+  );
   managedAppServer = spawn(
     npmCommand,
     ["run", "dev", "--", "--webpack", "--hostname", target.hostname, "--port", target.port],
     {
       cwd: process.cwd(),
-      env: { ...process.env, FINAL_JUDO_ROLL_DEMO_DATES: "0" },
+      env: {
+        ...process.env,
+        FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
+        FINAL_JUDO_NEXT_TSCONFIG_PATH: managedTsconfigPath,
+        FINAL_JUDO_ROLL_DEMO_DATES: "0",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -139,6 +160,8 @@ async function stopManagedAppServer() {
       }
     }),
   ]);
+  rmSync(managedDistDir, { force: true, recursive: true });
+  rmSync(managedTsconfigPath, { force: true });
 }
 
 async function resetDevData(label) {
@@ -218,6 +241,43 @@ async function gotoRole(page, role, nextPath) {
     timeout: 30000,
     waitUntil: "domcontentloaded",
   });
+}
+
+async function prepareFamilyAbsentAttendance(context) {
+  const page = await context.newPage();
+
+  try {
+    await gotoRole(page, "coach", "/app/classes");
+    const result = await page.evaluate(async () => {
+      const now = Date.now();
+      const classResponse = await fetch("/api/v1/classes/class-kids-am?selectedBranchId=branch-gangnam", {
+        body: JSON.stringify({
+          startsAt: new Date(now - 60 * 60_000).toISOString(),
+          endsAt: new Date(now - 10 * 60_000).toISOString(),
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      });
+
+      if (!classResponse.ok) {
+        return { body: await classResponse.text(), status: classResponse.status };
+      }
+
+      const response = await fetch("/api/v1/class-sessions/class-kids-am/attendance", {
+        body: JSON.stringify({
+          items: [{ memberId: "member-jun", note: "달력 결석 상태 검증", status: "absent" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      });
+
+      return { body: await response.text(), status: response.status };
+    });
+
+    assert.equal(result.status, 200, `family calendar absent fixture must persist: ${result.body}`);
+  } finally {
+    await page.close();
+  }
 }
 
 async function prepareStartedAttendanceSessions(context) {
@@ -346,6 +406,8 @@ async function captureOwnerClasses(context) {
 
     await page.getByTestId("class-create-toggle").click();
     await page.waitForSelector('[data-testid="class-create-form"]', { timeout: 15000 });
+    const classAgeGroupSelect = page.locator('[data-class-create-control="age-group"]');
+    await classAgeGroupSelect.selectOption("all");
 
     const openLayout = {
       health: await collectPageHealth(page),
@@ -355,6 +417,8 @@ async function captureOwnerClasses(context) {
         room: Number(await page.getByLabel("장소", { exact: true }).getAttribute("maxlength")),
       },
       createFieldHeights: await readHeights(page, '[data-testid="class-create-field"]'),
+      ageGroupOptionLabels: await page.locator('[data-class-create-control="age-group"] option').allTextContents(),
+      ageGroupValue: await classAgeGroupSelect.inputValue(),
       createSubmitHeights: await readHeights(page, '[data-testid="class-create-submit"]'),
       editRoomMaxLengths: await page
         .getByLabel("장소 수정", { exact: true })
@@ -367,6 +431,11 @@ async function captureOwnerClasses(context) {
     assert.equal(openLayout.health.frameworkOverlayCount, 0, "owner classes open form must not show a framework overlay");
     assert.equal(openLayout.health.scrollWidth, openLayout.health.clientWidth, "owner classes open form must not overflow horizontally");
     assert.equal(openLayout.formCount, 1, "class create form must open after tapping the toggle");
+    assert.equal(openLayout.ageGroupValue, "all", "class create form must select the unrestricted all-age option");
+    assert(
+      openLayout.ageGroupOptionLabels.includes("무관 (모두 가능)"),
+      "class create form must expose the unrestricted all-age option",
+    );
     assertHeightsAtLeast("class create field", openLayout.createFieldHeights);
     assertHeightsAtLeast("class create submit", openLayout.createSubmitHeights);
     assertHeightsAtLeast("class edit input", openLayout.editInputHeights);
@@ -704,56 +773,140 @@ async function captureGuardianClassPeriods(context) {
   const overviewMessages = collectConsoleMessages(overviewPage);
   const missingMessages = collectConsoleMessages(missingPage);
   const overviewScreenshotPath = join(outDir, "guardian-classes-upcoming-past-mobile.png");
+  const registrationScreenshotPath = join(outDir, "guardian-classes-registration-date-mobile.png");
   const missingScreenshotPath = join(outDir, "guardian-classes-missing-attendance-mobile.png");
 
   try {
     await mockBrowserTime(overviewPage, 12);
     await gotoRole(overviewPage, "guardian", "/app/classes");
-    await overviewPage.waitForSelector('[data-testid="family-upcoming-classes-heading"]', { timeout: roleScreenTimeoutMs });
-    await overviewPage.waitForSelector('[data-testid="family-past-classes-heading"]', { timeout: roleScreenTimeoutMs });
+    await overviewPage.waitForSelector('[data-testid="family-class-calendar"]', { timeout: roleScreenTimeoutMs });
+    await overviewPage.waitForLoadState("networkidle", { timeout: roleScreenTimeoutMs });
+    const initiallyOpenRegistrationPanels = await overviewPage.locator('[data-testid="class-registration-panel"]').count();
+    const initiallyOpenClassCards = await overviewPage.locator('[data-testid^="family-class-card-"]').count();
 
-    const overview = await overviewPage.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll('[data-testid^="family-class-card-"]'));
+    assert.equal(initiallyOpenRegistrationPanels, 0, "guardian registration panel must stay closed until a calendar date is selected");
+    assert.equal(initiallyOpenClassCards, 0, "guardian class cards must stay closed until a calendar date is selected");
+
+    const registrationDateKey = await overviewPage.evaluate(async () => {
+      const now = new Date();
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const response = await fetch(
+        `/api/v1/classes/registration-options?memberId=member-jun&month=${month}&selectedBranchId=branch-gangnam`,
+      );
+      const payload = await response.json();
+      const target = payload?.data?.options?.find((option) => option.id === "class-kids-tomorrow");
+
+      return target?.startsAt?.slice(0, 10) ?? null;
+    });
+
+    assert(registrationDateKey, "guardian registration fixture must expose a selectable calendar date");
+    const registrationDateButton = overviewPage.getByTestId(`family-class-calendar-date-${registrationDateKey}`);
+    await registrationDateButton.click();
+    await overviewPage.waitForFunction(
+      () => {
+        const panel = document.querySelector('[data-testid="class-registration-panel"]');
+        return panel && !panel.textContent?.includes("신청 가능한 수업을 불러오는 중입니다.");
+      },
+      undefined,
+      { timeout: roleScreenTimeoutMs },
+    );
+    const registrationCancel = overviewPage.getByTestId("class-registration-cancel-class-kids-tomorrow");
+    await registrationCancel.waitFor({ timeout: roleScreenTimeoutMs });
+    const registrationCancelHeight = (await readHeights(
+      overviewPage,
+      '[data-testid="class-registration-cancel-class-kids-tomorrow"]',
+    ))[0] ?? 0;
+    await registrationCancel.click();
+    const registrationSubmit = overviewPage.getByTestId("class-registration-submit-class-kids-tomorrow");
+    await registrationSubmit.waitFor({ timeout: roleScreenTimeoutMs });
+    assert.equal(await registrationSubmit.isDisabled(), false, "guardian must be able to re-register a cancelled future class");
+    await registrationSubmit.click();
+    await registrationCancel.waitFor({ timeout: roleScreenTimeoutMs });
+    await overviewPage.screenshot({ fullPage: false, path: registrationScreenshotPath });
+
+    const overview = await overviewPage.evaluate((cancelHeight) => {
+      const calendarDateButtons = Array.from(document.querySelectorAll('[data-family-calendar-state]'));
+      const registrationControls = Array.from(
+        document.querySelectorAll('[data-testid^="class-registration-submit-"], [data-testid^="class-registration-cancel-"]'),
+      );
 
       return {
-        firstCardPeriod: cards[0]?.getAttribute("data-family-class-period") ?? null,
+        activeDateCount: document.querySelectorAll('[data-family-calendar-state][aria-pressed="true"]').length,
+        calendarDateButtonCount: calendarDateButtons.length,
+        calendarDateButtonMinHeight: Math.min(...calendarDateButtons.map((button) => Math.round(button.getBoundingClientRect().height))),
+        calendarStates: [...new Set(calendarDateButtons.map((button) => button.getAttribute("data-family-calendar-state")))],
         health: {
           clientWidth: document.documentElement.clientWidth,
           scrollWidth: document.documentElement.scrollWidth,
         },
-        pastHeadingCount: document.querySelectorAll('[data-testid="family-past-classes-heading"]').length,
-        upcomingHeadingCount: document.querySelectorAll('[data-testid="family-upcoming-classes-heading"]').length,
+        legendText: document.querySelector('[aria-label="달력 상태 범례"]')?.textContent ?? "",
+        registration: {
+          cancelHeight,
+          controlCount: registrationControls.length,
+          controlMinHeight: registrationControls.length > 0
+            ? Math.min(...registrationControls.map((control) => Math.round(control.getBoundingClientRect().height)))
+            : 0,
+          panelText: document.querySelector('[data-testid="class-registration-panel"]')?.textContent ?? "",
+        },
       };
-    });
+    }, registrationCancelHeight);
 
-    assert.equal(overview.upcomingHeadingCount, 1, "guardian classes must render one upcoming section heading");
-    assert.equal(overview.pastHeadingCount, 1, "guardian classes must render one past section heading");
-    assert.equal(overview.firstCardPeriod, "upcoming", "guardian classes must put upcoming sessions before past sessions");
+    assert(overview.calendarDateButtonCount > 0, "guardian classes calendar must render scheduled class dates");
+    assert.equal(overview.activeDateCount, 1, "guardian classes calendar must select one class date");
+    assert(overview.calendarDateButtonMinHeight >= 48, "guardian calendar class dates must remain touch-sized");
+    assert(overview.calendarStates.includes("absent"), "guardian calendar must render an actual absent date in red");
+    assert(overview.calendarStates.includes("scheduled"), "guardian calendar must render an actual scheduled date as an outline");
+    assert(overview.legendText.includes("예정") && overview.legendText.includes("출석") && overview.legendText.includes("결석"), "guardian calendar must explain scheduled, present, and absent states");
     assert.equal(overview.health.scrollWidth, overview.health.clientWidth, "guardian class period overview must not overflow horizontally");
+    assert(overview.registration.controlCount > 0, "guardian class registration must render an actionable future time slot");
+    assert(overview.registration.cancelHeight >= 44, "guardian class cancellation must remain 44px tall");
+    assert(overview.registration.controlMinHeight >= 44, "guardian class registration actions must remain 44px tall");
+    assert(overview.registration.panelText.includes("수업 신청"), "guardian classes must expose the date and time registration flow");
+
+    const absentDateButton = overviewPage.locator('[data-family-calendar-state="absent"]').first();
+    await absentDateButton.click();
+    const absentDatePressed = await absentDateButton.getAttribute("aria-pressed");
+    assert.equal(absentDatePressed, "true", "selecting an absent calendar date must activate it");
+    const absentCard = overviewPage.locator('[data-testid^="family-class-card-"]').first();
+    await absentCard.waitFor({ state: "visible", timeout: roleScreenTimeoutMs });
+    const absentCardText = (await absentCard.innerText()).trim();
+    assert(absentCardText.includes("결석"), "selecting an absent calendar date must show its absent class detail");
     await overviewPage.screenshot({ fullPage: false, path: overviewScreenshotPath });
 
     await mockBrowserTime(missingPage, 19);
     await gotoRole(missingPage, "guardian", "/app/classes");
     await missingPage.getByTestId("guardian-child-chip").filter({ hasText: "한유나" }).click();
+    await missingPage.waitForSelector('[data-testid="family-class-calendar"]', { timeout: roleScreenTimeoutMs });
+    await missingPage.locator('[data-family-calendar-state="unrecorded"]').first().click();
     await missingPage.waitForSelector('[data-testid^="family-attendance-status-"]', { timeout: roleScreenTimeoutMs });
     const missingStatusText = (await missingPage.locator('[data-testid^="family-attendance-status-"]').first().innerText()).trim();
     const selectedCardPeriod = await missingPage.locator('[data-testid^="family-class-card-"]').first().getAttribute("data-family-class-period");
+    const selectedCalendarState = await missingPage.locator('[data-family-calendar-state][aria-pressed="true"]').getAttribute("data-family-calendar-state");
 
     assert.equal(selectedCardPeriod, "past", "ended guardian class must be identified as a past class");
     assert.equal(missingStatusText, "미기록 · 확인 필요", "ended class without attendance must not be labeled scheduled");
-    assert.equal(await missingPage.locator('[data-testid="family-upcoming-classes-heading"]').count(), 0, "selected child without future classes must not show an empty upcoming section");
-    assert.equal(await missingPage.locator('[data-testid="family-past-classes-heading"]').count(), 1, "selected child past classes must keep one past section heading");
+    assert.equal(selectedCalendarState, "unrecorded", "ended class without attendance must use the unrecorded calendar state");
     assert.equal(overviewMessages.length, 0, `guardian class period overview must not log console/page warnings: ${overviewMessages.join(" | ")}`);
     assert.equal(missingMessages.length, 0, `guardian missing attendance flow must not log console/page warnings: ${missingMessages.join(" | ")}`);
     await missingPage.screenshot({ fullPage: false, path: missingScreenshotPath });
     assert(statSync(overviewScreenshotPath).size > 10_000, "guardian class period screenshot must be non-empty");
+    assert(statSync(registrationScreenshotPath).size > 10_000, "guardian date-selected registration screenshot must be non-empty");
     assert(statSync(missingScreenshotPath).size > 10_000, "guardian missing attendance screenshot must be non-empty");
 
     return {
       missingStatusText,
+      absentSelection: {
+        cardText: absentCardText,
+        pressed: absentDatePressed,
+      },
       overview,
+      initialClosedState: {
+        classCards: initiallyOpenClassCards,
+        registrationPanels: initiallyOpenRegistrationPanels,
+      },
       screenshots: {
         missingAttendance: missingScreenshotPath,
+        registrationDate: registrationScreenshotPath,
         upcomingPast: overviewScreenshotPath,
       },
       selectedCardPeriod,
@@ -793,6 +946,7 @@ async function main() {
       await context.addInitScript(() => {
         window.localStorage.removeItem("final-judo-mvp-session");
       });
+      await prepareFamilyAbsentAttendance(context);
       const family = await captureGuardianClassPeriods(context);
       const owner = await captureOwnerClasses(context);
       const summary = {
@@ -802,7 +956,7 @@ async function main() {
         browserMode: "Browser runtime unavailable / Playwright with system Chrome",
         devReset: { before: beforeReset, beforeFamily: familyReset },
         flow:
-          "coach bulk attendance confirmation/undo + guardian upcoming/past class states + class management controls keep 44px touch targets",
+          "coach bulk attendance confirmation/undo + guardian scheduled/present/absent/unrecorded calendar states + class management controls keep 44px touch targets",
         removedOutputFiles,
         result: {
           coachBulk,

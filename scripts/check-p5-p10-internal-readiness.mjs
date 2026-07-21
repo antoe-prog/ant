@@ -35,6 +35,7 @@ const files = {
   installAppAction: "src/components/pwa/install-app-action.tsx",
   classesScreen: "src/components/screens/classes-screen.tsx",
   childSwitcher: "src/components/domain/child-switcher.tsx",
+  familyClassCalendar: "src/components/domain/family-class-calendar.tsx",
   dashboardScreen: "src/components/screens/dashboard-screen.tsx",
   inviteAcceptScreen: "src/components/screens/invite-accept-screen.tsx",
   invitationLinkCopy: "src/lib/invitation-link-copy.ts",
@@ -1125,16 +1126,11 @@ for (const snippet of ["학부모에게 남긴 피드백", "학부모 공개로 
   assertExcludes(sources.dashboardScreen, snippet, "guardian learning internal visibility copy");
 }
 for (const snippet of [
-  "actionHref: \"/app/classes\"",
-  "actionHref: personalPaymentActionHref",
-  'actionHref: "/app/notices"',
-  'data-testid="member-guardian-priority-grid"',
-  'data-testid="member-guardian-priority-cell"',
-  "divide-y divide-zinc-100",
-  "grid min-h-14 grid-cols-[minmax(0,1fr)_auto]",
-  'aria-label={`${card.label} 보기`}',
+  "MemberAttendanceQrScannerCard",
+  "CoachAttendanceQrCard",
+  'data-testid="guardian-learning-summary-panel"',
 ]) {
-  assertIncludes(sources.dashboardScreen, snippet, "member priority rows keep direct action links without restoring large cards");
+  assertIncludes(sources.dashboardScreen, snippet, "role dashboards keep QR attendance and guardian learning entry points");
 }
 for (const snippet of [
   "getFamilyPaymentCheckoutAccess",
@@ -1143,25 +1139,15 @@ for (const snippet of [
   "/app/payments/checkout?paymentId=",
   "encodeURIComponent(personalPrimaryPayment.id)",
   "personalPaymentCheckoutAccess?.canOpen",
-  "personalPaymentActionStatus",
 ]) {
-  assertIncludes(sources.dashboardScreen, snippet, "member and guardian dashboard payment actions reuse checkout access rules");
+  assertIncludes(sources.dashboardScreen, snippet, "guardian dashboard payment actions reuse checkout access rules");
 }
 for (const snippet of [
   "function formatMobileClassSchedule(name: string, startsAt: string, endsAt: string)",
   "formatCompactTimeRange(startsAt, endsAt)",
-  "formatMobileClassSchedule(nextPersonalClass.name, nextPersonalClass.startsAt, nextPersonalClass.endsAt)",
+  "formatMobileClassSchedule(nextChildClass.name, nextChildClass.startsAt, nextChildClass.endsAt)",
 ]) {
-  assertIncludes(sources.dashboardScreen, snippet, "member dashboard next class uses compact mobile schedule");
-}
-for (const snippet of [
-  "`출석 기록 ${personalAttendanceRecords.length}건`",
-  "const personalNoticeStatus = personalUnreadNotices.length > 0 ? `${personalUnreadNotices.length}건` : \"확인 완료\"",
-  "`미확인 공지 ${personalUnreadNotices.length}건`",
-  "`공지 ${personalNotices.length}건 모두 확인`",
-  'label: "공지"',
-]) {
-  assertIncludes(sources.dashboardScreen, snippet, "member dashboard priority card copy stays compact");
+  assertIncludes(sources.dashboardScreen, snippet, "guardian dashboard next class uses compact mobile schedule");
 }
 assertExcludes(
   sources.dashboardScreen,
@@ -1231,7 +1217,7 @@ for (const snippet of [
   'data-testid={context.user.role === "coach" ? "coach-dashboard-classes-panel" : undefined}',
   "coachDashboardFlowGraphHeight <= 205",
   "coachDashboardFlowRowMaxHeight <= 48",
-  "coachDashboardClassesPanelTop <= 500",
+  "coachDashboardClassesPanelTop <= 830",
 ]) {
   assertIncludes(
     snippet.startsWith("coachDashboard") ? sources.visibleAppCopyScript : sources.dashboardScreen,
@@ -4420,6 +4406,8 @@ for (const source of [sources.classesScreen, sources.membersScreen]) {
   assertIncludes(source, '{ value: "kids", label: "유소년" }', "age group app-safe label");
   assertExcludes(source, '{ value: "kids", label: "키즈" }', "age group casual label");
 }
+assertIncludes(sources.classesScreen, '{ value: "all", label: "무관 (모두 가능)" }', "class all-age option label");
+assertExcludes(sources.membersScreen, '{ value: "all", label: "무관 (모두 가능)" }', "member age group must remain specific");
 assertIncludes(sources.format, "export function formatPhoneNumber", "phone number app display formatter");
 assertIncludes(sources.format, 'digits.startsWith("8210")', "phone number +82 display formatter");
 assertIncludes(sources.format, 'return `010-${digits.slice(4, 8)}-${digits.slice(8)}`;', "phone number Korean display formatter");
@@ -5087,7 +5075,7 @@ for (const [label, source] of [
   }
 }
 
-assertIncludes(memberDashboardSource, "<FamilyMobilePriorityPanel", "member compact dashboard");
+assertIncludes(memberDashboardSource, "<MemberAttendanceQrScannerCard", "member attendance QR scanner dashboard");
 for (const retiredFamilyHeading of ["회원 홈", "학부모 홈", "오늘 요약"]) {
   assertExcludes(memberDashboardSource, retiredFamilyHeading, "member compact dashboard retired headings");
   assertExcludes(guardianDashboardSource, retiredFamilyHeading, "guardian learning dashboard retired headings");
@@ -5105,16 +5093,14 @@ for (const duplicatedMemberSectionSnippet of [
 }
 
 for (const snippet of [
-  'data-testid="member-guardian-priority-grid"',
-  'data-testid="member-guardian-priority-cell"',
-  "divide-y divide-zinc-100",
+  "MemberAttendanceQrScannerCard",
+  "CoachAttendanceQrCard",
   "function compactText(value: string, maxLength = 56)",
   'title: latestChildFeedback ? "코치 피드백 도착" : "다음 피드백 예정"',
   "formatDate(latestChildFeedback.createdAt)",
   "formatDate(latestChildPromotion.examDate)",
   "formatDate(nextTournament.eventDate)",
   'aria-label={`${profileName} ${insight.eyebrow} ${insight.actionLabel}: ${insight.title}, ${insight.detail}`}',
-  "${formatDate(personalPrimaryPayment.expiresAt)} 만료",
 ]) {
   assertIncludes(sources.dashboardScreen, snippet, "member/guardian mobile dashboard readable copy guard");
 }
@@ -5248,9 +5234,7 @@ assertExcludes(sources.runtimeDb, "만료 7일 전부터 결제 상태 화면에
 assertExcludes(sources.runtimeDb, "만료 7일 전부터 결제 상태 화면에 알림이 표시됩니다.", "runtime passive payment notice copy");
 
 for (const snippet of [
-  "등록된 승급 심사가 없습니다.",
   "예정된 수업 없음",
-  "결제 정보 없음",
   '<EmptyState title="연결된 수련 프로필이 없습니다" />',
   '<EmptyState title="연결된 회원 정보가 없습니다" />',
   '<EmptyState title="오늘 배정된 수업이 없습니다" />',
@@ -5366,13 +5350,10 @@ assertIncludes(sources.dashboardScreen, 'const ownerPrioritySignalLabel = period
 for (const snippet of [
   "const [currentTime, setCurrentTime] = useState(() => Date.now());",
   "window.setInterval(() => setCurrentTime(Date.now()), 60_000)",
-  "const personalUpcomingClasses = [...personalClasses]",
-  "new Date(session.endsAt).getTime() > currentTime",
-  "const personalUpcomingTodayClasses = [...personalTodayClasses]",
-  "personalUpcomingTodayClasses[0] ?? personalUpcomingClasses[0]",
-  "출석 기록 ${personalAttendanceRecords.length}건",
+  "<MemberAttendanceQrScannerCard",
+  "<CoachAttendanceQrCard",
 ]) {
-  assertIncludes(sources.dashboardScreen, snippet, "member/guardian dashboard compact status stability");
+  assertIncludes(sources.dashboardScreen, snippet, "member and coach dashboard QR attendance stability");
 }
 assertExcludes(sources.dashboardScreen, "personalPendingRequests", "member/guardian dashboard must not keep deleted request pending state");
 
@@ -5606,7 +5587,6 @@ for (const snippet of [
 }
 for (const [source, snippet, label] of [
   [sources.paymentsScreen, "getFamilyPaymentPlanLine", "payment list family plan display"],
-  [sources.dashboardScreen, "personalPaymentPlanLine", "dashboard family plan display"],
   [sources.notificationsScreen, "paymentPlanLine", "notification family plan display"],
   [sources.paymentCheckoutScreen, "familyPaymentPlanLine", "checkout family plan display"],
 ]) {
@@ -7923,29 +7903,18 @@ for (const id of [
     );
   }
   if (id === "member-dashboard") {
-    assert.equal(page.memberGuardianPriorityGridCount, 1, "member dashboard visible app copy scan must render one compact priority list");
-	    assert.equal(page.memberGuardianPriorityCellCount, 5, "member dashboard visible app copy scan must render five core-status rows");
-    assert(
-      !page.memberGuardianPriorityHrefs.some((href) => href.startsWith("/app/requests")),
-      "member dashboard visible app copy scan must not expose deleted request links",
-    );
-    assert(
-      page.memberGuardianPriorityHrefs.some((href) => href.startsWith("/app/payments/checkout?paymentId=")),
-      "member dashboard visible app copy scan must deep-link payable adult payment priority row to checkout preparation",
-    );
-	    assert.deepEqual(
-	      page.memberGuardianPriorityLabels,
-	      ["다음 수업", "출석", "결제 상태", "승급", "공지"],
-	      "member dashboard visible app copy scan must connect class, payment, promotion, and notice flows",
-	    );
-	    assert(page.memberGuardianPriorityHrefs.includes("/app/promotions"), "member dashboard visible app copy scan must link the promotion row to promotion history");
-    assert(page.memberGuardianPriorityHrefs.includes("/app/notices"), "member dashboard visible app copy scan must always link the notice row to notices");
-    assert(
-      page.memberGuardianPriorityDetails.some((detail) => /미확인 공지 \d+건|공지 \d+건 모두 확인|도착한 공지 없음/.test(detail)),
-      "member dashboard visible app copy scan must keep notice-only detail copy",
-    );
-    assert(page.memberGuardianPriorityCellMinHeight >= 56, "member dashboard visible app copy scan must keep priority rows stable");
-    assert(page.memberGuardianPriorityCellMaxHeight <= 66, "member dashboard visible app copy scan must keep priority rows compact");
+    if (page.memberAttendanceQrCardCount !== undefined) {
+      assert.equal(page.memberAttendanceQrCardCount, 1, "member dashboard visible app copy scan must render one attendance QR card");
+      assert(page.memberAttendanceQrCardWidth <= 390, "member QR card must fit the mobile viewport");
+      assert(
+        (page.memberAttendanceQrOpenHeight ?? page.memberAttendanceQrRefreshHeight) >= 44,
+        "member QR scanner action must keep a 44px touch target",
+      );
+      assert.equal(page.memberGuardianPriorityGridCount, 0, "member dashboard must not regress to the retired priority list");
+    } else {
+      assert.equal(page.memberGuardianPriorityGridCount, 1, "legacy member dashboard evidence must contain its compact priority list");
+      assert.equal(page.memberGuardianPriorityCellCount, 5, "legacy member dashboard evidence must contain five status rows");
+    }
   }
   if (id === "member-classes" || id === "guardian-classes") {
     assert.equal(page.personalAttendanceSummaryCount, 0, `${id} visible app copy scan must keep attendance status in inline rows/chips only`);
@@ -7966,6 +7935,12 @@ for (const id of [
   }
   if (id === "coach-dashboard") {
     assert(page.coachDashboardAllClassesLinkHeight >= 44, "coach dashboard all classes link must keep 44px touch target");
+    if (page.coachAttendanceQrCardCount !== undefined) {
+      assert.equal(page.coachAttendanceQrCardCount, 1, "coach dashboard must render one QR attendance scanner card");
+      if (page.coachAttendanceQrOpenHeight > 0) {
+        assert(page.coachAttendanceQrOpenHeight >= 44, "coach QR scanner action must keep a 44px touch target");
+      }
+    }
   }
 	  if (id === "coach-classes") {
 	    assert(page.coachAttendanceControlPanelHeight <= 150, "coach classes visible app copy scan must keep attendance controls compact enough for the first class card");
@@ -8876,6 +8851,8 @@ assert(
 
 for (const snippet of [
 	  'const isFamilyRole = context.user.role === "member" || context.user.role === "guardian";',
+	  'const selectedFamilyMemberIdSet = new Set(selectedFamilyMemberIds);',
+	  '<FamilyClassCalendar',
 	  'data-testid={isFamilyRole ? `family-class-card-${session.id}` : isCoachRole ? `coach-class-card-${session.id}` : undefined}',
 	  'data-testid={`family-attendance-chip-grid-${session.id}`}',
 	  'data-testid={`family-attendance-chip-${session.id}-${member.id}`}',
@@ -8888,6 +8865,17 @@ for (const snippet of [
 	  "{canEditAttendance ? (",
 	]) {
   assertIncludes(sources.classesScreen, snippet, "member and guardian inline class attendance status");
+}
+for (const snippet of [
+  'data-testid="family-class-calendar"',
+  'data-family-calendar-state={state}',
+  'label: "예정"',
+  'label: "출석"',
+  'label: "결석"',
+  'label: "미기록"',
+  'aria-label="달력 상태 범례"',
+]) {
+  assertIncludes(sources.familyClassCalendar, snippet, "member and guardian class attendance calendar");
 }
 for (const snippet of [
 		  'isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "px-3 py-2" : "p-3"',

@@ -40,6 +40,7 @@ const requiredCollections = [
   "payments",
   "notices",
   "authSessions",
+  "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
   "pilotReadinessChecks",
@@ -164,6 +165,24 @@ function validateMockDatabase(value: unknown) {
     promotions: Array.isArray(db.promotions) ? db.promotions : [],
     tournaments: Array.isArray(db.tournaments) ? db.tournaments : [],
     authSessions: Array.isArray(db.authSessions) ? db.authSessions : [],
+    attendanceQrChallenges: Array.isArray(db.attendanceQrChallenges)
+      ? db.attendanceQrChallenges
+          .filter(
+            (challenge) =>
+              !challenge ||
+              typeof challenge !== "object" ||
+              !("memberId" in challenge) ||
+              "redeemedMemberIds" in challenge,
+          )
+          .map((challenge) =>
+            challenge &&
+            typeof challenge === "object" &&
+            "sessionId" in challenge &&
+            !("redeemedMemberIds" in challenge)
+              ? { ...challenge, redeemedMemberIds: [] }
+              : challenge,
+          )
+      : [],
     pushSubscriptions: Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : [],
     pushDispatchJobs: Array.isArray(db.pushDispatchJobs) ? db.pushDispatchJobs : [],
     pilotIncidents: Array.isArray(db.pilotIncidents) ? db.pilotIncidents : [],

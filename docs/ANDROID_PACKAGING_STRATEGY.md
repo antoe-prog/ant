@@ -207,7 +207,7 @@ npm run android:release-handoff -- \
 
 ## 현재 로컬 상태
 
-2026-07-05 기준 내부 설치용 Capacitor WebView debug APK와 Play Console 업로드용 Capacitor release AAB/APK는 로컬에서 생성되어 있다.
+2026-07-21 기준 내부 설치용 Capacitor WebView debug APK와 Play Console 비공개 테스트용 Capacitor release AAB/APK는 로컬에서 생성되어 있다.
 
 - `.data/mobile-builds/android-capacitor-webview-20260629/INSTALL_ONLY_final-judo-native-webview-debug.apk`
 - `.data/mobile-builds/android-capacitor-webview-20260629/final-judo-native-webview-debug.apk` (동등본)
@@ -216,14 +216,14 @@ npm run android:release-handoff -- \
 
 Play Console 업로드용 최신 로컬 산출물:
 
-- `.data/mobile-builds/android-play-release-20260705043652/final-judo-play-release.aab`
-- `.data/mobile-builds/android-play-release-20260705043652/final-judo-release.apk`
-- `.data/mobile-builds/android-play-release-20260705043652/google-play-release-report.json`
+- `.data/mobile-builds/android-play-release-20260721064936/final-judo-play-release.aab`
+- `.data/mobile-builds/android-play-release-20260721064936/final-judo-release.apk`
+- `.data/mobile-builds/android-play-release-20260721064936/google-play-release-report.json`
 - `~/Desktop/final-judo-play-release.aab`
 - `~/Desktop/final-judo-release.apk`
-- `versionCode 39`, `versionName 1.0.38`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
-- AAB SHA-256 `40ada39701d18155503c7b630e264ed0dad30dd2ffa27bd424441fd177cb5639`, APK SHA-256 `d2921abb1c5f0171b4ce2faba89b732d1737c4627d165eb64a51efc15687d2ab`
-- 배포 증빙: Vercel production deployment `dpl_Fij6HqEV3cKmh9EidhpshvskkNiZ`, alias `https://final-judo.vercel.app`
+- `versionCode 40`, `versionName 1.0.39`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
+- AAB SHA-256 `397eb654947e01e2bf8886d31b14b4aa973023d9ed8846cc82a499927499e999`, APK SHA-256 `0df37504a2013e5be51226a27ced577aabf0100964159bb21e1a26a590e3b86b`
+- 배포 대상 alias: `https://final-judo.vercel.app`
 
 이 APK는 `capacitor-native-webview` 패키징 리포트에서 `kr.co.finaljudo.multigym.MainActivity` 실행, 요청한 `server.url`, TWA/Custom Tabs 런타임 미포함, debug signing 검증을 통과했다. Android 상단에 `final-judo.vercel.app` URL 바, 공유 버튼, 더보기 버튼이 보이면 이 WebView APK가 아니라 TWA/Custom Tab 또는 브라우저 경로 산출물이 설치된 것이다.
 

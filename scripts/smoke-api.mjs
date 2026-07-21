@@ -420,6 +420,26 @@ async function run() {
   );
   assert(unauthenticatedAttendanceReason.response.status === 401, "attendance reason must require login before validation");
 
+  const unauthenticatedAttendanceQrIssue = await anonymous.request(
+    "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedAttendanceQrIssue.response.status, 401, "attendance QR issue must require login");
+
+  const unauthenticatedAttendanceQrScan = await anonymous.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedAttendanceQrScan.response.status, 401, "attendance QR scan must require login");
+
   const unauthenticatedClassCreate = await anonymous.request(
     "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
     {
@@ -667,7 +687,7 @@ async function run() {
   );
   assert(blockedCoachGuardianLink.response.status === 403, "coach must not reach guardian link validation");
 
-  const blockedCoachClassCreate = await coach.request(
+  const invalidCoachClassCreate = await coach.request(
     "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
     {
       method: "POST",
@@ -675,9 +695,9 @@ async function run() {
     },
     { allowError: true },
   );
-  assert(blockedCoachClassCreate.response.status === 403, "coach must not reach class create validation");
+  assert(invalidCoachClassCreate.response.status === 400, "coach class create must reach validation inside an assigned branch");
 
-  const blockedCoachClassUpdate = await coach.request(
+  const invalidCoachClassUpdate = await coach.request(
     "/api/v1/classes/class-kids-am?selectedBranchId=branch-gangnam",
     {
       method: "PATCH",
@@ -685,7 +705,62 @@ async function run() {
     },
     { allowError: true },
   );
-  assert(blockedCoachClassUpdate.response.status === 403, "coach must not reach class update validation");
+  assert(invalidCoachClassUpdate.response.status === 400, "coach must update an assigned class through validated input");
+
+  const coachClassStartsAt = new Date(stamp + 24 * 60 * 60 * 1000).toISOString();
+  const coachClassEndsAt = new Date(stamp + 25 * 60 * 60 * 1000).toISOString();
+  const coachCreatedClassResult = await coach.request(
+    "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Coach Created Class ${stamp}`,
+        level: "초급",
+        ageGroup: "all",
+        coachId: "user-coach",
+        startsAt: coachClassStartsAt,
+        endsAt: coachClassEndsAt,
+        room: "매트 C",
+        capacity: 10,
+        enrolledMemberIds: [],
+      }),
+    },
+  );
+  const coachCreatedClass = coachCreatedClassResult.payload.data.db.classes.find(
+    (session) => session.name === `Coach Created Class ${stamp}`,
+  );
+  assert(coachCreatedClass, "coach must be able to create a class assigned to self");
+
+  const coachClassUpdateResult = await coach.request(
+    `/api/v1/classes/${coachCreatedClass.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ room: "매트 D" }),
+    },
+  );
+  assert.equal(
+    coachClassUpdateResult.payload.data.db.classes.find((session) => session.id === coachCreatedClass.id)?.room,
+    "매트 D",
+    "coach must be able to update an assigned class",
+  );
+
+  const blockedCoachReassignment = await coach.request(
+    `/api/v1/classes/${coachCreatedClass.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ coachId: "user-owner" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedCoachReassignment.response.status, 403, "coach must not reassign an owned class to another operator");
+
+  const coachRosterCandidates = await coach.request(
+    `/api/v1/classes/${coachCreatedClass.id}/roster-candidates?selectedBranchId=branch-gangnam`,
+  );
+  assert(
+    coachRosterCandidates.payload.data.candidates.some((candidate) => candidate.id === "member-jun"),
+    "coach must be able to search same-branch roster candidates for an assigned class",
+  );
 
   const invalidCoachNoticeCreate = await coach.request(
     "/api/v1/branches/branch-gangnam/notices?selectedBranchId=branch-gangnam",
@@ -1759,6 +1834,163 @@ async function run() {
     result.db.members.length === 1 && result.db.members[0].id === "member-minjae",
     "member must only see own member profile",
   );
+
+  const guardianAttendanceQrIssue = await guardian.request(
+    "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ sessionId: "class-kids-am" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(guardianAttendanceQrIssue.response.status, 403, "guardian must not issue a class attendance QR");
+
+  const memberAttendanceQrIssue = await memberClient.request(
+    "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ sessionId: "class-kids-am" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(memberAttendanceQrIssue.response.status, 403, "member must not issue a class attendance QR");
+
+  const qrClassName = `QR Attendance Class ${stamp}`;
+  const qrClassStartsAt = new Date(Date.now() - 2 * 60_000).toISOString();
+  const qrClassEndsAt = new Date(Date.now() + 58 * 60_000).toISOString();
+  const qrClassCreate = await owner.request(
+    "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: qrClassName,
+        level: "초급",
+        ageGroup: "all",
+        coachId: "user-coach",
+        startsAt: qrClassStartsAt,
+        endsAt: qrClassEndsAt,
+        room: "QR 검증 매트",
+        capacity: 8,
+        enrolledMemberIds: ["member-minjae"],
+      }),
+    },
+  );
+  const qrClass = qrClassCreate.payload.data.db.classes.find((session) => session.name === qrClassName);
+
+  assert(qrClass, "attendance QR smoke class was not created");
+
+  const nonEnrolledClassQrIssue = await coach.request(
+    "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ sessionId: "class-kids-am" }),
+    },
+  );
+  const nonEnrolledClassQrScan = await memberClient.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae", payload: nonEnrolledClassQrIssue.payload.data.payload }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    nonEnrolledClassQrScan.response.status,
+    422,
+    "member QR scan must reject a class where the member is not enrolled",
+  );
+
+  const attendanceQrIssue = await coach.request(
+    "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ sessionId: qrClass.id }),
+    },
+  );
+  const attendanceQrPayload = attendanceQrIssue.payload.data.payload;
+
+  assert.match(
+    attendanceQrPayload,
+    /^final-judo:attendance:[A-Za-z0-9_-]{40,64}$/,
+    "coach class attendance QR must use the opaque FINAL payload format",
+  );
+
+  const memberBootstrapAfterQrIssue = await memberClient.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+  );
+  assert.deepEqual(
+    memberBootstrapAfterQrIssue.payload.data.db.attendanceQrChallenges,
+    [],
+    "bootstrap must redact attendance QR challenge hashes",
+  );
+
+  const guardianAttendanceQrScan = await guardian.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae", payload: attendanceQrPayload }),
+    },
+    { allowError: true },
+  );
+  assert.equal(guardianAttendanceQrScan.response.status, 403, "guardian must not scan a member attendance QR");
+
+  const coachAttendanceQrScan = await coach.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae", payload: attendanceQrPayload }),
+    },
+    { allowError: true },
+  );
+  assert.equal(coachAttendanceQrScan.response.status, 403, "coach must not scan a member attendance QR");
+
+  const unrelatedMemberAttendanceQrScan = await memberClient.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-jun", payload: attendanceQrPayload }),
+    },
+    { allowError: true },
+  );
+  assert.equal(unrelatedMemberAttendanceQrScan.response.status, 403, "member must not scan attendance for another member");
+
+  const attendanceQrScan = await memberClient.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae", payload: attendanceQrPayload }),
+    },
+  );
+  assert.equal(attendanceQrScan.payload.data.scan.memberId, "member-minjae", "attendance QR scan member mismatch");
+  assert.equal(attendanceQrScan.payload.data.scan.status, "present", "attendance QR scan must record present status");
+  assert(
+    attendanceQrScan.payload.data.db.attendance.some(
+      (record) =>
+        record.sessionId === qrClass.id && record.memberId === "member-minjae" && record.status === "present",
+    ),
+    "attendance QR scan did not persist attendance",
+  );
+  const ownerBootstrapAfterAttendanceQrScan = await owner.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+  );
+  const attendanceQrAudit = ownerBootstrapAfterAttendanceQrScan.payload.data.db.auditLogs.find(
+    (log) => log.action === "attendance.update" && log.targetId === `att-${qrClass.id}-member-minjae`,
+  );
+  assert(attendanceQrAudit, "attendance QR scan audit log missing");
+  assert.equal(attendanceQrAudit.actorUserId, "user-member", "attendance QR audit actor mismatch");
+  assert.equal(attendanceQrAudit.after?.note, "회원 QR 출석", "attendance QR audit must identify the scan path");
+
+  const replayedAttendanceQrScan = await memberClient.request(
+    "/api/v1/attendance-qr/scan?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae", payload: attendanceQrPayload }),
+    },
+    { allowError: true },
+  );
+  assert.equal(replayedAttendanceQrScan.response.status, 409, "attendance QR must be single-use per member");
+  assert.equal(replayedAttendanceQrScan.payload.error?.code, "QR_ALREADY_USED", "QR replay error code mismatch");
+
   const memberContact = `010-8800-${String(stamp).slice(-4)}`;
 
   result = await memberClient.request("/api/v1/members/member-minjae?selectedBranchId=branch-missing", {
@@ -2125,11 +2357,169 @@ async function run() {
 
   assert(createdClass, "class create did not return created class");
 
+  const registrationMonthParts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      timeZone: "Asia/Seoul",
+    }).formatToParts(new Date(startsAt)).map((part) => [part.type, part.value]),
+  );
+  const registrationMonth = `${registrationMonthParts.year}-${registrationMonthParts.month}`;
+  const unauthenticatedRegistrationOptions = await anonymous.request(
+    `/api/v1/classes/registration-options?memberId=member-seo&month=${registrationMonth}&selectedBranchId=branch-gangnam`,
+    {},
+    { allowError: true },
+  );
+  assert.equal(unauthenticatedRegistrationOptions.response.status, 401, "class registration options must authenticate first");
+
+  const blockedOperatorSelfRegistration = await owner.request(
+    `/api/v1/classes/${createdClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-seo" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedOperatorSelfRegistration.response.status, 403, "operators must use roster management instead of family self-registration");
+
+  const inaccessibleFamilyRegistrationOptions = await guardian.request(
+    `/api/v1/classes/registration-options?memberId=member-minjae&month=${registrationMonth}&selectedBranchId=branch-gangnam`,
+    {},
+    { allowError: true },
+  );
+  assert.equal(inaccessibleFamilyRegistrationOptions.response.status, 404, "guardian must not inspect another family member's registration options");
+
+  const guardianRegistrationOptions = await guardian.request(
+    `/api/v1/classes/registration-options?memberId=member-seo&month=${registrationMonth}&selectedBranchId=branch-gangnam`,
+  );
+  const guardianCreatedClassOption = guardianRegistrationOptions.payload.data.options.find(
+    (option) => option.id === createdClass.id,
+  );
+  assert(guardianCreatedClassOption?.canRegister, "guardian must see a compatible future class as registerable");
+  assert(
+    !JSON.stringify(guardianRegistrationOptions.payload.data).includes("enrolledMemberIds"),
+    "class registration options must not expose another member roster",
+  );
+
+  const guardianRegistration = await guardian.request(
+    `/api/v1/classes/${createdClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-seo" }),
+    },
+  );
+  assert.equal(guardianRegistration.payload.data.enrollment.status, "registered", "guardian class registration must succeed");
+  const duplicateGuardianRegistration = await guardian.request(
+    `/api/v1/classes/${createdClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-seo" }),
+    },
+  );
+  assert.equal(duplicateGuardianRegistration.payload.data.enrollment.unchanged, true, "duplicate class registration must be idempotent");
+  result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    result.payload.data.db.classes.find((session) => session.id === createdClass.id)?.enrolledMemberIds.includes("member-seo"),
+    "family registration must persist in the operator roster",
+  );
+  const guardianRegisteredClass = guardianRegistration.payload.data.db.classes.find((session) => session.id === createdClass.id);
+  assert(
+    guardianRegisteredClass?.enrolledMemberIds.every((memberId) => ["member-jun", "member-seo", "member-yuna"].includes(memberId)),
+    "family registration bootstrap must not expose unrelated member IDs",
+  );
+
+  const guardianCancellation = await guardian.request(
+    `/api/v1/classes/${createdClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ memberId: "member-seo" }),
+    },
+  );
+  assert.equal(guardianCancellation.payload.data.enrollment.status, "cancelled", "guardian must cancel a future class registration");
+
+  const adultRegistrationStartsAt = new Date(stamp + 7 * 60 * 60 * 1000).toISOString();
+  const adultRegistrationEndsAt = new Date(stamp + 8 * 60 * 60 * 1000).toISOString();
+  result = await owner.request("/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Member Self Registration ${stamp}`,
+      level: "중급",
+      ageGroup: "all",
+      coachId: "user-coach",
+      startsAt: adultRegistrationStartsAt,
+      endsAt: adultRegistrationEndsAt,
+      room: "매트 B",
+      capacity: 4,
+      enrolledMemberIds: [],
+    }),
+  });
+  const adultRegistrationClass = result.payload.data.db.classes.find(
+    (session) => session.name === `Member Self Registration ${stamp}`,
+  );
+  assert(adultRegistrationClass, "adult self-registration class must be created");
+  const memberSelfRegistration = await memberClient.request(
+    `/api/v1/classes/${adultRegistrationClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "POST",
+      body: JSON.stringify({ memberId: "member-minjae" }),
+    },
+  );
+  assert.equal(memberSelfRegistration.payload.data.enrollment.status, "registered", "adult member must register directly");
+  await memberClient.request(
+    `/api/v1/classes/${adultRegistrationClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ memberId: "member-minjae" }),
+    },
+  );
+
+  const capacityRaceStartsAt = new Date(stamp + 30 * 60 * 60 * 1000).toISOString();
+  const capacityRaceEndsAt = new Date(stamp + 31 * 60 * 60 * 1000).toISOString();
+  result = await owner.request("/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Capacity Race Class ${stamp}`,
+      level: "초급",
+      ageGroup: "kids",
+      coachId: "user-coach",
+      startsAt: capacityRaceStartsAt,
+      endsAt: capacityRaceEndsAt,
+      room: "매트 C",
+      capacity: 1,
+      enrolledMemberIds: [],
+    }),
+  });
+  const capacityRaceClass = result.payload.data.db.classes.find((session) => session.name === `Capacity Race Class ${stamp}`);
+  assert(capacityRaceClass, "capacity race class must be created");
+  const capacityRaceResults = await Promise.all(
+    ["member-jun", "member-seo"].map((memberId) =>
+      guardian.request(
+        `/api/v1/classes/${capacityRaceClass.id}/enrollment?selectedBranchId=branch-gangnam`,
+        {
+          method: "POST",
+          body: JSON.stringify({ memberId }),
+        },
+        { allowError: true },
+      ),
+    ),
+  );
+  assert.deepEqual(
+    capacityRaceResults.map(({ response }) => response.status).sort(),
+    [200, 422],
+    "concurrent class registrations must serialize at capacity",
+  );
+  result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert.equal(
+    result.payload.data.db.classes.find((session) => session.id === capacityRaceClass.id)?.enrolledMemberIds.length,
+    1,
+    "concurrent class registration must never exceed capacity",
+  );
+
   const recurringClassName = `Smoke Weekly Class ${stamp}`;
   const recurringClassPayload = {
     name: recurringClassName,
     level: "초급",
-    ageGroup: "adult",
+    ageGroup: "all",
     coachId: "user-coach",
     room: "매트 D",
     capacity: 8,
@@ -2149,6 +2539,10 @@ async function run() {
   });
   const recurringClasses = result.payload.data.db.classes.filter((item) => item.name === recurringClassName);
   assert.equal(recurringClasses.length, 4, "weekly class creation must persist every selected weekday occurrence");
+  assert(
+    recurringClasses.every((item) => item.ageGroup === "all"),
+    "weekly all-age class creation must persist the unrestricted age group",
+  );
   assert.deepEqual(
     recurringClasses.map((item) => item.startsAt).sort(),
     [
@@ -6188,6 +6582,7 @@ async function run() {
           "attendance batch type/size/length safety, unlocked body parsing, and update audit note",
           "attendance/class/payment invalid selectedBranchId API 403",
           "attendance reason route",
+          "coach class QR issue and member scan authorization, enrollment, per-member replay, audit, and snapshot redaction",
           "counseling note create/type and length safety/concurrency/scope/audit",
           "member guardian counseling notice invalid selectedBranchId API 403",
           "member create/update type/length safety, concurrency, profile/existence concealment, guardian input/length/unlocked-body/concurrency safety, reciprocal guardian links, and adult guardian-link block",

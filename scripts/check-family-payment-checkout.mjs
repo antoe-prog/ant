@@ -361,13 +361,11 @@ assert(
 );
 assert(
   paymentsScreenSource.includes("getFamilyPaymentPlanLine") &&
-    dashboardScreenSource.includes("personalPaymentPlanLine") &&
-    dashboardScreenSource.includes("getFamilyPaymentPlanLine") &&
     notificationsScreenSource.includes("paymentPlanLine") &&
     notificationsScreenSource.includes("getFamilyPaymentPlanLine") &&
     checkoutScreenSource.includes("familyPaymentPlanLine") &&
     checkoutScreenSource.includes("getFamilyPaymentPlanLine"),
-  "family payment plan display must be shared across payment list, dashboard, notifications, and checkout screens",
+  "family payment plan display must be shared across payment list, notifications, and checkout screens",
 );
 assert(
   paymentsScreenSource.includes('role={familyCheckoutCanOpen ? "link" : undefined}') &&
@@ -408,10 +406,10 @@ assert(
   "dashboard payment actions must deep-link only payable family payments to checkout preparation",
 );
 assert(
-  dashboardScreenSource.includes("personalPaymentActionStatus") &&
-    dashboardScreenSource.includes("personalPaymentCheckoutAccess?.label") &&
-    dashboardScreenSource.includes('status: personalPaymentActionStatus'),
-  "member dashboard payment card must expose checkout state copy from the shared family rule",
+  dashboardScreenSource.includes("personalPaymentCheckoutAccess?.label") &&
+    dashboardScreenSource.includes('href: personalPaymentActionHref') &&
+    dashboardScreenSource.includes('label: "결제"'),
+  "guardian dashboard payment action must expose checkout state copy from the shared family rule",
 );
 assert(
 	  checkoutScreenSource.includes("payment-checkout-ready") &&

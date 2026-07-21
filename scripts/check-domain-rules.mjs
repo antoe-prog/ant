@@ -27,6 +27,7 @@ const [
   appShellSource,
   adminRolesScreenSource,
   adminUserRoleRouteSource,
+  familyClassCalendarSource,
 ] = await Promise.all([
   readFile("src/app/api/v1/exports/payments/route.ts", "utf8"),
   readFile("src/app/api/v1/exports/operations/route.ts", "utf8"),
@@ -42,6 +43,7 @@ const [
   readFile("src/components/shell/app-shell.tsx", "utf8"),
   readFile("src/components/screens/admin-roles-screen.tsx", "utf8"),
   readFile("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8"),
+  readFile("src/components/domain/family-class-calendar.tsx", "utf8"),
 ]);
 
 const db = {
@@ -710,8 +712,18 @@ assert(
   classesScreenSource.includes('data-testid="class-create-schedule-mode"') &&
     classesScreenSource.includes('data-testid="class-create-weekdays"') &&
     classesScreenSource.includes("finalMainClassTimeOptions") &&
-    classesScreenSource.includes("recurringClassCount"),
-  "class creation UI must expose single and fixed-weekday modes with timetable slots and an occurrence count",
+    classesScreenSource.includes("recurringClassCount") &&
+    classesScreenSource.includes('{ value: "all", label: "무관 (모두 가능)" }'),
+  "class creation UI must expose all-age, single, and fixed-weekday modes with timetable slots and an occurrence count",
+);
+assert(
+  classesScreenSource.includes("FamilyClassCalendar") &&
+    classesScreenSource.includes("selectedFamilyMemberIdSet") &&
+    familyClassCalendarSource.includes('data-family-calendar-state={state}') &&
+    familyClassCalendarSource.includes('label: "출석"') &&
+    familyClassCalendarSource.includes('label: "결석"') &&
+    familyClassCalendarSource.includes('label: "미기록"'),
+  "family class UI must scope one family member and expose scheduled, attended, absent, and unrecorded calendar dates",
 );
 assert(
   paymentCheckoutScreenSource.includes("confirmedInputFingerprint") &&

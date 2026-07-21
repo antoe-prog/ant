@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import type { AuditLog, ClassSession, Member } from "@/lib/domain";
+import type { AuditLog, ClassSession } from "@/lib/domain";
 import { getClassWeeklyRecurrence, type ClassWeeklyRecurrence } from "@/lib/class-recurrence";
 import { getClassInputLimitError } from "@/lib/class-input-policy";
+import { isClassAgeGroupCompatible } from "@/lib/class-enrollment-policy";
 import { isFinalMainClassRegistrationSlot } from "@/lib/final-main-schedule-policy";
 import { isFinalMainBranch } from "@/lib/final-main-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
@@ -11,12 +12,12 @@ import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
-const ageGroups: Member["ageGroup"][] = ["kids", "teen", "adult"];
+const ageGroups: ClassSession["ageGroup"][] = ["all", "kids", "teen", "adult"];
 
 type ClassBody = {
   name?: string;
   level?: string;
-  ageGroup?: Member["ageGroup"];
+  ageGroup?: ClassSession["ageGroup"];
   coachId?: string;
   startsAt?: string;
   endsAt?: string;
@@ -33,7 +34,7 @@ type ValidatedClassPayload =
       payload: {
         name: string;
         level: string;
-        ageGroup: Member["ageGroup"];
+        ageGroup: ClassSession["ageGroup"];
         coachId: string;
         startsAt: string;
         endsAt: string;
@@ -172,7 +173,7 @@ export async function POST(
     return response;
   }
 
-  if (!["owner", "admin"].includes(user.role)) {
+  if (!["coach", "owner", "admin"].includes(user.role)) {
     return jsonError(403, "FORBIDDEN", "수업을 생성할 권한이 없습니다.");
   }
 
@@ -207,7 +208,7 @@ export async function POST(
       return latestResponse;
     }
 
-    if (!["owner", "admin"].includes(latestUser.role)) {
+    if (!["coach", "owner", "admin"].includes(latestUser.role)) {
       return jsonError(403, "FORBIDDEN", "수업을 생성할 권한이 없습니다.");
     }
 
@@ -241,6 +242,10 @@ export async function POST(
       return jsonError(422, "BUSINESS_RULE_FAILED", "선택한 지점에 배정된 코치를 선택해야 합니다.");
     }
 
+    if (latestUser.role === "coach" && payload.coachId !== latestUser.id) {
+      return jsonError(403, "FORBIDDEN", "코치는 본인 담당 수업만 생성할 수 있습니다.");
+    }
+
     const enrolledMemberIds = [...new Set(payload.enrolledMemberIds)];
 
     if (enrolledMemberIds.length > payload.capacity) {
@@ -249,11 +254,16 @@ export async function POST(
 
     const invalidMemberId = enrolledMemberIds.find((memberId) => {
       const member = latestDb.members.find((candidate) => candidate.id === memberId);
-      return !member || member.branchId !== branchId || member.status === "withdrawn";
+      return (
+        !member ||
+        member.branchId !== branchId ||
+        (member.status !== "active" && member.status !== "trial") ||
+        !isClassAgeGroupCompatible(member, payload)
+      );
     });
 
     if (invalidMemberId) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "수업 지점에 속한 활성 회원만 등록할 수 있습니다.", {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "수업 지점·연령에 맞는 활성 또는 체험 회원만 등록할 수 있습니다.", {
         memberId: invalidMemberId,
       });
     }

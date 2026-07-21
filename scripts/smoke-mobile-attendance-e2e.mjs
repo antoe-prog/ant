@@ -208,12 +208,9 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
     return;
   }
 
-  const panel = page.getByTestId("member-guardian-mobile-priority-panel");
+  const panel = page.getByTestId("member-attendance-qr-card");
   await panel.waitFor({ timeout: 10000 });
-
-  for (const label of ["다음 수업", "출석", "결제 상태", "공지"]) {
-    await panel.getByText(label, { exact: true }).first().waitFor({ timeout: 10000 });
-  }
+  await panel.getByRole("heading", { name: "수업 QR 스캔" }).waitFor({ timeout: 10000 });
 
   assert.equal(
     await page.getByTestId("guardian-learning-summary-panel").count(),
@@ -222,11 +219,10 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
   );
 
   const panelBox = await panel.boundingBox();
-  const actionLinks = panel.locator('[data-testid^="member-guardian-mobile-action-"]');
-  const actionCount = await actionLinks.count();
   const panelText = await panel.textContent();
   const mainContentText = await mainContent.textContent();
   const csvExportLinkCount = await panel.locator('a[href*="/api/v1/exports"], a[href*="exports"]').count();
+  const scannerButton = panel.getByRole("button", { name: "QR 스캔하기" });
   const retiredGuidancePattern =
     /다음 행동 큐|오늘 확인 브리프|주간 확인 리듬|오늘 복귀 안내 레일|수업 전 준비 보드|확인 리마인드 큐|24시간 팔로업 큐|우선순위 타임라인|확인 마감 슬롯|7일 유지 신호|재방문 약속 큐|확인 누락 방지 보드|오늘 마감 액션 보드|3분 복귀 체크 보드|유지 루틴/;
   const layout = await page.evaluate(() => ({
@@ -234,17 +230,19 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
     scrollWidth: document.documentElement.scrollWidth,
   }));
 
-  assert(panelBox, `${roleLabel} mobile priority panel must have a visible bounding box`);
-  assert(panelBox.width <= 390, `${roleLabel} mobile priority panel must fit the viewport, got width ${panelBox.width}`);
-  assert.equal(actionCount, 0, `${roleLabel} mobile priority panel must not duplicate summary actions above the detail cards`);
-  assert(!/CSV/.test(panelText ?? ""), `${roleLabel} mobile priority panel must not expose CSV wording`);
-  assert(!retiredGuidancePattern.test(panelText ?? ""), `${roleLabel} mobile priority panel must not expose internal operations guidance`);
+  const scannerButtonBox = await scannerButton.boundingBox();
+
+  assert(panelBox, `${roleLabel} attendance QR card must have a visible bounding box`);
+  assert(panelBox.width <= 390, `${roleLabel} attendance QR card must fit the viewport, got width ${panelBox.width}`);
+  assert(scannerButtonBox && scannerButtonBox.height >= 44, `${roleLabel} QR scanner button must keep a 44px touch target`);
+  assert(!/CSV/.test(panelText ?? ""), `${roleLabel} attendance QR card must not expose CSV wording`);
+  assert(!retiredGuidancePattern.test(panelText ?? ""), `${roleLabel} attendance QR card must not expose internal operations guidance`);
   assert(
     !retiredGuidancePattern.test(mainContentText ?? ""),
     `${roleLabel} dashboard must not expose internal operations guidance anywhere in the main content`,
   );
-  assert.equal(csvExportLinkCount, 0, `${roleLabel} mobile priority panel must not expose CSV export links`);
-  assert.equal(layout.scrollWidth, layout.clientWidth, `${roleLabel} dashboard mobile priority panel must not overflow horizontally`);
+  assert.equal(csvExportLinkCount, 0, `${roleLabel} attendance QR card must not expose CSV export links`);
+  assert.equal(layout.scrollWidth, layout.clientWidth, `${roleLabel} attendance QR dashboard must not overflow horizontally`);
 
   for (const duplicateHeading of ["회원 홈", "오늘 요약", "오늘 수업", "보강 요청", "결제 확인"]) {
     assert.equal(
@@ -254,15 +252,6 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
     );
   }
 
-  for (let index = 0; index < actionCount; index += 1) {
-    const box = await actionLinks.nth(index).boundingBox();
-
-    assert(box, `${roleLabel} mobile priority action ${index + 1} must have a visible bounding box`);
-    assert(
-      box.height >= 40 && box.width >= 120,
-      `${roleLabel} mobile priority action ${index + 1} must be touchable, got ${box.width}x${box.height}`,
-    );
-  }
 }
 
 async function run() {
@@ -1375,7 +1364,7 @@ async function main() {
           "coach credential UI login",
           "isolated started-session attendance setup",
           "credential login form submit",
-          "member mobile priority dashboard panel",
+          "member attendance QR dashboard card",
           "guardian mobile priority dashboard panel",
           "member/guardian mobile dashboard without CSV export wording",
           "coach dashboard follow-up instead of payment warning",

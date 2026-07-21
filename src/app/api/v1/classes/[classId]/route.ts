@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import type { AuditLog, ClassSession, Member } from "@/lib/domain";
+import type { AuditLog, ClassSession } from "@/lib/domain";
 import { getClassInputLimitError } from "@/lib/class-input-policy";
+import { isClassAgeGroupCompatible } from "@/lib/class-enrollment-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -8,7 +9,7 @@ import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
-const ageGroups: Member["ageGroup"][] = ["kids", "teen", "adult"];
+const ageGroups: ClassSession["ageGroup"][] = ["all", "kids", "teen", "adult"];
 const classPatchFields = [
   "name",
   "level",
@@ -69,7 +70,7 @@ export async function PATCH(
     return response;
   }
 
-  if (!["owner", "admin"].includes(user.role)) {
+  if (!["coach", "owner", "admin"].includes(user.role)) {
     return jsonError(403, "FORBIDDEN", "수업을 수정할 권한이 없습니다.");
   }
 
@@ -77,6 +78,10 @@ export async function PATCH(
 
   if (!existing) {
     return jsonError(404, "NOT_FOUND", "수업을 찾을 수 없습니다.");
+  }
+
+  if (user.role === "coach" && existing.coachId !== user.id) {
+    return jsonError(403, "FORBIDDEN", "코치는 본인 담당 수업만 수정할 수 있습니다.");
   }
 
   if (!getAccessibleBranchIds(user, db).includes(existing.branchId)) {
@@ -133,7 +138,7 @@ export async function PATCH(
       return latestResponse;
     }
 
-    if (!["owner", "admin"].includes(latestUser.role)) {
+    if (!["coach", "owner", "admin"].includes(latestUser.role)) {
       return jsonError(403, "FORBIDDEN", "수업을 수정할 권한이 없습니다.");
     }
 
@@ -141,6 +146,10 @@ export async function PATCH(
 
     if (!latestExisting) {
       return jsonError(404, "NOT_FOUND", "수업을 찾을 수 없습니다.");
+    }
+
+    if (latestUser.role === "coach" && latestExisting.coachId !== latestUser.id) {
+      return jsonError(403, "FORBIDDEN", "코치는 본인 담당 수업만 수정할 수 있습니다.");
     }
 
     if (!getAccessibleBranchIds(latestUser, latestDb).includes(latestExisting.branchId)) {
@@ -201,14 +210,53 @@ export async function PATCH(
       return jsonError(422, "BUSINESS_RULE_FAILED", "선택한 지점에 배정된 코치를 선택해야 합니다.");
     }
 
-    const invalidMemberId = nextClass.enrolledMemberIds.find((memberId) => {
+    if (latestUser.role === "coach" && nextClass.coachId !== latestUser.id) {
+      return jsonError(403, "FORBIDDEN", "코치는 수업 담당자를 변경할 수 없습니다.");
+    }
+
+    const addedMemberIds = nextClass.enrolledMemberIds.filter(
+      (memberId) => !latestExisting.enrolledMemberIds.includes(memberId),
+    );
+    const removedMemberIds = latestExisting.enrolledMemberIds.filter(
+      (memberId) => !nextClass.enrolledMemberIds.includes(memberId),
+    );
+
+    const invalidMemberId = addedMemberIds.find((memberId) => {
       const member = latestDb.members.find((candidate) => candidate.id === memberId);
-      return !member || member.branchId !== latestExisting.branchId || member.status === "withdrawn";
+      return (
+        !member ||
+        member.branchId !== latestExisting.branchId ||
+        (member.status !== "active" && member.status !== "trial") ||
+        !isClassAgeGroupCompatible(member, nextClass)
+      );
     });
 
     if (invalidMemberId) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "수업 지점에 속한 활성 회원만 등록할 수 있습니다.", {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "수업 지점·연령에 맞는 활성 또는 체험 회원만 등록할 수 있습니다.", {
         memberId: invalidMemberId,
+      });
+    }
+
+    if (body.ageGroup !== undefined) {
+      const incompatibleMemberId = nextClass.enrolledMemberIds.find((memberId) => {
+        const member = latestDb.members.find((candidate) => candidate.id === memberId);
+        return !member || !isClassAgeGroupCompatible(member, nextClass);
+      });
+
+      if (incompatibleMemberId) {
+        return jsonError(422, "BUSINESS_RULE_FAILED", "등록 회원의 연령과 맞지 않는 수업으로 변경할 수 없습니다.", {
+          memberId: incompatibleMemberId,
+        });
+      }
+    }
+
+    const attendedRemovedMemberId = removedMemberIds.find((memberId) =>
+      latestDb.attendance.some((record) => record.sessionId === latestExisting.id && record.memberId === memberId),
+    );
+
+    if (attendedRemovedMemberId) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "출석 기록이 있는 회원은 수업 명단에서 제거할 수 없습니다.", {
+        memberId: attendedRemovedMemberId,
       });
     }
 

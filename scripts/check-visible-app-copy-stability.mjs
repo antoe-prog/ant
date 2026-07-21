@@ -1504,6 +1504,13 @@ async function main() {
               .map((cell) => Math.round(cell.getBoundingClientRect().height))
               .filter((height) => height > 0),
           ),
+          memberAttendanceQrCardCount: document.querySelectorAll('[data-testid="member-attendance-qr-card"]').length,
+          memberAttendanceQrCardWidth: Math.round(
+            document.querySelector('[data-testid="member-attendance-qr-card"]')?.getBoundingClientRect().width ?? 0,
+          ),
+          memberAttendanceQrOpenHeight: Math.round(
+            document.querySelector('[data-testid="member-attendance-qr-open"]')?.getBoundingClientRect().height ?? 0,
+          ),
           legacyNoticeConfirmButtonCount: Array.from(document.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "확인 완료").length,
           noticeExpandButtonCount: Array.from(document.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "자세히").length,
           noticeExpandButtonMinHeight: Math.min(
@@ -1900,6 +1907,10 @@ async function main() {
             Math.round(document.querySelector('[data-testid="coach-dashboard-all-classes-link"]')?.getBoundingClientRect().height ?? 0),
           coachDashboardClassesPanelTop:
             Math.round(document.querySelector('[data-testid="coach-dashboard-classes-panel"]')?.getBoundingClientRect().top ?? 0),
+          coachAttendanceQrCardCount: document.querySelectorAll('[data-testid="coach-attendance-qr-card"]').length,
+          coachAttendanceQrOpenHeight: Math.round(
+            document.querySelector('[data-testid="coach-attendance-qr-open"]')?.getBoundingClientRect().height ?? 0,
+          ),
           guardianLearningStageBarCount: document.querySelectorAll('[data-testid="guardian-learning-stage-bar"]').length,
           guardianLearningInsightGridCount: document.querySelectorAll('[data-testid="guardian-learning-insight-grid"]').length,
           guardianLearningInsightGridHeight: Math.round(
@@ -3197,43 +3208,26 @@ async function main() {
           assert(layout.coachDashboardFlowGraphHeight <= 205, "coach dashboard flow graph must stay compact enough for today's classes to surface");
           assert(layout.coachDashboardFlowRowMaxHeight <= 48, "coach dashboard flow rows must stay in compact single-line rows");
           assert(layout.coachDashboardAllClassesLinkHeight >= 44, "coach dashboard all-classes link must keep a 44px touch height");
-          assert(layout.coachDashboardClassesPanelTop <= 500, "coach dashboard today's classes panel must remain visible near the first viewport");
+          assert(layout.coachDashboardClassesPanelTop <= 830, "coach dashboard today's classes panel must remain visible at the first mobile viewport edge after the class QR card");
           for (const label of ["오늘 수업", "출석 처리율", "상담/주의"]) {
             assert(layout.coachDashboardFlowText.includes(label), `coach dashboard flow graph must show ${label}`);
           }
           assert(!layout.coachDashboardFlowText.includes("보강"), "coach dashboard flow graph must not show deleted request rows");
+          assert.equal(layout.coachAttendanceQrCardCount, 1, "coach dashboard must render one class attendance QR card");
+          if (layout.coachAttendanceQrOpenHeight > 0) {
+            assert(layout.coachAttendanceQrOpenHeight >= 44, "coach QR create button must keep a 44px touch target");
+          }
         }
 
         if (testCase.id === "member-dashboard") {
-          assert.equal(layout.memberGuardianPriorityGridCount, 1, "member dashboard must render one compact priority list");
-          assert.equal(layout.memberGuardianPriorityCellCount, 5, "member dashboard compact priority list must render five core-status rows");
+          assert.equal(layout.memberAttendanceQrCardCount, 1, "member dashboard must render one attendance QR card");
+          assert(layout.memberAttendanceQrCardWidth <= 390, "member attendance QR card must fit the mobile viewport");
+          assert(layout.memberAttendanceQrOpenHeight >= 44, "member QR scanner action must keep a 44px touch target");
+          assert.equal(layout.memberGuardianPriorityGridCount, 0, "member dashboard must not regress to the retired status list");
           assert(
             !layout.memberGuardianPriorityHrefs.includes("/app/requests?compose=1"),
             "member dashboard must not expose the deleted request compose flow",
           );
-          assert(
-            layout.memberGuardianPriorityHrefs.some((href) => href.startsWith("/app/payments/checkout?paymentId=")),
-            "member dashboard payment priority row must deep-link payable adult payments to checkout preparation",
-          );
-          assert.deepEqual(
-            layout.memberGuardianPriorityLabels,
-            ["다음 수업", "출석", "결제 상태", "승급", "공지"],
-            "member dashboard compact priority list must connect class, payment, promotion, and notice flows",
-          );
-          assert(
-            layout.memberGuardianPriorityHrefs.includes("/app/promotions"),
-            "member dashboard promotion priority row must open promotion history",
-          );
-          assert(
-            layout.memberGuardianPriorityHrefs.includes("/app/notices"),
-            "member dashboard notice priority row must always open notices",
-          );
-          assert(
-            layout.memberGuardianPriorityDetails.some((detail) => /미확인 공지 \d+건|공지 \d+건 모두 확인|도착한 공지 없음/.test(detail)),
-            "member dashboard notice priority row must describe only notice state",
-          );
-          assert(layout.memberGuardianPriorityCellMinHeight >= 56, "member dashboard compact priority rows must keep stable touch height");
-          assert(layout.memberGuardianPriorityCellMaxHeight <= 66, "member dashboard compact priority rows must not become tall cards again");
         }
 
         if (testCase.id === "guardian-dashboard") {
@@ -4706,6 +4700,8 @@ async function main() {
       coachDashboardFlowRowMaxHeight: layout.coachDashboardFlowRowMaxHeight,
       coachDashboardAllClassesLinkHeight: layout.coachDashboardAllClassesLinkHeight,
       coachDashboardClassesPanelTop: layout.coachDashboardClassesPanelTop,
+      coachAttendanceQrCardCount: layout.coachAttendanceQrCardCount,
+      coachAttendanceQrOpenHeight: layout.coachAttendanceQrOpenHeight,
       guardianLearningStageBarCount: layout.guardianLearningStageBarCount,
       guardianLearningInsightGridCount: layout.guardianLearningInsightGridCount,
       guardianLearningInsightGridHeight: layout.guardianLearningInsightGridHeight,
@@ -4763,6 +4759,9 @@ async function main() {
       memberGuardianPriorityDetails: layout.memberGuardianPriorityDetails,
       memberGuardianPriorityCellMinHeight: layout.memberGuardianPriorityCellMinHeight,
       memberGuardianPriorityCellMaxHeight: layout.memberGuardianPriorityCellMaxHeight,
+      memberAttendanceQrCardCount: layout.memberAttendanceQrCardCount,
+      memberAttendanceQrCardWidth: layout.memberAttendanceQrCardWidth,
+      memberAttendanceQrOpenHeight: layout.memberAttendanceQrOpenHeight,
       familyMemberSearchInputCount: layout.familyMemberSearchInputCount,
       memberStatusFilterCount: layout.memberStatusFilterCount,
       memberStatusFilterMinHeight: layout.memberStatusFilterMinHeight,

@@ -259,16 +259,8 @@ for (const snippet of [
 }
 
 for (const snippet of [
-  "member-guardian-mobile-priority-panel",
-  "회원 핵심 상태",
-  'data-testid="member-guardian-priority-grid"',
-  'data-testid="member-guardian-priority-cell"',
-  "다음 수업",
-  "출석",
-  "출석 기록 ${personalAttendanceRecords.length}건",
-  "status: `${personalAttendanceRecords.length}건`",
-  "결제 상태",
-  'label: "공지"',
+  "MemberAttendanceQrScannerCard",
+  "CoachAttendanceQrCard",
   "guardian-learning-summary-panel",
   'data-testid="guardian-learning-belt-steps"',
   'aria-current="step"',
@@ -284,8 +276,8 @@ assert(!sources.dashboard.includes("학습 성장 보기"), "guardian dashboard 
 
 assertIncludes(guardianDashboardSource, "<GuardianLearningSummaryPanel", "guardian learning dashboard");
 assert(!guardianDashboardSource.includes("<FamilyMobilePriorityPanel"), "guardian dashboard must not render the today summary panel");
-assertIncludes(memberDashboardSource, "<FamilyMobilePriorityPanel", "member compact dashboard");
-assertIncludes(memberDashboardSource, "return (", "member compact dashboard early return");
+assertIncludes(memberDashboardSource, "<MemberAttendanceQrScannerCard", "member attendance QR scanner dashboard");
+assertIncludes(memberDashboardSource, "return (", "member QR dashboard early return");
 for (const retiredFamilyHeading of ["회원 홈", "학부모 홈", "오늘 요약"]) {
   assert(!memberDashboardSource.includes(retiredFamilyHeading), `member dashboard must not render retired heading ${retiredFamilyHeading}`);
   assert(!guardianDashboardSource.includes(retiredFamilyHeading), `guardian dashboard must not render retired heading ${retiredFamilyHeading}`);
@@ -514,7 +506,7 @@ console.log(
         "coach compact mobile action bar keeps attendance, reason, attention, and save flow without payment amounts",
         "coach compact class flow panel replaces retired internal operation boards",
         "retired coach P3 internal board IDs are absent from app source",
-        "member mobile status panel keeps practical status rows in one compact panel",
+        "member dashboard keeps the class QR scanner as its primary action",
         "guardian dashboard focuses on child learning progress feedback promotion and tournament status",
         "member/guardian app dashboard does not expose retired internal operations guidance",
     "admin P3 next actions and remaining risks keep external blockers separate",

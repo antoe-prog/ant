@@ -13,6 +13,9 @@ import type {
   SaveStatus,
 } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
+import { ClassRegistrationPanel } from "@/components/domain/class-registration-panel";
+import { ClassRosterEditor } from "@/components/domain/class-roster-editor";
+import { FamilyClassCalendar } from "@/components/domain/family-class-calendar";
 import { FinalMainScheduleReference } from "@/components/domain/final-main-schedule-reference";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
@@ -45,7 +48,8 @@ const attendanceNotePresets = [
   { id: "condition-check", label: "컨디션 확인" },
 ];
 const coachReasonRequiredStatuses: AttendanceStatus[] = ["late", "absent", "excused"];
-const ageGroupOptions: Array<{ value: Member["ageGroup"]; label: string }> = [
+const ageGroupOptions: Array<{ value: ClassSession["ageGroup"]; label: string }> = [
+  { value: "all", label: "무관 (모두 가능)" },
   { value: "kids", label: "유소년" },
   { value: "teen", label: "청소년" },
   { value: "adult", label: "성인" },
@@ -277,11 +281,11 @@ function coachQuickActionClass(active: boolean, tone: "amber" | "teal" = "teal")
 
 export function ClassesScreen() {
   const context = useApiContext();
-  const { attendanceSync, clearAttendance, createClassSession, markAttendance, markSessionAttendance, saveAttendanceReason, syncPendingAttendance, updateClassSession } = useAppStore();
+  const { attendanceSync, cancelClassRegistration, clearAttendance, createClassSession, markAttendance, markSessionAttendance, registerForClass, saveAttendanceReason, syncPendingAttendance, updateClassSession } = useAppStore();
   const [reasonSavingKey, setReasonSavingKey] = useState<string | null>(null);
   const [reasonSavedKey, setReasonSavedKey] = useState<string | null>(null);
   const canEditAttendance = ["coach", "owner", "admin"].includes(context.user.role);
-  const canManageClasses = context.user.role === "owner" || context.user.role === "admin";
+  const canManageClasses = ["coach", "owner", "admin"].includes(context.user.role);
   const isFamilyRole = context.user.role === "member" || context.user.role === "guardian";
   const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
   const guardianChildren =
@@ -295,7 +299,7 @@ export function ClassesScreen() {
   );
   const [newClassBranchId, setNewClassBranchId] = useState("");
   const [newClassName, setNewClassName] = useState("");
-  const [newClassAgeGroup, setNewClassAgeGroup] = useState<Member["ageGroup"]>("kids");
+  const [newClassAgeGroup, setNewClassAgeGroup] = useState<ClassSession["ageGroup"]>("kids");
   const [newClassLevel, setNewClassLevel] = useState("입문-초급");
   const [newClassCoachId, setNewClassCoachId] = useState("");
   const [newClassStartsAt, setNewClassStartsAt] = useState(createInitialStartAt);
@@ -332,9 +336,45 @@ export function ClassesScreen() {
   const [coachToolsOpen, setCoachToolsOpen] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
   const [screenReferenceTime, setScreenReferenceTime] = useState(() => Date.now());
+  const [familyCalendarMonth, setFamilyCalendarMonth] = useState(() => formatDateKey(new Date()).slice(0, 7));
+  const [selectedFamilyDateKey, setSelectedFamilyDateKey] = useState<string | null>(null);
+  const [classRegistrationPendingId, setClassRegistrationPendingId] = useState<string | null>(null);
+  const [classRegistrationFeedback, setClassRegistrationFeedback] = useState<string | null>(null);
   const { data, loading, error, reload } = useResource(
     () => apiClient.getClasses(context),
     [context.user.id, context.selectedBranchId, context.version],
+  );
+  const selectedRegistrationMemberId =
+    context.user.role === "guardian"
+      ? selectedChildId
+      : context.user.role === "member"
+        ? context.user.memberIds?.[0] ?? null
+        : null;
+  const selectedRegistrationMember = selectedRegistrationMemberId
+    ? context.db.members.find((member) => member.id === selectedRegistrationMemberId) ?? null
+    : null;
+  const {
+    data: registrationData,
+    loading: registrationLoading,
+    error: registrationError,
+    reload: reloadRegistration,
+  } = useResource(
+    () =>
+      isFamilyRole && selectedRegistrationMemberId
+        ? apiClient.getClassRegistrationOptions(
+            selectedRegistrationMemberId,
+            familyCalendarMonth,
+            context.selectedBranchId,
+          )
+        : Promise.resolve({ memberId: "", month: familyCalendarMonth, options: [] }),
+    [
+      context.selectedBranchId,
+      context.user.id,
+      context.version,
+      familyCalendarMonth,
+      isFamilyRole,
+      selectedRegistrationMemberId,
+    ],
   );
   const isCoachRole = context.user.role === "coach";
 
@@ -390,9 +430,10 @@ export function ClassesScreen() {
           ["coach", "owner", "admin"].includes(user.role) &&
           user.invitationStatus !== "pending" &&
           selectedCreateBranchId &&
-          user.branchIds.includes(selectedCreateBranchId),
+          user.branchIds.includes(selectedCreateBranchId) &&
+          (context.user.role !== "coach" || user.id === context.user.id),
       ),
-    [context.db.users, selectedCreateBranchId],
+    [context.db.users, context.user.id, context.user.role, selectedCreateBranchId],
   );
   const selectedCoachId = branchCoaches.some((coach) => coach.id === newClassCoachId)
     ? newClassCoachId
@@ -512,10 +553,25 @@ export function ClassesScreen() {
       return;
     }
 
-    updateClassSession(session.id, {
+    void updateClassSession(session.id, {
       room: edit.room.trim(),
       capacity,
     });
+  }
+
+  async function handleClassRegistration(classId: string, operation: "register" | "cancel") {
+    if (!selectedRegistrationMemberId || classRegistrationPendingId) {
+      return;
+    }
+
+    setClassRegistrationPendingId(classId);
+    setClassRegistrationFeedback(null);
+    const result = operation === "register"
+      ? await registerForClass(classId, selectedRegistrationMemberId)
+      : await cancelClassRegistration(classId, selectedRegistrationMemberId);
+    setClassRegistrationFeedback(result.message);
+    setClassRegistrationPendingId(null);
+    reloadRegistration();
   }
 
   function applyAttendanceNotePreset(noteKey: string, currentValue: string, preset: string) {
@@ -684,17 +740,25 @@ export function ClassesScreen() {
     return <ErrorState description={error ?? "수업과 출석 명단을 불러오지 못했습니다."} onRetry={reload} />;
   }
 
-  const scopedSessions =
-    context.user.role === "guardian" && selectedChildId
-      ? data
-          .filter((session) => session.enrolledMemberIds.includes(selectedChildId))
-          .map((session) => ({
-            ...session,
-            attendance: session.attendance.filter((record) => record.memberId === selectedChildId),
-            enrolledMemberIds: session.enrolledMemberIds.filter((memberId) => memberId === selectedChildId),
-            enrolledMembers: session.enrolledMembers.filter((member) => member.id === selectedChildId),
-          }))
-      : data;
+  const selectedFamilyMemberIds =
+    context.user.role === "guardian"
+      ? selectedChildId
+        ? [selectedChildId]
+        : []
+      : context.user.role === "member"
+        ? context.user.memberIds ?? []
+        : [];
+  const selectedFamilyMemberIdSet = new Set(selectedFamilyMemberIds);
+  const scopedSessions = isFamilyRole
+    ? data
+        .filter((session) => session.enrolledMemberIds.some((memberId) => selectedFamilyMemberIdSet.has(memberId)))
+        .map((session) => ({
+          ...session,
+          attendance: session.attendance.filter((record) => selectedFamilyMemberIdSet.has(record.memberId)),
+          enrolledMemberIds: session.enrolledMemberIds.filter((memberId) => selectedFamilyMemberIdSet.has(memberId)),
+          enrolledMembers: session.enrolledMembers.filter((member) => selectedFamilyMemberIdSet.has(member.id)),
+        }))
+    : data;
   const todayDateKey = formatDateKey(new Date());
   const familySortedSessions = isFamilyRole ? sortFamilyClassSessions(scopedSessions, screenReferenceTime) : scopedSessions;
   const visibleSessions = isCoachRole
@@ -707,14 +771,37 @@ export function ClassesScreen() {
           return completionOrder || left.startsAt.localeCompare(right.startsAt);
         })
     : familySortedSessions;
-  const familyUpcomingSessions = isFamilyRole
-    ? visibleSessions.filter((session) => !isPastClassSession(session, screenReferenceTime))
+  const familySessionsByDate = new Map<string, EnrichedClassSession[]>();
+  for (const session of visibleSessions) {
+    const dateKey = formatDateKey(session.startsAt);
+    familySessionsByDate.set(dateKey, [...(familySessionsByDate.get(dateKey) ?? []), session]);
+  }
+  const familyMonthDateKeys = [...familySessionsByDate.keys()]
+    .filter((dateKey) => dateKey.startsWith(`${familyCalendarMonth}-`))
+    .sort();
+  const relevantRegistrationOptions = (registrationData?.options ?? []).filter(
+    (option) => Date.parse(option.startsAt) > screenReferenceTime && (option.isEnrolled || option.canRegister),
+  );
+  const registrationDateKeys = [
+    ...new Set(relevantRegistrationOptions.map((option) => formatDateKey(option.startsAt))),
+  ].sort();
+  const familySelectableDateKeys = [...new Set([...familyMonthDateKeys, ...registrationDateKeys])];
+  const activeFamilyDateKey =
+    selectedFamilyDateKey && familySelectableDateKeys.includes(selectedFamilyDateKey)
+      ? selectedFamilyDateKey
+      : null;
+  const familySelectedDateSessions = activeFamilyDateKey ? familySessionsByDate.get(activeFamilyDateKey) ?? [] : [];
+  const selectedDateRegistrationOptions = activeFamilyDateKey
+    ? relevantRegistrationOptions.filter((option) => formatDateKey(option.startsAt) === activeFamilyDateKey)
     : [];
-  const familyPastSessions = isFamilyRole
-    ? visibleSessions.filter((session) => isPastClassSession(session, screenReferenceTime))
-    : [];
-  const firstFamilyUpcomingSessionId = familyUpcomingSessions[0]?.id ?? null;
-  const firstFamilyPastSessionId = familyPastSessions[0]?.id ?? null;
+  const selectedDateUsesRegistrationPanel = selectedDateRegistrationOptions.length > 0;
+  const renderedSessions = isFamilyRole
+    ? selectedDateUsesRegistrationPanel
+      ? []
+      : familySelectedDateSessions
+    : visibleSessions;
+  const hasFamilyCalendarContent =
+    visibleSessions.length > 0 || registrationDateKeys.length > 0 || registrationLoading;
   const otherDateCoachSessions = isCoachRole
     ? scopedSessions.filter((session) => formatDateKey(session.startsAt) !== todayDateKey)
     : [];
@@ -908,7 +995,15 @@ export function ClassesScreen() {
       ) : null}
 
       {context.user.role === "guardian" ? (
-        <ChildSwitcher items={childSwitcherItems} selectedChildId={selectedChildId} onSelect={setSelectedChildId} />
+        <ChildSwitcher
+          items={childSwitcherItems}
+          selectedChildId={selectedChildId}
+          onSelect={(memberId) => {
+            setSelectedChildId(memberId);
+            setFamilyCalendarMonth(formatDateKey(new Date()).slice(0, 7));
+            setSelectedFamilyDateKey(null);
+          }}
+        />
       ) : null}
 
       {canManageClasses ? (
@@ -980,8 +1075,9 @@ export function ClassesScreen() {
                 <select
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="class-create-field"
+                  data-class-create-control="age-group"
                   value={newClassAgeGroup}
-                  onChange={(event) => setNewClassAgeGroup(event.target.value as Member["ageGroup"])}
+                  onChange={(event) => setNewClassAgeGroup(event.target.value as ClassSession["ageGroup"])}
                 >
                   {ageGroupOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1271,10 +1367,42 @@ export function ClassesScreen() {
         </section>
       ) : null}
 
-      {visibleSessions.length === 0 ? (
-        <EmptyState title={isFamilyRole ? "등록된 수업이 없습니다" : "예정 수업이 없습니다"} />
+      {!isFamilyRole && visibleSessions.length === 0 ? (
+        <EmptyState title="예정 수업이 없습니다" />
       ) : (
         <>
+          {isFamilyRole && hasFamilyCalendarContent ? (
+            <FamilyClassCalendar
+              availableDateKeys={registrationDateKeys}
+              monthKey={familyCalendarMonth}
+              referenceTime={screenReferenceTime}
+              selectedDateKey={activeFamilyDateKey}
+              sessions={visibleSessions}
+              onMonthChange={(monthKey) => {
+                setFamilyCalendarMonth(monthKey);
+                setSelectedFamilyDateKey(null);
+              }}
+              onSelectDate={(dateKey) => {
+                setSelectedFamilyDateKey((current) => current === dateKey ? null : dateKey);
+                setClassRegistrationFeedback(null);
+              }}
+            />
+          ) : null}
+          {isFamilyRole && !hasFamilyCalendarContent ? <EmptyState title="등록된 수업이 없습니다" /> : null}
+          {isFamilyRole && activeFamilyDateKey && selectedRegistrationMember && selectedDateUsesRegistrationPanel ? (
+            <ClassRegistrationPanel
+              error={registrationError}
+              feedback={classRegistrationFeedback}
+              loading={registrationLoading}
+              memberName={selectedRegistrationMember.name}
+              options={selectedDateRegistrationOptions}
+              pendingClassId={classRegistrationPendingId}
+              selectedDateKey={activeFamilyDateKey}
+              onCancel={(classId) => void handleClassRegistration(classId, "cancel")}
+              onRegister={(classId) => void handleClassRegistration(classId, "register")}
+              onRetry={reloadRegistration}
+            />
+          ) : null}
           {canEditAttendance ? (
             <section
               aria-label="출석 처리 요약"
@@ -1641,8 +1769,20 @@ export function ClassesScreen() {
             </div>
           ) : null}
 
+          {isFamilyRole && !selectedDateUsesRegistrationPanel ? (
+            activeFamilyDateKey ? (
+              <div className="mb-2 flex items-end justify-between gap-3" data-testid="family-selected-date-heading">
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-zinc-950">{formatDate(`${activeFamilyDateKey}T12:00:00+09:00`)} 수업</h2>
+                  <p className="mt-0.5 text-xs text-zinc-500">선택한 날짜의 출석 상태와 수업 정보</p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-500">{familySelectedDateSessions.length}개</span>
+              </div>
+            ) : null
+          ) : null}
+
           <div className={isFamilyRole ? "grid gap-3" : "grid gap-4"}>
-            {visibleSessions.map((session, sessionIndex) => {
+            {renderedSessions.map((session, sessionIndex) => {
               const allMemberIds = session.enrolledMemberIds;
               const attendanceProgress = getAttendanceProgress(session);
               const visibleMembers = canEditAttendance
@@ -1657,29 +1797,9 @@ export function ClassesScreen() {
                 allMemberIds.every((memberId) => getAttendanceRecord(session, memberId)?.status === "present");
               const attendanceWindowOpen = hasAttendanceWindowOpened(session.startsAt, new Date(screenReferenceTime));
               const familySessionPast = isFamilyRole && isPastClassSession(session, screenReferenceTime);
-              const showFamilyUpcomingHeading = isFamilyRole && session.id === firstFamilyUpcomingSessionId;
-              const showFamilyPastHeading = isFamilyRole && session.id === firstFamilyPastSessionId;
 
 		              return (
 		              <Fragment key={session.id}>
-		                {showFamilyUpcomingHeading ? (
-		                  <div className="flex items-end justify-between gap-3 pt-1" data-testid="family-upcoming-classes-heading">
-		                    <div>
-		                      <h2 className="text-base font-semibold text-zinc-950">예정 수업</h2>
-		                      <p className="mt-0.5 text-xs text-zinc-500">앞으로 참여할 수업</p>
-		                    </div>
-		                    <span className="text-xs font-semibold tabular-nums text-zinc-500">{familyUpcomingSessions.length}개</span>
-		                  </div>
-		                ) : null}
-		                {showFamilyPastHeading ? (
-		                  <div className="mt-2 flex items-end justify-between gap-3 border-t border-zinc-200 pt-4" data-testid="family-past-classes-heading">
-		                    <div>
-		                      <h2 className="text-base font-semibold text-zinc-950">지난 수업</h2>
-		                      <p className="mt-0.5 text-xs text-zinc-500">출석 기록과 확인이 필요한 수업</p>
-		                    </div>
-		                    <span className="text-xs font-semibold tabular-nums text-zinc-500">{familyPastSessions.length}개</span>
-		                  </div>
-		                ) : null}
 		              <article
 		                className={`rounded-lg border border-zinc-200 bg-white ${isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "px-3 py-2" : "p-3"} ${
                     coachClassCollapsedOnMobile ? "hidden lg:block" : ""
@@ -1798,42 +1918,51 @@ export function ClassesScreen() {
 		                ) : null}
 
                 {canManageClasses ? (
-                  <form
-                    className="mt-3 grid gap-3 border-b border-zinc-100 pb-4 sm:grid-cols-[1fr_0.5fr_auto]"
-                    data-testid="class-edit-form"
-                    onSubmit={(event) => handleUpdateClass(event, session)}
-                  >
-                    <label>
-                      <span className="mb-1 block text-xs font-semibold text-zinc-500">장소 수정</span>
-                      <input
-                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                        data-testid="class-edit-input"
-                        maxLength={classInputLimits.roomLength}
-                        value={getClassEdit(session).room}
-                        onChange={(event) => updateClassEdit(session, "room", event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <span className="mb-1 block text-xs font-semibold text-zinc-500">정원 수정</span>
-                      <input
-                        className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                        data-testid="class-edit-input"
-                        min={session.enrolledMemberIds.length}
-                        max={80}
-                        type="number"
-                        value={getClassEdit(session).capacity}
-                        onChange={(event) => updateClassEdit(session, "capacity", event.target.value)}
-                      />
-                    </label>
-                    <button
-                      className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
-                      data-testid="class-edit-submit"
-                      type="submit"
+                  <>
+                    <form
+                      className="mt-3 grid gap-3 border-b border-zinc-100 pb-4 sm:grid-cols-[1fr_0.5fr_auto]"
+                      data-testid="class-edit-form"
+                      onSubmit={(event) => handleUpdateClass(event, session)}
                     >
-                      <Save className="h-4 w-4" aria-hidden />
-                      저장
-                    </button>
-                  </form>
+                      <label>
+                        <span className="mb-1 block text-xs font-semibold text-zinc-500">장소 수정</span>
+                        <input
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="class-edit-input"
+                          maxLength={classInputLimits.roomLength}
+                          value={getClassEdit(session).room}
+                          onChange={(event) => updateClassEdit(session, "room", event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-xs font-semibold text-zinc-500">정원 수정</span>
+                        <input
+                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                          data-testid="class-edit-input"
+                          min={session.enrolledMemberIds.length}
+                          max={80}
+                          type="number"
+                          value={getClassEdit(session).capacity}
+                          onChange={(event) => updateClassEdit(session, "capacity", event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                        data-testid="class-edit-submit"
+                        type="submit"
+                      >
+                        <Save className="h-4 w-4" aria-hidden />
+                        저장
+                      </button>
+                    </form>
+                    <ClassRosterEditor
+                      capacity={session.capacity}
+                      classId={session.id}
+                      enrolledMemberIds={session.enrolledMemberIds}
+                      selectedBranchId={context.selectedBranchId}
+                      onSave={(memberIds) => updateClassSession(session.id, { enrolledMemberIds: memberIds })}
+                    />
+                  </>
                 ) : null}
 
                 {canEditAttendance ? (
