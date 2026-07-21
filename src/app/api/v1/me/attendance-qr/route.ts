@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { isAttendanceQrWindowOpen } from "@/lib/attendance-qr-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { attendanceStateLockKey } from "@/server/attendance-policy";
 import { createAttendanceQrChallenge } from "@/server/attendance-qr";
@@ -37,7 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!canIssueAttendanceQr(initialUser.role)) {
-    return jsonError(403, "FORBIDDEN", "코치 계정에서만 수업 출석 QR을 만들 수 있습니다.");
+    return jsonError(403, "FORBIDDEN", "코치·대표·총괄 어드민만 수업 출석 QR을 만들 수 있습니다.");
   }
 
   const body = parseBody(await request.json().catch(() => null));
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
     if (!canIssueAttendanceQr(user.role)) {
       return {
         ok: false as const,
-        response: jsonError(403, "FORBIDDEN", "코치 계정에서만 수업 출석 QR을 만들 수 있습니다."),
+        response: jsonError(403, "FORBIDDEN", "코치·대표·총괄 어드민만 수업 출석 QR을 만들 수 있습니다."),
       };
     }
 
@@ -95,13 +94,6 @@ export async function POST(request: NextRequest) {
       return {
         ok: false as const,
         response: jsonError(403, "FORBIDDEN", "선택한 지점의 수업 QR만 만들 수 있습니다."),
-      };
-    }
-
-    if (!isAttendanceQrWindowOpen(session)) {
-      return {
-        ok: false as const,
-        response: jsonError(422, "BUSINESS_RULE_FAILED", "QR 출석은 수업 30분 전부터 종료 2시간 후까지 가능합니다."),
       };
     }
 

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { isAttendanceQrWindowOpen } from "@/lib/attendance-qr-policy";
+import type { AuditLog } from "@/lib/domain";
 import { getAccessibleBranchIds, upsertAttendance } from "@/lib/mock-api";
 import { attendanceStateLockKey } from "@/server/attendance-policy";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/server/attendance-qr";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -171,25 +172,56 @@ export async function POST(request: NextRequest) {
       return jsonError(422, "BUSINESS_RULE_FAILED", "수업과 회원의 지점이 다릅니다.");
     }
 
-    if (!isAttendanceQrWindowOpen(session)) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "QR 출석 가능 시간이 아닙니다.");
-    }
-
-    if (!session.enrolledMemberIds.includes(member.id)) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "이 수업에 등록되지 않은 회원입니다.");
-    }
-
     if (lookup.challenge.redeemedMemberIds.includes(member.id)) {
       return jsonError(409, "QR_ALREADY_USED", "이미 이 QR로 출석 처리했습니다.");
     }
 
+    const autoEnrolled = !session.enrolledMemberIds.includes(member.id);
+    const enrollmentAudit: AuditLog | null = autoEnrolled
+      ? {
+          id: createRuntimeId("audit"),
+          branchId: session.branchId,
+          actorUserId: user.id,
+          action: "class.update",
+          targetType: "class",
+          targetId: session.id,
+          before: { enrolledCount: session.enrolledMemberIds.length },
+          after: {
+            enrolledCount: session.enrolledMemberIds.length + 1,
+            memberId: member.id,
+            operation: "register",
+            source: "attendance_qr",
+          },
+          result: "success",
+          message: "QR 출석으로 수업 명단에 자동 추가했습니다.",
+          createdAt: new Date().toISOString(),
+        }
+      : null;
+    const enrollmentDb = autoEnrolled
+      ? {
+          ...db,
+          classes: db.classes.map((candidate) =>
+            candidate.id === session.id
+              ? { ...candidate, enrolledMemberIds: [...candidate.enrolledMemberIds, member.id] }
+              : candidate,
+          ),
+          auditLogs: enrollmentAudit ? [enrollmentAudit, ...db.auditLogs] : db.auditLogs,
+        }
+      : db;
     const existing = db.attendance.find(
       (record) => record.sessionId === session.id && record.memberId === member.id,
     );
     const alreadyRecorded = existing?.status === "present" || existing?.status === "late";
     const attendanceDb = alreadyRecorded
-      ? db
-      : upsertAttendance(db, session.id, member.id, "present", user.id, "회원 QR 출석");
+      ? enrollmentDb
+      : upsertAttendance(
+          enrollmentDb,
+          session.id,
+          member.id,
+          "present",
+          user.id,
+          autoEnrolled ? "회원 QR 현장 등록 및 출석" : "회원 QR 출석",
+        );
     const nextDb = redeemAttendanceQrChallenge(attendanceDb, lookup.challenge.id, member.id);
     const persisted = await writeServerDb(nextDb);
 
@@ -197,6 +229,7 @@ export async function POST(request: NextRequest) {
       ...createBootstrapPayload(persisted, user, selectedBranchId),
       scan: {
         alreadyRecorded,
+        autoEnrolled,
         className: session.name,
         memberId: member.id,
         memberName: member.name,

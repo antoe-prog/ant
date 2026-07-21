@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createMockData } from "../src/lib/mock-data.ts";
-import {
-  attendanceQrEarlyWindowMs,
-  attendanceQrLateWindowMs,
-  attendanceQrLifetimeMs,
-  isAttendanceQrWindowOpen,
-} from "../src/lib/attendance-qr-policy.ts";
+import { attendanceQrLifetimeMs } from "../src/lib/attendance-qr-policy.ts";
 import {
   createAttendanceQrChallenge,
   findAttendanceQrChallenge,
@@ -70,17 +65,6 @@ const reissued = createAttendanceQrChallenge(issued.db, {
 assert.deepEqual(findAttendanceQrChallenge(reissued.db, issued.payload, now), { ok: false, reason: "invalid" });
 assert.equal(findAttendanceQrChallenge(reissued.db, reissued.payload, now).ok, true);
 
-const windowSession = {
-  startsAt: new Date(now.getTime() + attendanceQrEarlyWindowMs).toISOString(),
-  endsAt: new Date(now.getTime() + attendanceQrEarlyWindowMs + 60 * 60_000).toISOString(),
-};
-assert.equal(isAttendanceQrWindowOpen(windowSession, now), true, "QR scan window must open 30 minutes before class");
-assert.equal(
-  isAttendanceQrWindowOpen(windowSession, new Date(Date.parse(windowSession.endsAt) + attendanceQrLateWindowMs + 1)),
-  false,
-  "QR scan window must close two hours after class",
-);
-
 const [issueRoute, scanRoute, dashboardSource, qrComponentSource, serverApiSource] = await Promise.all([
   readFile("src/app/api/v1/me/attendance-qr/route.ts", "utf8"),
   readFile("src/app/api/v1/attendance-qr/scan/route.ts", "utf8"),
@@ -106,13 +90,18 @@ for (const snippet of [
   'user.role === "guardian" && member.ageGroup !== "adult"',
   "getAccessibleBranchIds(issuingUser, db).includes(session.branchId)",
   "issuingUser.role === \"coach\" && session.coachId !== issuingUser.id",
-  "session.enrolledMemberIds.includes(member.id)",
+  "const autoEnrolled = !session.enrolledMemberIds.includes(member.id)",
+  'source: "attendance_qr"',
   "redeemedMemberIds.includes(member.id)",
   "redeemAttendanceQrChallenge",
   "withServerDbLock(attendanceStateLockKey",
 ]) {
   assert(scanRoute.includes(snippet), `member QR scan route is missing ${snippet}`);
 }
+
+assert(!issueRoute.includes("isAttendanceQrWindowOpen"), "QR issue route must not enforce a class time window");
+assert(!scanRoute.includes("isAttendanceQrWindowOpen"), "QR scan route must not enforce a class time window");
+assert(!qrComponentSource.includes("수업 30분 전부터"), "coach QR UI must not advertise a retired time restriction");
 
 assert(
   issueRoute.indexOf("user: initialUser") < issueRoute.indexOf("const body = parseBody"),
@@ -147,7 +136,8 @@ console.log(
       "multi-member redemption and per-member deduplication",
       "reissue invalidation",
       "bootstrap challenge redaction",
-      "scan time window",
+      "unrestricted issue and scan timing",
+      "unregistered member auto-enrollment contract",
       "coach issue and member scan authorization guards",
       "guardian adult self scan without child proxy attendance",
       "issuer branch access revalidation",

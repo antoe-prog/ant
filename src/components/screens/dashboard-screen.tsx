@@ -1192,7 +1192,6 @@ export function DashboardScreen() {
 
       {context.user.role === "coach" ? (
         <CoachAttendanceQrCard
-          currentTime={currentTime}
           selectedBranchId={context.selectedBranchId}
           sessions={data.todaysClasses}
         />

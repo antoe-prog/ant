@@ -1856,8 +1856,8 @@ async function run() {
   assert.equal(memberAttendanceQrIssue.response.status, 403, "member must not issue a class attendance QR");
 
   const qrClassName = `QR Attendance Class ${stamp}`;
-  const qrClassStartsAt = new Date(Date.now() - 2 * 60_000).toISOString();
-  const qrClassEndsAt = new Date(Date.now() + 58 * 60_000).toISOString();
+  const qrClassStartsAt = new Date(Date.now() + 180 * 24 * 60 * 60_000).toISOString();
+  const qrClassEndsAt = new Date(Date.now() + 180 * 24 * 60 * 60_000 + 60 * 60_000).toISOString();
   const qrClassCreate = await owner.request(
     "/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam",
     {
@@ -1892,13 +1892,32 @@ async function run() {
       method: "POST",
       body: JSON.stringify({ memberId: "member-minjae", payload: nonEnrolledClassQrIssue.payload.data.payload }),
     },
-    { allowError: true },
   );
-  assert.equal(
-    nonEnrolledClassQrScan.response.status,
-    422,
-    "member QR scan must reject a class where the member is not enrolled",
+  assert.equal(nonEnrolledClassQrScan.payload.data.scan.autoEnrolled, true, "QR scan must auto-enroll an unregistered member");
+  assert(
+    nonEnrolledClassQrScan.payload.data.db.classes
+      .find((session) => session.id === "class-kids-am")
+      ?.enrolledMemberIds.includes("member-minjae"),
+    "QR scan must persist the auto-enrolled member on the class roster",
   );
+  assert(
+    nonEnrolledClassQrScan.payload.data.db.attendance.some(
+      (record) => record.sessionId === "class-kids-am" && record.memberId === "member-minjae" && record.status === "present",
+    ),
+    "QR scan must record attendance for an auto-enrolled member",
+  );
+  const ownerBootstrapAfterQrAutoEnrollment = await owner.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+  );
+  const qrAutoEnrollmentAudit = ownerBootstrapAfterQrAutoEnrollment.payload.data.db.auditLogs.find(
+    (log) =>
+      log.action === "class.update" &&
+      log.targetId === "class-kids-am" &&
+      log.after?.memberId === "member-minjae" &&
+      log.after?.source === "attendance_qr",
+  );
+  assert(qrAutoEnrollmentAudit, "QR auto-enrollment audit log missing");
+  assert.equal(qrAutoEnrollmentAudit.actorUserId, "user-member", "QR auto-enrollment audit actor mismatch");
 
   const attendanceQrIssue = await coach.request(
     "/api/v1/me/attendance-qr?selectedBranchId=branch-gangnam",
@@ -1963,6 +1982,7 @@ async function run() {
   );
   assert.equal(attendanceQrScan.payload.data.scan.memberId, "member-minjae", "attendance QR scan member mismatch");
   assert.equal(attendanceQrScan.payload.data.scan.status, "present", "attendance QR scan must record present status");
+  assert.equal(attendanceQrScan.payload.data.scan.autoEnrolled, false, "pre-enrolled QR scan must not report auto-enrollment");
   assert(
     attendanceQrScan.payload.data.db.attendance.some(
       (record) =>
@@ -6582,7 +6602,7 @@ async function run() {
           "attendance batch type/size/length safety, unlocked body parsing, and update audit note",
           "attendance/class/payment invalid selectedBranchId API 403",
           "attendance reason route",
-          "coach class QR issue and member scan authorization, enrollment, per-member replay, audit, and snapshot redaction",
+          "coach class QR issue and member scan authorization, unrestricted timing, auto-enrollment, per-member replay, audit, and snapshot redaction",
           "counseling note create/type and length safety/concurrency/scope/audit",
           "member guardian counseling notice invalid selectedBranchId API 403",
           "member create/update type/length safety, concurrency, profile/existence concealment, guardian input/length/unlocked-body/concurrency safety, reciprocal guardian links, and adult guardian-link block",

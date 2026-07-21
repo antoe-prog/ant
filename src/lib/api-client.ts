@@ -47,6 +47,7 @@ export type AttendanceQrIssuePayload = {
 
 export type AttendanceQrScanResult = {
   alreadyRecorded: boolean;
+  autoEnrolled: boolean;
   className: string;
   memberId: string;
   memberName: string;

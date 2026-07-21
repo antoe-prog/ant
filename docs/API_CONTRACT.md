@@ -286,6 +286,8 @@
 | `GET` | `/branches/:branchId/class-sessions/today` | coach/owner/admin | 아니오 | 오늘 수업 |
 | `PUT` | `/class-sessions/:sessionId/attendance` | `attendance.write` | 예 | 출석 일괄 저장 |
 | `POST` | `/class-sessions/:sessionId/attendance/:memberId/reason` | `attendance.write` | 예 | 수정 사유 기록 |
+| `POST` | `/me/attendance-qr` | coach/owner/admin 담당 수업·지점 범위 | 아니오 | 수업 출석 QR 발급 |
+| `POST` | `/attendance-qr/scan` | member 또는 guardian 본인 수련 프로필 | 예 | QR 명단 자동 등록·출석 |
 | `POST` | `/promotions` | coach/owner/admin 담당 회원·지점 범위 | 예 | 승급 심사 등록 |
 | `PATCH` | `/promotions/:promotionId` | coach/owner/admin 담당 회원·지점 범위 | 예 | 승급 심사 결과 기록 |
 
@@ -312,6 +314,8 @@
 `items`는 1~200개 JSON 객체 배열이며 각 항목의 `memberId`·`status`는 문자열, `note`와 최상위 `reason`은 문자열 또는 `null`이어야 한다. `memberId`는 비어 있지 않은 200자 이하, 회원별 메모·공통 사유·별도 수정 사유는 80자 이하로 제한한다. 같은 회원을 한 요청에 중복해 보낼 수 없으며 잘못된 구조·타입·길이·중복은 기존 출석·감사 기록을 변경하지 않고 `400 VALIDATION_ERROR`로 거부한다. `items[].note`가 있으면 해당 회원의 출석 메모로 저장하고, 없으면 최상위 `reason`을 공통 수정 사유로 사용한다. 출석 저장과 별도 사유 기록 모두 `audit_logs.before/after.note`에 이전/변경 사유를 남긴다.
 
 일괄 출석과 별도 수정 사유 요청은 인증·역할·지점·담당 수업·수업 시작 시각을 먼저 확인한 뒤 JSON 본문을 공용 출석 잠금 밖에서 파싱·검증한다. 실제 저장 직전에는 같은 잠금 안에서 최신 계정 권한과 수업 상태를 다시 확인해 큰 본문이 다른 출석 저장을 막거나 검증과 저장 사이의 권한 변경이 우회되지 않게 한다.
+
+수업 출석 QR은 수업 시작·종료 시각과 관계없이 담당 코치, 대표, 총괄 어드민이 발급할 수 있으며 발급된 QR 자체는 5분 동안 유효하다. 회원 또는 학부모의 성인 본인 수련 프로필이 스캔하면 최신 발급자 권한과 같은 지점의 활성·체험 회원 여부를 다시 확인한다. 수업 명단에 없던 회원은 공용 출석 잠금 안에서 명단에 자동 추가한 뒤 출석과 QR 사용 기록을 함께 저장하며 `class.update`와 `attendance.update` 감사 기록을 남긴다. 다른 회원·자녀 대리 출석, 다른 지점, 비활성 회원, 만료·재사용 QR은 계속 차단한다.
 
 출석 충돌은 `409 CONFLICT`로 반환하고 서버의 최신 상태를 함께 내려준다.
 

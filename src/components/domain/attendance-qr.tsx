@@ -1,11 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
 import { Camera, CheckCircle2, QrCode, RefreshCw, ScanLine, X } from "lucide-react";
 import QRCode from "qrcode";
-import { isAttendanceQrWindowOpen } from "@/lib/attendance-qr-policy";
 import { ApiClientError, apiClient, type AttendanceQrIssuePayload, type AttendanceQrScanResult } from "@/lib/api-client";
 import type { ClassSession, Member } from "@/lib/domain";
 import { formatCompactTimeRange } from "@/lib/format";
@@ -164,7 +163,7 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
         </div>
 
         <p className="mt-4 border-t border-zinc-100 pt-4 text-xs leading-5 text-zinc-500">
-          다른 회원의 출석은 처리할 수 없으며, 등록된 수업과 출석 가능 시간을 서버에서 확인합니다.
+          본인 수련 지점의 수업이라면 미등록 상태여도 명단에 자동 추가되어 출석 처리됩니다.
         </p>
       </section>
 
@@ -206,7 +205,11 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
                   <CheckCircle2 className="h-12 w-12" aria-hidden />
                   <p className="mt-3 text-xl font-bold">{scanResult.className}</p>
                   <p className="mt-1 text-sm text-emerald-100">
-                    {scanResult.alreadyRecorded ? "이미 출석 처리된 수업입니다." : "출석 처리되었습니다."}
+                    {scanResult.alreadyRecorded
+                      ? "이미 출석 처리된 수업입니다."
+                      : scanResult.autoEnrolled
+                        ? "수업 명단에 등록하고 출석 처리했습니다."
+                        : "출석 처리되었습니다."}
                   </p>
                 </div>
               ) : null}
@@ -244,17 +247,12 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
 
 export function CoachAttendanceQrCard({
   sessions,
-  currentTime,
   selectedBranchId,
 }: {
   sessions: ClassSession[];
-  currentTime: number;
   selectedBranchId: string | null;
 }) {
-  const eligibleSessions = useMemo(
-    () => sessions.filter((session) => isAttendanceQrWindowOpen(session, new Date(currentTime))),
-    [currentTime, sessions],
-  );
+  const eligibleSessions = sessions;
   const [preferredSessionId, setPreferredSessionId] = useState(eligibleSessions[0]?.id ?? "");
   const [issued, setIssued] = useState<AttendanceQrIssuePayload | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
@@ -333,7 +331,7 @@ export function CoachAttendanceQrCard({
           </span>
           <div className="min-w-0">
             <h2 className="font-semibold text-zinc-950">수업 출석 QR</h2>
-            <p className="mt-1 text-sm leading-6 text-zinc-600">수업 QR을 띄워두면 등록 회원이 직접 스캔해 출석합니다.</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">시간 제한 없이 QR을 만들 수 있으며, 미등록 회원은 명단에 자동 추가됩니다.</p>
           </div>
         </div>
 
@@ -380,7 +378,7 @@ export function CoachAttendanceQrCard({
           </div>
         ) : (
           <p className="mt-4 rounded-md bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-            지금 QR 출석할 수 있는 담당 수업이 없습니다. 수업 30분 전부터 사용할 수 있습니다.
+            QR을 만들 수 있는 담당 수업이 없습니다.
           </p>
         )}
 
@@ -450,7 +448,7 @@ export function CoachAttendanceQrCard({
             </div>
 
             <p className="mt-4 border-t border-zinc-100 pt-4 text-xs leading-5 text-zinc-500">
-              QR은 5분 동안 등록 회원 여러 명이 사용할 수 있습니다. 새 QR을 만들면 이전 QR은 즉시 무효화됩니다.
+              QR은 5분 동안 같은 지점의 활성 회원 여러 명이 사용할 수 있습니다. 미등록 회원은 명단에 자동 추가되며, 새 QR을 만들면 이전 QR은 즉시 무효화됩니다.
             </p>
           </section>
         </div>
