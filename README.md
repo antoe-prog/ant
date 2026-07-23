@@ -143,6 +143,9 @@ npm run test:admin-user-guardian-bottom-safe-area
 npm run test:api-auth-order
 npm run test:attendance-mutation-safety
 npm run test:auth-production-guard
+npm run test:google-play-review-access
+npm run test:google-play-review-api
+npm run test:public-legal-pages
 npm run test:auth-session-security
 npm run test:invitation-token-security
 npm run test:local-demo-password-rotation
@@ -270,6 +273,7 @@ npm run test:release
 `test:member-profile-guardian-edit`는 `/app/members` 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위를 확인합니다.
 `test:api-auth-order`는 보호 API route handler에서 `request.json()`을 읽기 전에 `requireSession()`을 먼저 호출하는지 정적으로 검증합니다. 공개 body route는 로그인, 비밀번호 재설정, 초대 수락, 결제 webhook만 명시 allowlist로 유지합니다.
 `test:auth-production-guard`는 production 환경에서 데모 역할 로그인이 기본 차단되고 `FINAL_JUDO_ENABLE_DEMO_LOGIN=1`일 때만 명시 허용되는 정책, session cookie의 `httpOnly`/`secure`/기본 8시간/로그인 상태 유지 30일 만료 속성, production `x-user-id` 헤더 인증 우회 차단을 확인합니다. `test:auth-session-security`는 사용자 ID 쿠키 위조 차단, 불투명 세션 토큰의 해시 저장, 만료와 폐기를 검증합니다. `test:invitation-token-security`는 256-bit 초대 토큰의 해시 저장·만료·단일 사용, 비밀번호 시도 제한, 권한과 지점 범위를 확인하는 링크 재발급 및 이전 링크 무효화를 검증합니다. `test:local-demo-password-rotation`은 격리된 로컬 JSON 복사본에서 공용 데모 비밀번호를 계정별 값으로 교체하되 원본·공개 산출물·PostgreSQL을 수정하지 않는지 검사합니다.
+`test:public-legal-pages`는 공개 개인정보처리방침과 계정·데이터 삭제 요청 페이지의 운영자·연락처·수탁사·보유기간·민감정보·QR 카메라 처리 안내, 회원가입/내 계정 링크, 비로그인 bootstrap 억제와 placeholder 비노출을 확인합니다. 실화면 증빙은 `.data/mobile-builds/ios/public-legal-pages-20260722/summary.json`에 보관합니다.
 `test:dev-reset-guard`는 production 환경에서 `/api/v1/dev/reset`이 기본 차단되고 `FINAL_JUDO_ENABLE_DEV_RESET=1`로 열더라도 helper가 발급한 실행별 소유권 토큰, run-owned 임시 JSON 디렉터리, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야만 초기화되는 정책을 확인합니다. 공유 파일, PostgreSQL, 심볼릭 링크 대상은 초기화하지 않습니다.
 `test:env-readiness`는 `.env.example`, `.env.production.example`, `docs/ENVIRONMENT_MATRIX.md`가 개발/운영 저장소, 위험 플래그, PostgreSQL, 결제, 푸시 필수 환경 변수를 안전한 기본값과 placeholder로 안내하는지 검증합니다.
 `test:production-runtime-environment`와 `test:postgres-runtime-identity`는 Vercel production 빌드와 서버 런타임이 영속 PostgreSQL 설정 없이 JSON 시드로 시작하지 못하게 차단하고, 운영 상태 key `mvp`·테이블 `app_runtime_state`·기존 상태 행의 `FINAL_JUDO_INSTALLATION_ID`가 일치하지 않으면 DDL/시드 삽입 없이 실패하는지 검증합니다. 로컬/preview 빌드는 기존 JSON 격리 테스트를 유지하며 `FINAL_JUDO_REQUIRE_PERSISTENT_RUNTIME=1 npm run prebuild`로 운영 정책을 명시적으로 재현할 수 있습니다. 실제 운영 데이터의 revision·최소 개수·식별자·공용 기본 비밀번호 제거는 `npm run production:runtime:preflight`로 읽기 전용 확인하며, 백업·관리자 복구·배포 복구 manifest 절차는 `docs/PRODUCTION_RECOVERY_RUNBOOK.md`를 따릅니다.

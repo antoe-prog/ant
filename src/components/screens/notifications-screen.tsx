@@ -18,6 +18,12 @@ import {
 } from "@/lib/notification-alerts";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import {
+  getNativeAppPermissionStatus,
+  isNativeAndroidApp,
+  openNativeAppSettings,
+  requestNativeAppPermission,
+} from "@/lib/native-app-permissions";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMemberIds, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { canDeleteNotice } from "@/lib/notice-permissions";
 import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
@@ -294,8 +300,30 @@ export function NotificationsScreen() {
   );
 
   const connectFamilyPush = useCallback(async ({ requestPermission }: { requestPermission: boolean }) => {
+    if (!familyNotificationsAlwaysOn) {
+      return "hidden" as const;
+    }
+
+    if (isNativeAndroidApp()) {
+      const currentPermission = await getNativeAppPermissionStatus("notifications");
+      const permission =
+        currentPermission === "granted" || !requestPermission
+          ? currentPermission
+          : await requestNativeAppPermission("notifications");
+
+      if (permission === "denied") {
+        return "blocked" as const;
+      }
+
+      if (permission !== "granted") {
+        return "prompt" as const;
+      }
+
+      // Capacitor WebView notification delivery is connected separately from browser PushManager.
+      return "ready" as const;
+    }
+
     if (
-      !familyNotificationsAlwaysOn ||
       !("Notification" in window) ||
       !("serviceWorker" in navigator) ||
       !("PushManager" in window)
@@ -364,6 +392,30 @@ export function NotificationsScreen() {
       cancelled = true;
     };
   }, [connectFamilyPush, context.user.id, familyNotificationsAlwaysOn]);
+
+  useEffect(() => {
+    if (!familyNotificationsAlwaysOn || !isNativeAndroidApp()) {
+      return;
+    }
+
+    function refreshNativeNotificationPermission() {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void connectFamilyPush({ requestPermission: false })
+        .then(setFamilyPushStatus)
+        .catch(() => setFamilyPushStatus("error"));
+    }
+
+    document.addEventListener("visibilitychange", refreshNativeNotificationPermission);
+    window.addEventListener("focus", refreshNativeNotificationPermission);
+
+    return () => {
+      document.removeEventListener("visibilitychange", refreshNativeNotificationPermission);
+      window.removeEventListener("focus", refreshNativeNotificationPermission);
+    };
+  }, [connectFamilyPush, familyNotificationsAlwaysOn]);
 
   async function handleEnableFamilyPush() {
     setFamilyPushStatus("saving");
@@ -580,6 +632,16 @@ export function NotificationsScreen() {
               >
                 <Bell className="h-4 w-4" aria-hidden />
                 <span>{familyPushStatus === "saving" ? "연결 중" : "알림 켜기"}</span>
+              </Button>
+            ) : isNativeAndroidApp() ? (
+              <Button
+                aria-label="FINAL 앱 알림 설정 열기"
+                className="shrink-0"
+                onClick={() => void openNativeAppSettings()}
+                size="sm"
+                variant="secondary"
+              >
+                설정 열기
               </Button>
             ) : null}
           </div>

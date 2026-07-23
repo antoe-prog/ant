@@ -1035,10 +1035,24 @@ export const apiClient = {
     );
   },
 
-  requestPasswordReset(identifier: string) {
+  requestPasswordResetCode(phone: string) {
+    return apiRequest<{ ok: boolean; next: "verify"; developmentCode?: string }>("/api/v1/auth/password-reset", {
+      method: "POST",
+      body: JSON.stringify({ action: "request", phone }),
+    });
+  },
+
+  verifyPasswordResetCode(phone: string, code: string) {
+    return apiRequest<{ ok: boolean; resetToken: string }>("/api/v1/auth/password-reset", {
+      method: "POST",
+      body: JSON.stringify({ action: "verify", code, phone }),
+    });
+  },
+
+  completePasswordReset(resetToken: string, password: string) {
     return apiRequest<{ ok: boolean }>("/api/v1/auth/password-reset", {
       method: "POST",
-      body: JSON.stringify({ identifier }),
+      body: JSON.stringify({ action: "complete", password, resetToken }),
     });
   },
 

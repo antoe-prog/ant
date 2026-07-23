@@ -228,6 +228,7 @@ export async function prepareStandaloneSmokeEnvironment({
   env.PILOT_DB_FILE = path.join(dataDir, smokeDataFileName);
   env.FINAL_JUDO_ENABLE_DEMO_LOGIN = "1";
   env.FINAL_JUDO_ENABLE_DEV_RESET = "1";
+  env.FINAL_JUDO_ENABLE_DEV_SMS_CODE = "1";
   env.SMOKE_SKIP_DEV_RESET = "0";
 
   if (env === process.env) {
@@ -299,6 +300,7 @@ export async function createReleaseSmokeEnvironment({ baseUrl = null, env = proc
       FINAL_JUDO_DATA_DIR: dataDir,
       FINAL_JUDO_ENABLE_DEMO_LOGIN: "1",
       FINAL_JUDO_ENABLE_DEV_RESET: "1",
+      FINAL_JUDO_ENABLE_DEV_SMS_CODE: "1",
       FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN: ownershipToken,
       FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.test",
       FINAL_JUDO_PAYMENT_PROVIDER: "external",

@@ -1300,13 +1300,23 @@ export function MembersScreen() {
 
       {filteredMembers.length === 0 ? (
         <EmptyState
-          title={query ? "검색 결과가 없습니다" : statusFilter !== "all" ? `${memberStatusLabels[statusFilter]} 상태 회원이 없습니다` : "표시할 회원이 없습니다"}
+          title={
+            query
+              ? "검색 결과가 없습니다"
+              : statusFilter !== "all"
+                ? `${memberStatusLabels[statusFilter]} 상태 회원이 없습니다`
+                : context.user.role === "guardian"
+                  ? "연결된 수련 프로필이 없습니다"
+                  : "표시할 회원이 없습니다"
+          }
           description={
             query
               ? "검색어를 지우거나 다시 찾아보세요."
               : statusFilter !== "all"
                 ? "상태 필터를 전체로 바꾸면 모든 회원이 표시됩니다."
-                : undefined
+                : context.user.role === "guardian"
+                  ? "운영자에게 본인 수련 회원과 자녀 프로필 연결을 요청해 주세요."
+                  : undefined
           }
         />
       ) : (

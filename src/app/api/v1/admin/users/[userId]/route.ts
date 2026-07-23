@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import type { AppUser, AuditLog, UserRole } from "@/lib/domain";
+import type { AppUser, AuditLog, Member, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getNoticeReadByUserIds } from "@/lib/notices";
@@ -9,9 +9,11 @@ import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
 import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
+import { consumePasswordResetChallenges } from "@/server/password-reset";
 import { createRuntimeId } from "@/server/runtime-id";
 import { isActiveAdmin } from "@/server/user-administration";
 import {
+  findAcceptedBranchOperatorId,
   findOwnerCoverageBlockers,
   reassignUserOperationalLinks,
   summarizeOperationalReassignmentBlockers,
@@ -374,9 +376,99 @@ export async function PATCH(
 
   const requestedMemberIds = body && "memberIds" in body ? cleanMemberIds(body.memberIds) : targetUser.memberIds ?? [];
   const requestedChildMemberIds = body && "childMemberIds" in body ? cleanMemberIds(body.childMemberIds) : targetUser.childMemberIds ?? [];
-  const nextMemberIds = nextRole === "member" || nextRole === "guardian" ? requestedMemberIds : [];
+  let nextMemberIds = nextRole === "member" || nextRole === "guardian" ? requestedMemberIds : [];
   const nextChildMemberIds = nextRole === "guardian" ? requestedChildMemberIds : [];
-  const invalidLinkedMemberIds = findInvalidLinkedMemberIds(db, [...nextMemberIds, ...nextChildMemberIds], nextBranchIds);
+  let provisionedMember: Member | null = null;
+
+  if (nextRole === "member" && nextMemberIds.length === 0) {
+    const existingOperationalLinks = reassignUserOperationalLinks({
+      db,
+      nextBranchIds,
+      nextRole: nextRole as UserRole,
+      targetUserId: targetUser.id,
+    });
+
+    if (existingOperationalLinks.blockers.length > 0) {
+      return jsonError(
+        422,
+        "BUSINESS_RULE_FAILED",
+        "같은 지점의 인계 가능 담당자를 먼저 배정해 주세요.",
+        summarizeOperationalReassignmentBlockers(existingOperationalLinks.blockers, db),
+      );
+    }
+
+    const identityMatches = db.members.filter(
+      (member) =>
+        nextBranchIds.includes(member.branchId) &&
+        member.name.trim() === nextName &&
+        samePhoneNumber(member.emergencyContact, nextPhone),
+    );
+    const conflictingMatches = identityMatches.filter((member) =>
+      db.users.some(
+        (candidate) => candidate.id !== targetUser.id && (candidate.memberIds ?? []).includes(member.id),
+      ),
+    );
+    const availableMatches = identityMatches.filter(
+      (member) => !conflictingMatches.some((conflict) => conflict.id === member.id),
+    );
+
+    if (conflictingMatches.length > 0) {
+      return jsonError(409, "CONFLICT", "동일한 회원 프로필이 이미 다른 계정에 연결되어 있습니다.");
+    }
+
+    if (availableMatches.length > 1) {
+      return jsonError(409, "CONFLICT", "동일한 회원 프로필이 여러 개입니다. 앱 연결 회원을 직접 선택해 주세요.");
+    }
+
+    if (availableMatches[0]) {
+      nextMemberIds = [availableMatches[0].id];
+    } else {
+      const memberBranchId =
+        selectedScope.selectedBranchId && nextBranchIds.includes(selectedScope.selectedBranchId)
+          ? selectedScope.selectedBranchId
+          : nextBranchIds[0];
+      const prospectiveDb = {
+        ...db,
+        users: db.users.map((candidate) =>
+          candidate.id === targetUser.id
+            ? { ...candidate, branchIds: nextBranchIds, role: nextRole as UserRole }
+            : candidate,
+        ),
+      };
+      const primaryCoachId = memberBranchId ? findAcceptedBranchOperatorId(prospectiveDb, memberBranchId) : null;
+
+      if (!memberBranchId || !primaryCoachId) {
+        return jsonError(422, "BUSINESS_RULE_FAILED", "담당 지점의 승인된 코치, 대표 또는 어드민을 먼저 배정해 주세요.");
+      }
+
+      const now = new Date().toISOString();
+      provisionedMember = {
+        id: createRuntimeId("member"),
+        alerts: [],
+        ageGroup: "adult",
+        belt: "흰띠",
+        branchId: memberBranchId,
+        createdAt: now,
+        emergencyContact: nextPhone,
+        guardianIds: [],
+        level: "입문",
+        name: nextName,
+        primaryCoachId,
+        status: "active",
+        statusChangedAt: now,
+      };
+      nextMemberIds = [provisionedMember.id];
+    }
+  }
+
+  const dbWithProvisionedMember = provisionedMember
+    ? { ...db, members: [provisionedMember, ...db.members] }
+    : db;
+  const invalidLinkedMemberIds = findInvalidLinkedMemberIds(
+    dbWithProvisionedMember,
+    [...nextMemberIds, ...nextChildMemberIds],
+    nextBranchIds,
+  );
 
   if (invalidLinkedMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "연결할 회원이 담당 지점에 포함되어 있지 않습니다.", {
@@ -384,7 +476,8 @@ export async function PATCH(
     });
   }
 
-  const adultGuardianChildMemberIds = nextRole === "guardian" ? findAdultGuardianChildMemberIds(db, nextChildMemberIds) : [];
+  const adultGuardianChildMemberIds =
+    nextRole === "guardian" ? findAdultGuardianChildMemberIds(dbWithProvisionedMember, nextChildMemberIds) : [];
 
   if (adultGuardianChildMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 자녀로 연결할 수 없습니다.", {
@@ -393,7 +486,7 @@ export async function PATCH(
   }
 
   const nonAdultGuardianSelfMemberIds =
-    nextRole === "guardian" ? findNonAdultGuardianSelfMemberIds(db, nextMemberIds) : [];
+    nextRole === "guardian" ? findNonAdultGuardianSelfMemberIds(dbWithProvisionedMember, nextMemberIds) : [];
 
   if (nonAdultGuardianSelfMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 본인 수련에는 성인 회원만 연결할 수 있습니다.", {
@@ -409,7 +502,7 @@ export async function PATCH(
     });
   }
 
-  const memberAccountConflicts = findMemberAccountConflicts(db, targetUser.id, nextMemberIds);
+  const memberAccountConflicts = findMemberAccountConflicts(dbWithProvisionedMember, targetUser.id, nextMemberIds);
 
   if (memberAccountConflicts.length > 0) {
     return jsonError(409, "CONFLICT", "이미 다른 계정의 본인 회원으로 연결된 회원입니다.", {
@@ -449,7 +542,12 @@ export async function PATCH(
   const nextUsers = db.users.map((candidate) =>
     candidate.id === targetUser.id ? nextTargetUser : candidate,
   );
-  const nextMembersAfterGuardianSync = syncGuardianMemberLinks(db, targetUser.id, nextRole as UserRole, nextChildMemberIds);
+  const nextMembersAfterGuardianSync = syncGuardianMemberLinks(
+    dbWithProvisionedMember,
+    targetUser.id,
+    nextRole as UserRole,
+    nextChildMemberIds,
+  );
   const nextMembers = syncMemberAccountProfileLinks(
     { ...db, members: nextMembersAfterGuardianSync },
     nextRole as UserRole,
@@ -507,6 +605,7 @@ export async function PATCH(
       reassignedClassCount: operationalLinks.reassignedClassCount,
       reassignedMemberCount: operationalLinks.reassignedMemberCount,
       role: nextRole,
+      memberProfileProvisioned: Boolean(provisionedMember),
       syncedMemberIds: nextRole === "member" ? nextMemberIds : [],
       title: nextTitle,
     },
@@ -517,13 +616,37 @@ export async function PATCH(
     classes: operationalLinks.classes,
     members: operationalLinks.members,
     users: nextUsers,
-    auditLogs: [auditLog, ...db.auditLogs],
+    auditLogs: [
+      auditLog,
+      ...(provisionedMember
+        ? [{
+            id: createRuntimeId("audit"),
+            branchId: provisionedMember.branchId,
+            actorUserId: user.id,
+            action: "member.create" as const,
+            targetType: "member" as const,
+            targetId: provisionedMember.id,
+            before: null,
+            after: {
+              accountUserId: targetUser.id,
+              ageGroup: provisionedMember.ageGroup,
+              branchId: provisionedMember.branchId,
+              status: provisionedMember.status,
+            },
+            result: "success" as const,
+            message: "회원 계정 저장 시 회원 프로필을 생성했습니다.",
+            createdAt: provisionedMember.createdAt ?? new Date().toISOString(),
+          }]
+        : []),
+      ...db.auditLogs,
+    ],
   };
   const securityContextChanged = Boolean(nextPassword) ||
     nextRole !== targetUser.role ||
     nextBranchIds.join("\u0000") !== targetUser.branchIds.join("\u0000");
+  const securedDb = securityContextChanged ? revokeUserAuthSessions(updatedDb, targetUser.id) : updatedDb;
   const nextDb = await writeServerDb(
-    securityContextChanged ? revokeUserAuthSessions(updatedDb, targetUser.id) : updatedDb,
+    nextPassword ? consumePasswordResetChallenges(securedDb, targetUser.id) : securedDb,
   );
 
     return jsonOk(createBootstrapPayload(nextDb, createSafeActor(nextDb, user), selectedScope.selectedBranchId));
@@ -669,6 +792,7 @@ export async function DELETE(
       readByUserIds: getNoticeReadByUserIds(notice).filter((readByUserId) => readByUserId !== targetUser.id),
     })),
     authSessions: db.authSessions.filter((session) => session.userId !== targetUser.id),
+    passwordResetChallenges: db.passwordResetChallenges.filter((challenge) => challenge.userId !== targetUser.id),
     pushSubscriptions: db.pushSubscriptions.filter((subscription) => subscription.userId !== targetUser.id),
     auditLogs: [auditLog, ...db.auditLogs],
   });

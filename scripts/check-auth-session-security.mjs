@@ -274,7 +274,11 @@ assert(userRouteSource.match(/withServerDbLock\(authSecurityLockKey/g)?.length =
 assert(userRouteSource.includes("readUnmodifiedPassword(body.password)"));
 assert(resetRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(resetRouteSource.includes("hasReachedPasswordResetRequestLimit"));
-assert(resetRouteSource.indexOf("비밀번호 재설정 입력 형식이 올바르지 않습니다.") < resetRouteSource.indexOf("withServerDbLock(authSecurityLockKey"));
+assert(resetRouteSource.includes("if (!isPasswordResetBody(rawBody))"));
+assert(resetRouteSource.includes("findVerifiedPasswordResetChallenge"));
+assert(resetRouteSource.includes("consumePasswordResetChallenges"));
+assert(resetRouteSource.includes("revokeUserAuthSessions"));
+assert(resetRouteSource.includes("passwordResetMinimumPasswordLength"));
 assert(!resetRouteSource.includes("after: { identifier }"), "reset audits must not persist the supplied identifier");
 assert(registerRouteSource.indexOf("회원가입 입력 형식이 올바르지 않습니다.") < registerRouteSource.indexOf("withServerDbLock(`auth-register-phone:${phone}`"));
 

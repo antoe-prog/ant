@@ -109,7 +109,11 @@ export function hasReachedPasswordResetRequestLimit(
   const nowMs = now.getTime();
   const windowStartedAt = nowMs - passwordResetRequestWindowMs;
   const requestCount = db.auditLogs.filter((log) => {
-    if (log.action !== "auth.password_reset.request" || log.targetId !== userId) {
+    if (
+      log.action !== "auth.password_reset.request" ||
+      log.targetId !== userId ||
+      log.result !== "success"
+    ) {
       return false;
     }
 

@@ -185,8 +185,21 @@ assert(loginScreenSource.includes("maxLength={authInputLimits.phoneLength}"), "l
 assert(loginScreenSource.includes("maxLength={authInputLimits.passwordLength}"), "login password must expose the server limit");
 assert(passwordResetRouteSource.includes("getAuthInputLimitError"), "password reset requests must bound identifiers before lookup");
 assert(
-  passwordResetScreenSource.includes("maxLength={authInputLimits.identifierLength}"),
-  "password reset identifier must expose the server limit",
+  passwordResetScreenSource.includes("maxLength={authInputLimits.phoneLength}") &&
+    passwordResetScreenSource.includes("maxLength={authInputLimits.passwordLength}"),
+  "password reset phone and password inputs must expose the server limits",
+);
+assert(
+  passwordResetScreenSource.includes('data-testid="password-reset-code-input"') &&
+    passwordResetScreenSource.includes("minLength={8}") &&
+    passwordResetScreenSource.includes("apiClient.completePasswordReset"),
+  "password reset must verify the phone before accepting an 8+ character replacement password",
+);
+assert(
+  !passwordResetScreenSource.includes("사용자 이름") &&
+    passwordResetRouteSource.includes("sendPasswordResetSms") &&
+    passwordResetRouteSource.includes("revokeUserAuthSessions"),
+  "password reset must use registered-phone verification and revoke existing sessions after completion",
 );
 assert(authInputPolicySource.includes("passwordLength: 256"), "public authentication passwords must be capped at 256 characters");
 assert(

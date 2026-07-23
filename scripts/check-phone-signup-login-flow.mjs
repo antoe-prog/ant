@@ -17,6 +17,7 @@ const managedPort = parsedBaseUrl.port || "3000";
 const outDir = process.env.PHONE_SIGNUP_LOGIN_FLOW_OUT_DIR ?? ".data/mobile-builds/ios/phone-signup-login-flow-20260705";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const password = "FinalJudoSignup!2026";
+const resetPassword = "FinalJudoReset!2026";
 const sessionCookieName = "final-judo-session";
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
@@ -187,6 +188,7 @@ async function main() {
   const signupScreenshotPath = join(outDir, "phone-signup-form-mobile.png");
   const registeredLoginScreenshotPath = join(outDir, "phone-signup-registered-login-mobile.png");
   const dashboardScreenshotPath = join(outDir, "phone-signup-dashboard-mobile.png");
+  const passwordResetScreenshotPath = join(outDir, "phone-password-reset-mobile.png");
 
   for (const payload of [
     { branchId: "branch-gangnam", name: "가".repeat(31), password, phone },
@@ -207,9 +209,9 @@ async function main() {
   }
 
   const oversizedReset = await context.request.post(`${baseUrl}/api/v1/auth/password-reset`, {
-    data: { identifier: "i".repeat(255) },
+    data: { action: "request", phone: "0".repeat(41) },
   });
-  assert.equal(oversizedReset.status(), 400, "oversized password-reset identifiers must be rejected before account lookup");
+  assert.equal(oversizedReset.status(), 400, "oversized password-reset phones must be rejected before account lookup");
 
   await page.goto(`${baseUrl}/signup`, { waitUntil: "networkidle" });
   await page.waitForSelector('[data-testid="phone-signup-form"]', { timeout: 15000 });
@@ -319,7 +321,32 @@ async function main() {
   assert(sessionCookie, "phone signup login must set the httpOnly session cookie");
   assert.equal(consoleMessages.length, 0, `phone signup login flow must not emit console warnings/errors: ${consoleMessages.join(" | ")}`);
 
-  for (const screenshotPath of [signupScreenshotPath, registeredLoginScreenshotPath, dashboardScreenshotPath]) {
+  const logoutResponse = await context.request.post(`${baseUrl}/api/v1/auth/logout`);
+  assert.equal(logoutResponse.status(), 200, "password reset setup must sign out the current session");
+  await page.goto(`${baseUrl}/reset-password`, { waitUntil: "networkidle" });
+  await page.getByTestId("password-reset-phone-input").fill(phone);
+  await page.locator('[data-testid="password-reset-phone-form"] button[type="submit"]').click();
+  await page.waitForSelector('[data-testid="password-reset-code-form"]', { timeout: 15000 });
+  const developmentOtp = await page.getByTestId("password-reset-code-input").inputValue();
+  assert.match(developmentOtp, /^\d{6}$/, "isolated reset flow must expose a development OTP only to the test server");
+  await page.locator('[data-testid="password-reset-code-form"] button[type="submit"]').click();
+  await page.waitForSelector('[data-testid="password-reset-password-form"]', { timeout: 15000 });
+  await page.getByTestId("password-reset-password-input").fill(resetPassword);
+  await page.getByTestId("password-reset-password-confirm-input").fill(resetPassword);
+  await page.locator('[data-testid="password-reset-password-form"] button[type="submit"]').click();
+  await page.waitForSelector("text=비밀번호 변경 완료", { timeout: 15000 });
+  await page.screenshot({ path: passwordResetScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
+
+  const oldPasswordLogin = await context.request.post(`${baseUrl}/api/v1/auth/login`, {
+    data: { phone, password },
+  });
+  assert.equal(oldPasswordLogin.status(), 401, "the previous password must stop working after verified reset");
+  const resetPasswordLogin = await context.request.post(`${baseUrl}/api/v1/auth/login`, {
+    data: { phone, password: resetPassword },
+  });
+  assert.equal(resetPasswordLogin.status(), 200, "the verified replacement password must log in");
+
+  for (const screenshotPath of [signupScreenshotPath, registeredLoginScreenshotPath, dashboardScreenshotPath, passwordResetScreenshotPath]) {
     assert(statSync(screenshotPath).size > 10_000, `${screenshotPath} must be a non-empty screenshot`);
   }
 
@@ -340,6 +367,8 @@ async function main() {
       "registered login screen pre-fills the signed-up phone number",
       "registered login screen avoids premature invalid-password copy",
       "same password logs in and reaches the member dashboard",
+      "registered phone OTP changes the password directly",
+      "old password is rejected and the replacement password logs in",
       "session cookie is set after login",
       "390px signup/login/dashboard flow stays horizontally contained",
     ],
@@ -351,6 +380,7 @@ async function main() {
       signup: { path: signupScreenshotPath, bytes: statSync(signupScreenshotPath).size },
       registeredLogin: { path: registeredLoginScreenshotPath, bytes: statSync(registeredLoginScreenshotPath).size },
       dashboard: { path: dashboardScreenshotPath, bytes: statSync(dashboardScreenshotPath).size },
+      passwordReset: { path: passwordResetScreenshotPath, bytes: statSync(passwordResetScreenshotPath).size },
     },
     releaseDecision: "internal_browser_evidence_only_not_operational_ready",
   };

@@ -8,6 +8,7 @@ const requestsScreen = existsSync(requestsScreenPath) ? readFileSync(requestsScr
 const appShell = readFileSync("src/components/shell/app-shell.tsx", "utf8");
 const appStore = readFileSync("src/store/app-store.tsx", "utf8");
 const notificationAlerts = readFileSync("src/lib/notification-alerts.ts", "utf8");
+const nativeAppPermissions = readFileSync("src/lib/native-app-permissions.ts", "utf8");
 const roles = readFileSync("src/lib/roles.ts", "utf8");
 const notificationsAliasRoute = readFileSync("src/app/(app)/app/notifications/page.tsx", "utf8");
 const noticesAliasRoute = readFileSync("src/app/(app)/notices/page.tsx", "utf8");
@@ -207,6 +208,24 @@ assert(notificationsScreen.includes("Notification.requestPermission()"), "family
 assert(notificationsScreen.includes("registration.pushManager.subscribe"), "family notification inbox must create a browser push subscription");
 assert(notificationsScreen.includes("apiClient.subscribeToPush"), "family notification inbox must persist the device subscription");
 assert(notificationsScreen.includes('data-testid="family-push-enable-action"'), "family push opt-in must keep an explicit mobile action");
+assert(
+  notificationsScreen.includes('requestNativeAppPermission("notifications")'),
+  "Capacitor notification opt-in must request the Android notification permission",
+);
+assert(
+  notificationsScreen.includes("openNativeAppSettings") &&
+    notificationsScreen.includes('aria-label="FINAL 앱 알림 설정 열기"'),
+  "blocked Android notification permission must expose an app-settings recovery action",
+);
+assert(
+  notificationsScreen.includes('document.addEventListener("visibilitychange", refreshNativeNotificationPermission)'),
+  "notification permission state must refresh after returning from Android app settings",
+);
+assert(
+  nativeAppPermissions.includes('registerPlugin<AppPermissionsPlugin>("AppPermissions")') &&
+    nativeAppPermissions.includes('export type NativeAppPermission = "camera" | "notifications"'),
+  "web app must keep a typed bridge to the native Android permission plugin",
+);
 assertExcludes(noticesScreen, "이 기기에서는 알림을 받을 수 없습니다.", "notification panel unsupported-device hard failure copy");
 assertExcludes(noticesScreen, "공지 알림은 준비 중입니다.", "notification panel app UI copy");
 assertExcludes(noticesScreen, "이 브라우저에서는 알림을 사용할 수 없습니다.", "notification panel app UI copy");

@@ -262,6 +262,14 @@ export function SignupScreen() {
               </p>
             ) : null}
 
+            <p className="text-xs leading-5 text-zinc-500">
+              회원가입 전에{" "}
+              <Link className="font-semibold text-teal-700 underline underline-offset-4" href="/privacy">
+                개인정보처리방침
+              </Link>
+              을 확인해 주세요.
+            </p>
+
             <Button
               data-testid="signup-submit-button"
               className="w-full"

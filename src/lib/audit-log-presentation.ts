@@ -44,7 +44,8 @@ export const auditActionLabels: Record<AuditAction, string> = {
   "system.integrity.repair": "데이터 무결성 정정",
   "auth.invite.accept": "초대 수락",
   "auth.password_reset.request": "비밀번호 재설정 요청",
-  "auth.password_reset.complete": "비밀번호 재발급",
+  "auth.password_reset.verify": "비밀번호 변경 본인 확인",
+  "auth.password_reset.complete": "비밀번호 변경",
   "auth.login": "로그인",
   "auth.logout": "로그아웃",
 };

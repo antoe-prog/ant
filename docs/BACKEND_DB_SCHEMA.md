@@ -279,6 +279,7 @@ CREATE TYPE audit_action AS ENUM (
   'system.integrity.repair',
   'auth.invite.accept',
   'auth.password_reset.request',
+  'auth.password_reset.verify',
   'auth.password_reset.complete',
   'auth.login',
   'auth.logout'

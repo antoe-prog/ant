@@ -22,6 +22,7 @@
 - [x] `npm run test:store` JSON 저장소 백업/복구, 동일 키 operation lock, 서로 다른 인스턴스·Node 프로세스의 stale 파일 병합, 휴대폰·이메일 유일성과 핵심 참조 무결성, 같은 결제·동일 필드 충돌 차단, 비직렬화 메타와 stale demo seed 날짜 보정 테스트 통과
 - [x] `npm run test:store-write-validation`, `npm run test:runtime-state-integrity`, `npm run test:runtime-state-tools` 통과. 읽기 검증은 기존 데이터를 자동 변경하지 않고, 쓰기는 기존 스냅샷과 비교해 새 무결성 결함만 차단하며, 명시적 복구는 변경마다 `system.integrity.repair` 감사 기록을 남긴다. 출석·결제 이력은 자동 삭제하지 않고 운영 복제본 검사는 레코드 식별자·개인정보를 출력하지 않는다.
 - [x] `npm run test:auth-production-guard` production 데모 로그인 차단/세션 쿠키 정책, 로그인·회원가입·초대 수락·재설정 요청의 서버/UI 입력 상한, 로컬 자동로그인 `next`의 같은 오리진·길이 제한 통과
+- [x] `npm run test:google-play-review-access`, `npm run test:google-play-review-api` Google Play 검토 지점·역할별 합성 계정 5개, 총괄 계정의 실제 지점/회원/변경 기록 비노출, 전역 관리자 쓰기 차단, URL 조작 교차 지점 변경 차단, 영문 500자 이내 Play Console 안내문, 비밀번호 출력 금지·`0600` 로컬 보고서 보관 통과
 - [x] `npm run test:auth-session-security` 원시 사용자 ID 쿠키 차단, 불투명 토큰 해시 저장, 만료·단일/전체 세션 폐기, 로그인·회원가입·비밀번호 재설정 payload 런타임 타입 검증, 로그인·로그아웃·계정 보안 변경 공통 잠금, 차단 재시도 잠금 연장 방지, 정상 자격증명 로그인 복구, 미일치 로그아웃 쓰기 방지 검증 통과
 - [x] `npm run test:invitation-token-security` 256-bit 초대 원문 1회 응답, SHA-256 저장, 7일 만료, timing-safe 비교, 사용자별 비밀번호 실패 제한, 257자 비밀번호 해시 전 차단·원문 미저장, `Retry-After`, 동시 수락 단일 성공, 권한·지점 범위 재발급과 이전 링크 무효화, bootstrap 해시·비밀정보 미노출 검증 통과
 - [x] `npm run test:local-demo-password-rotation` 격리 JSON 계정별 비밀번호 회전과 원본/비밀정보 보호 검증 통과
@@ -114,6 +115,7 @@
 - [x] `npm run test:api-auth-order` 보호 API route handler 본문 읽기 전 세션 확인 순서, 보호자 연결 공통 컨텍스트의 세션 검사, 공개 body route allowlist 검증 통과
 - [x] `npm run test:attendance-mutation-safety` 출석 변경의 공통 잠금, 선택 지점 일치, 수업 시작 전 차단, 본문 잠금 밖 검증과 잠금 안 최신 권한 재확인, 느린 일괄 본문 중 별도 출석 사유 선완료 통합 회귀, 일괄 저장 JSON 구조·항목 타입·200건 상한·회원 ID 200자·메모/사유 80자·회원 중복 차단, 저장 실패 재시도 큐 계약 검증 통과
 - [x] `npm run test:login-keep-signed-in` 로그인 상태 유지 30일 쿠키, 기본 8시간 쿠키, 390px 로그인 화면 터치 영역/overflow 검증 통과
+- [x] `npm run test:public-legal-pages` 공개 개인정보처리방침과 계정·데이터 삭제 요청 페이지, 운영자·수탁사·보유기간·법정 보관 예외, 회원가입/내 계정 링크, 비로그인 bootstrap 억제, 390px/1440px overflow·콘솔 오류 없음 검증 통과
 - [x] `npm run test:implementation-backlog` 구현 백로그 ID 중복, 섹션 번호 불일치, 그룹별 순번 누락, 빈 작업/완료 기준, 상태 값 drift, `바로 다음 작업` 운영 순서 번호 중복/누락 검증 통과
 - [x] `npm run test:qa-plan` QA 시나리오 ID 중복, 빈 실행/기대 결과, 문서 내 `npm run` 스크립트 오타 검증 통과
 - [x] `npm run test:release-docs` 릴리즈 명령/package script/문서 정합성과 README `검증` 명령 블록 순서 검증 통과

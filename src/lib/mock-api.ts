@@ -11,6 +11,7 @@ import type {
   Notice,
   UserRole,
 } from "@/lib/domain";
+import { isGooglePlayReviewAccount } from "./google-play-review-access.ts";
 import { getGuardianFamilyMemberIds } from "./family-members.ts";
 import { getNoticeReadByUserIds, isNoticeReadByUser } from "./notices.ts";
 
@@ -54,7 +55,7 @@ function dateKey(value: string | Date) {
 }
 
 export function getAccessibleBranchIds(user: AppUser, db: MockDatabase) {
-  if (user.role === "admin") {
+  if (user.role === "admin" && !isGooglePlayReviewAccount(user)) {
     return db.branches.map((branch) => branch.id);
   }
 

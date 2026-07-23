@@ -90,7 +90,7 @@ async function run() {
   const adminCookie = await login("admin");
   const ownerCookie = await login("owner");
 
-  for (const path of ["/login", "/signup", "/reset-password"]) {
+  for (const path of ["/login", "/signup", "/reset-password", "/privacy", "/account-deletion"]) {
     await assertRoute(path);
   }
 
@@ -136,6 +136,7 @@ async function run() {
         checked: [
           "protected app routes",
           "public auth routes",
+          "public privacy and account deletion routes",
           "phone signup entry route",
           "notices/account IA routes",
           "owner dedicated IA routes",

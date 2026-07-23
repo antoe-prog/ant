@@ -5,6 +5,7 @@ import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRandomPasswordHash, defaultPilotPassword, generateTemporaryPassword } from "@/server/auth-password";
 import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
+import { consumePasswordResetChallenges } from "@/server/password-reset";
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
@@ -133,20 +134,26 @@ export async function POST(
       message: "비밀번호를 재발급했습니다.",
       createdAt: now,
     };
-    const nextDb = await writeServerDb(revokeUserAuthSessions({
-      ...freshDb,
-      users: freshDb.users.map((candidate) =>
-        candidate.id === targetUser.id
-          ? {
-              ...candidate,
-              passwordHash: createRandomPasswordHash(temporaryPassword),
-              passwordResetRequestedAt: undefined,
-              passwordUpdatedAt: now,
-            }
-          : candidate,
+    const nextDb = await writeServerDb(
+      consumePasswordResetChallenges(
+        revokeUserAuthSessions({
+          ...freshDb,
+          users: freshDb.users.map((candidate) =>
+            candidate.id === targetUser.id
+              ? {
+                  ...candidate,
+                  passwordHash: createRandomPasswordHash(temporaryPassword),
+                  passwordResetRequestedAt: undefined,
+                  passwordUpdatedAt: now,
+                }
+              : candidate,
+          ),
+          auditLogs: [auditLog, ...freshDb.auditLogs],
+        }, targetUser.id, new Date(now)),
+        targetUser.id,
+        new Date(now),
       ),
-      auditLogs: [auditLog, ...freshDb.auditLogs],
-    }, targetUser.id, new Date(now)));
+    );
     const actor = nextDb.users.find((candidate) => candidate.id === freshUser.id);
 
     if (!actor) {

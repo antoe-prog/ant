@@ -83,7 +83,7 @@
 | `POST` | `/auth/login` | 공개 | 예 | 운영 계정 로그인 또는 개발/테스트 역할 로그인 |
 | `POST` | `/auth/register` | 공개 | 예 | 휴대폰 성인 회원가입 |
 | `POST` | `/auth/logout` | 인증 | 예 | 로그아웃 |
-| `POST` | `/auth/password-reset` | 공개 | 예 | 비밀번호 재설정 요청 |
+| `POST` | `/auth/password-reset` | 공개 | 예 | 휴대폰 인증 후 비밀번호 직접 변경 |
 | `POST` | `/auth/invitations/:token/accept` | 공개 | 예 | 초대 가입 수락 |
 | `POST` | `/admin/users/:userId/password` | admin | 예 | 임시 비밀번호 발급 |
 | `GET` | `/me` | 인증 | 아니오 | 내 계정, 역할, 접근 지점 |
@@ -96,7 +96,7 @@
 
 `GET /auth/register`는 공개 가입에 사용할 수 있는 활성 지점 중 승인된 담당 운영자가 있는 지점의 `id`, `name`, `district`만 반환한다. `POST /auth/register`는 해당 목록에서 사용자가 선택한 `branchId`, 문자열 이름, 한국 휴대폰 번호, 8자 이상 문자열 비밀번호를 받아 UUID 기반 사용자·성인 회원 프로필을 함께 생성한다. 가입 지점 ID는 160자, 이름은 회원 프로필 정책과 같은 30자, 휴대폰 원문은 40자, 비밀번호는 256자로 제한한다. 활성 지점이 하나이면 이전 클라이언트 호환을 위해 `branchId` 생략을 허용하지만, 여러 지점에서는 명시적 선택이 없으면 `400 VALIDATION_ERROR`로 차단한다. 서버는 최신 저장소에서 지점 활성 상태와 담당 운영자를 다시 검증하므로 존재하지 않거나 비활성·운영 불가 지점 ID를 신뢰하지 않는다. 객체·배열 등 잘못된 필드 형식과 초과 입력은 비밀번호 해시와 저장소 잠금 전에 `400 VALIDATION_ERROR`로 차단한다. 정규화된 휴대폰 번호 범위의 런타임 잠금 안에서 최신 저장소를 다시 확인하므로 같은 번호의 동시 가입은 정확히 한 건만 성공하고 나머지는 `409 CONFLICT`를 반환한다. 병합 후 저장 경계도 휴대폰·이메일 유일성과 사용자·회원 연결을 다시 검증한다.
 
-`POST /auth/password-reset`의 `identifier`는 254자 이하 선택 문자열이며, 잘못된 본문·비문자·초과 식별자는 저장소 잠금과 계정 조회, 감사 기록 전에 `400 VALIDATION_ERROR`로 차단한다. 정상 형식에서는 계정 존재 여부와 요청 제한 도달 여부를 구분하지 않고 `{ "ok": true }`를 반환한다.
+`POST /auth/password-reset`은 같은 경로에서 세 단계를 처리한다. `action=request`는 `{ phone }`으로 6자리 인증번호 발송을 요청하고, 계정 존재 여부와 시간당 요청 제한 도달 여부를 구분하지 않는 `{ "ok": true, "next": "verify" }` 응답을 반환한다. 운영 발송은 `FINAL_JUDO_PASSWORD_RESET_SMS_WEBHOOK_URL`과 bearer secret이 모두 설정된 HTTPS webhook만 사용하며 미설정이면 계정 조회 전에 `503`으로 차단한다. `action=verify`는 `{ phone, code }`를 받아 10분 만료·최대 5회 시도 제한을 적용하고, 성공 시 10분간 한 번만 쓸 수 있는 불투명 `resetToken`을 반환한다. 인증번호는 salted PBKDF2 hash, 재설정 토큰은 SHA-256 hash로만 저장하며 감사 로그에 원문을 남기지 않는다. `action=complete`는 `{ resetToken, password }`를 받아 8자 이상 256자 이하의 새 비밀번호를 저장하고 모든 기존 세션과 남은 인증 챌린지를 폐기한다. 잘못된 본문과 초과 입력은 계정 조회 전에 `400 VALIDATION_ERROR`로 차단한다.
 
 계정별 15분 내 로그인 비밀번호 실패 5회부터 `429`와 `Retry-After`를 반환한다. 차단된 재시도는 감사에는 남지만 제한 종료 시각을 연장하지 않으며 성공 로그인은 이전 실패 창을 초기화한다. 로그인·로그아웃·초대 수락·비밀번호·역할·계정 상태 변경은 같은 보안 잠금 아래 최신 상태를 다시 읽고 세션 발급·폐기를 저장한다. 무작위 세션 원문은 쿠키에만 한 번 제공하고 저장소에는 SHA-256 해시만 남긴다.
 
@@ -476,7 +476,9 @@ provider webhook은 전역 event ID 공유 잠금을 먼저 얻고 그 안에서
 | 현재 mock 함수 | 실제 API |
 | --- | --- |
 | `apiClient.signIn` | `POST /api/v1/auth/login` 이메일/비밀번호 또는 개발/테스트 역할 payload |
-| `apiClient.requestPasswordReset` | `POST /api/v1/auth/password-reset` |
+| `apiClient.requestPasswordResetCode` | `POST /api/v1/auth/password-reset` (`action=request`) |
+| `apiClient.verifyPasswordResetCode` | `POST /api/v1/auth/password-reset` (`action=verify`) |
+| `apiClient.completePasswordReset` | `POST /api/v1/auth/password-reset` (`action=complete`) |
 | `apiClient.acceptInvitation` | `POST /api/v1/auth/invitations/:token/accept` |
 | `apiClient.createInvitation` | `POST /api/v1/admin/users/invitations` |
 | `apiClient.reissueInvitationLink` | `POST /api/v1/admin/users/:userId/invitation-link` |

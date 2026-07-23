@@ -13,6 +13,7 @@ const runtimeCollectionKeys = [
   "payments",
   "notices",
   "authSessions",
+  "passwordResetChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",

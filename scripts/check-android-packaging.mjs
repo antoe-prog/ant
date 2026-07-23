@@ -188,6 +188,34 @@ assert(twaStringsSource.includes('\\"site\\": \\"https://final-judo.vercel.app\\
 assert(!`${twaProjectManifestSource}\n${twaAppGradleSource}\n${twaStringsSource}`.includes("loca.lt"), "TWA project must not keep temporary tunnel hosts");
 assert(twaAndroidManifestSource.includes('android.permission.INTERNET'), "TWA WebView fallback must declare Android internet permission");
 
+const capacitorManifestSource = await readFile("mobile/android-cap/app/src/main/AndroidManifest.xml", "utf8");
+const capacitorMainActivitySource = await readFile(
+  "mobile/android-cap/app/src/main/java/kr/co/finaljudo/multigym/MainActivity.java",
+  "utf8",
+);
+const capacitorPermissionsPluginSource = await readFile(
+  "mobile/android-cap/app/src/main/java/kr/co/finaljudo/multigym/AppPermissionsPlugin.java",
+  "utf8",
+);
+
+assert(capacitorManifestSource.includes("android.permission.CAMERA"), "Capacitor Android must declare camera permission for QR attendance");
+assert(
+  capacitorManifestSource.includes("android.permission.POST_NOTIFICATIONS"),
+  "Capacitor Android must declare Android 13+ notification permission",
+);
+assert(
+  capacitorManifestSource.includes('android.hardware.camera.any') &&
+    capacitorManifestSource.includes('android.hardware.camera') &&
+    (capacitorManifestSource.match(/android:required="false"/g) ?? []).length >= 2,
+  "camera features implied by CAMERA permission must remain optional so devices without a camera can still install the app",
+);
+assert(capacitorMainActivitySource.includes("registerPlugin(AppPermissionsPlugin.class)"), "Capacitor Android must register the app permission bridge");
+assert(
+  capacitorPermissionsPluginSource.includes('@Permission(alias = "camera"') &&
+    capacitorPermissionsPluginSource.includes('@Permission(alias = "notifications"'),
+  "native permission bridge must expose camera and notification aliases",
+);
+
 assert.equal(manifest.start_url, twaConfig.web.startUrl, "Next manifest start_url must match the TWA launch URL");
 assert.equal(manifest.scope, twaConfig.web.scope, "Next manifest scope must match the TWA route scope");
 assert.equal(manifest.display, "standalone", "Next manifest must provide standalone display for TWA/PWA");

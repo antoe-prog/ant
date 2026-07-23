@@ -16,6 +16,7 @@ const runtimeCollectionKeys = [
   "payments",
   "notices",
   "authSessions",
+  "passwordResetChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
@@ -165,6 +166,34 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
       !db.users.some((user) => user.id === session.userId)
     ) {
       throw new RuntimeStateIntegrityError("authSessions.format", session.id);
+    }
+  }
+
+  assertUniqueValues(
+    (db.passwordResetChallenges ?? []).map((challenge) => ({
+      targetId: challenge.id,
+      value: challenge.resetTokenHash ?? "",
+    })),
+    "passwordResetChallenges.resetTokenHash",
+    { allowEmpty: true },
+  );
+
+  for (const challenge of db.passwordResetChallenges ?? []) {
+    if (
+      !challenge.userId ||
+      !db.users.some((user) => user.id === challenge.userId) ||
+      !/^pbkdf2_sha256\$\d+\$[a-f0-9]{32}\$[a-f0-9]{64}$/i.test(challenge.codeHash) ||
+      (challenge.resetTokenHash !== undefined && !/^[a-f0-9]{64}$/.test(challenge.resetTokenHash)) ||
+      !Number.isInteger(challenge.failedAttemptCount) ||
+      challenge.failedAttemptCount < 0 ||
+      challenge.failedAttemptCount > 5 ||
+      !Number.isFinite(Date.parse(challenge.createdAt)) ||
+      !Number.isFinite(Date.parse(challenge.expiresAt)) ||
+      Date.parse(challenge.expiresAt) <= Date.parse(challenge.createdAt) ||
+      (challenge.verifiedAt !== undefined && !Number.isFinite(Date.parse(challenge.verifiedAt))) ||
+      (challenge.consumedAt !== undefined && !Number.isFinite(Date.parse(challenge.consumedAt)))
+    ) {
+      throw new RuntimeStateIntegrityError("passwordResetChallenges.format", challenge.id);
     }
   }
 

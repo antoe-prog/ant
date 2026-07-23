@@ -8,6 +8,12 @@ import QRCode from "qrcode";
 import { ApiClientError, apiClient, type AttendanceQrIssuePayload, type AttendanceQrScanResult } from "@/lib/api-client";
 import type { ClassSession, Member } from "@/lib/domain";
 import { formatCompactTimeRange } from "@/lib/format";
+import {
+  getNativeAppPermissionStatus,
+  isNativeAndroidApp,
+  openNativeAppSettings,
+  requestNativeAppPermission,
+} from "@/lib/native-app-permissions";
 import { useAppStore } from "@/store/app-store";
 
 function formatRemainingTime(expiresAt: string, now: number) {
@@ -38,6 +44,7 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<AttendanceQrScanResult | null>(null);
   const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraPermissionBlocked, setCameraPermissionBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const processingRef = useRef(false);
@@ -59,11 +66,31 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
     const video = videoRef.current;
     setCameraStarting(true);
     setCameraError(null);
+    setCameraPermissionBlocked(false);
     setScanResult(null);
     processingRef.current = false;
 
     async function startScanner() {
       try {
+        if (isNativeAndroidApp()) {
+          const currentPermission = await getNativeAppPermissionStatus("camera");
+          const cameraPermission =
+            currentPermission === "granted"
+              ? currentPermission
+              : await requestNativeAppPermission("camera");
+
+          if (cameraPermission !== "granted") {
+            setCameraStarting(false);
+            setCameraPermissionBlocked(cameraPermission === "denied");
+            setCameraError(
+              cameraPermission === "denied"
+                ? "카메라 권한이 차단되어 있습니다. 앱 설정에서 카메라를 허용해 주세요."
+                : "QR 스캔을 사용하려면 카메라 권한을 허용해 주세요.",
+            );
+            return;
+          }
+        }
+
         const { BrowserQRCodeReader } = await import("@zxing/browser");
         const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250 });
         const controls = await reader.decodeFromVideoDevice(undefined, video, (result, _error, scannerControls) => {
@@ -102,11 +129,11 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
         }
 
         setCameraStarting(false);
-        setCameraError(
-          error instanceof DOMException && error.name === "NotAllowedError"
-            ? "카메라 권한이 필요합니다. 기기 설정에서 카메라를 허용해 주세요."
-            : "카메라를 열지 못했습니다. 다른 앱이 카메라를 사용 중인지 확인해 주세요.",
-        );
+        const permissionDenied = error instanceof DOMException && error.name === "NotAllowedError";
+        setCameraPermissionBlocked(permissionDenied && isNativeAndroidApp());
+        setCameraError(permissionDenied
+          ? "카메라 권한이 필요합니다. 기기 설정에서 카메라를 허용해 주세요."
+          : "카메라를 열지 못했습니다. 다른 앱이 카메라를 사용 중인지 확인해 주세요.");
       }
     }
 
@@ -124,6 +151,7 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
     controlsRef.current = null;
     processingRef.current = false;
     setCameraError(null);
+    setCameraPermissionBlocked(false);
     setScanResult(null);
     setScannerRunId((value) => value + 1);
   }
@@ -216,14 +244,25 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
               {cameraError ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/90 p-6 text-center text-white" role="alert">
                   <p className="text-sm font-semibold leading-6">{cameraError}</p>
-                  <button
-                    className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-zinc-950"
-                    onClick={retryScanner}
-                    type="button"
-                  >
-                    <RefreshCw className="h-4 w-4" aria-hidden />
-                    다시 스캔
-                  </button>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {cameraPermissionBlocked ? (
+                      <button
+                        className="inline-flex min-h-11 items-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-zinc-950"
+                        onClick={() => void openNativeAppSettings()}
+                        type="button"
+                      >
+                        앱 설정 열기
+                      </button>
+                    ) : null}
+                    <button
+                      className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/40 bg-zinc-900 px-4 text-sm font-semibold text-white"
+                      onClick={retryScanner}
+                      type="button"
+                    >
+                      <RefreshCw className="h-4 w-4" aria-hidden />
+                      다시 스캔
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>

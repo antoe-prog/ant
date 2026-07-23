@@ -5635,13 +5635,13 @@ assertIncludes(
 );
 for (const snippet of [
   "const selfMemberIds = new Set(user.memberIds ?? []);",
-  "const childMemberIds = new Set(user.childMemberIds ?? []);",
+  "const memberLinkedChildIds = db.members",
   "branchIdSet.has(member.branchId)",
   'return member.ageGroup === "adult";',
   "member.guardianIds.includes(user.id)",
   "canMemberHaveGuardianLink(member)",
 ]) {
-  assertIncludes(sources.familyMembers, snippet, "guardian family scope requires adult self and bidirectional child links");
+  assertIncludes(sources.familyMembers, snippet, "guardian family scope requires explicit adult self links and member-authorized child links");
 }
 for (const snippet of [
   "payment-checkout-ready",

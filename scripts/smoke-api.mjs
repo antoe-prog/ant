@@ -5498,7 +5498,7 @@ async function run() {
     "/api/v1/auth/password-reset",
     {
       method: "POST",
-      body: JSON.stringify({ identifier: {} }),
+      body: JSON.stringify({ action: "request", phone: {} }),
     },
     { allowError: true },
   );
@@ -5506,9 +5506,12 @@ async function run() {
 
   result = await anonymous.request("/api/v1/auth/password-reset", {
     method: "POST",
-    body: JSON.stringify({ identifier: `smoke-invite-${stamp}@example.com` }),
+    body: JSON.stringify({ action: "request", phone: "01000000000" }),
   });
-  assert(result.payload.data.ok === true, "password reset request must return ok");
+  assert(
+    result.payload.data.ok === true && result.payload.data.next === "verify",
+    "password reset request must return a non-enumerating verification response",
+  );
 
   const invitee = createClient();
   result = await invitee.request(

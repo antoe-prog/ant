@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-07-21T19:42:23.096Z",
+  "source": "isolated local demo data",
+  "googlePlayRequirements": {
+    "maxCount": 8,
+    "maxFileSizeBytes": 8388608,
+    "orientation": "portrait 9:16",
+    "dimensions": "1080x1920"
+  },
+  "screenshots": [
+    {
+      "file": "01-member-home.png",
+      "label": "회원 홈",
+      "role": "member",
+      "route": "/app/dashboard",
+      "width": 1080,
+      "height": 1920,
+      "sizeBytes": 100793,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "02-member-classes.png",
+      "label": "회원 수업 달력",
+      "role": "member",
+      "route": "/app/classes",
+      "width": 1080,
+      "height": 1920,
+      "sizeBytes": 90842,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "03-guardian-home.png",
+      "label": "학부모 홈",
+      "role": "guardian",
+      "route": "/app/dashboard",
+      "width": 1080,
+      "height": 1920,
+      "sizeBytes": 124410,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "04-guardian-payments.png",
+      "label": "학부모 결제",
+      "role": "guardian",
+      "route": "/app/payments",
+      "width": 1080,
+      "height": 1920,
+      "sizeBytes": 98494,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "05-guardian-notifications.png",
+      "label": "학부모 알림",
+      "role": "guardian",
+      "route": "/app/notifications",
+      "width": 1080,
+      "height": 1920,
+      "sizeBytes": 121891,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    }
+  ]
+}

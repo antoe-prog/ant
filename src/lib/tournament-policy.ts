@@ -1,4 +1,5 @@
 import type { AppUser, Tournament } from "@/lib/domain";
+import { hasGlobalAdminDataAccess } from "./google-play-review-access.ts";
 
 export type TournamentAccess = {
   scope: "global" | "branch";
@@ -6,7 +7,7 @@ export type TournamentAccess = {
   createdByUserId: string | null;
 };
 
-type TournamentActor = Pick<AppUser, "id" | "role">;
+type TournamentActor = Pick<AppUser, "accountPurpose" | "id" | "role">;
 
 export type TournamentCreateAccess =
   | { ok: false; status: 400 | 403; error: string }
@@ -50,7 +51,7 @@ export function getTournamentCreateAccess(
     return { ok: true, scope: "branch", branchId: selectedBranchId };
   }
 
-  if (actor.role === "admin") {
+  if (hasGlobalAdminDataAccess(actor)) {
     return { ok: true, scope: "global", branchId: null };
   }
 
@@ -62,7 +63,7 @@ export function canMutateTournament(
   tournament: Tournament,
   accessibleBranchIds: readonly string[],
 ) {
-  if (actor.role === "admin") {
+  if (hasGlobalAdminDataAccess(actor)) {
     return true;
   }
 
@@ -72,7 +73,7 @@ export function canMutateTournament(
     return false;
   }
 
-  if (actor.role === "owner") {
+  if (actor.role === "owner" || actor.role === "admin") {
     return true;
   }
 

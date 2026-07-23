@@ -3,6 +3,8 @@ export const authInputLimits = {
   identifierLength: 254,
   passwordLength: 256,
   phoneLength: 40,
+  resetCodeLength: 12,
+  resetTokenLength: 128,
   registrationNameLength: 30,
 } as const;
 
@@ -15,6 +17,8 @@ export function getAuthInputLimitError(body: Record<string, unknown>) {
     ["name", authInputLimits.registrationNameLength],
     ["password", authInputLimits.passwordLength],
     ["phone", authInputLimits.phoneLength],
+    ["code", authInputLimits.resetCodeLength],
+    ["resetToken", authInputLimits.resetTokenLength],
   ] as const) {
     const value = body[field];
 

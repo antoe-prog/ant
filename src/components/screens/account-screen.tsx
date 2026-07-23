@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { KeyRound, LogOut, MapPin, Repeat2, ShieldCheck, UserCircle } from "lucide-react";
+import { FileText, KeyRound, LogOut, MapPin, Repeat2, ShieldCheck, Trash2, UserCircle } from "lucide-react";
 import { useApiContext } from "@/hooks/use-api-context";
 import { formatPhoneNumber } from "@/lib/format";
 import { roleLabels } from "@/lib/roles";
@@ -102,6 +102,28 @@ export function AccountScreen() {
 
       <section className="mt-4">
         <InstallAppAction />
+      </section>
+
+      <section className="mt-4" aria-labelledby="account-privacy-heading">
+        <h2 className="text-sm font-semibold text-zinc-700" id="account-privacy-heading">개인정보·계정 관리</h2>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <Link
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+            data-testid="account-privacy-policy-link"
+            href="/privacy"
+          >
+            <FileText className="h-4 w-4 text-teal-700" aria-hidden />
+            개인정보처리방침
+          </Link>
+          <Link
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+            data-testid="account-deletion-link"
+            href="/account-deletion"
+          >
+            <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
+            계정 및 데이터 삭제
+          </Link>
+        </div>
       </section>
 
       {branches.length > 1 ? (

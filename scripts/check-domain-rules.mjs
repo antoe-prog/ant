@@ -394,17 +394,18 @@ assert(
   "payments screen CSV export action must stay hidden from member/guardian roles",
 );
 assert(
-  serverApiSource.includes('const auditLogs = user.role === "admin"') &&
+  serverApiSource.includes("const globalAdminDataAccess = hasGlobalAdminDataAccess(user)") &&
+    serverApiSource.includes("const auditLogs = globalAdminDataAccess") &&
     serverApiSource.includes('? db.auditLogs') &&
-    serverApiSource.includes('user.role === "owner"') &&
+    serverApiSource.includes('user.role === "owner" || user.role === "admin"') &&
     serverApiSource.includes('log.branchId !== null && branchIds.includes(log.branchId)'),
-  "admin bootstrap must include all audit logs while owner bootstrap remains branch scoped",
+  "regular admin bootstrap must include all audit logs while owner and review-admin bootstrap remain branch scoped",
 );
 assert(
   serverApiSource.includes('user.role === "coach"') &&
     serverApiSource.includes('log.actorUserId === user.id') &&
     serverApiSource.includes('log.targetType === "attendance"') &&
-    /const auditLogs = user\.role === "admin"[\s\S]{0,700}: \[\];/.test(serverApiSource),
+    /const auditLogs = globalAdminDataAccess[\s\S]{0,800}: \[\];/.test(serverApiSource),
   "coach bootstrap must only include own scoped attendance history and family roles must receive no audit logs",
 );
 assert(
@@ -452,9 +453,10 @@ assert(
 assert(
   serverApiSource.includes('safeUser.role === "guardian"') &&
     serverApiSource.includes("allowedFamilyMemberIds") &&
-    serverApiSource.includes("safeUser.memberIds = (safeUser.memberIds ?? []).filter") &&
-    serverApiSource.includes("safeUser.childMemberIds = (safeUser.childMemberIds ?? []).filter"),
-  "guardian bootstrap user must drop stale self and child ids",
+    serverApiSource.includes("safeUser.memberIds = selfMemberIds") &&
+    serverApiSource.includes("safeUser.childMemberIds = [...allowedFamilyMemberIds].filter") &&
+    serverApiSource.includes("member?.guardianIds.includes(safeUser.id)"),
+  "guardian bootstrap user must drop stale self links and expose member-authorized child links",
 );
 assert(
   serverApiSource.includes("function createSafeUser(") &&

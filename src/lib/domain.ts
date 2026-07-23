@@ -41,6 +41,7 @@ export type Branch = {
 
 export type AppUser = {
   id: string;
+  accountPurpose?: "google_play_review";
   email?: string;
   name: string;
   passwordHash?: string;
@@ -366,6 +367,18 @@ export type AuthSession = {
   revokedAt?: string;
 };
 
+export type PasswordResetChallenge = {
+  id: string;
+  userId: string;
+  codeHash: string;
+  resetTokenHash?: string;
+  createdAt: string;
+  expiresAt: string;
+  failedAttemptCount: number;
+  verifiedAt?: string;
+  consumedAt?: string;
+};
+
 export type AttendanceQrChallenge = {
   id: string;
   tokenHash: string;
@@ -473,6 +486,7 @@ export type AuditAction =
   | "system.integrity.repair"
   | "auth.invite.accept"
   | "auth.password_reset.request"
+  | "auth.password_reset.verify"
   | "auth.password_reset.complete"
   | "auth.login"
   | "auth.logout";
@@ -538,6 +552,7 @@ export type MockDatabase = {
   payments: Payment[];
   notices: Notice[];
   authSessions: AuthSession[];
+  passwordResetChallenges: PasswordResetChallenge[];
   attendanceQrChallenges: AttendanceQrChallenge[];
   pushSubscriptions: PushSubscriptionRecord[];
   pushDispatchJobs: PushDispatchJob[];

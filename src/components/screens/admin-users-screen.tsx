@@ -1570,13 +1570,15 @@ export function AdminUsersScreen() {
                           </div>
                         ) : (
                           <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500">
-                            회원 이름이나 연락처를 검색한 뒤 선택해 주세요.
+                            {editDraft.role === "member"
+                              ? "연결하지 않고 저장하면 계정 정보로 선택한 지점에 회원 프로필이 자동 생성됩니다."
+                              : "회원 이름이나 연락처를 검색한 뒤 선택해 주세요."}
                           </p>
                         )}
                         <Link
                           className="inline-flex min-h-11 w-fit items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                           data-testid={`admin-user-member-link-create-shortcut-${user.id}`}
-                          href="/app/members"
+                          href="/app/members?create=1"
                         >
                           <UserPlus className="h-4 w-4 text-teal-700" aria-hidden />
                           새 회원 등록

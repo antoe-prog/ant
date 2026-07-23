@@ -174,7 +174,16 @@ assert.deepEqual(
     ["branch-gangnam"],
   ),
   ["member-yuna"],
-  "guardian payment/member scope must require both user.childMemberIds and member.guardianIds",
+  "guardian payment/member scope must reject stale user-side child links without a matching member guardian",
+);
+assert.deepEqual(
+  getAccessibleMemberIds(
+    { ...guardianUser, childMemberIds: [] },
+    { members: [adultMember, youthMember] },
+    ["branch-gangnam"],
+  ),
+  ["member-minjae", "member-yuna"],
+  "guardian family scope must recover member-authorized children while preserving the explicit adult self profile",
 );
 
 const youthMemberUser = {
@@ -227,6 +236,7 @@ const [
   checkoutScreenSource,
   checkoutPageSource,
   collectionRequestRouteSource,
+  serverApiSource,
 ] = await Promise.all([
   readFile("src/lib/payment-checkout-access.ts", "utf8"),
   readFile("src/lib/family-members.ts", "utf8"),
@@ -237,6 +247,7 @@ const [
   readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
   readFile("src/app/(app)/app/payments/checkout/page.tsx", "utf8"),
   readFile("src/app/api/v1/payments/[paymentId]/collection-request/route.ts", "utf8"),
+  readFile("src/server/api.ts", "utf8"),
 ]);
 const paymentNotificationTargetSource = notificationsScreenSource.slice(
   notificationsScreenSource.indexOf("function paymentNotificationTarget"),
@@ -262,8 +273,14 @@ assert(
   mockApiSource.includes("getGuardianFamilyMemberIds(user, db, branchIds)") &&
     familyMembersSource.includes('member.ageGroup === "adult"') &&
     familyMembersSource.includes("member.guardianIds.includes(user.id)") &&
-    familyMembersSource.includes("childMemberIds.has(member.id)"),
-  "guardian data scope must allow linked adult self profiles while enforcing bidirectional guardian-child links",
+    familyMembersSource.includes("memberLinkedChildIds"),
+  "guardian data scope must allow explicit adult self profiles and recover member-authorized child links",
+);
+assert(
+  serverApiSource.includes("safeUser.memberIds = selfMemberIds") &&
+    serverApiSource.includes("safeUser.childMemberIds = [...allowedFamilyMemberIds].filter") &&
+    serverApiSource.includes("member?.guardianIds.includes(safeUser.id)"),
+  "guardian bootstrap must expose recovered child links while preserving explicit self links",
 );
 assert(
     guardianPaymentChildrenSource.includes("getGuardianFamilyMembers(context.user, context.db)") &&
@@ -530,7 +547,7 @@ console.log(
         "adult member direct checkout preparation",
         "guardian child checkout preparation",
         "guardian adult self checkout preparation",
-        "guardian bidirectional child scope",
+        "guardian member-authorized child scope recovery",
         "guardian payment child switcher scope",
         "guardian valid deep-link selection",
         "guardian invalid deep-link isolation",

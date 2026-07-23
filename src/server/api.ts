@@ -6,8 +6,13 @@ import {
   getAccessibleMemberIds,
   getSelectedBranchIds,
 } from "@/lib/mock-api";
-import { canViewTournament } from "@/lib/tournament-policy";
+import { canViewTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
+import {
+  hasGlobalAdminDataAccess,
+  isGooglePlayReviewAccount,
+  shouldBlockGooglePlayReviewAdminMutation,
+} from "@/lib/google-play-review-access";
 import { findAuthSessionUser } from "@/server/auth-session";
 
 export const sessionCookieName = "final-judo-session";
@@ -90,6 +95,17 @@ export function requireSession(request: NextRequest, db: MockDatabase) {
     };
   }
 
+  if (shouldBlockGooglePlayReviewAdminMutation(user, request.method)) {
+    return {
+      user: null,
+      response: jsonError(
+        403,
+        "FORBIDDEN",
+        "Google Play 검토용 총괄 계정은 데이터를 변경할 수 없습니다.",
+      ),
+    };
+  }
+
   return { user, response: null };
 }
 
@@ -104,8 +120,10 @@ export function createSelectedBranchId(user: AppUser, db: MockDatabase, requeste
 }
 
 export function requireSelectedBranchScope(request: NextRequest, user: AppUser, db: MockDatabase) {
-  const selectedBranchId = getSelectedBranchId(request);
   const accessibleBranchIds = getAccessibleBranchIds(user, db);
+  const requestedBranchId = getSelectedBranchId(request);
+  const selectedBranchId = requestedBranchId ??
+    (isGooglePlayReviewAccount(user) && accessibleBranchIds.length === 1 ? accessibleBranchIds[0] : null);
 
   if (selectedBranchId && !accessibleBranchIds.includes(selectedBranchId)) {
     return {
@@ -149,9 +167,15 @@ function createSafeUser(
 
   if (db && safeUser.role === "guardian") {
     const allowedFamilyMemberIds = new Set(getAccessibleMemberIds(safeUser, db));
+    const memberById = new Map(db.members.map((member) => [member.id, member]));
+    const selfMemberIds = (safeUser.memberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
+    const selfMemberIdSet = new Set(selfMemberIds);
 
-    safeUser.memberIds = (safeUser.memberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
-    safeUser.childMemberIds = (safeUser.childMemberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
+    safeUser.memberIds = selfMemberIds;
+    safeUser.childMemberIds = [...allowedFamilyMemberIds].filter((memberId) => {
+      const member = memberById.get(memberId);
+      return !selfMemberIdSet.has(memberId) && Boolean(member?.guardianIds.includes(safeUser.id));
+    });
   }
 
   return safeUser;
@@ -226,6 +250,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
         )
       : scopedPayments;
   const notices = db.notices.filter((notice) => canReadNotice(user, db, notice, branchIds));
+  const globalAdminDataAccess = hasGlobalAdminDataAccess(user);
   const referencedUserIds = new Set<string>([user.id]);
 
   classes.forEach((session) => referencedUserIds.add(session.coachId));
@@ -235,9 +260,9 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
   });
   counselingNotes.forEach((note) => referencedUserIds.add(note.authorUserId));
 
-  const scopedUsers = user.role === "admin"
+  const scopedUsers = globalAdminDataAccess
     ? db.users
-    : user.role === "owner"
+    : user.role === "owner" || user.role === "admin"
       ? db.users.filter(
           (candidate) =>
             referencedUserIds.has(candidate.id) ||
@@ -245,9 +270,9 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
         )
       : db.users.filter((candidate) => referencedUserIds.has(candidate.id));
   const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role, user.id));
-  const auditLogs = user.role === "admin"
+  const auditLogs = globalAdminDataAccess
     ? db.auditLogs
-    : user.role === "owner"
+    : user.role === "owner" || user.role === "admin"
       ? db.auditLogs.filter((log) => log.branchId !== null && branchIds.includes(log.branchId))
       : user.role === "coach"
         ? db.auditLogs.filter(
@@ -260,11 +285,11 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
         : [];
   const pushSubscriptions = db.pushSubscriptions
     .filter((subscription) => {
-      if (user.role === "admin") {
+      if (globalAdminDataAccess) {
         return true;
       }
 
-      if (user.role === "owner") {
+      if (user.role === "owner" || user.role === "admin") {
         return subscription.branchIds.some((branchId) => branchIds.includes(branchId));
       }
 
@@ -287,16 +312,24 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     attendance,
     counselingNotes,
     promotions,
-    tournaments: (db.tournaments ?? []).filter((tournament) => canViewTournament(tournament, branchIds)),
+    tournaments: (db.tournaments ?? []).filter((tournament) => {
+      if (isGooglePlayReviewAccount(user)) {
+        const access = resolveTournamentAccess(tournament);
+        return access.scope === "branch" && access.branchId !== null && branchIds.includes(access.branchId);
+      }
+
+      return canViewTournament(tournament, branchIds);
+    }),
     payments,
     notices,
     authSessions: [],
+    passwordResetChallenges: [],
     attendanceQrChallenges: [],
     pushSubscriptions,
     pushDispatchJobs: [],
-    pilotReadinessChecks: user.role === "admin" ? db.pilotReadinessChecks : [],
-    pilotIncidents: user.role === "admin" ? db.pilotIncidents : [],
-    pilotOperationLogs: user.role === "admin" ? db.pilotOperationLogs : [],
+    pilotReadinessChecks: globalAdminDataAccess ? db.pilotReadinessChecks : [],
+    pilotIncidents: globalAdminDataAccess ? db.pilotIncidents : [],
+    pilotOperationLogs: globalAdminDataAccess ? db.pilotOperationLogs : [],
     auditLogs,
   };
 }

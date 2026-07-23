@@ -14,10 +14,12 @@ export function getGuardianFamilyMemberIds(
 
   const branchIdSet = new Set(branchIds);
   const selfMemberIds = new Set(user.memberIds ?? []);
-  const childMemberIds = new Set(user.childMemberIds ?? []);
   const memberById = new Map(db.members.map((member) => [member.id, member]));
+  const memberLinkedChildIds = db.members
+    .filter((member) => member.guardianIds.includes(user.id))
+    .map((member) => member.id);
 
-  return [...new Set([...(user.memberIds ?? []), ...(user.childMemberIds ?? [])])]
+  return [...new Set([...(user.memberIds ?? []), ...(user.childMemberIds ?? []), ...memberLinkedChildIds])]
     .filter((memberId) => {
       const member = memberById.get(memberId);
 
@@ -34,7 +36,6 @@ export function getGuardianFamilyMemberIds(
       }
 
       return (
-        childMemberIds.has(member.id) &&
         member.guardianIds.includes(user.id) &&
         canMemberHaveGuardianLink(member)
       );

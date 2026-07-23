@@ -240,13 +240,14 @@ const sessionKey = "final-judo-mvp-session";
 const legacyAttendanceQueueKey = "final-judo-pending-attendance";
 const attendanceQueueKeyPrefix = `${legacyAttendanceQueueKey}:`;
 const publicAuthPathnames = new Set(["/signup", "/reset-password"]);
+const publicLegalPathnames = new Set(["/privacy", "/account-deletion"]);
 
 const AppStoreContext = createContext<AppStore | null>(null);
 
 function canSkipBootstrapWithoutLocalSession(pathname: string) {
   // Login and role-switch entry points still try a silent cookie bootstrap so
   // an app restart with only the HttpOnly session cookie can show account switch UI.
-  return publicAuthPathnames.has(pathname) || pathname.startsWith("/invite/");
+  return publicAuthPathnames.has(pathname) || publicLegalPathnames.has(pathname) || pathname.startsWith("/invite/");
 }
 
 function canRestoreCookieOnlySession(pathname: string) {

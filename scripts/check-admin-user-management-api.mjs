@@ -759,6 +759,39 @@ async function runAssertions(baseUrl) {
   );
   assert.equal(repeatApproval.response.status, 409, "accepted invitation must not be approved twice");
 
+  const autoProfileName = `관리 테스트 ${stamp}`;
+  const autoProfileUpdate = await admin.request(
+    `/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        branchIds: ["branch-gangnam"],
+        email: inviteEmail,
+        memberIds: [],
+        name: autoProfileName,
+        phone: invitePhone,
+        reason: `member profile auto provision ${stamp}`,
+        role: "member",
+        title: "본관 회원",
+      }),
+    },
+  );
+  const autoProfileUser = autoProfileUpdate.payload.data.db.users.find((candidate) => candidate.id === invitedUserId);
+  const autoProfileMemberId = autoProfileUser?.memberIds?.[0];
+  const autoProfileMember = autoProfileUpdate.payload.data.db.members.find(
+    (candidate) => candidate.id === autoProfileMemberId,
+  );
+  const autoProfileAudit = autoProfileUpdate.payload.data.db.auditLogs.find(
+    (log) => log.action === "member.create" && log.targetId === autoProfileMemberId,
+  );
+
+  assert.equal(autoProfileUser?.memberIds?.length, 1, "member-role save must connect exactly one member profile");
+  assert.equal(autoProfileMember?.name, autoProfileName, "member-role save must create the visible member profile");
+  assert.equal(autoProfileMember?.branchId, "branch-gangnam", "auto-created member profile must use the selected branch");
+  assert.equal(autoProfileMember?.emergencyContact, invitePhone, "auto-created member profile must sync the account phone");
+  assert.equal(autoProfileMember?.ageGroup, "adult", "auto-created member profile must use the adult self-account contract");
+  assert(autoProfileAudit, "auto-created member profile must append a member.create audit record");
+
   const shortPasswordUpdate = await admin.request(
     `/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-gangnam`,
     {
@@ -1740,6 +1773,7 @@ async function runAssertions(baseUrl) {
     "authentication-first admin branch API guards",
     "serialized admin invitation approval and login flow",
     "user update profile and branch assignment",
+    "member-role save auto-provisions a visible branch member profile",
     "member app link update and bootstrap visibility",
     "adult members are rejected as guardian children",
     "guardian adult self link and family profile validation",

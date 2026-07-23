@@ -34,7 +34,17 @@ Vercel production은 `prebuild`와 서버 런타임에서 `FINAL_JUDO_DB_DRIVER=
 | --- | --- | --- |
 | `FINAL_JUDO_ENABLE_DEMO_LOGIN` | `0` 또는 미설정 | production 역할 선택 데모 로그인을 여는 위험 플래그다. 파일럿 리허설 작업창 외에는 사용하지 않는다. |
 | `FINAL_JUDO_ENABLE_DEV_RESET` | `0` 또는 미설정 | production `/api/v1/dev/reset` 허용 조건 중 하나다. helper 발급 실행별 토큰, run-owned 임시 JSON 마커, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야 하며 공유·심볼릭 링크·PostgreSQL·운영 사용자 데이터에는 사용하지 않는다. |
+| `FINAL_JUDO_ENABLE_DEV_SMS_CODE` | `0` | 인증번호 발송 없이 로컬 격리 테스트를 수행할 때만 `1`로 설정한다. production에서는 무시되며 인증번호를 응답에 노출하지 않는다. |
 | `FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN` | 미설정 | 격리 테스트 서버·reset 호출자·임시 JSON 저장소 마커를 묶는 256비트 소유권 토큰이다. 테스트 러너가 임의 생성하며 저장·공유하지 않는다. 임의 문자열이나 약한 고정값은 거부한다. |
+
+## 비밀번호 재설정 문자 인증
+
+| 변수 | 개발 기본값 | 파일럿/운영 | 설명 |
+| --- | --- | --- | --- |
+| `FINAL_JUDO_PASSWORD_RESET_SMS_WEBHOOK_URL` | 비움 가능 | 인증된 HTTPS webhook | `{ to, message, purpose }` JSON을 받아 실제 SMS provider로 전달하는 endpoint. 자격증명·fragment가 포함된 URL은 거부한다. |
+| `FINAL_JUDO_PASSWORD_RESET_SMS_WEBHOOK_TOKEN` | 비움 가능 | 필수 secret | webhook `Authorization: Bearer` 인증값. 저장소·문서·감사 로그에 원문을 남기지 않는다. |
+
+운영에서 두 값이 없거나 올바르지 않으면 비밀번호 재설정 인증번호 발송은 `503`으로 안전하게 차단된다. 사용자 존재 여부와 관계없이 provider 준비 상태를 먼저 검사한다.
 | `ENABLE_DEMO_LOGIN` | 미설정 | legacy 호환 플래그. 새 배포에서는 사용하지 않는다. |
 | `ENABLE_DEV_RESET` | 미설정 | legacy 호환 플래그. 새 배포에서는 사용하지 않는다. |
 

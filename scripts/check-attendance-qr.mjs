@@ -121,6 +121,14 @@ assert(dashboardSource.includes("<CoachAttendanceQrCard"), "coach home must rend
 assert(qrComponentSource.includes('data-testid="member-attendance-qr-card"'));
 assert(qrComponentSource.includes('data-testid="coach-attendance-qr-card"'));
 assert(qrComponentSource.includes("decodeFromVideoDevice"), "member scanner must use the device camera");
+assert(
+  qrComponentSource.includes('requestNativeAppPermission("camera")'),
+  "Capacitor member scanner must request Android camera permission before opening the video stream",
+);
+assert(
+  qrComponentSource.includes("openNativeAppSettings"),
+  "permanently denied camera access must offer an Android app-settings recovery path",
+);
 assert(qrComponentSource.includes("QRCode.toDataURL"), "coach card must render the class QR");
 assert(
   serverApiSource.includes("attendanceQrChallenges: []"),

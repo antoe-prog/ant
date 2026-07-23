@@ -5,6 +5,7 @@ import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-da
 import { defaultPilotPasswordHash } from "@/server/auth-password";
 import { assertProductionRuntimeEnvironment } from "@/lib/production-runtime-policy";
 import { rollSeededDemoDates } from "@/server/demo-date-roll";
+import { rollGooglePlayReviewDates } from "@/lib/google-play-review-access";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
 import { mergeRuntimeState } from "@/server/runtime-state-merge";
@@ -40,6 +41,7 @@ const requiredCollections = [
   "payments",
   "notices",
   "authSessions",
+  "passwordResetChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
@@ -165,6 +167,7 @@ function validateMockDatabase(value: unknown) {
     promotions: Array.isArray(db.promotions) ? db.promotions : [],
     tournaments: Array.isArray(db.tournaments) ? db.tournaments : [],
     authSessions: Array.isArray(db.authSessions) ? db.authSessions : [],
+    passwordResetChallenges: Array.isArray(db.passwordResetChallenges) ? db.passwordResetChallenges : [],
     attendanceQrChallenges: Array.isArray(db.attendanceQrChallenges)
       ? db.attendanceQrChallenges
           .filter(
@@ -195,7 +198,9 @@ function validateMockDatabase(value: unknown) {
     }
   }
 
-  return validateRuntimeStateIntegrity(sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase)));
+  return validateRuntimeStateIntegrity(
+    rollGooglePlayReviewDates(sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase))),
+  );
 }
 
 function resolveRuntimePath(runtimePath: string) {
