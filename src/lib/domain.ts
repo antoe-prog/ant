@@ -168,6 +168,7 @@ export type CounselingNote = {
   authorUserId: string;
   body: string;
   createdAt: string;
+  updatedAt?: string;
   noteType: "general" | "caution" | "progress" | "follow_up";
   visibility: CounselingNoteVisibility;
 };
@@ -454,6 +455,8 @@ export type AuditAction =
   | "member.create"
   | "member.update"
   | "counseling_note.create"
+  | "counseling_note.update"
+  | "counseling_note.delete"
   | "promotion.create"
   | "promotion.update"
   | "tournament.create"

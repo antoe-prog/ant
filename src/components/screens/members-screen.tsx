@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Bell, ChevronDown, CircleAlert, Copy, CreditCard, ExternalLink, MapPin, Pencil, Phone, PlusCircle, Search, UserPlus, UserRound, X } from "lucide-react";
+import { Bell, ChevronDown, CircleAlert, Copy, CreditCard, ExternalLink, MapPin, Pencil, Phone, PlusCircle, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, Payment, UserRole } from "@/lib/domain";
 import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
@@ -13,7 +13,7 @@ import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
 import { counselingNoteInputLimits } from "@/lib/counseling-note-input-policy";
-import { canReadCounselingNote } from "@/lib/counseling-note-visibility";
+import { canManageCounselingNote, canReadCounselingNote } from "@/lib/counseling-note-visibility";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
@@ -112,6 +112,12 @@ type NoteDraft = {
   feedback?: string;
   noteType: CounselingNote["noteType"];
   visibility: CounselingNoteVisibility;
+};
+
+type NoteDialogState = {
+  intent: "create" | "edit" | "delete";
+  memberId: string;
+  noteId?: string;
 };
 
 type GuardianLinkDraft = {
@@ -327,6 +333,231 @@ function MemberDetailContainer({
   );
 }
 
+function CounselingNoteDialog({
+  draft,
+  intent,
+  member,
+  pending,
+  role,
+  onClose,
+  onDelete,
+  onDraftChange,
+  onSubmit,
+}: {
+  draft: NoteDraft;
+  intent: NoteDialogState["intent"];
+  member: Member;
+  pending: boolean;
+  role: UserRole;
+  onClose: () => void;
+  onDelete: () => void;
+  onDraftChange: (patch: Partial<NoteDraft>) => void;
+  onSubmit: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+
+    if (!dialog) {
+      return;
+    }
+
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+
+      if (dialog.open) {
+        dialog.close();
+      }
+
+      window.requestAnimationFrame(() => {
+        if (returnFocusRef.current?.isConnected) {
+          returnFocusRef.current.focus();
+        }
+      });
+    };
+  }, []);
+
+  const title =
+    intent === "create"
+      ? `${member.name} 메모 작성`
+      : intent === "edit"
+        ? `${member.name} 메모 수정`
+        : `${member.name} 메모 삭제`;
+
+  return (
+    <dialog
+      aria-labelledby="counseling-note-dialog-title"
+      className="fixed inset-0 z-[60] m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-0 backdrop:bg-zinc-950/45 open:flex open:items-end open:justify-center sm:open:items-center sm:p-6"
+      data-testid={`member-note-dialog-${member.id}`}
+      ref={dialogRef}
+      onCancel={(event) => {
+        event.preventDefault();
+
+        if (!pending) {
+          onCloseRef.current();
+        }
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !pending) {
+          onCloseRef.current();
+        }
+      }}
+    >
+      <div
+        className="flex max-h-[92dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold text-zinc-950" id="counseling-note-dialog-title">
+              {title}
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {member.belt} · {member.level}
+            </p>
+          </div>
+          <button
+            aria-label="메모 창 닫기"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+            disabled={pending}
+            ref={closeButtonRef}
+            type="button"
+            onClick={() => onCloseRef.current()}
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </div>
+
+        {intent === "delete" ? (
+          <div className="overflow-y-auto px-4 py-5">
+            <p className="text-sm leading-6 text-zinc-700">
+              이 메모를 삭제하면 회원 카드에서 더 이상 확인할 수 없습니다.
+            </p>
+            <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-zinc-800">{draft.body}</p>
+            </div>
+            <p className="mt-3 text-xs font-medium text-red-700" aria-live="polite" role="status">
+              {draft.feedback ?? "삭제한 메모는 복구할 수 없습니다."}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button disabled={pending} onClick={onClose}>
+                취소
+              </Button>
+              <Button
+                data-testid="member-note-delete-confirm"
+                disabled={pending}
+                variant="danger"
+                onClick={onDelete}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                {pending ? "삭제 중" : "메모 삭제"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form
+            className="overflow-y-auto px-4 py-5"
+            data-testid={`member-note-editor-${member.id}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmit();
+            }}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label>
+                <span className="mb-1 block text-xs font-semibold text-zinc-600">유형</span>
+                <select
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-note-field"
+                  disabled={pending}
+                  value={draft.noteType}
+                  onChange={(event) =>
+                    onDraftChange({ noteType: event.target.value as CounselingNote["noteType"], feedback: undefined })
+                  }
+                >
+                  {noteTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold text-zinc-600">볼 수 있는 대상</span>
+                <select
+                  className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                  data-testid="member-note-field"
+                  disabled={pending}
+                  value={draft.visibility}
+                  onChange={(event) =>
+                    onDraftChange({ visibility: event.target.value as CounselingNoteVisibility, feedback: undefined })
+                  }
+                >
+                  {noteVisibilityOptions
+                    .filter((option) => role !== "coach" || option.value !== "staff_only")
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-xs font-semibold text-zinc-600">메모</span>
+              <textarea
+                autoFocus
+                className="min-h-36 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                data-testid="member-note-body"
+                disabled={pending}
+                maxLength={counselingNoteInputLimits.bodyLength}
+                placeholder="상담 내용과 다음 확인 일정"
+                value={draft.body}
+                onChange={(event) => onDraftChange({ body: event.target.value, feedback: undefined })}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="min-h-5 text-xs font-medium text-zinc-500" aria-live="polite" role="status">
+                {draft.feedback ?? "저장하면 선택한 대상이 볼 수 있습니다."}
+              </p>
+              <div className="ml-auto flex gap-2">
+                <Button disabled={pending} onClick={onClose}>
+                  취소
+                </Button>
+                <Button
+                  data-testid="member-note-submit"
+                  disabled={pending || !draft.body.trim()}
+                  size="lg"
+                  type="submit"
+                  variant="primary"
+                >
+                  {pending ? "저장 중" : intent === "edit" ? "수정 저장" : "메모 저장"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+    </dialog>
+  );
+}
+
 export function MembersScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
@@ -334,9 +565,11 @@ export function MembersScreen() {
     createCounselingNote,
     createInvitation,
     createMember,
+    deleteCounselingNote,
     linkGuardian,
     replaceGuardian,
     unlinkGuardian,
+    updateCounselingNote,
     updateMemberProfile,
     updateMemberStatus,
   } = useAppStore();
@@ -389,8 +622,9 @@ export function MembersScreen() {
   const [newMemberAddress, setNewMemberAddress] = useState("");
   const [memberCreateFormOpen, setMemberCreateFormOpen] = useState(false);
   const [guardianLinkDrafts, setGuardianLinkDrafts] = useState<Record<string, GuardianLinkDraft>>({});
-  const [noteDrafts, setNoteDrafts] = useState<Record<string, NoteDraft>>({});
-  const [openNoteEditorMemberIds, setOpenNoteEditorMemberIds] = useState<string[]>([]);
+  const [noteDraft, setNoteDraft] = useState<NoteDraft>(() => createEmptyNoteDraft(context.user.role));
+  const [noteDialog, setNoteDialog] = useState<NoteDialogState | null>(null);
+  const [noteMutationPending, setNoteMutationPending] = useState(false);
   const [expandedNoteMemberIds, setExpandedNoteMemberIds] = useState<string[]>([]);
   const [coachMemberListExpanded, setCoachMemberListExpanded] = useState(false);
   const [profileDrafts, setProfileDrafts] = useState<Record<string, ProfileDraft>>({});
@@ -625,29 +859,40 @@ export function MembersScreen() {
     }
   }
 
-  function getNoteDraft(memberId: string) {
-    return noteDrafts[memberId] ?? createEmptyNoteDraft(context.user.role);
-  }
-
-  function updateNoteDraft(memberId: string, patch: Partial<NoteDraft>) {
-    setNoteDrafts((current) => ({
+  function updateNoteDraft(patch: Partial<NoteDraft>) {
+    setNoteDraft((current) => ({
       ...current,
-      [memberId]: {
-        ...createEmptyNoteDraft(context.user.role),
-        ...current[memberId],
-        ...patch,
-      },
+      ...patch,
     }));
   }
 
-  function isNoteEditorOpen(memberId: string) {
-    return openNoteEditorMemberIds.includes(memberId);
+  function openCreateNoteDialog(member: Member) {
+    setNoteDraft(createEmptyNoteDraft(context.user.role));
+    setNoteDialog({ intent: "create", memberId: member.id });
   }
 
-  function toggleNoteEditor(memberId: string) {
-    setOpenNoteEditorMemberIds((current) =>
-      current.includes(memberId) ? current.filter((candidate) => candidate !== memberId) : [...current, memberId],
-    );
+  function openEditNoteDialog(member: Member, note: CounselingNote) {
+    setNoteDraft({
+      body: note.body,
+      noteType: note.noteType,
+      visibility: note.visibility,
+    });
+    setNoteDialog({ intent: "edit", memberId: member.id, noteId: note.id });
+  }
+
+  function openDeleteNoteDialog(member: Member, note: CounselingNote) {
+    setNoteDraft({
+      body: note.body,
+      noteType: note.noteType,
+      visibility: note.visibility,
+    });
+    setNoteDialog({ intent: "delete", memberId: member.id, noteId: note.id });
+  }
+
+  function closeNoteDialog() {
+    if (!noteMutationPending) {
+      setNoteDialog(null);
+    }
   }
 
   function isNoteListExpanded(memberId: string) {
@@ -872,30 +1117,73 @@ export function MembersScreen() {
     });
   }
 
-  async function handleCreateCounselingNote(event: FormEvent<HTMLFormElement>, member: Member) {
-    event.preventDefault();
-
-    const draft = getNoteDraft(member.id);
-
-    if (!draft.body.trim()) {
-      updateNoteDraft(member.id, { feedback: "메모 내용을 입력해 주세요." });
+  async function handleSaveCounselingNote() {
+    if (!noteDialog || noteDialog.intent === "delete") {
       return;
     }
 
-    const created = await createCounselingNote(member.branchId, member.id, {
-      body: draft.body.trim(),
-      noteType: draft.noteType,
-      visibility: draft.visibility,
-    });
+    const member = data?.find((candidate) => candidate.id === noteDialog.memberId);
 
-    updateNoteDraft(member.id, {
-      body: created ? "" : draft.body,
-      feedback: created ? "메모를 저장했습니다." : "메모를 저장하지 못했습니다.",
-    });
-
-    if (created) {
-      setOpenNoteEditorMemberIds((current) => current.filter((memberId) => memberId !== member.id));
+    if (!member) {
+      updateNoteDraft({ feedback: "회원 정보를 다시 불러온 뒤 시도해 주세요." });
+      return;
     }
+
+    if (!noteDraft.body.trim()) {
+      updateNoteDraft({ feedback: "메모 내용을 입력해 주세요." });
+      return;
+    }
+
+    setNoteMutationPending(true);
+
+    const saved =
+      noteDialog.intent === "edit" && noteDialog.noteId
+        ? await updateCounselingNote(member.branchId, member.id, noteDialog.noteId, {
+            body: noteDraft.body.trim(),
+            noteType: noteDraft.noteType,
+            visibility: noteDraft.visibility,
+          })
+        : await createCounselingNote(member.branchId, member.id, {
+            body: noteDraft.body.trim(),
+            noteType: noteDraft.noteType,
+            visibility: noteDraft.visibility,
+          });
+
+    setNoteMutationPending(false);
+
+    if (saved) {
+      setExpandedNoteMemberIds((current) =>
+        current.includes(member.id) ? current : [...current, member.id],
+      );
+      setNoteDialog(null);
+      return;
+    }
+
+    updateNoteDraft({ feedback: "메모를 저장하지 못했습니다. 다시 시도해 주세요." });
+  }
+
+  async function handleDeleteCounselingNote() {
+    if (!noteDialog?.noteId || noteDialog.intent !== "delete") {
+      return;
+    }
+
+    const member = data?.find((candidate) => candidate.id === noteDialog.memberId);
+
+    if (!member) {
+      updateNoteDraft({ feedback: "회원 정보를 다시 불러온 뒤 시도해 주세요." });
+      return;
+    }
+
+    setNoteMutationPending(true);
+    const deleted = await deleteCounselingNote(member.branchId, member.id, noteDialog.noteId);
+    setNoteMutationPending(false);
+
+    if (deleted) {
+      setNoteDialog(null);
+      return;
+    }
+
+    updateNoteDraft({ feedback: "메모를 삭제하지 못했습니다. 다시 시도해 주세요." });
   }
 
   if (loading) {
@@ -906,6 +1194,9 @@ export function MembersScreen() {
     return <ErrorState description={error ?? "회원 정보를 불러오지 못했습니다."} onRetry={reload} />;
   }
 
+  const noteDialogMember = noteDialog
+    ? data.find((member) => member.id === noteDialog.memberId) ?? null
+    : null;
   const coachMemberMobileVisibleLimit = 1;
   const coachMemberListCollapsible = isCoachRole && !query.trim() && filteredMembers.length > coachMemberMobileVisibleLimit;
   const hiddenCoachMemberCount = coachMemberListCollapsible ? filteredMembers.length - coachMemberMobileVisibleLimit : 0;
@@ -2088,15 +2379,11 @@ export function MembersScreen() {
                         className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                         data-testid={`member-note-editor-toggle-${member.id}`}
                         type="button"
-                        aria-expanded={isNoteEditorOpen(member.id)}
-                        onClick={() => toggleNoteEditor(member.id)}
+                        aria-haspopup="dialog"
+                        onClick={() => openCreateNoteDialog(member)}
                       >
-                        {isNoteEditorOpen(member.id) ? (
-                          <X className="h-4 w-4 shrink-0" aria-hidden />
-                        ) : (
-                          <Pencil className="h-4 w-4 shrink-0" aria-hidden />
-                        )}
-                        {isNoteEditorOpen(member.id) ? "닫기" : "작성"}
+                        <Pencil className="h-4 w-4 shrink-0" aria-hidden />
+                        작성
                       </button>
                     ) : null}
                   </div>
@@ -2105,6 +2392,7 @@ export function MembersScreen() {
                   <ul className="mt-2 space-y-2" data-testid={`member-note-list-${member.id}`}>
                     {visibleMemberNotes.map((note) => {
                       const collapseBody = isCoachRole && !noteListExpanded;
+                      const canManageNote = canManageCounselingNote(context.user, note);
 
                       return (
                       <li
@@ -2126,79 +2414,40 @@ export function MembersScreen() {
                         <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800 ${collapseBody ? "max-h-12 overflow-hidden" : ""}`}>
                           {note.body}
                         </p>
-                        <p className="mt-2 text-xs text-zinc-500">
-                          {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
-                        </p>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs text-zinc-500">
+                            {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
+                            {note.updatedAt && note.updatedAt !== note.createdAt ? " · 수정됨" : ""}
+                          </p>
+                          {canManageNote ? (
+                            <div className="flex gap-1">
+                              <button
+                                aria-label={`${member.name} 메모 수정`}
+                                className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-zinc-600 transition hover:bg-white hover:text-zinc-900"
+                                data-testid={`member-note-edit-${note.id}`}
+                                type="button"
+                                onClick={() => openEditNoteDialog(member, note)}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                                수정
+                              </button>
+                              <button
+                                aria-label={`${member.name} 메모 삭제`}
+                                className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                                data-testid={`member-note-delete-${note.id}`}
+                                type="button"
+                                onClick={() => openDeleteNoteDialog(member, note)}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                                삭제
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </li>
                       );
                     })}
                   </ul>
-                ) : null}
-
-                {canCreateNotes && isNoteEditorOpen(member.id) ? (
-                  <form
-                    className="mt-3 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
-                    data-testid={`member-note-editor-${member.id}`}
-                    onSubmit={(event) => void handleCreateCounselingNote(event, member)}
-                  >
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <label>
-                        <span className="mb-1 block text-xs font-semibold text-zinc-500">유형</span>
-                        <select
-                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                          data-testid="member-note-field"
-                          value={getNoteDraft(member.id).noteType}
-                          onChange={(event) =>
-                            updateNoteDraft(member.id, { noteType: event.target.value as CounselingNote["noteType"] })
-                          }
-                        >
-                          {noteTypeOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span className="mb-1 block text-xs font-semibold text-zinc-500">볼 수 있는 대상</span>
-                        <select
-                          className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
-                          data-testid="member-note-field"
-                          value={getNoteDraft(member.id).visibility}
-                          onChange={(event) =>
-                            updateNoteDraft(member.id, { visibility: event.target.value as CounselingNoteVisibility })
-                          }
-                        >
-                          {noteVisibilityOptions
-                            .filter((option) => context.user.role !== "coach" || option.value !== "staff_only")
-                            .map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                    </div>
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-semibold text-zinc-500">메모</span>
-                      <textarea
-                        className="min-h-24 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
-                        data-testid="member-note-body"
-                        maxLength={counselingNoteInputLimits.bodyLength}
-                        placeholder="상담 내용과 다음 확인 일정"
-                        value={getNoteDraft(member.id).body}
-                        onChange={(event) => updateNoteDraft(member.id, { body: event.target.value, feedback: undefined })}
-                      />
-                    </label>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="min-h-5 text-xs font-medium text-zinc-500">
-                        {getNoteDraft(member.id).feedback ?? "저장하면 선택한 대상이 볼 수 있습니다."}
-                      </p>
-                      <Button data-testid="member-note-submit" disabled={!getNoteDraft(member.id).body.trim()} size="lg" type="submit" variant="secondary">
-                        메모 저장
-                      </Button>
-                    </div>
-                  </form>
                 ) : null}
               </div>
               </div>
@@ -2208,6 +2457,19 @@ export function MembersScreen() {
             );
           })}
         </div>
+        {noteDialog && noteDialogMember ? (
+          <CounselingNoteDialog
+            draft={noteDraft}
+            intent={noteDialog.intent}
+            member={noteDialogMember}
+            pending={noteMutationPending}
+            role={context.user.role}
+            onClose={closeNoteDialog}
+            onDelete={() => void handleDeleteCounselingNote()}
+            onDraftChange={updateNoteDraft}
+            onSubmit={() => void handleSaveCounselingNote()}
+          />
+        ) : null}
         {isCoachRole ? <div className="h-28 lg:hidden" data-testid="coach-member-bottom-safe-area" aria-hidden /> : null}
         </>
       )}

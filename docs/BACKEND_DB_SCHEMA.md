@@ -247,6 +247,8 @@ CREATE TYPE audit_action AS ENUM (
   'member.create',
   'member.update',
   'counseling_note.create',
+  'counseling_note.update',
+  'counseling_note.delete',
   'promotion.create',
   'promotion.update',
   'tournament.create',
@@ -803,6 +805,8 @@ INSERT INTO roles (code, name, scope, is_system) VALUES
 | `POST /api/v1/branches/:branchId/notices` | 공지 작성 | `notices.publish` (대표/총괄, 코치는 담당 범위) |
 | `POST /api/v1/me/notices/:noticeId/read` | 공지 읽음 처리 | self/relation |
 | `POST /api/v1/branches/:branchId/members/:memberId/counseling-notes` | 상담 메모 작성 | `counseling_notes.write` |
+| `PATCH /api/v1/branches/:branchId/members/:memberId/counseling-notes/:noteId` | 상담 메모 수정 | 대표/총괄 또는 작성 코치 |
+| `DELETE /api/v1/branches/:branchId/members/:memberId/counseling-notes/:noteId` | 상담 메모 삭제 | 대표/총괄 또는 작성 코치 |
 | `POST /api/v1/branches/:branchId/members/:memberId/memberships` | 회원권 등록 | `memberships.write` |
 | `POST /api/v1/branches/:branchId/payments` | 결제 기록 | `payments.write` |
 | `POST /api/v1/payments/:paymentId/refund` | 환불/취소 기록 | `payments.refund` |

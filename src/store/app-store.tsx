@@ -36,6 +36,7 @@ import {
   type ClassSessionCreatePayload,
   type ClassSessionUpdatePayload,
   type CounselingNoteCreatePayload,
+  type CounselingNoteUpdatePayload,
   type GuardianLinkPayload,
   type InvitationCreatePayload,
   type InvitationApprovalResult,
@@ -193,6 +194,13 @@ type AppStore = AppState & {
   updateMemberStatus: (memberId: string, status: MemberStatus) => void;
   updateMemberProfile: (memberId: string, payload: MemberUpdatePayload) => Promise<boolean>;
   createCounselingNote: (branchId: string, memberId: string, payload: CounselingNoteCreatePayload) => Promise<boolean>;
+  updateCounselingNote: (
+    branchId: string,
+    memberId: string,
+    noteId: string,
+    payload: CounselingNoteUpdatePayload,
+  ) => Promise<boolean>;
+  deleteCounselingNote: (branchId: string, memberId: string, noteId: string) => Promise<boolean>;
   linkGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   unlinkGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
   replaceGuardian: (memberId: string, payload: GuardianLinkPayload) => Promise<boolean>;
@@ -1432,6 +1440,55 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const updateCounselingNote = useCallback(
+    async (branchId: string, memberId: string, noteId: string, payload: CounselingNoteUpdatePayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.updateCounselingNote(
+          branchId,
+          memberId,
+          noteId,
+          payload,
+          state.selectedBranchId,
+        );
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "상담/주의 메모를 수정하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const deleteCounselingNote = useCallback(
+    async (branchId: string, memberId: string, noteId: string) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.deleteCounselingNote(
+          branchId,
+          memberId,
+          noteId,
+          state.selectedBranchId,
+        );
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "상담/주의 메모를 삭제하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const linkGuardian = useCallback(
     async (memberId: string, payload: GuardianLinkPayload) => {
       if (!state.user) {
@@ -2192,6 +2249,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateMemberStatus,
       updateMemberProfile,
       createCounselingNote,
+      updateCounselingNote,
+      deleteCounselingNote,
       linkGuardian,
       unlinkGuardian,
       replaceGuardian,
@@ -2243,6 +2302,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       cancelRecurringAgreement,
       createBranch,
       createCounselingNote,
+      updateCounselingNote,
+      deleteCounselingNote,
       createInvitation,
       reissueInvitationLink,
       createMember,

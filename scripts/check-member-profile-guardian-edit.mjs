@@ -23,6 +23,7 @@ const [
   counselingNotePolicySource,
   counselingNoteVisibilityPolicySource,
   counselingNoteRouteSource,
+  counselingNoteMutationRouteSource,
   smokeApiSource,
   adminUserManagementApiSource,
   packageJsonSource,
@@ -43,6 +44,7 @@ const [
   readFile("src/lib/counseling-note-input-policy.ts", "utf8"),
   readFile("src/lib/counseling-note-visibility.ts", "utf8"),
   readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/route.ts", "utf8"),
+  readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/[noteId]/route.ts", "utf8"),
   readFile("scripts/smoke-api.mjs", "utf8"),
   readFile("scripts/check-admin-user-management-api.mjs", "utf8"),
   readFile("package.json", "utf8"),
@@ -197,6 +199,25 @@ assert(
     counselingNoteVisibilityPolicySource.includes('note.visibility === "member_visible"') &&
     counselingNoteVisibilityPolicySource.includes("const isSelfProfile"),
   "counseling note sharing must expose a member option and distinguish guardian self from child visibility",
+);
+assert(
+  counselingNoteMutationRouteSource.includes("export async function PATCH") &&
+    counselingNoteMutationRouteSource.includes("export async function DELETE") &&
+    counselingNoteMutationRouteSource.includes("canManageCounselingNote(user, note)") &&
+    counselingNoteMutationRouteSource.includes("withServerDbLock(counselingNoteStateLockKey") &&
+    counselingNoteMutationRouteSource.includes('"counseling_note.update"') &&
+    counselingNoteMutationRouteSource.includes('"counseling_note.delete"') &&
+    !counselingNoteMutationRouteSource.includes("before: {\n        body:") &&
+    !counselingNoteMutationRouteSource.includes("after: {\n        body:"),
+  "counseling note update/delete must recheck ownership under a lock and keep note bodies out of audit payloads",
+);
+assert(
+  membersScreenSource.includes("function CounselingNoteDialog") &&
+    membersScreenSource.includes('aria-haspopup="dialog"') &&
+    membersScreenSource.includes('data-testid={`member-note-edit-${note.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-note-delete-${note.id}`}') &&
+    !membersScreenSource.includes("openNoteEditorMemberIds"),
+  "counseling note create/edit/delete must use one independent dialog instead of expanding card rows",
 );
 assert(
   (memberRouteSource.match(/if \(!(?:initialCanReadMember|canReadMember)\) \{[\s\S]{0,160}jsonError\(404, "NOT_FOUND", "회원을 찾을 수 없습니다\."\)/g)?.length ?? 0) === 2,

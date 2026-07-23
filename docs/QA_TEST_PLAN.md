@@ -383,6 +383,7 @@
 | QA-CLASS-01 | 대표 | `/app/classes`에서 수업 생성 | 수업 목록에 새 수업이 추가되고 변경 기록 생성 |
 | QA-CLASS-02 | 대표 | `/app/classes`에서 장소/정원 수정 | 수정값이 반영되고 변경 기록 생성 |
 | QA-MEMBER-01 | 코치 | `/app/members`에서 담당 회원 상담/주의 메모 작성 | 메모가 회원 카드에 추가되고 `counseling_note.create` 변경 기록 생성 |
+| QA-MEMBER-01A7 | 코치/대표/총괄 | 회원 카드에서 메모 작성 창을 열고 저장된 메모를 수정·삭제 | 작성 창은 카드 그리드 높이에 영향을 주지 않는 독립 다이얼로그로 열리고, 대표/총괄은 관리 지점 메모를, 코치는 담당 회원의 본인 작성 메모만 수정·삭제한다. 변경마다 `counseling_note.update` 또는 `counseling_note.delete` 감사 기록이 생성되며 감사 payload에는 본문 전문이 남지 않는다 |
 | QA-DASH-01A | `npm run test:dashboard-priority-kpi` 실행 | 총괄 대시보드 첫 화면 KPI가 내부 변경 기록 요약으로 회귀하지 않고 대기 초대와 사용자 관리 액션을 우선 표시한다 |
 | QA-MEMBER-01A | `npm run test:smoke` 실행 | 회원 수정, 보호자 연결, 상담/주의 메모 작성 API에서 익명 요청은 401, 권한 없는 역할은 403으로 본문 검증보다 먼저 차단. 객체형 상담 메모 본문은 `400`이고 메모·감사 기록 무변경, 정상 동시 작성 2건은 UUID 기반 메모·감사 ID로 모두 보존 |
 | QA-MEMBER-01A1 | `npm run test:member-profile-guardian-edit` 실행 | 운영자 회원 상세에서 연령 수정 저장 요약, 보호자 검색 기반 변경/해제 UI, 보호자-자녀 양방향 링크 갱신 API와 smoke 회귀 범위가 유지된다 |

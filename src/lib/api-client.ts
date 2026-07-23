@@ -285,6 +285,8 @@ export type CounselingNoteCreatePayload = {
   visibility: CounselingNoteVisibility;
 };
 
+export type CounselingNoteUpdatePayload = CounselingNoteCreatePayload;
+
 export type GuardianLinkPayload = {
   guardianUserId: string;
 };
@@ -797,6 +799,36 @@ export const apiClient = {
       {
         method: "POST",
         body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  updateCounselingNote(
+    branchId: string,
+    memberId: string,
+    noteId: string,
+    payload: CounselingNoteUpdatePayload,
+    selectedBranchId: string | null,
+  ) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/branches/${encodeURIComponent(branchId)}/members/${encodeURIComponent(memberId)}/counseling-notes/${encodeURIComponent(noteId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  deleteCounselingNote(
+    branchId: string,
+    memberId: string,
+    noteId: string,
+    selectedBranchId: string | null,
+  ) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/branches/${encodeURIComponent(branchId)}/members/${encodeURIComponent(memberId)}/counseling-notes/${encodeURIComponent(noteId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
       },
     );
   },

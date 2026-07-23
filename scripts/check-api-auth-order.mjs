@@ -39,6 +39,16 @@ const counselingNoteRoutePath = path.join(
   "counseling-notes",
   "route.ts",
 );
+const counselingNoteMutationRoutePath = path.join(
+  apiRoot,
+  "branches",
+  "[branchId]",
+  "members",
+  "[memberId]",
+  "counseling-notes",
+  "[noteId]",
+  "route.ts",
+);
 const branchNoticeRoutePath = path.join(apiRoot, "branches", "[branchId]", "notices", "route.ts");
 const noticePushRoutePath = path.join(apiRoot, "branches", "[branchId]", "notices", "[noticeId]", "push", "route.ts");
 const adminBranchRoutePath = path.join(apiRoot, "admin", "branches", "route.ts");
@@ -348,6 +358,7 @@ for (const routePath of [
   memberRoutePath,
   guardianLinkRoutePath,
   counselingNoteRoutePath,
+  counselingNoteMutationRoutePath,
 ]) {
   const routeSource = readFileSync(routePath, "utf8");
 

@@ -3,11 +3,12 @@ import { getCounselingNoteBodyLimitError } from "@/lib/counseling-note-input-pol
 import type { AuditLog, CounselingNote, CounselingNoteVisibility } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
-import { readServerDb, writeServerDb } from "@/server/db";
+import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
+const counselingNoteStateLockKey = "counseling-notes";
 const noteVisibilities: CounselingNoteVisibility[] = [
   "staff_only",
   "coach_visible",
@@ -116,39 +117,88 @@ export async function POST(
     return jsonError(403, "FORBIDDEN", "운영진 전용 메모는 대표 또는 총괄 어드민만 작성할 수 있습니다.");
   }
 
-  const noteId = createRuntimeId("note");
-  const nextNote: CounselingNote = {
-    id: noteId,
-    branchId,
-    memberId: member.id,
-    authorUserId: user.id,
-    body: body.body.trim(),
-    createdAt: new Date().toISOString(),
-    noteType,
-    visibility,
-  };
-  const auditLog: AuditLog = {
-    id: createRuntimeId("audit"),
-    branchId,
-    actorUserId: user.id,
-    action: "counseling_note.create",
-    targetType: "counseling_note",
-    targetId: noteId,
-    before: null,
-    after: {
-      memberId: member.id,
+  const noteBody = body.body.trim();
+
+  return withServerDbLock(counselingNoteStateLockKey, async () => {
+    const latestDb = await readServerDb();
+    const latestSession = requireSession(request, latestDb);
+
+    if (!latestSession.user) {
+      return latestSession.response;
+    }
+
+    if (!["coach", "owner", "admin"].includes(latestSession.user.role)) {
+      return jsonError(403, "FORBIDDEN", "상담/주의 메모 작성 권한이 없습니다.");
+    }
+
+    if (!getAccessibleBranchIds(latestSession.user, latestDb).includes(branchId)) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점에 상담/주의 메모를 작성할 수 없습니다.");
+    }
+
+    const latestMember = latestDb.members.find((candidate) => candidate.id === memberId);
+
+    if (!latestMember || latestMember.branchId !== branchId) {
+      return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
+    }
+
+    if (
+      latestSession.user.role === "coach" &&
+      !getAccessibleMemberIds(latestSession.user, latestDb, [branchId]).includes(latestMember.id)
+    ) {
+      return jsonError(403, "FORBIDDEN", "담당 회원에게만 상담/주의 메모를 작성할 수 있습니다.");
+    }
+
+    const latestScope = requireSelectedBranchScope(request, latestSession.user, latestDb);
+
+    if (latestScope.response) {
+      return latestScope.response;
+    }
+
+    if (latestScope.selectedBranchId && latestScope.selectedBranchId !== branchId) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점에 상담/주의 메모를 작성할 수 없습니다.");
+    }
+
+    if (latestSession.user.role === "coach" && visibility === "staff_only") {
+      return jsonError(403, "FORBIDDEN", "운영진 전용 메모는 대표 또는 총괄 어드민만 작성할 수 있습니다.");
+    }
+
+    const now = new Date().toISOString();
+    const noteId = createRuntimeId("note");
+    const nextNote: CounselingNote = {
+      id: noteId,
+      branchId,
+      memberId: latestMember.id,
+      authorUserId: latestSession.user.id,
+      body: noteBody,
+      createdAt: now,
       noteType,
       visibility,
-    },
-    result: "success",
-    message: "상담/주의 메모를 작성했습니다.",
-    createdAt: new Date().toISOString(),
-  };
-  const nextDb = await writeServerDb({
-    ...db,
-    counselingNotes: [nextNote, ...(db.counselingNotes ?? [])],
-    auditLogs: [auditLog, ...db.auditLogs],
-  });
+    };
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId,
+      actorUserId: latestSession.user.id,
+      action: "counseling_note.create",
+      targetType: "counseling_note",
+      targetId: noteId,
+      before: null,
+      after: {
+        memberId: latestMember.id,
+        noteType,
+        visibility,
+      },
+      result: "success",
+      message: "상담/주의 메모를 작성했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...latestDb,
+      counselingNotes: [nextNote, ...(latestDb.counselingNotes ?? [])],
+      auditLogs: [auditLog, ...latestDb.auditLogs],
+    });
 
-  return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? branchId));
+    return jsonOk(
+      createBootstrapPayload(nextDb, latestSession.user, latestScope.selectedBranchId ?? branchId),
+    );
+  });
 }

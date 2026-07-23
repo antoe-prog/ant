@@ -1083,6 +1083,128 @@ async function run() {
     "counseling note create audit missing",
   );
 
+  const counselingNoteMutationPath =
+    `/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes/${counselingNote.id}`;
+  const blockedCounselingUpdateScope = await coach.request(
+    `${counselingNoteMutationPath}?selectedBranchId=branch-missing`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    blockedCounselingUpdateScope.response.status,
+    403,
+    "counseling note update must reject an invalid selected branch before validation",
+  );
+  const updatedCounselingBody = `Updated counseling note ${stamp}`;
+  result = await coach.request(
+    `${counselingNoteMutationPath}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        body: updatedCounselingBody,
+        noteType: "follow_up",
+        visibility: "member_visible",
+      }),
+    },
+  );
+  const updatedCounselingNote = result.payload.data.db.counselingNotes.find(
+    (note) => note.id === counselingNote.id,
+  );
+  assert.equal(updatedCounselingNote?.body, updatedCounselingBody, "coach must be able to update their own note");
+  assert.equal(updatedCounselingNote?.noteType, "follow_up", "counseling note type update did not persist");
+  assert.equal(updatedCounselingNote?.visibility, "member_visible", "counseling note visibility update did not persist");
+  assert(updatedCounselingNote?.updatedAt, "counseling note update timestamp missing");
+  counselingSnapshot = await credentialClient.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  const updateCounselingAudit = counselingSnapshot.payload.data.db.auditLogs.find(
+    (log) => log.action === "counseling_note.update" && log.targetId === counselingNote.id,
+  );
+  assert(updateCounselingAudit, "counseling note update audit missing");
+  assert(
+    !JSON.stringify(updateCounselingAudit).includes(updatedCounselingBody),
+    "counseling note update audit must not store the note body",
+  );
+
+  const adminCounselingBody = `Admin counseling note ${stamp}`;
+  result = await credentialClient.request(
+    "/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body: adminCounselingBody,
+        noteType: "general",
+        visibility: "staff_only",
+      }),
+    },
+  );
+  const adminCounselingNote = result.payload.data.db.counselingNotes.find(
+    (note) => note.body === adminCounselingBody,
+  );
+  assert(adminCounselingNote, "admin counseling note fixture missing");
+  const blockedForeignCounselingUpdate = await coach.request(
+    `/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes/${adminCounselingNote.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        body: "unauthorized edit",
+        noteType: "general",
+        visibility: "coach_visible",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    blockedForeignCounselingUpdate.response.status,
+    403,
+    "coach must not update another author's counseling note",
+  );
+  const blockedForeignCounselingDelete = await coach.request(
+    `/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes/${adminCounselingNote.id}?selectedBranchId=branch-gangnam`,
+    { method: "DELETE" },
+    { allowError: true },
+  );
+  assert.equal(
+    blockedForeignCounselingDelete.response.status,
+    403,
+    "coach must not delete another author's counseling note",
+  );
+
+  const disposableCounselingBody = `Disposable counseling note ${stamp}`;
+  result = await coach.request(
+    "/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body: disposableCounselingBody,
+        noteType: "general",
+        visibility: "coach_visible",
+      }),
+    },
+  );
+  const disposableCounselingNote = result.payload.data.db.counselingNotes.find(
+    (note) => note.body === disposableCounselingBody,
+  );
+  assert(disposableCounselingNote, "disposable counseling note fixture missing");
+  result = await coach.request(
+    `/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes/${disposableCounselingNote.id}?selectedBranchId=branch-gangnam`,
+    { method: "DELETE" },
+  );
+  assert(
+    !result.payload.data.db.counselingNotes.some((note) => note.id === disposableCounselingNote.id),
+    "coach must be able to delete their own counseling note",
+  );
+  counselingSnapshot = await credentialClient.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  const deleteCounselingAudit = counselingSnapshot.payload.data.db.auditLogs.find(
+    (log) => log.action === "counseling_note.delete" && log.targetId === disposableCounselingNote.id,
+  );
+  assert(deleteCounselingAudit, "counseling note delete audit missing");
+  assert(
+    !JSON.stringify(deleteCounselingAudit).includes(disposableCounselingBody),
+    "counseling note delete audit must not store the note body",
+  );
+
   const concurrentCounselingBodies = [
     `Concurrent counseling note A ${stamp}`,
     `Concurrent counseling note B ${stamp}`,
@@ -1187,6 +1309,19 @@ async function run() {
     { allowError: true },
   );
   assert(blockedGuardianCounselingNote.response.status === 403, "guardian must not reach counseling note validation");
+  const blockedGuardianCounselingNoteUpdate = await guardian.request(
+    `/api/v1/branches/branch-gangnam/members/member-jun/counseling-notes/${counselingNote.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    blockedGuardianCounselingNoteUpdate.response.status,
+    403,
+    "guardian must not reach counseling note update validation",
+  );
   const guardianMemberIds = result.db.members.map((member) => member.id);
   assert(
     guardianMemberIds.includes("member-jun") && guardianMemberIds.includes("member-seo"),
@@ -6669,6 +6804,8 @@ async function run() {
     "notification.unsubscribe",
     ...(!pushConfigured ? ["notification.dispatch"] : []),
     "counseling_note.create",
+    "counseling_note.update",
+    "counseling_note.delete",
     "branch.create",
     "branch.update",
     "branch.owner.assign",

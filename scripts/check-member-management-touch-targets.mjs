@@ -396,8 +396,13 @@ async function captureOwnerMembers(context) {
     const firstNoteToggle = page.locator('[data-testid^="member-note-editor-toggle-"]').first();
     await firstNoteToggle.waitFor({ state: "visible", timeout: 15000 });
     await firstNoteToggle.click();
+    await page.waitForSelector('dialog[open][data-testid^="member-note-dialog-"]', { timeout: 15000 });
     await page.waitForSelector('[data-testid="member-note-field"]', { timeout: 15000 });
     await page.waitForSelector('[data-testid="member-note-body"]', { timeout: 15000 });
+    const noteDialogIsIndependent = await page
+      .locator('dialog[open][data-testid^="member-note-dialog-"]')
+      .evaluate((dialog) => dialog.closest("article") === null);
+    assert(noteDialogIsIndependent, "member note editor must not expand inside a member card");
 
     const noteBodyMaxLength = await page.getByTestId("member-note-body").getAttribute("maxlength");
     assert.equal(noteBodyMaxLength, "2000", "member note editor must match the server body limit");
@@ -425,6 +430,34 @@ async function captureOwnerMembers(context) {
       assertHeightsAtLeast(`member management ${label}`, heights);
     }
     await page.screenshot({ fullPage: false, path: openScreenshotPath });
+
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      () => document.querySelectorAll('dialog[open][data-testid^="member-note-dialog-"]').length === 0,
+      { timeout: 15000 },
+    );
+    const firstNoteEdit = page.locator('[data-testid^="member-note-edit-"]').first();
+    await firstNoteEdit.waitFor({ state: "visible", timeout: 15000 });
+    await firstNoteEdit.click();
+    await page.waitForSelector('dialog[open][data-testid^="member-note-dialog-"]', { timeout: 15000 });
+    assert.equal(
+      (await page.getByTestId("member-note-submit").textContent())?.trim(),
+      "수정 저장",
+      "saved counseling notes must reopen in edit mode",
+    );
+    assert(
+      ((await page.getByTestId("member-note-body").inputValue()) ?? "").trim().length > 0,
+      "counseling note edit mode must preserve the saved body",
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      () => document.querySelectorAll('dialog[open][data-testid^="member-note-dialog-"]').length === 0,
+      { timeout: 15000 },
+    );
+    const firstNoteDelete = page.locator('[data-testid^="member-note-delete-"]').first();
+    await firstNoteDelete.click();
+    await page.getByTestId("member-note-delete-confirm").waitFor({ state: "visible", timeout: 15000 });
+    await page.keyboard.press("Escape");
 
     await page.goto(new URL("/app/members?create=1", baseUrl).toString(), { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#member-create-form", { timeout: 15000 });

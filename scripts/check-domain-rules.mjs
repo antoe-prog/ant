@@ -258,6 +258,47 @@ for (const testCase of visibilityCases) {
   );
 }
 
+const counselingNoteManagementCases = [
+  {
+    expected: true,
+    label: "admin can manage any counseling note",
+    manager: { id: "user-admin", role: "admin" },
+    note: { authorUserId: "user-coach" },
+  },
+  {
+    expected: true,
+    label: "owner can manage any counseling note",
+    manager: { id: "user-owner", role: "owner" },
+    note: { authorUserId: "user-coach" },
+  },
+  {
+    expected: true,
+    label: "coach can manage their own counseling note",
+    manager: { id: "user-coach", role: "coach" },
+    note: { authorUserId: "user-coach" },
+  },
+  {
+    expected: false,
+    label: "coach cannot manage another author's counseling note",
+    manager: { id: "user-coach", role: "coach" },
+    note: { authorUserId: "user-owner" },
+  },
+  {
+    expected: false,
+    label: "family roles cannot manage counseling notes",
+    manager: { id: "user-guardian", role: "guardian" },
+    note: { authorUserId: "user-guardian" },
+  },
+];
+
+for (const testCase of counselingNoteManagementCases) {
+  assert.equal(
+    counselingNoteVisibility.canManageCounselingNote(testCase.manager, testCase.note),
+    testCase.expected,
+    testCase.label,
+  );
+}
+
 const weeklyClassRecurrence = classRecurrence.getClassWeeklyRecurrence({
   mode: "weekly",
   startsOn: "2026-07-20",

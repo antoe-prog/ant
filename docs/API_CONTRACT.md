@@ -265,6 +265,8 @@
 | `PATCH` | `/members/:memberId` | `members.write` 또는 self/relation 연락처 수정 | 예 | 회원 수정 |
 | `POST` | `/members/:memberId/guardians` | `guardians.write` | 예 | 보호자 연결 |
 | `POST` | `/branches/:branchId/members/:memberId/counseling-notes` | `counseling_notes.write` | 예 | 상담/주의 메모 작성 |
+| `PATCH` | `/branches/:branchId/members/:memberId/counseling-notes/:noteId` | 대표/총괄 또는 작성 코치 | 예 | 상담/주의 메모 수정 |
+| `DELETE` | `/branches/:branchId/members/:memberId/counseling-notes/:noteId` | 대표/총괄 또는 작성 코치 | 예 | 상담/주의 메모 삭제 |
 | `GET` | `/me/children` | guardian relation | 아니오 | 연결 자녀 목록 |
 
 코치 회원 DTO는 이름, 띠, 레벨, 나이대, 주의사항, 회원권 상태 요약만 포함한다.
@@ -272,6 +274,8 @@
 회원 생성은 본문이 JSON 객체이고 지원 필드가 문자열인지 먼저 확인하며, 생년월일은 실제 달력에 존재하는 `YYYY-MM-DD`인지 검증한다. 잘못된 타입이나 존재하지 않는 날짜는 저장 전에 `400 VALIDATION_ERROR`로 차단한다. 등록·수정은 공통으로 이름·레벨·띠를 30자, 비상 연락처를 40자, 주소를 100자로 제한하고, 주의사항 수정은 8개·항목당 80자로 제한한다. 운영 화면 입력도 같은 상한을 사용한다. 회원·감사 ID는 UUID 기반 런타임 ID를 사용해 같은 지점의 동시 등록도 서로 다른 ID와 감사 기록으로 모두 보존한다. `createdAt`, `statusChangedAt`은 서버 시각으로 저장하고, 생성 상태가 `withdrawn`이면 `withdrawnAt`도 함께 저장한다. 회원 수정 payload는 운영자 권한에서 `status`, `ageGroup`, `name`, `belt`, `level`, `emergencyContact`, `alerts`, `gender`, `birthDate`, `address`를 받으며 문자열 필드와 문자열 주의사항 배열을 정규화 전에 검증한다. 객체형 값이나 존재하지 않는 생년월일은 기존 값을 지우지 않고 `400 VALIDATION_ERROR`로 차단한다. 수정은 회원별 잠금 안에서 최신 세션·지점·본인/자녀 관계와 연결 회원 계정 휴대폰 유일성을 다시 확인하고 직렬화하며 UUID 기반 `member.update` 감사 ID를 사용한다. 상태가 바뀌면 `statusChangedAt`을 서버 시각으로 갱신하고, `withdrawn` 전환 시 `withdrawnAt`을 저장하며, 다른 상태로 복귀하면 `withdrawnAt`을 비운다. 회원 본인과 학부모는 본인/연결 자녀 관계가 검증된 경우 `emergencyContact`만 변경할 수 있고, 상태/수련 정보/주의사항 변경은 `403 FORBIDDEN`으로 차단한다. 현재 사용자가 읽을 수 없는 다른 가족·지점 회원의 수정 대상은 존재하지 않는 회원과 동일한 `404 NOT_FOUND`로 처리하고, 담당 코치처럼 회원을 읽을 수 있지만 수정 권한이 없는 경우에는 `403 FORBIDDEN`을 유지한다. 모든 실제 변경은 `member.update` 감사 로그에 before/after diff로 기록한다.
 
 보호자 연결·변경·해제 payload는 JSON 객체의 200자 이하 문자열 `guardianUserId`를 받으며 객체·배열형 값과 초과 입력은 관계를 변경하지 않고 `400 VALIDATION_ERROR`로 차단한다. 서버는 대표/총괄 권한과 회원 지점 스코프를 본문보다 먼저 확인하고, JSON 본문은 공통 관계 잠금 밖에서 읽는다. 저장 직전에는 잠금 안에서 최신 세션·권한·지점·연령·활성 학부모 상태를 다시 확인한 뒤 회원의 `guardianIds`와 학부모 계정의 `childMemberIds`를 함께 갱신한다. 관리 범위 밖 회원은 존재하지 않는 회원과 같은 `404 NOT_FOUND`, 연결할 수 없는 실재 학부모와 존재하지 않는 학부모는 같은 `422 BUSINESS_RULE_FAILED`로 처리한다. 연결되지 않은 학부모 해제는 계정 존재 여부와 관계없이 멱등 성공해 사용자 ID 오라클을 만들지 않는다. 중복 연결도 멱등 처리하며 실제 변경은 UUID 기반 ID의 `member.update` 감사 로그에 남겨 서로 다른 회원의 동시 연결 기록도 모두 보존한다.
+
+상담/주의 메모 작성은 회원 카드 높이를 바꾸지 않는 독립 다이얼로그에서 진행한다. 대표와 총괄은 관리 지점의 메모를 수정·삭제할 수 있고, 코치는 담당 회원에게 자신이 작성한 메모만 수정·삭제할 수 있다. 변경 시 최신 세션·선택 지점·담당 회원·작성자 권한을 공통 잠금 안에서 다시 확인한다. 감사 로그에는 본문 전문을 저장하지 않고 유형, 공개 범위, 본문 길이와 변경 여부만 기록한다.
 
 상담/주의 메모 payload는 JSON 객체의 2,000자 이하 문자열 `body`, `noteType`(`general`, `caution`, `progress`, `follow_up`), `visibility`(`staff_only`, `coach_visible`, `guardian_visible`, `member_visible`)를 받는다. 객체형 본문, 비문자 유형·공개 범위, 2,000자 초과 본문은 메모·감사 기록을 만들지 않고 `400 VALIDATION_ERROR`로 차단한다. 작성 UI도 동일한 본문 상한을 사용한다. 메모와 감사 ID는 UUID 기반 런타임 ID를 사용해 같은 회원에게 동시에 작성한 메모도 모두 보존한다. 코치는 담당 회원에게 `coach_visible`, `guardian_visible`, `member_visible` 메모를 작성할 수 있다. 회원 계정은 연결된 본인 프로필의 `member_visible` 메모만, 학부모 계정은 자녀 프로필의 `guardian_visible` 메모와 연결된 본인 프로필의 `member_visible` 메모만 조회한다. 감사 로그에는 메모 본문 원문을 저장하지 않는다.
 

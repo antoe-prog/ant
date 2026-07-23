@@ -1277,7 +1277,9 @@ assertIncludes(sources.membersScreen, 'data-testid="coach-member-note-summary"',
 assertIncludes(sources.membersScreen, 'data-testid={`member-note-list-toggle-${member.id}`}', "coach member note list toggle marker");
 assertIncludes(sources.membersScreen, '"coach-member-note-card"', "coach member compact note card marker");
 assertIncludes(sources.membersScreen, "isCoachRole ? (noteListExpanded ? memberNotes : [])", "coach member note detail collapsed default");
-assertIncludes(sources.membersScreen, "aria-expanded={isNoteEditorOpen(member.id)}", "coach member note editor expanded state");
+assertIncludes(sources.membersScreen, 'aria-haspopup="dialog"', "coach member note editor opens an independent dialog");
+assertIncludes(sources.membersScreen, 'data-testid={`member-note-edit-${note.id}`}', "counseling note edit action marker");
+assertIncludes(sources.membersScreen, 'data-testid={`member-note-delete-${note.id}`}', "counseling note delete action marker");
 assertExcludes(
   sources.membersScreen,
   "상담 내용, 주의사항, 다음 확인 일정을 남겨주세요.",
