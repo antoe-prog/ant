@@ -791,6 +791,11 @@ async function runAssertions(baseUrl) {
   assert.equal(autoProfileMember?.emergencyContact, invitePhone, "auto-created member profile must sync the account phone");
   assert.equal(autoProfileMember?.ageGroup, "adult", "auto-created member profile must use the adult self-account contract");
   assert(autoProfileAudit, "auto-created member profile must append a member.create audit record");
+  const assignedCoachBootstrap = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    assignedCoachBootstrap.payload.data.db.members.some((member) => member.id === autoProfileMemberId),
+    "auto-created member profile must appear for its assigned coach before class enrollment",
+  );
 
   const shortPasswordUpdate = await admin.request(
     `/api/v1/admin/users/${invitedUserId}?selectedBranchId=branch-gangnam`,
@@ -1774,6 +1779,7 @@ async function runAssertions(baseUrl) {
     "serialized admin invitation approval and login flow",
     "user update profile and branch assignment",
     "member-role save auto-provisions a visible branch member profile",
+    "primary coach assignment grants immediate assigned-member visibility",
     "member app link update and bootstrap visibility",
     "adult members are rejected as guardian children",
     "guardian adult self link and family profile validation",

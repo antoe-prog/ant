@@ -84,9 +84,14 @@ export function getAccessibleMemberIds(user: AppUser, db: MockDatabase, branchId
   if (user.role === "coach") {
     return [
       ...new Set(
-        db.classes
-          .filter((session) => session.coachId === user.id && branchIds.includes(session.branchId))
-          .flatMap((session) => session.enrolledMemberIds),
+        [
+          ...db.members
+            .filter((member) => member.primaryCoachId === user.id && branchIds.includes(member.branchId))
+            .map((member) => member.id),
+          ...db.classes
+            .filter((session) => session.coachId === user.id && branchIds.includes(session.branchId))
+            .flatMap((session) => session.enrolledMemberIds),
+        ],
       ),
     ];
   }

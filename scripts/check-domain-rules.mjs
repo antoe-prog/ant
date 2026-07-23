@@ -435,7 +435,11 @@ assert.deepEqual(
   "inaccessible selected branch must fall back to accessible owner branch",
 );
 
-assert.deepEqual(scope.getAccessibleMemberIds(coach, db, ["branch-gangnam"]).sort(), ["member-jun", "member-seo"], "coach members must come from coached classes");
+assert.deepEqual(
+  scope.getAccessibleMemberIds(coach, db, ["branch-gangnam"]).sort(),
+  ["member-adult-stale", "member-jun", "member-seo"],
+  "coach members must include primary assignments and coached class rosters",
+);
 assert.deepEqual(scope.getAccessibleMemberIds(guardian, db, ["branch-gangnam"]), ["member-jun"], "guardian member scope must exclude adult stale links");
 assert.deepEqual(scope.getAccessibleMemberIds(member, db, ["branch-gangnam"]), ["member-jun"], "member scope must be self only");
 assert.deepEqual(
