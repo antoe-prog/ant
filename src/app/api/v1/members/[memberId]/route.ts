@@ -12,7 +12,9 @@ export const runtime = "nodejs";
 const memberStatuses: MemberStatus[] = ["active", "trial", "paused", "withdrawn"];
 const ageGroups: Member["ageGroup"][] = ["kids", "teen", "adult"];
 const memberGenders: NonNullable<Member["gender"]>[] = ["male", "female"];
-type MemberPatchPayload = Partial<Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">> & {
+type MemberPatchPayload = Partial<
+  Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "primaryCoachId" | "status">
+> & {
   gender?: Member["gender"] | "";
   birthDate?: string;
   address?: string;
@@ -29,7 +31,18 @@ function getMemberPatchBodyTypeError(value: unknown) {
 
   const body = value as Record<string, unknown>;
 
-  for (const field of ["status", "ageGroup", "name", "emergencyContact", "level", "belt", "gender", "birthDate", "address"] as const) {
+  for (const field of [
+    "status",
+    "ageGroup",
+    "name",
+    "emergencyContact",
+    "level",
+    "belt",
+    "primaryCoachId",
+    "gender",
+    "birthDate",
+    "address",
+  ] as const) {
     if (body[field] !== undefined && typeof body[field] !== "string") {
       return "변경할 회원 값의 형식이 올바르지 않습니다.";
     }
@@ -67,6 +80,7 @@ function hasRestrictedProfileFields(body: MemberPatchPayload) {
     body.level !== undefined ||
     body.belt !== undefined ||
     body.alerts !== undefined ||
+    body.primaryCoachId !== undefined ||
     body.gender !== undefined ||
     body.birthDate !== undefined ||
     body.address !== undefined
@@ -263,6 +277,23 @@ async function patchMember(request: NextRequest, memberId: string, body: MemberP
     }
 
     patch.belt = belt;
+  }
+
+  if (body.primaryCoachId !== undefined) {
+    const primaryCoachId = cleanText(body.primaryCoachId);
+    const primaryCoach = db.users.find((candidate) => candidate.id === primaryCoachId);
+
+    if (
+      !primaryCoachId ||
+      !primaryCoach ||
+      primaryCoach.invitationStatus === "pending" ||
+      !["coach", "owner", "admin"].includes(primaryCoach.role) ||
+      !primaryCoach.branchIds.includes(member.branchId)
+    ) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "해당 지점의 승인된 담당 코치를 선택해 주세요.");
+    }
+
+    patch.primaryCoachId = primaryCoachId;
   }
 
   if (body.gender !== undefined) {

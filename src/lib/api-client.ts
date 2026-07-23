@@ -300,7 +300,7 @@ export type TournamentPayload = {
 };
 
 export type MemberUpdatePayload = Partial<
-  Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">
+  Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "primaryCoachId" | "status">
 > & {
   // 빈 문자열은 값 지우기를 의미한다 (서버에서 undefined로 정리).
   gender?: Member["gender"] | "";

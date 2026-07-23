@@ -130,6 +130,7 @@ type ProfileDraft = {
   gender: Member["gender"] | "";
   level: string;
   name: string;
+  primaryCoachId: string;
   sourceMemberSignature: string;
 };
 
@@ -171,12 +172,13 @@ function getProfileMemberSignature(member: Member) {
     member.birthDate ?? "",
     member.address ?? "",
     member.emergencyContact,
+    member.primaryCoachId,
     member.alerts.join("\n"),
   ].join("\u001f");
 }
 
 function profileDraftTouchesEditableField(patch: Partial<ProfileDraft>) {
-  return ["ageGroup", "address", "alertsText", "belt", "birthDate", "emergencyContact", "gender", "level", "name"].some((key) =>
+  return ["ageGroup", "address", "alertsText", "belt", "birthDate", "emergencyContact", "gender", "level", "name", "primaryCoachId"].some((key) =>
     Object.prototype.hasOwnProperty.call(patch, key),
   );
 }
@@ -721,6 +723,7 @@ export function MembersScreen() {
       gender: member.gender ?? "",
       level: member.level,
       name: member.name,
+      primaryCoachId: member.primaryCoachId,
       sourceMemberSignature: getProfileMemberSignature(member),
     };
   }
@@ -804,6 +807,7 @@ export function MembersScreen() {
           gender: draft.gender,
           level: draft.level.trim(),
           name: memberName,
+          primaryCoachId: draft.primaryCoachId,
         }
       : { emergencyContact });
 
@@ -819,6 +823,7 @@ export function MembersScreen() {
             gender: draft.gender,
             level: draft.level.trim(),
             name: canManageMembers ? memberName : draft.name,
+            primaryCoachId: draft.primaryCoachId,
           }
         : {}),
       feedback: saved ? "회원 기본 정보를 저장했습니다." : "회원 기본 정보를 저장하지 못했습니다.",
@@ -1352,6 +1357,13 @@ export function MembersScreen() {
             const selectedGuardian =
               guardianUsers.find((guardian) => guardian.id === guardianLinkDraft.guardianUserId) ?? null;
             const currentPayment = currentPaymentByMemberId.get(member.id) ?? null;
+            const assignedOperator = usersById.get(member.primaryCoachId) ?? null;
+            const assignableCoaches = context.db.users.filter(
+              (candidate) =>
+                candidate.role === "coach" &&
+                candidate.invitationStatus !== "pending" &&
+                candidate.branchIds.includes(member.branchId),
+            );
             const canOpenPaymentHistory =
               Boolean(currentPayment) && (context.user.role !== "guardian" || member.status !== "withdrawn");
 
@@ -1495,6 +1507,19 @@ export function MembersScreen() {
                     <dt className="text-xs font-medium text-zinc-500">주소</dt>
                     <dd className="mt-1 break-words font-semibold text-zinc-950" data-testid={`member-profile-address-summary-${member.id}`}>
                       {member.address}
+                    </dd>
+                  </div>
+                ) : null}
+                {canManageMembers ? (
+                  <div className="col-span-2">
+                    <dt className="text-xs font-medium text-zinc-500">담당 코치</dt>
+                    <dd
+                      className="mt-1 font-semibold text-zinc-950"
+                      data-testid={`member-primary-coach-summary-${member.id}`}
+                    >
+                      {assignedOperator
+                        ? `${assignedOperator.name}${assignedOperator.role === "coach" ? "" : " · 임시 담당"}`
+                        : "담당자 확인 필요"}
                     </dd>
                   </div>
                 ) : null}
@@ -1701,6 +1726,37 @@ export function MembersScreen() {
                             value={getProfileDraft(member).level}
                             onChange={(event) => updateProfileDraft(member, { level: event.target.value, feedback: undefined })}
                           />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1 block text-xs font-semibold text-zinc-500">담당 코치</span>
+                          <select
+                            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
+                            data-touch-target="member-profile-field"
+                            data-testid={`member-primary-coach-select-${member.id}`}
+                            value={getProfileDraft(member).primaryCoachId}
+                            onChange={(event) =>
+                              updateProfileDraft(member, {
+                                primaryCoachId: event.target.value,
+                                feedback: undefined,
+                              })
+                            }
+                          >
+                            {assignedOperator && assignedOperator.role !== "coach" ? (
+                              <option value={assignedOperator.id}>
+                                {assignedOperator.name} · {assignedOperator.role === "owner" ? "대표" : "총괄 어드민"} 임시 담당
+                              </option>
+                            ) : null}
+                            {assignableCoaches.map((coach) => (
+                              <option key={coach.id} value={coach.id}>
+                                {coach.name} · 코치
+                              </option>
+                            ))}
+                          </select>
+                          {assignableCoaches.length === 0 ? (
+                            <span className="mt-1 block text-xs text-amber-700">
+                              이 지점에 승인된 코치가 없어 현재 운영 담당자를 유지합니다.
+                            </span>
+                          ) : null}
                         </label>
                         <label>
                           <span className="mb-1 block text-xs font-semibold text-zinc-500">성별</span>

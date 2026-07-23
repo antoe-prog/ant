@@ -73,6 +73,14 @@ assert(
   "member profile form must keep age editing wired to the saved profile submit action",
 );
 assert(
+  membersScreenSource.includes('data-testid={`member-primary-coach-summary-${member.id}`}') &&
+    membersScreenSource.includes('data-testid={`member-primary-coach-select-${member.id}`}') &&
+    membersScreenSource.includes("primaryCoachId: draft.primaryCoachId") &&
+    membersScreenSource.includes('candidate.role === "coach"') &&
+    membersScreenSource.includes("candidate.branchIds.includes(member.branchId)"),
+  "member profile must expose a same-branch accepted-coach assignment control and submit it with profile changes",
+);
+assert(
   membersScreenSource.includes("getProfileMemberSignature(member)") &&
     membersScreenSource.includes("sourceMemberSignature") &&
     membersScreenSource.includes("dirty: false") &&
@@ -151,6 +159,14 @@ assert(
   "member update API must keep manager-only age/profile editing and family contact-only editing",
 );
 assert(
+  memberRouteSource.includes('"primaryCoachId"') &&
+    memberRouteSource.includes('primaryCoach.invitationStatus === "pending"') &&
+    memberRouteSource.includes('!["coach", "owner", "admin"].includes(primaryCoach.role)') &&
+    memberRouteSource.includes("!primaryCoach.branchIds.includes(member.branchId)") &&
+    memberRouteSource.includes("patch.primaryCoachId = primaryCoachId"),
+  "member update API must validate and audit same-branch operational assignments",
+);
+assert(
   memberInputPolicySource.includes("nameLength: 30") &&
     memberInputPolicySource.includes("emergencyContactLength: 40") &&
     memberInputPolicySource.includes("alertItems: 8") &&
@@ -224,6 +240,10 @@ assertAppearsAfter(
 for (const snippet of [
   "owner member age group update did not persist",
   "owner member profile update did not sync linked user name",
+  "owner primary coach assignment did not persist",
+  "primary coach assignment audit log is missing",
+  "primary coach assignment must immediately expose the member to the assigned coach",
+  "member assignment must reject a non-operational account",
   "oversized member create input must be rejected",
   "oversized member create input must not create audit records",
   "guardian must not discover another family member profile",

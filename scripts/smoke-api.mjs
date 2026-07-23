@@ -1291,6 +1291,80 @@ async function run() {
     "owner member profile update audit log missing linked user sync",
   );
 
+  const directAssignmentMemberName = `Smoke Assignment Member ${stamp}`;
+  result = await owner.request("/api/v1/branches/branch-gangnam/members?selectedBranchId=branch-gangnam", {
+    method: "POST",
+    body: JSON.stringify({
+      ageGroup: "adult",
+      belt: "흰띠",
+      emergencyContact: createSmokePhone(42),
+      level: "입문",
+      name: directAssignmentMemberName,
+      status: "active",
+    }),
+  });
+  const directAssignmentMemberId = result.payload.data.db.members.find(
+    (member) => member.name === directAssignmentMemberName,
+  )?.id;
+  assert(directAssignmentMemberId, "primary coach assignment test member was not created");
+
+  result = await owner.request(`/api/v1/members/${directAssignmentMemberId}?selectedBranchId=branch-gangnam`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      primaryCoachId: "user-owner",
+    }),
+  });
+  assert(
+    result.payload.data.db.members.find((member) => member.id === directAssignmentMemberId)?.primaryCoachId === "user-owner",
+    "owner fallback member assignment did not persist",
+  );
+  const coachBeforeDirectAssignment = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    !coachBeforeDirectAssignment.payload.data.db.members.some((member) => member.id === directAssignmentMemberId),
+    "coach must not see an unenrolled member assigned to another operator",
+  );
+
+  result = await owner.request(`/api/v1/members/${directAssignmentMemberId}?selectedBranchId=branch-gangnam`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      primaryCoachId: "user-coach",
+    }),
+  });
+  assert(
+    result.payload.data.db.members.find((member) => member.id === directAssignmentMemberId)?.primaryCoachId === "user-coach",
+    "owner primary coach assignment did not persist",
+  );
+  assert(
+    result.payload.data.db.auditLogs.some(
+      (log) =>
+        log.action === "member.update" &&
+        log.targetId === directAssignmentMemberId &&
+        log.before?.primaryCoachId === "user-owner" &&
+        log.after?.primaryCoachId === "user-coach",
+    ),
+    "primary coach assignment audit log is missing",
+  );
+  const coachAfterDirectAssignment = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    coachAfterDirectAssignment.payload.data.db.members.some((member) => member.id === directAssignmentMemberId),
+    "primary coach assignment must immediately expose the member to the assigned coach",
+  );
+
+  const blockedPrimaryCoachAssignment = await owner.request(
+    `/api/v1/members/${directAssignmentMemberId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        primaryCoachId: "user-guardian",
+      }),
+    },
+    { allowError: true },
+  );
+  assert(
+    blockedPrimaryCoachAssignment.response.status === 422,
+    "member assignment must reject a non-operational account",
+  );
+
   result = await owner.request("/api/v1/admin/users/invitations?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({

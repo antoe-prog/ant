@@ -259,6 +259,85 @@ async function runAssertions(baseUrl) {
   const coachBootstrap = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
   assert.equal(coachBootstrap.payload.data.db.payments.length, 0, "coach bootstrap must not include payment records");
 
+  const assignmentTestMemberCreate = await admin.request(
+    "/api/v1/branches/branch-gangnam/members?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ageGroup: "adult",
+        belt: "흰띠",
+        emergencyContact: `010${String((Number(stampPhoneSuffix) + 9) % 100000000).padStart(8, "0")}`,
+        level: "입문",
+        name: `담당 변경 검증 회원 ${stamp}`,
+        status: "active",
+      }),
+    },
+  );
+  const assignmentTestMemberId = assignmentTestMemberCreate.payload.data.db.members.find(
+    (candidate) => candidate.name === `담당 변경 검증 회원 ${stamp}`,
+  )?.id;
+  assert(assignmentTestMemberId, "primary coach reassignment test member must be created");
+
+  const fallbackMemberAssignment = await admin.request(
+    `/api/v1/members/${assignmentTestMemberId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ primaryCoachId: "user-owner" }),
+    },
+  );
+  assert.equal(
+    fallbackMemberAssignment.payload.data.db.members.find((candidate) => candidate.id === assignmentTestMemberId)?.primaryCoachId,
+    "user-owner",
+    "manager member assignment must allow a same-branch operational fallback",
+  );
+  const coachBeforeMemberAssignment = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    !coachBeforeMemberAssignment.payload.data.db.members.some((candidate) => candidate.id === assignmentTestMemberId),
+    "coach must not see an unenrolled member assigned to another operator",
+  );
+
+  const directCoachAssignment = await admin.request(
+    `/api/v1/members/${assignmentTestMemberId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ primaryCoachId: "user-coach" }),
+    },
+  );
+  assert.equal(
+    directCoachAssignment.payload.data.db.members.find((candidate) => candidate.id === assignmentTestMemberId)?.primaryCoachId,
+    "user-coach",
+    "manager primary coach assignment must persist",
+  );
+  assert(
+    directCoachAssignment.payload.data.db.auditLogs.some(
+      (log) =>
+        log.action === "member.update" &&
+        log.targetId === assignmentTestMemberId &&
+        log.before?.primaryCoachId === "user-owner" &&
+        log.after?.primaryCoachId === "user-coach",
+    ),
+    "manager primary coach assignment must append an audit record",
+  );
+  const coachAfterMemberAssignment = await coach.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    coachAfterMemberAssignment.payload.data.db.members.some((candidate) => candidate.id === assignmentTestMemberId),
+    "manager primary coach assignment must immediately update coach member scope",
+  );
+
+  const blockedNonOperatorAssignment = await admin.request(
+    `/api/v1/members/${assignmentTestMemberId}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ primaryCoachId: "user-guardian" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    blockedNonOperatorAssignment.response.status,
+    422,
+    "member assignment must reject a non-operational account",
+  );
+
   const publicSignupClient = createClient(baseUrl);
   const publicRegisterPhone = `010${stampPhoneSuffix}`;
   const publicSignupBranches = await publicSignupClient.request("/api/v1/auth/register");
@@ -1780,6 +1859,7 @@ async function runAssertions(baseUrl) {
     "user update profile and branch assignment",
     "member-role save auto-provisions a visible branch member profile",
     "primary coach assignment grants immediate assigned-member visibility",
+    "manager primary coach reassignment updates coach scope and audit history",
     "member app link update and bootstrap visibility",
     "adult members are rejected as guardian children",
     "guardian adult self link and family profile validation",
