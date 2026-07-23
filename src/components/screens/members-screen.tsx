@@ -13,6 +13,7 @@ import { useResource } from "@/hooks/use-resource";
 import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
 import { counselingNoteInputLimits } from "@/lib/counseling-note-input-policy";
+import { canReadCounselingNote } from "@/lib/counseling-note-visibility";
 import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
@@ -95,6 +96,7 @@ const noteTypeOptions: Array<{ value: CounselingNote["noteType"]; label: string 
 const noteVisibilityOptions: Array<{ value: CounselingNoteVisibility; label: string }> = [
   { value: "coach_visible", label: "코치에게 공유" },
   { value: "guardian_visible", label: "학부모에게 공유" },
+  { value: "member_visible", label: "회원에게 공유" },
   { value: "staff_only", label: "직원만" },
 ];
 const noteTypeLabels = Object.fromEntries(noteTypeOptions.map((option) => [option.value, option.label])) as Record<
@@ -1341,7 +1343,7 @@ export function MembersScreen() {
           {filteredMembers.map((member, memberIndex) => {
             const showProfileForm = canManageMembers || editingContactMemberId === member.id;
             const memberNotes = (notesByMemberId.get(member.id) ?? []).filter(
-              (note) => !isFamilyRole || note.visibility === "guardian_visible",
+              (note) => !isFamilyRole || canReadCounselingNote(context.user, note),
             );
             const noteListExpanded = isNoteListExpanded(member.id);
             const latestMemberNote = memberNotes[0];

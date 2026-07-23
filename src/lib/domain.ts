@@ -159,7 +159,7 @@ export function getNextBelt(currentBelt: string): string | null {
   return judoBelts[index + 1];
 }
 
-export type CounselingNoteVisibility = "staff_only" | "coach_visible" | "guardian_visible";
+export type CounselingNoteVisibility = "staff_only" | "coach_visible" | "guardian_visible" | "member_visible";
 
 export type CounselingNote = {
   id: string;

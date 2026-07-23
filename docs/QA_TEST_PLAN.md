@@ -112,7 +112,7 @@
 - `npm run test:attendance-speed` 통과
 - `npm run test:mobile-install` 통과. Android 내부 설치용 `android-capacitor-webview-report.json`이 있으면 `INSTALL_ONLY_final-judo-native-webview-debug.apk` 해시/크기, 동등본 `final-judo-native-webview-debug.apk`, APK 내부 런처 아이콘 proof, `INSTALL_ANDROID_WEBVIEW_APK.txt` 설치 가이드, TWA/Bubblewrap `app-debug.apk`와 과거 `mobile/android/twa/app-release-signed.apk` 설치 금지 경로, `DO_NOT_INSTALL_FOR_FIELD_WEBVIEW.txt` 오설치 방지 마커와 주소창 없는 WebView 설치 경고 문구까지 확인
 - `npm run test:android-packaging` 통과. Android 런처/splash/TWA store icon은 `public/icons/final-judo-icon-512.png` 검정 FINAL 심볼 PNG에서 생성되어야 하고, PWA manifest의 stale SVG 우선 노출, SVG 대체 아이콘, Capacitor 기본 템플릿 아이콘이 재유입되면 실패해야 함
-- `npm run test:android-play-release-artifacts` 통과. 최신 Play release report `.data/mobile-builds/android-play-release-20260721064936/google-play-release-report.json`의 `versionCode 40`/`versionName 1.0.39`, 운영 로그인 URL, timestamped AAB/APK, Desktop AAB/APK, jarsigner/apksigner 검증, APK badging이 서로 일치해야 함
+- `npm run test:android-play-release-artifacts` 통과. 최신 Play release report `.data/mobile-builds/android-play-release-20260723180145/google-play-release-report.json`의 `versionCode 43`/`versionName 1.0.42`, 운영 로그인 URL, timestamped AAB/APK, Desktop AAB/APK, jarsigner/apksigner 검증, APK badging이 서로 일치해야 함
 - `npm run test:android-role-apks` 통과
 - `npm run android:twa:doctor` 실행 결과 JSON blockers/ok 상태 확인
 - `npm run test:ios-capacitor-connection` 통과
@@ -255,7 +255,8 @@
 | QA-SCOPE-04 | 학부모 회원 화면에서 자녀 전환 | 연결된 이준/이서만 표시 |
 | QA-SCOPE-05 | 총괄로 `/app/owner/branches` 직접 접근 | 403 권한 없음 화면 |
 | QA-SCOPE-06 | 대표로 `/app/admin/users` 직접 접근 | 403 권한 없음 화면 |
-| QA-SCOPE-07 | 학부모 회원 화면의 상담/주의 메모 확인 | `guardian_visible` 메모만 표시, 코치/스태프 전용 메모 미노출 |
+| QA-SCOPE-07 | 학부모 회원 화면에서 자녀 상담/주의 메모 확인 | 자녀의 `guardian_visible` 메모만 표시, 회원/코치/스태프 전용 메모 미노출 |
+| QA-SCOPE-07A | 회원 계정 또는 본인 수련 프로필이 연결된 학부모 계정으로 본인 상담/주의 메모 확인 | 본인 프로필의 `member_visible` 메모만 표시, 학부모/코치/스태프 전용 메모 미노출. 회원 계정이 연결된 청소년도 같은 정책 적용 |
 | QA-SCOPE-08 | 대표가 `/app/members`에서 학부모를 회원에 연결 | 학부모 재로그인 시 새 자녀가 표시되고 `member.update` 변경 기록 생성 |
 
 ## 5. 모바일 출석 테스트
@@ -654,7 +655,7 @@
 | 2026-06-15 | Codex | local | 모바일 설치 메타데이터 및 오프라인 앱 셸 가드 통과 | 없음 | `npm run test:mobile-install`, iOS/Android PWA manifest, standalone `/app` start URL, 192/512 아이콘, apple web app, viewport/theme color, production 서비스 워커 등록, API 캐시 금지 검증 |
 | 2026-06-15 | Codex | local | 계정 화면 PWA 설치 액션 강화 | 없음 | `npm run test:mobile-install`, `/app/account` 설치 액션, `beforeinstallprompt` 프롬프트, standalone/iOS 설치 상태, 거절/수동 설치 상태, `aria-live` 검증 |
 | 2026-06-16 | Codex | local | Android TWA build 환경 가드 강화 | 실제 Java Runtime/Android SDK/운영 HTTPS 웹앱 도메인 준비 전 APK/AAB 미생성 | `npm run test:android-packaging`, `npm run android:twa:prepare -- --origin=<확정 운영 HTTPS 웹앱 origin> --sha256=<fingerprint> --out-dir=<tmp>`, Java/keytool/sdkmanager/adb/npx/Android SDK home `buildReady/buildBlockers`, Android handoff draft/manifest 검증 |
-| 2026-07-21 | Codex | local | Android Play 비공개 테스트 업로드 파일 갱신 | Desktop AAB/APK가 최신 Play release report와 다른 파일이면 업로드 전 실패 | `npm run test:android-play-release-artifacts`, `.data/mobile-builds/android-play-release-20260721064936/google-play-release-report.json`, `/Users/sny0219/Desktop/final-judo-play-release.aab`, `/Users/sny0219/Desktop/final-judo-release.apk`, `versionCode 40`/`versionName 1.0.39` |
+| 2026-07-24 | Codex | local | Android Play 비공개 테스트 업로드 파일 갱신 | Desktop AAB/APK가 최신 Play release report와 다른 파일이면 업로드 전 실패 | `npm run test:android-play-release-artifacts`, `.data/mobile-builds/android-play-release-20260723180145/google-play-release-report.json`, `/Users/sny0219/Desktop/final-judo-play-release.aab`, `/Users/sny0219/Desktop/final-judo-release.apk`, `versionCode 43`/`versionName 1.0.42` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 결제 정보 재사용 명시 동의 | `/app/payments/checkout`에서 `결제수단과 입력정보를 다음에도 사용`이 기본 해제되고, 사용자가 직접 체크한 뒤에만 다음 납부 재사용 문구가 표시됨 | `npm run test:payment-checkout-method-flow`, `npm run test:p5-p10-internal-readiness`, Browser `saveMethodChecked=false`, iPhone 16e 증빙 `.data/mobile-builds/ios/payment-checkout-save-opt-in-20260705/payment-checkout-save-opt-in-ios-sim.png` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 우리WON페이 모달 결제 오인 문구 정리 | `/app/payments/checkout` 우리카드 모달이 실제 결제 완료처럼 보이지 않고 선택 확인/도장 안내 후 진행 문구로 표시됨 | `npm run test:payment-checkout-method-flow`, `npm run test:p5-p10-internal-readiness`, Browser modal copy, iPhone 16e 증빙 `.data/mobile-builds/ios/payment-checkout-woori-copy-ios-20260705/payment-checkout-woori-copy-ios-sim.png` |
 | 2026-07-05 | Codex | Browser 390px + iOS Simulator | 결제 확인 피드백 live region | `/app/payments/checkout`에서 `납부 정보 확인` 후 나타나는 피드백을 `role=status`와 `aria-live=polite`로 전달해 보조기술도 확인 상태를 받을 수 있게 함 | `npm run test:payment-checkout-method-flow`, Browser `confirmationFeedbackA11y.role=status`, `ariaLive=polite`, iPhone 16e `.data/mobile-builds/ios/payment-checkout-feedback-a11y-20260705/payment-checkout-feedback-a11y-ios-sim.png`, summary `.data/mobile-builds/ios/payment-checkout-feedback-a11y-20260705/summary.json` |

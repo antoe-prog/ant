@@ -34,6 +34,7 @@ const files = {
   devAutoLoginRoute: "src/app/api/v1/dev/auto-login/route.ts",
   installAppAction: "src/components/pwa/install-app-action.tsx",
   classesScreen: "src/components/screens/classes-screen.tsx",
+  counselingNoteVisibility: "src/lib/counseling-note-visibility.ts",
   childSwitcher: "src/components/domain/child-switcher.tsx",
   familyClassCalendar: "src/components/domain/family-class-calendar.tsx",
   dashboardScreen: "src/components/screens/dashboard-screen.tsx",
@@ -8627,7 +8628,16 @@ assertIncludes(
 );
 assertIncludes(sources.membersScreen, 'data-testid="family-member-alert-strip"', "member and guardian safety notes use a compact alert strip");
 assertIncludes(sources.membersScreen, "min-h-11 min-w-0 items-center gap-2", "member and guardian safety notes keep a stable 44px scan height");
-assertIncludes(sources.membersScreen, 'note.visibility === "guardian_visible"', "member and guardian feedback only uses family-visible notes");
+assertIncludes(
+  sources.membersScreen,
+  "canReadCounselingNote(context.user, note)",
+  "member and guardian feedback uses the shared role-aware visibility policy",
+);
+assertIncludes(
+  sources.counselingNoteVisibility,
+  'note.visibility === "member_visible"',
+  "member and guardian self profiles use member-visible counseling notes",
+);
 assertIncludes(sources.membersScreen, 'data-testid={isFamilyRole ? "family-member-feedback-heading" : undefined}', "member and guardian feedback heading marker");
 assertIncludes(sources.membersScreen, '"family-member-feedback-card"', "member and guardian feedback card marker");
 assert.equal(memberContactEditCollapseReport.ok, true, "member contact edit collapse evidence must pass");

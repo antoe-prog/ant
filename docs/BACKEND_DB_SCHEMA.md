@@ -216,7 +216,7 @@ CREATE TYPE enrollment_type AS ENUM ('regular', 'trial');
 CREATE TYPE attendance_status AS ENUM ('present', 'absent', 'late', 'excused');
 CREATE TYPE notice_status AS ENUM ('draft', 'published', 'archived');
 CREATE TYPE notice_target_type AS ENUM ('branch', 'class', 'member', 'guardian', 'role');
-CREATE TYPE note_visibility AS ENUM ('staff_only', 'coach_visible', 'guardian_visible');
+CREATE TYPE note_visibility AS ENUM ('staff_only', 'coach_visible', 'guardian_visible', 'member_visible');
 CREATE TYPE membership_status AS ENUM ('pending', 'active', 'paused', 'expired', 'cancelled');
 CREATE TYPE membership_type AS ENUM ('monthly', 'session_pack', 'trial', 'custom');
 CREATE TYPE payment_status AS ENUM ('scheduled', 'paid', 'overdue', 'expiringSoon', 'cancelled', 'refunded', 'partially_refunded');

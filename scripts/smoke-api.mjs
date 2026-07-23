@@ -1291,7 +1291,7 @@ async function run() {
     "owner member profile update audit log missing linked user sync",
   );
 
-  const directAssignmentMemberName = `Smoke Assignment Member ${stamp}`;
+  const directAssignmentMemberName = `Smoke Assign ${String(stamp).slice(-10)}`;
   result = await owner.request("/api/v1/branches/branch-gangnam/members?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({
@@ -1869,6 +1869,25 @@ async function run() {
     "member update must not disclose whether an inaccessible member exists",
   );
 
+  const memberVisibleCounselingBody = `Smoke member-visible counseling note ${stamp}`;
+  result = await owner.request(
+    "/api/v1/branches/branch-gangnam/members/member-minjae/counseling-notes?selectedBranchId=branch-gangnam",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body: memberVisibleCounselingBody,
+        noteType: "progress",
+        visibility: "member_visible",
+      }),
+    },
+  );
+  assert(
+    result.payload.data.db.counselingNotes.some(
+      (note) => note.body === memberVisibleCounselingBody && note.visibility === "member_visible",
+    ),
+    "member-visible counseling note create did not persist",
+  );
+
   const memberClient = createClient();
   result = await login(memberClient, "member");
   const memberUserId = result.user.id;
@@ -1907,6 +1926,15 @@ async function run() {
   assert(
     result.db.members.length === 1 && result.db.members[0].id === "member-minjae",
     "member must only see own member profile",
+  );
+  assert(
+    result.db.members[0].ageGroup === "teen",
+    "member visibility smoke must keep the teen member profile established earlier in the flow",
+  );
+  assert(
+    result.db.counselingNotes.some((note) => note.body === memberVisibleCounselingBody) &&
+      result.db.counselingNotes.every((note) => note.visibility === "member_visible"),
+    "member must only see member-visible counseling notes for the connected profile",
   );
 
   const guardianAttendanceQrIssue = await guardian.request(

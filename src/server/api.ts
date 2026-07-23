@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { AppUser, CounselingNote, MemberMembershipSummary, MockDatabase, Payment } from "@/lib/domain";
+import { canReadCounselingNote } from "@/lib/counseling-note-visibility";
+import type { AppUser, MemberMembershipSummary, MockDatabase, Payment } from "@/lib/domain";
 import {
   canReadNotice,
   getAccessibleBranchIds,
@@ -332,18 +333,6 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     pilotOperationLogs: globalAdminDataAccess ? db.pilotOperationLogs : [],
     auditLogs,
   };
-}
-
-function canReadCounselingNote(user: AppUser, note: CounselingNote) {
-  if (user.role === "admin" || user.role === "owner") {
-    return true;
-  }
-
-  if (user.role === "coach") {
-    return note.visibility === "coach_visible" || note.visibility === "guardian_visible";
-  }
-
-  return note.visibility === "guardian_visible";
 }
 
 export function createBootstrapPayload(db: MockDatabase, user: AppUser, requestedBranchId: string | null) {

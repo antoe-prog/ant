@@ -273,7 +273,7 @@
 
 보호자 연결·변경·해제 payload는 JSON 객체의 200자 이하 문자열 `guardianUserId`를 받으며 객체·배열형 값과 초과 입력은 관계를 변경하지 않고 `400 VALIDATION_ERROR`로 차단한다. 서버는 대표/총괄 권한과 회원 지점 스코프를 본문보다 먼저 확인하고, JSON 본문은 공통 관계 잠금 밖에서 읽는다. 저장 직전에는 잠금 안에서 최신 세션·권한·지점·연령·활성 학부모 상태를 다시 확인한 뒤 회원의 `guardianIds`와 학부모 계정의 `childMemberIds`를 함께 갱신한다. 관리 범위 밖 회원은 존재하지 않는 회원과 같은 `404 NOT_FOUND`, 연결할 수 없는 실재 학부모와 존재하지 않는 학부모는 같은 `422 BUSINESS_RULE_FAILED`로 처리한다. 연결되지 않은 학부모 해제는 계정 존재 여부와 관계없이 멱등 성공해 사용자 ID 오라클을 만들지 않는다. 중복 연결도 멱등 처리하며 실제 변경은 UUID 기반 ID의 `member.update` 감사 로그에 남겨 서로 다른 회원의 동시 연결 기록도 모두 보존한다.
 
-상담/주의 메모 payload는 JSON 객체의 2,000자 이하 문자열 `body`, `noteType`(`general`, `caution`, `progress`, `follow_up`), `visibility`(`staff_only`, `coach_visible`, `guardian_visible`)를 받는다. 객체형 본문, 비문자 유형·공개 범위, 2,000자 초과 본문은 메모·감사 기록을 만들지 않고 `400 VALIDATION_ERROR`로 차단한다. 작성 UI도 동일한 본문 상한을 사용한다. 메모와 감사 ID는 UUID 기반 런타임 ID를 사용해 같은 회원에게 동시에 작성한 메모도 모두 보존한다. 코치는 담당 회원에게 `coach_visible`, `guardian_visible` 메모만 작성할 수 있고, 학부모/회원은 `guardian_visible` 메모만 조회한다. 감사 로그에는 메모 본문 원문을 저장하지 않는다.
+상담/주의 메모 payload는 JSON 객체의 2,000자 이하 문자열 `body`, `noteType`(`general`, `caution`, `progress`, `follow_up`), `visibility`(`staff_only`, `coach_visible`, `guardian_visible`, `member_visible`)를 받는다. 객체형 본문, 비문자 유형·공개 범위, 2,000자 초과 본문은 메모·감사 기록을 만들지 않고 `400 VALIDATION_ERROR`로 차단한다. 작성 UI도 동일한 본문 상한을 사용한다. 메모와 감사 ID는 UUID 기반 런타임 ID를 사용해 같은 회원에게 동시에 작성한 메모도 모두 보존한다. 코치는 담당 회원에게 `coach_visible`, `guardian_visible`, `member_visible` 메모를 작성할 수 있다. 회원 계정은 연결된 본인 프로필의 `member_visible` 메모만, 학부모 계정은 자녀 프로필의 `guardian_visible` 메모와 연결된 본인 프로필의 `member_visible` 메모만 조회한다. 감사 로그에는 메모 본문 원문을 저장하지 않는다.
 
 ## 7. 수업/출석
 

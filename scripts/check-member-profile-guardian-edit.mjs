@@ -21,6 +21,7 @@ const [
   memberAgePolicySource,
   memberInputPolicySource,
   counselingNotePolicySource,
+  counselingNoteVisibilityPolicySource,
   counselingNoteRouteSource,
   smokeApiSource,
   adminUserManagementApiSource,
@@ -40,6 +41,7 @@ const [
   readFile("src/lib/member-age-policy.ts", "utf8"),
   readFile("src/lib/member-input-policy.ts", "utf8"),
   readFile("src/lib/counseling-note-input-policy.ts", "utf8"),
+  readFile("src/lib/counseling-note-visibility.ts", "utf8"),
   readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/route.ts", "utf8"),
   readFile("scripts/smoke-api.mjs", "utf8"),
   readFile("scripts/check-admin-user-management-api.mjs", "utf8"),
@@ -184,6 +186,17 @@ assert(
     membersScreenSource.includes("maxLength={counselingNoteInputLimits.bodyLength}") &&
     membersScreenSource.includes('data-testid="member-note-body"'),
   "counseling note API and editor must share a bounded body policy",
+);
+assert(
+    counselingNoteRouteSource.includes('"member_visible"') &&
+    membersScreenSource.includes('{ value: "member_visible", label: "회원에게 공유" }') &&
+    membersScreenSource.includes("canReadCounselingNote(context.user, note)") &&
+    smokeApiSource.includes("memberVisibleCounselingBody") &&
+    smokeApiSource.includes('note.visibility === "member_visible"') &&
+    counselingNoteVisibilityPolicySource.includes('viewer.role === "member"') &&
+    counselingNoteVisibilityPolicySource.includes('note.visibility === "member_visible"') &&
+    counselingNoteVisibilityPolicySource.includes("const isSelfProfile"),
+  "counseling note sharing must expose a member option and distinguish guardian self from child visibility",
 );
 assert(
   (memberRouteSource.match(/if \(!(?:initialCanReadMember|canReadMember)\) \{[\s\S]{0,160}jsonError\(404, "NOT_FOUND", "회원을 찾을 수 없습니다\."\)/g)?.length ?? 0) === 2,

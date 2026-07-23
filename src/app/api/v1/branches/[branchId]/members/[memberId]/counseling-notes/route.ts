@@ -8,7 +8,12 @@ import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
-const noteVisibilities: CounselingNoteVisibility[] = ["staff_only", "coach_visible", "guardian_visible"];
+const noteVisibilities: CounselingNoteVisibility[] = [
+  "staff_only",
+  "coach_visible",
+  "guardian_visible",
+  "member_visible",
+];
 const noteTypes: CounselingNote["noteType"][] = ["general", "caution", "progress", "follow_up"];
 
 type CounselingNoteCreateBody = {

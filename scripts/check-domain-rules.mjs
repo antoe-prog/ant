@@ -11,6 +11,7 @@ const notices = await import("../src/lib/notices.ts");
 const promotions = await import("../src/lib/promotions.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
 const classRecurrence = await import("../src/lib/class-recurrence.ts");
+const counselingNoteVisibility = await import("../src/lib/counseling-note-visibility.ts");
 const finalMainSchedule = await import("../src/lib/final-main-schedule-policy.ts");
 const [
   paymentsExportRouteSource,
@@ -197,6 +198,65 @@ const db = {
   ],
   auditLogs: [],
 };
+
+const visibilityCases = [
+  {
+    expected: true,
+    label: "member account can read a member-visible note",
+    note: { memberId: "member-jun", visibility: "member_visible" },
+    viewer: { memberIds: ["member-jun"], role: "member" },
+  },
+  {
+    expected: false,
+    label: "member account cannot read a guardian-visible note",
+    note: { memberId: "member-jun", visibility: "guardian_visible" },
+    viewer: { memberIds: ["member-jun"], role: "member" },
+  },
+  {
+    expected: true,
+    label: "guardian can read a member-visible note on the guardian self profile",
+    note: { memberId: "member-adult-self", visibility: "member_visible" },
+    viewer: { memberIds: ["member-adult-self"], role: "guardian" },
+  },
+  {
+    expected: false,
+    label: "guardian cannot read a guardian-visible note on the guardian self profile",
+    note: { memberId: "member-adult-self", visibility: "guardian_visible" },
+    viewer: { memberIds: ["member-adult-self"], role: "guardian" },
+  },
+  {
+    expected: true,
+    label: "guardian can read a guardian-visible child note",
+    note: { memberId: "member-jun", visibility: "guardian_visible" },
+    viewer: { memberIds: ["member-adult-self"], role: "guardian" },
+  },
+  {
+    expected: false,
+    label: "guardian cannot read a member-visible child note",
+    note: { memberId: "member-jun", visibility: "member_visible" },
+    viewer: { memberIds: ["member-adult-self"], role: "guardian" },
+  },
+  {
+    expected: true,
+    label: "coach can read a member-visible note",
+    note: { memberId: "member-jun", visibility: "member_visible" },
+    viewer: { role: "coach" },
+  },
+  {
+    expected: false,
+    label: "coach cannot read a staff-only note",
+    note: { memberId: "member-jun", visibility: "staff_only" },
+    viewer: { role: "coach" },
+  },
+];
+
+for (const testCase of visibilityCases) {
+  assert.equal(
+    counselingNoteVisibility.canReadCounselingNote(testCase.viewer, testCase.note),
+    testCase.expected,
+    testCase.label,
+  );
+}
 
 const weeklyClassRecurrence = classRecurrence.getClassWeeklyRecurrence({
   mode: "weekly",
@@ -921,6 +981,14 @@ assert.equal(
   false,
   "audit ranges with a start after the end must be rejected",
 );
+assert(
+  classesScreenSource.includes("const [otherDateClassesOpen, setOtherDateClassesOpen] = useState(false)") &&
+    classesScreenSource.includes('data-testid="coach-other-date-classes-toggle"') &&
+    classesScreenSource.includes('aria-controls="coach-other-date-classes-list"') &&
+    classesScreenSource.includes("otherDateClassesOpen ? (") &&
+    classesScreenSource.includes('{otherDateClassesOpen ? "감추기" : "보기"}'),
+  "coach classes must keep other-date schedules collapsed by default with an accessible show/hide control",
+);
 
 console.log(
   JSON.stringify(
@@ -951,6 +1019,8 @@ console.log(
         "payment confirmation invalidation and keyboard tabs",
         "family notice push member context",
         "dashboard full notice count scope",
+        "member, guardian, and coach counseling note visibility",
+        "coach other-date class schedule collapse",
       ],
     },
     null,

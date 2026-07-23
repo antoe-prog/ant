@@ -335,6 +335,7 @@ export function ClassesScreen() {
   const [coachClassListExpanded, setCoachClassListExpanded] = useState(false);
   const [coachToolsOpen, setCoachToolsOpen] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
+  const [otherDateClassesOpen, setOtherDateClassesOpen] = useState(false);
   const [screenReferenceTime, setScreenReferenceTime] = useState(() => Date.now());
   const [familyCalendarMonth, setFamilyCalendarMonth] = useState(() => formatDateKey(new Date()).slice(0, 7));
   const [selectedFamilyDateKey, setSelectedFamilyDateKey] = useState<string | null>(null);
@@ -2393,23 +2394,38 @@ export function ClassesScreen() {
 
       {otherDateCoachSessions.length > 0 ? (
         <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-3" aria-labelledby="coach-other-date-classes-title">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-zinc-950" id="coach-other-date-classes-title">다른 날짜 수업</h2>
-            <span className="text-xs font-semibold text-zinc-500">일정 확인만 가능</span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-950" id="coach-other-date-classes-title">다른 날짜 수업</h2>
+              <p className="mt-0.5 text-xs text-zinc-500">일정 확인만 가능 · {otherDateCoachSessions.length}개</p>
+            </div>
+            <button
+              aria-controls="coach-other-date-classes-list"
+              aria-expanded={otherDateClassesOpen}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+              data-testid="coach-other-date-classes-toggle"
+              type="button"
+              onClick={() => setOtherDateClassesOpen((current) => !current)}
+            >
+              {otherDateClassesOpen ? <ChevronUp className="h-4 w-4" aria-hidden /> : <ChevronDown className="h-4 w-4" aria-hidden />}
+              {otherDateClassesOpen ? "감추기" : "보기"}
+            </button>
           </div>
-          <div className="mt-2 divide-y divide-zinc-100">
-            {otherDateCoachSessions.map((session) => (
-              <article className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 first:pt-0 last:pb-0" key={session.id}>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-zinc-900">{session.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-zinc-500">{session.room} · {session.enrolledMemberIds.length}명</p>
-                </div>
-                <p className="shrink-0 text-right text-xs font-semibold text-zinc-700">
-                  {formatDate(session.startsAt)} · {formatCompactTimeRange(session.startsAt, session.endsAt)}
-                </p>
-              </article>
-            ))}
-          </div>
+          {otherDateClassesOpen ? (
+            <div className="mt-2 divide-y divide-zinc-100" id="coach-other-date-classes-list">
+              {otherDateCoachSessions.map((session) => (
+                <article className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 first:pt-0 last:pb-0" key={session.id}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-900">{session.name}</p>
+                    <p className="mt-0.5 truncate text-xs text-zinc-500">{session.room} · {session.enrolledMemberIds.length}명</p>
+                  </div>
+                  <p className="shrink-0 text-right text-xs font-semibold text-zinc-700">
+                    {formatDate(session.startsAt)} · {formatCompactTimeRange(session.startsAt, session.endsAt)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
