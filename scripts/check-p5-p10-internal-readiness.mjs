@@ -4809,10 +4809,12 @@ for (const snippet of [
   "const [memberCreateFormOpen, setMemberCreateFormOpen] = useState(false);",
   'data-testid="member-invite-panel"',
   'data-testid="member-invite-toggle"',
+  'testId="member-invite-dialog"',
   'id="member-invite-form"',
   "inviteFormOpen ? (",
   'data-testid="member-create-panel"',
   'data-testid="member-create-toggle"',
+  'testId="member-create-dialog"',
   'id="member-create-form"',
   "memberCreateFormOpen ? (",
   'data-testid={`member-profile-name-input-${member.id}`}',
@@ -4820,6 +4822,8 @@ for (const snippet of [
   'data-testid={`member-age-group-select-${member.id}`}',
   'data-testid={`member-profile-submit-${member.id}`}',
   'data-testid={`member-profile-feedback-${member.id}`}',
+  'data-testid={`member-delete-open-${member.id}`}',
+  'data-testid="member-delete-confirm"',
   'data-testid={`member-minor-guardian-warning-${member.id}`}',
   "sourceMemberSignature: getProfileMemberSignature(member)",
   "profileDraftTouchesEditableField",
@@ -5408,8 +5412,10 @@ assertIncludes(
   'className="order-2 grid gap-2 xl:gap-3"',
   "owner dashboard risk summary appears below branch comparison on mobile",
 );
-assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-branch-detail"', "owner dashboard branch detail stays behind toggle");
-assertIncludes(sources.dashboardScreen, 'data-testid="owner-dashboard-payment-risk-detail"', "owner dashboard payment risk detail stays behind toggle");
+assertExcludes(sources.dashboardScreen, 'data-testid="owner-dashboard-branch-detail"', "owner dashboard retired branch detail panel");
+assertExcludes(sources.dashboardScreen, 'data-testid="owner-dashboard-payment-risk-detail"', "owner dashboard retired payment risk detail panel");
+assertExcludes(sources.dashboardScreen, ">운영 지점<", "owner dashboard retired branch detail heading");
+assertExcludes(sources.dashboardScreen, ">결제 위험 회원<", "owner dashboard retired payment risk detail heading");
 assertIncludes(sources.dashboardScreen, "aria-expanded={showOwnerDashboardDetails}", "owner dashboard detail toggle expanded state");
 assertIncludes(sources.dashboardScreen, 'className="min-w-0 px-3 py-1.5"', "owner dashboard branch comparison row compact spacing");
 assertIncludes(sources.dashboardScreen, 'className="mt-0.5 truncate text-xs leading-4 text-zinc-500"', "owner dashboard branch comparison meta stays readable on one line");

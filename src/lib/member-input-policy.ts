@@ -4,6 +4,7 @@ export const memberInputLimits = {
   alertLength: 80,
   alertsTextLength: 647,
   beltLength: 30,
+  deleteReasonLength: 200,
   emergencyContactLength: 40,
   levelLength: 30,
   nameLength: 30,

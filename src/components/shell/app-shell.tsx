@@ -262,6 +262,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const routes = getVisibleRoutes(user.role);
   const mobileRoutes = getMobileVisibleRoutes(user.role, pathname);
   const mobileSecondaryRoutes = getMobileSecondaryRoutes(user.role);
+  const usesMobileMenuNavigation = user.role === "member" || user.role === "guardian";
+  const mobileMenuRoutes = usesMobileMenuNavigation
+    ? [...mobileRoutes, ...mobileSecondaryRoutes].filter(
+        (route, index, items) => items.findIndex((candidate) => candidate.id === route.id) === index,
+      )
+    : mobileSecondaryRoutes;
+  const showMobileBottomNavigation = !usesMobileMenuNavigation;
   const denseMobileNav = mobileRoutes.length > 5;
   const fixedMobileNav = mobileRoutes.length <= 5;
   const branches = db.branches.filter((branch) => accessibleBranchIds.includes(branch.id));
@@ -272,7 +279,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const mobileAccountMenuOpen = mobileAccountMenuPath === pathname;
   const isAccountRoute = pathname === "/app/account" || pathname.startsWith("/app/account/");
   const mobileSecondaryRouteActive =
-    isAccountRoute || mobileSecondaryRoutes.some((route) => isRouteActive(route, pathname));
+    isAccountRoute || mobileMenuRoutes.some((route) => isRouteActive(route, pathname));
   const isFamilyNoticeRoute =
     (user.role === "member" || user.role === "guardian") &&
     (pathname === "/app/notices" || pathname.startsWith("/app/notices/"));
@@ -288,7 +295,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ? getRouteLabel(currentRoute, user.role)
           : null
     : null;
-  const mobileSecondaryGroupLabel = user.role === "member" || user.role === "guardian" ? "추가 메뉴" : "관리 메뉴";
+  const hideFamilyMobileContext =
+    (user.role === "member" || user.role === "guardian") &&
+    ["/app/dashboard", "/app/classes", "/app/members", "/app/payments", "/app/promotions", "/app/tournaments"].includes(pathname);
+  const visibleMobileContextLabel = hideFamilyMobileContext ? null : mobileContextLabel;
+  const mobileSecondaryGroupLabel = usesMobileMenuNavigation ? "메뉴" : "관리 메뉴";
   const notificationScopeUser =
     user.role === "guardian" && selectedGuardianMemberId
       ? getGuardianMemberRelation(user, { id: selectedGuardianMemberId }) === "self"
@@ -455,7 +466,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </button>
                   {mobileAccountMenuOpen ? (
                     <div
-                      className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-64 rounded-lg border border-zinc-200 bg-white p-2 shadow-xl"
+                      className="absolute right-0 top-[calc(100%+0.5rem)] z-40 max-h-[calc(100dvh-6rem-env(safe-area-inset-top))] w-64 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-xl"
                       data-testid="mobile-account-menu"
                       id="mobile-account-menu"
                     >
@@ -488,10 +499,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           </span>
                         </label>
                       ) : null}
-                      {mobileSecondaryRoutes.length > 0 ? (
+                      {mobileMenuRoutes.length > 0 ? (
                         <div className="border-b border-zinc-100 py-1" data-testid="mobile-account-secondary-routes">
                           <p className="px-2 py-1 text-[11px] font-semibold text-zinc-500">{mobileSecondaryGroupLabel}</p>
-                          {mobileSecondaryRoutes.map((route) => {
+                          {mobileMenuRoutes.map((route) => {
                             const Icon = navIcons[route.id];
                             const active = isRouteActive(route, pathname);
 
@@ -553,7 +564,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          {branches.length > 1 || mobileContextLabel ? (
+          {branches.length > 1 || visibleMobileContextLabel ? (
             <div
               className="flex min-h-8 items-center gap-1.5 border-t border-zinc-100 px-4 text-xs sm:hidden"
               data-testid="mobile-branch-scope"
@@ -567,17 +578,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                 </>
               ) : null}
-              {branches.length > 1 && mobileContextLabel ? <span aria-hidden className="text-zinc-300">·</span> : null}
-              {mobileContextLabel ? (
+              {branches.length > 1 && visibleMobileContextLabel ? <span aria-hidden className="text-zinc-300">·</span> : null}
+              {visibleMobileContextLabel ? (
                 <span className="min-w-0 truncate font-semibold text-teal-800" data-testid="mobile-current-route-context">
-                  {roleLabels[user.role]} · {mobileContextLabel}
+                  {roleLabels[user.role]} · {visibleMobileContextLabel}
                 </span>
               ) : null}
             </div>
           ) : null}
         </header>
 
-        <main className="flex-1 px-4 pb-[calc(6.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:px-8 lg:pb-8" data-app-shell-background>
+        <main
+          className={`flex-1 px-4 pt-5 sm:px-6 lg:px-8 lg:pb-8 ${
+            showMobileBottomNavigation
+              ? "pb-[calc(6.25rem+env(safe-area-inset-bottom))]"
+              : "pb-[calc(2rem+env(safe-area-inset-bottom))]"
+          }`}
+          data-app-shell-background
+        >
           {operationError ? (
             <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-900" role="alert">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden />
@@ -670,61 +688,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ) : null}
 
-        <nav
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white px-2 py-2 shadow-[0_-8px_20px_rgba(24,24,27,0.08)] lg:hidden"
-          aria-label="모바일 메뉴"
-          data-app-shell-background
-          data-testid="mobile-bottom-navigation"
-          style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
-        >
-          <div
-            className={`mx-auto w-full max-w-[22.25rem] pb-1 ${
-              fixedMobileNav
-                ? "grid gap-1"
-                : `flex snap-x overflow-x-auto scroll-px-4 [-webkit-overflow-scrolling:touch] ${denseMobileNav ? "gap-0.5" : "gap-1"}`
-            }`}
-            data-testid="mobile-bottom-navigation-scroller"
-            ref={mobileNavScrollRef}
-            style={fixedMobileNav ? { gridTemplateColumns: `repeat(${mobileRoutes.length}, minmax(0, 1fr))` } : undefined}
+        {showMobileBottomNavigation ? (
+          <nav
+            className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white px-2 py-2 shadow-[0_-8px_20px_rgba(24,24,27,0.08)] lg:hidden"
+            aria-label="모바일 메뉴"
+            data-app-shell-background
+            data-testid="mobile-bottom-navigation"
+            style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
           >
-            {mobileRoutes.map((route) => {
-              const Icon = navIcons[route.id];
-              const active = (route.id === "notices" && isNotificationRoute) || isRouteActive(route, pathname);
-              const routeLabel = getRouteLabel(route, user.role);
-              const mobileRouteHref = route.href;
-              const mobileRouteLabel = routeLabel;
-              const mobileRouteAriaLabel =
-                route.id === "notices" && hasUnreadNotices
-                  ? `${mobileRouteLabel}, 미확인 공지 ${unreadNoticeCount}건`
-                  : undefined;
+            <div
+              className={`mx-auto w-full max-w-[22.25rem] pb-1 ${
+                fixedMobileNav
+                  ? "grid gap-1"
+                  : `flex snap-x overflow-x-auto scroll-px-4 [-webkit-overflow-scrolling:touch] ${denseMobileNav ? "gap-0.5" : "gap-1"}`
+              }`}
+              data-testid="mobile-bottom-navigation-scroller"
+              ref={mobileNavScrollRef}
+              style={fixedMobileNav ? { gridTemplateColumns: `repeat(${mobileRoutes.length}, minmax(0, 1fr))` } : undefined}
+            >
+              {mobileRoutes.map((route) => {
+                const Icon = navIcons[route.id];
+                const active = (route.id === "notices" && isNotificationRoute) || isRouteActive(route, pathname);
+                const routeLabel = getRouteLabel(route, user.role);
+                const mobileRouteHref = route.href;
+                const mobileRouteLabel = routeLabel;
+                const mobileRouteAriaLabel =
+                  route.id === "notices" && hasUnreadNotices
+                    ? `${mobileRouteLabel}, 미확인 공지 ${unreadNoticeCount}건`
+                    : undefined;
 
-              return (
-                <Link
-                  ref={active ? activeMobileNavRef : undefined}
-                  className={`relative flex h-14 flex-col items-center justify-center gap-1 rounded-md font-semibold transition ${
-                    fixedMobileNav
-                      ? "min-w-0 px-0.5 text-xs"
-                      : denseMobileNav
-                        ? "min-w-12 shrink-0 snap-center px-0.5 text-[11px]"
-                        : "min-w-[3.5rem] shrink-0 snap-center px-1 text-xs"
-                  } ${
-                    active ? "bg-teal-700 text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
-                  }`}
-                  href={mobileRouteHref}
-                  data-mobile-route-id={route.id}
-                  data-active-mobile-nav={active ? "true" : undefined}
-                  aria-current={active ? "page" : undefined}
-                  aria-label={mobileRouteAriaLabel}
-                  key={route.id}
-                >
-                  <Icon className="h-4 w-4" aria-hidden />
-                  <span className="block max-w-full truncate text-center leading-none">{mobileRouteLabel}</span>
-                  {route.id === "notices" ? renderNotificationBadge("mobile-notice-unread-badge", "mobile", true) : null}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
+                return (
+                  <Link
+                    ref={active ? activeMobileNavRef : undefined}
+                    className={`relative flex h-14 flex-col items-center justify-center gap-1 rounded-md font-semibold transition ${
+                      fixedMobileNav
+                        ? "min-w-0 px-0.5 text-xs"
+                        : denseMobileNav
+                          ? "min-w-12 shrink-0 snap-center px-0.5 text-[11px]"
+                          : "min-w-[3.5rem] shrink-0 snap-center px-1 text-xs"
+                    } ${
+                      active ? "bg-teal-700 text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                    href={mobileRouteHref}
+                    data-mobile-route-id={route.id}
+                    data-active-mobile-nav={active ? "true" : undefined}
+                    aria-current={active ? "page" : undefined}
+                    aria-label={mobileRouteAriaLabel}
+                    key={route.id}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden />
+                    <span className="block max-w-full truncate text-center leading-none">{mobileRouteLabel}</span>
+                    {route.id === "notices" ? renderNotificationBadge("mobile-notice-unread-badge", "mobile", true) : null}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        ) : null}
       </div>
     </div>
     </SafeSignOutContext.Provider>

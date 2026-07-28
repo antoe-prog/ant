@@ -19,6 +19,9 @@ type MemberPatchPayload = Partial<
   birthDate?: string;
   address?: string;
 };
+type MemberDeletePayload = {
+  reason?: unknown;
+};
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : null;
@@ -416,4 +419,211 @@ async function patchMember(request: NextRequest, memberId: string, body: MemberP
   });
 
   return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ memberId: string }> },
+) {
+  const { memberId } = await params;
+  const initialDb = await readServerDb();
+  const { user: initialUser, response: initialResponse } = requireSession(request, initialDb);
+
+  if (!initialUser) {
+    return initialResponse;
+  }
+
+  if (!["owner", "admin"].includes(initialUser.role)) {
+    return jsonError(403, "FORBIDDEN", "대표 또는 총괄 어드민만 회원을 삭제할 수 있습니다.");
+  }
+
+  const initialMember = initialDb.members.find((candidate) => candidate.id === memberId);
+
+  if (!initialMember || !getAccessibleBranchIds(initialUser, initialDb).includes(initialMember.branchId)) {
+    return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
+  }
+
+  const initialScope = requireSelectedBranchScope(request, initialUser, initialDb);
+
+  if (initialScope.response) {
+    return initialScope.response;
+  }
+
+  if (initialScope.selectedBranchId && initialScope.selectedBranchId !== initialMember.branchId) {
+    return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+  }
+
+  const rawBody = await request.json().catch(() => null);
+
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    return jsonError(400, "VALIDATION_ERROR", "회원 삭제 정보를 확인해 주세요.");
+  }
+
+  const body = rawBody as MemberDeletePayload;
+
+  if (typeof body.reason !== "string") {
+    return jsonError(400, "VALIDATION_ERROR", "회원 삭제 사유의 형식이 올바르지 않습니다.");
+  }
+
+  const reason = body.reason.trim();
+
+  if (!reason) {
+    return jsonError(400, "VALIDATION_ERROR", "회원 삭제 사유가 필요합니다.");
+  }
+
+  if (reason.length > memberInputLimits.deleteReasonLength) {
+    return jsonError(
+      400,
+      "VALIDATION_ERROR",
+      `회원 삭제 사유는 ${memberInputLimits.deleteReasonLength}자 이내로 입력해 주세요.`,
+    );
+  }
+
+  return withServerDbLock(`member-profile:${memberId}`, async () => {
+    const db = await readServerDb();
+    const { user, response } = requireSession(request, db);
+
+    if (!user) {
+      return response;
+    }
+
+    if (!["owner", "admin"].includes(user.role)) {
+      return jsonError(403, "FORBIDDEN", "대표 또는 총괄 어드민만 회원을 삭제할 수 있습니다.");
+    }
+
+    const member = db.members.find((candidate) => candidate.id === memberId);
+
+    if (!member || !getAccessibleBranchIds(user, db).includes(member.branchId)) {
+      return jsonError(404, "NOT_FOUND", "회원을 찾을 수 없습니다.");
+    }
+
+    const selectedScope = requireSelectedBranchScope(request, user, db);
+
+    if (selectedScope.response) {
+      return selectedScope.response;
+    }
+
+    if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
+      return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+    }
+
+    const removedClassEnrollmentCount = db.classes.filter((session) =>
+      session.enrolledMemberIds.includes(member.id),
+    ).length;
+    const removedAttendanceCount = db.attendance.filter((record) => record.memberId === member.id).length;
+    const removedPaymentCount = db.payments.filter((payment) => payment.memberId === member.id).length;
+    const removedPromotionCount = db.promotions.filter((promotion) => promotion.memberId === member.id).length;
+    const removedCounselingNoteCount = db.counselingNotes.filter((note) => note.memberId === member.id).length;
+    const removedNoticeTargetCount = db.notices.filter((notice) =>
+      (notice.targetMemberIds ?? []).includes(member.id),
+    ).length;
+    const removedQrRedemptionCount = db.attendanceQrChallenges.filter((challenge) =>
+      challenge.redeemedMemberIds.includes(member.id),
+    ).length;
+    const removedTournamentRegistrationCount = db.tournaments.reduce(
+      (count, tournament) =>
+        count + (tournament.registrations ?? []).filter((registration) => registration.memberId === member.id).length,
+      0,
+    );
+    const deletedUserIds = new Set(
+      db.users
+        .filter((candidate) => {
+          if (
+            candidate.id === user.id ||
+            candidate.role !== "member" ||
+            !(candidate.memberIds ?? []).includes(member.id)
+          ) {
+            return false;
+          }
+
+          return (candidate.memberIds ?? []).filter((candidateMemberId) => candidateMemberId !== member.id).length === 0;
+        })
+        .map((candidate) => candidate.id),
+    );
+    const deletedSubscriptionIds = new Set(
+      db.pushSubscriptions
+        .filter((subscription) => deletedUserIds.has(subscription.userId))
+        .map((subscription) => subscription.id),
+    );
+    const nextUsers = db.users
+      .filter((candidate) => !deletedUserIds.has(candidate.id))
+      .map((candidate) => ({
+        ...candidate,
+        ...(candidate.memberIds
+          ? { memberIds: candidate.memberIds.filter((candidateMemberId) => candidateMemberId !== member.id) }
+          : {}),
+        ...(candidate.childMemberIds
+          ? { childMemberIds: candidate.childMemberIds.filter((candidateMemberId) => candidateMemberId !== member.id) }
+          : {}),
+      }));
+    const now = new Date().toISOString();
+    const auditLog: AuditLog = {
+      id: createRuntimeId("audit"),
+      branchId: member.branchId,
+      actorUserId: user.id,
+      action: "member.delete",
+      targetType: "member",
+      targetId: member.id,
+      before: {
+        ageGroup: member.ageGroup,
+        branchId: member.branchId,
+        name: member.name,
+        status: member.status,
+      },
+      after: {
+        reason,
+        deletedUserCount: deletedUserIds.size,
+        removedAttendanceCount,
+        removedClassEnrollmentCount,
+        removedCounselingNoteCount,
+        removedNoticeTargetCount,
+        removedPaymentCount,
+        removedPromotionCount,
+        removedQrRedemptionCount,
+        removedTournamentRegistrationCount,
+      },
+      result: "success",
+      message: "회원과 연결된 운영 기록을 삭제했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb({
+      ...db,
+      members: db.members.filter((candidate) => candidate.id !== member.id),
+      users: nextUsers,
+      classes: db.classes.map((session) => ({
+        ...session,
+        enrolledMemberIds: session.enrolledMemberIds.filter((candidate) => candidate !== member.id),
+      })),
+      attendance: db.attendance.filter((record) => record.memberId !== member.id),
+      counselingNotes: db.counselingNotes.filter((note) => note.memberId !== member.id),
+      promotions: db.promotions.filter((promotion) => promotion.memberId !== member.id),
+      tournaments: db.tournaments.map((tournament) => ({
+        ...tournament,
+        registrations: (tournament.registrations ?? []).filter(
+          (registration) => registration.memberId !== member.id,
+        ),
+      })),
+      payments: db.payments.filter((payment) => payment.memberId !== member.id),
+      notices: db.notices.map((notice) => ({
+        ...notice,
+        readByUserIds: notice.readByUserIds.filter((readByUserId) => !deletedUserIds.has(readByUserId)),
+        ...(notice.targetMemberIds
+          ? { targetMemberIds: notice.targetMemberIds.filter((candidate) => candidate !== member.id) }
+          : {}),
+      })),
+      attendanceQrChallenges: db.attendanceQrChallenges.map((challenge) => ({
+        ...challenge,
+        redeemedMemberIds: challenge.redeemedMemberIds.filter((candidate) => candidate !== member.id),
+      })),
+      authSessions: db.authSessions.filter((session) => !deletedUserIds.has(session.userId)),
+      passwordResetChallenges: db.passwordResetChallenges.filter((challenge) => !deletedUserIds.has(challenge.userId)),
+      pushSubscriptions: db.pushSubscriptions.filter((subscription) => !deletedUserIds.has(subscription.userId)),
+      pushDispatchJobs: db.pushDispatchJobs.filter(
+        (job) => !deletedUserIds.has(job.recipientUserId) && !deletedSubscriptionIds.has(job.subscriptionId),
+      ),
+      auditLogs: [auditLog, ...db.auditLogs],
+    });
+
+    return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
+  });
 }

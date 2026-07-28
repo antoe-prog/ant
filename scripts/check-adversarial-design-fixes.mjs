@@ -9,6 +9,7 @@ const [
   membersScreen,
   dashboardScreen,
   promotionsScreen,
+  tournamentsScreen,
   appShell,
   serverApi,
   attendanceClearRoute,
@@ -27,6 +28,7 @@ const [
   readFile("src/components/screens/members-screen.tsx", "utf8"),
   readFile("src/components/screens/dashboard-screen.tsx", "utf8"),
   readFile("src/components/screens/promotions-screen.tsx", "utf8"),
+  readFile("src/components/screens/tournaments-screen.tsx", "utf8"),
   readFile("src/components/shell/app-shell.tsx", "utf8"),
   readFile("src/server/api.ts", "utf8"),
   readFile("src/app/api/v1/class-sessions/[sessionId]/attendance/[memberId]/route.ts", "utf8"),
@@ -118,8 +120,9 @@ assert(
   dashboardScreen.includes('data-testid="owner-dashboard-period-scope"') &&
     dashboardScreen.includes('data-testid="owner-dashboard-current-scope"') &&
     dashboardScreen.includes("기간 필터 미적용") &&
-    dashboardScreen.includes('scope: "현재 상태"') &&
-    dashboardScreen.includes("scope: period.label"),
+    dashboardScreen.includes("const ownerPeriodAttendanceRow") &&
+    dashboardScreen.includes("const ownerCurrentGraphRows") &&
+    dashboardScreen.includes('data-testid="owner-dashboard-payment-groups"'),
   "owner dashboard must separate selected-period operations from current-state KPIs",
 );
 assert(
@@ -137,13 +140,51 @@ assert(
 );
 assert(!dashboardScreen.includes("currentBeltProgress"), "guardian belt status must not calculate a fake completion percentage");
 assert(promotionsScreen.includes("회원·학부모 공개 메모"), "promotion note input must disclose its audience");
+assert(
+  promotionsScreen.includes("{canManage ? (") && classesScreen.includes('{showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : null}'),
+  "family promotion and class screens must omit redundant page headings",
+);
+assert(
+  /\{canManage \? \(\s*<div className="grid grid-cols-3 gap-2">/.test(promotionsScreen),
+  "promotion summary metrics must stay limited to operational roles",
+);
+assert(
+  !paymentsScreen.includes('data-testid="member-payment-due-summary-label"') &&
+    !paymentsScreen.includes('data-testid="member-payment-due-summary-amount"'),
+  "family payment filters must not repeat attention counts and due totals",
+);
+assert(
+  /\{canManage \? \(\s*<SectionHeader\s+title="대회"/.test(tournamentsScreen) &&
+    tournamentsScreen.includes("{canManage && importedTournaments.length > 0 ? ("),
+  "tournament headings and sync summaries must stay limited to operational roles",
+);
 
 assert(appShell.includes("mobile-current-route-context"), "mobile secondary routes must keep visible role and route context");
 assert(appShell.includes("isFamilyNoticeRoute"), "family notices must activate the notification entry point");
 assert(appShell.includes('aria-current={mobileSecondaryRouteActive ? "page" : undefined}'), "mobile more menu must expose the active page");
 assert(
+  appShell.includes('const usesMobileMenuNavigation = user.role === "member" || user.role === "guardian"') &&
+    appShell.includes("const mobileMenuRoutes = usesMobileMenuNavigation") &&
+    appShell.includes("const showMobileBottomNavigation = !usesMobileMenuNavigation"),
+  "member and guardian mobile destinations must move into the header menu without duplicating the bottom navigation",
+);
+assert(
   appShell.includes("mobileContextLabel = mobileSecondaryRouteActive || isNotificationRoute"),
   "mobile notification and account routes must keep visible route context",
+);
+assert(
+  appShell.includes("const hideFamilyMobileContext =") &&
+    appShell.includes('["/app/dashboard", "/app/classes", "/app/members", "/app/payments", "/app/promotions", "/app/tournaments"].includes(pathname)') &&
+    appShell.includes("const visibleMobileContextLabel = hideFamilyMobileContext ? null : mobileContextLabel"),
+  "family primary screens must omit redundant role and route context rows",
+);
+assert(
+  dashboardScreen.includes('data-testid="dashboard-updates"') &&
+    dashboardScreen.includes('data-testid="dashboard-update-notice-list"') &&
+    dashboardScreen.includes('data-testid="dashboard-update-tournament-list"') &&
+    dashboardScreen.includes("isNoticeRelevantToMember") &&
+    dashboardScreen.includes("canViewTournament"),
+  "member and guardian dashboards must list scoped notices and upcoming tournaments",
 );
 
 assert(adminSettingsScreen.includes('data-testid="admin-settings-priority-work"'), "admin operations must expose one primary work board");

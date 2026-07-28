@@ -165,7 +165,7 @@ export function PasswordResetScreen() {
                   data-testid="password-reset-phone-input"
                   inputMode="tel"
                   maxLength={authInputLimits.phoneLength}
-                  placeholder="01012345678"
+                  placeholder="휴대폰 번호를 입력하세요"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                 />

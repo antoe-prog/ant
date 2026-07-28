@@ -454,6 +454,7 @@ export type AuditAction =
   | "notification.dispatch"
   | "member.create"
   | "member.update"
+  | "member.delete"
   | "counseling_note.create"
   | "counseling_note.update"
   | "counseling_note.delete"
@@ -462,6 +463,8 @@ export type AuditAction =
   | "tournament.create"
   | "tournament.update"
   | "tournament.delete"
+  | "tournament.sync"
+  | "tournament.registration.update"
   | "class.create"
   | "class.update"
   | "payment.create"
@@ -527,6 +530,36 @@ export type AuditLog = {
 };
 
 // 대한유도회 등 외부 단체의 대회 공지를 도장에서 등록·공유하기 위한 항목
+export const tournamentDivisions = [
+  "초등부",
+  "중등부",
+  "고등부",
+  "대학부",
+  "일반부",
+  "생활체육부",
+  "선수부",
+  "기타",
+] as const;
+
+export type TournamentDivision = (typeof tournamentDivisions)[number];
+
+export const tournamentRegistrationStatuses = ["pending", "confirmed", "rejected"] as const;
+
+export type TournamentRegistrationStatus = (typeof tournamentRegistrationStatuses)[number];
+
+export type TournamentRegistration = {
+  id: string;
+  memberId: string;
+  division: TournamentDivision;
+  weightClass: string;
+  status: TournamentRegistrationStatus;
+  appliedByUserId: string;
+  appliedAt: string;
+  reviewedByUserId?: string;
+  reviewedAt?: string;
+  updatedAt?: string;
+};
+
 export type Tournament = {
   id: string;
   scope?: "global" | "branch";
@@ -534,10 +567,15 @@ export type Tournament = {
   title: string;
   organizer: string;
   eventDate: string;
+  eventEndDate?: string;
   location?: string;
   registrationDeadline?: string;
   sourceUrl?: string;
+  source?: "korea_judo_association";
+  sourceId?: string;
+  sourceSyncedAt?: string;
   description?: string;
+  registrations?: TournamentRegistration[];
   createdByUserId?: string;
   createdAt: string;
   updatedAt?: string;

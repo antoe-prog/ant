@@ -4,12 +4,10 @@ import Link from "next/link";
 import type { ComponentType } from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowRight,
   Award,
   BarChart3,
   Bell,
-  Building2,
   CalendarCheck,
   ChevronDown,
   ChevronUp,
@@ -24,24 +22,47 @@ import { useApiContext } from "@/hooks/use-api-context";
 import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
-import { beltPromotionResultLabels } from "@/lib/domain";
+import { beltPromotionResultLabels, type Notice, type Tournament } from "@/lib/domain";
 import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
-import { isNoticeReadByUser, isNoticeRelevantToMember } from "@/lib/notices";
+import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { getPaymentRemainingRefundableAmount } from "@/lib/payment-amounts";
 import { getFamilyPaymentCheckoutAccess } from "@/lib/payment-checkout-access";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import { paymentStatusLabels } from "@/lib/roles";
+import { canViewTournament } from "@/lib/tournament-policy";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { MetricCard, OperationalKpiCard, PaymentStatusBadge, SectionHeader } from "@/components/ui/primitives";
 
 type OwnerPeriod = "today" | "7d" | "30d";
+type OwnerPaymentCategory = "competition" | "promotion" | "training";
 
 const ownerPeriodOptions: { id: OwnerPeriod; label: string; days: number }[] = [
   { id: "today", label: "오늘", days: 1 },
   { id: "7d", label: "7일", days: 7 },
   { id: "30d", label: "30일", days: 30 },
 ];
+const ownerPaymentCategories: readonly { id: OwnerPaymentCategory; label: string }[] = [
+  { id: "training", label: "훈련비" },
+  { id: "competition", label: "시합비" },
+  { id: "promotion", label: "심사비" },
+];
+const ownerCollectedPaymentStatuses = new Set(["expiringSoon", "paid", "partially_refunded"]);
+const ownerCompetitionPaymentPattern = /(대회|시합|출전)/;
+const ownerPromotionPaymentPattern = /(단증|승급|심사)/;
+
+function getOwnerPaymentCategory(planName: string): OwnerPaymentCategory {
+  if (ownerCompetitionPaymentPattern.test(planName)) {
+    return "competition";
+  }
+
+  if (ownerPromotionPaymentPattern.test(planName)) {
+    return "promotion";
+  }
+
+  return "training";
+}
 
 function isInUpcomingPeriod(value: string, days: number) {
   const target = new Date(value);
@@ -345,6 +366,101 @@ function GuardianLearningSummaryPanel({
   );
 }
 
+function DashboardUpdates({
+  noticeHref = "/app/notifications",
+  notices,
+  tournaments,
+  userId,
+}: {
+  noticeHref?: string;
+  notices: Notice[];
+  tournaments: Tournament[];
+  userId: string;
+}) {
+  const latestNotices = sortNoticesForDisplay(notices).slice(0, 3);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const upcomingTournaments = [...tournaments]
+    .filter((tournament) => tournament.eventDate >= todayKey)
+    .sort((left, right) => left.eventDate.localeCompare(right.eventDate))
+    .slice(0, 3);
+
+  return (
+    <section
+      aria-label="공지와 대회 일정"
+      className="mt-5 grid gap-3 md:grid-cols-2"
+      data-testid="dashboard-updates"
+    >
+        <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white" aria-labelledby="dashboard-notices-title">
+          <div className="flex min-h-11 items-center justify-between border-b border-zinc-100 px-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-950" id="dashboard-notices-title">
+              <Bell className="h-4 w-4 text-teal-700" aria-hidden />
+              공지
+            </h2>
+            <Link className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-teal-700" href={noticeHref}>
+              전체 보기
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </div>
+          {latestNotices.length > 0 ? (
+            <div className="divide-y divide-zinc-100" data-testid="dashboard-update-notice-list">
+              {latestNotices.map((notice) => {
+                const unread = !isNoticeReadByUser(notice, userId);
+
+                return (
+                  <Link
+                    className={`block min-h-16 px-4 py-3 transition hover:bg-zinc-50 ${
+                      unread ? "bg-teal-50/60" : "bg-white"
+                    }`}
+                    href={noticeHref}
+                    key={notice.id}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-950">{notice.title}</p>
+                      {notice.important ? <span className="shrink-0 text-[11px] font-semibold text-red-600">중요</span> : null}
+                      {unread ? <span className="h-2 w-2 shrink-0 rounded-full bg-teal-600" aria-label="읽지 않음" /> : null}
+                    </div>
+                    <p className="mt-1 truncate text-xs text-zinc-500">
+                      {formatDate(notice.createdAt)} · {compactText(notice.body, 38)}
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="px-4 py-6 text-sm text-zinc-500">새 공지가 없습니다.</p>
+          )}
+        </section>
+
+        <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white" aria-labelledby="dashboard-tournaments-title">
+          <div className="flex min-h-11 items-center justify-between border-b border-zinc-100 px-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-950" id="dashboard-tournaments-title">
+              <Trophy className="h-4 w-4 text-amber-600" aria-hidden />
+              대회 일정
+            </h2>
+            <Link className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-teal-700" href="/app/tournaments">
+              전체 보기
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </div>
+          {upcomingTournaments.length > 0 ? (
+            <div className="divide-y divide-zinc-100" data-testid="dashboard-update-tournament-list">
+              {upcomingTournaments.map((tournament) => (
+                <Link className="block min-h-16 px-4 py-3 transition hover:bg-zinc-50" href="/app/tournaments" key={tournament.id}>
+                  <p className="truncate text-sm font-semibold text-zinc-950">{tournament.title}</p>
+                  <p className="mt-1 truncate text-xs text-zinc-500">
+                    {formatDate(tournament.eventDate)} · {tournament.location ?? tournament.organizer}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="px-4 py-6 text-sm text-zinc-500">예정된 대회가 없습니다.</p>
+          )}
+        </section>
+    </section>
+  );
+}
+
 export function DashboardScreen() {
   const context = useApiContext();
   const guardianChildren = useMemo(
@@ -390,6 +506,9 @@ export function DashboardScreen() {
         : [];
   const selectedPersonalMember = context.user.role === "guardian" ? selectedChild : personalMembers[0];
   const dashboardScopeBranchIds = context.selectedBranchId ? [context.selectedBranchId] : context.user.branchIds;
+  const dashboardTournaments = (context.db.tournaments ?? []).filter((tournament) =>
+    canViewTournament(tournament, dashboardScopeBranchIds),
+  );
   const dashboardScopedMembers = context.db.members.filter((member) => dashboardScopeBranchIds.includes(member.branchId));
   const dashboardScopedUsers = context.db.users.filter((user) => user.branchIds.some((branchId) => dashboardScopeBranchIds.includes(branchId)));
   const dashboardPendingInvitationCount = dashboardScopedUsers.filter((user) => user.invitationStatus === "pending").length;
@@ -578,6 +697,9 @@ export function DashboardScreen() {
     const selectedChildVisibleNotices = selectedChild
       ? data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedChild.id, context.db.classes))
       : [];
+    const selectedChildTournaments = selectedChild
+      ? (context.db.tournaments ?? []).filter((tournament) => canViewTournament(tournament, [selectedChild.branchId]))
+      : [];
     const nextChildClass = [...selectedChildClasses]
       .filter((session) => new Date(session.endsAt).getTime() > currentTime)
       .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
@@ -706,6 +828,11 @@ export function DashboardScreen() {
               insights={guardianLearningInsights}
               selectedBelt={selectedChild.belt}
             />
+            <DashboardUpdates
+              notices={selectedChildVisibleNotices}
+              tournaments={selectedChildTournaments}
+              userId={context.user.id}
+            />
           </>
         )}
       </div>
@@ -713,10 +840,20 @@ export function DashboardScreen() {
   }
 
   if (context.user.role === "member") {
+    const memberNotices = selectedPersonalMember
+      ? data.notices.filter((notice) => isNoticeRelevantToMember(notice, selectedPersonalMember.id, context.db.classes))
+      : [];
+    const memberTournaments = selectedPersonalMember
+      ? (context.db.tournaments ?? []).filter((tournament) => canViewTournament(tournament, [selectedPersonalMember.branchId]))
+      : [];
+
     return (
       <div>
         {selectedPersonalMember ? (
-          <MemberAttendanceQrScannerCard member={selectedPersonalMember} />
+          <>
+            <MemberAttendanceQrScannerCard member={selectedPersonalMember} />
+            <DashboardUpdates notices={memberNotices} tournaments={memberTournaments} userId={context.user.id} />
+          </>
         ) : (
           <EmptyState title="연결된 회원 정보가 없습니다" />
         )}
@@ -738,12 +875,10 @@ export function DashboardScreen() {
     const scopedAttendance = context.db.attendance.filter((record) => scopedSessionIds.has(record.sessionId));
     const scopedEnrolledCount = scopedClasses.reduce((sum, session) => sum + session.enrolledMemberIds.length, 0);
     const paymentRisks = scopedPayments.filter((payment) => payment.status === "overdue" || payment.status === "expiringSoon");
-    const overduePayments = paymentRisks.filter((payment) => payment.status === "overdue");
     const lowAttendanceClasses = scopedClasses.filter((session) => {
       const done = context.db.attendance.filter((record) => record.sessionId === session.id).length;
       return session.enrolledMemberIds.length > 0 && done < session.enrolledMemberIds.length;
     });
-    const memberById = new Map(context.db.members.map((member) => [member.id, member]));
     const branchById = new Map(context.db.branches.map((branch) => [branch.id, branch]));
     const branchRows = scopedBranches.map((branch) => {
       const branchMembers = scopedMembers.filter((member) => member.branchId === branch.id);
@@ -808,22 +943,34 @@ export function DashboardScreen() {
         statusClass,
       };
     });
-    const riskAlerts = [
+    const collectedPayments = scopedPayments.filter((payment) => ownerCollectedPaymentStatuses.has(payment.status));
+    const ownerPaymentGroups = [
       {
-        id: "overdue",
-        scope: "현재 상태",
-        title: `미납 ${overduePayments.length}건`,
-        body: overduePayments.length > 0 ? `${formatCurrency(overduePayments.reduce((sum, payment) => sum + payment.amount, 0))} 확인 필요` : "미납 결제 없음",
-        tone: overduePayments.length > 0 ? "text-red-700 bg-red-50 border-red-200" : "text-emerald-700 bg-emerald-50 border-emerald-200",
+        id: "training-team",
+        label: "훈련단",
+        memberIds: new Set(scopedMembers.filter((member) => member.level.includes("훈련단")).map((member) => member.id)),
+        tone: "border-teal-200 bg-teal-50/60",
       },
       {
-        id: "attendance",
-        scope: period.label,
-        title: `출석 미처리 수업 ${lowAttendanceClasses.length}개`,
-        body: lowAttendanceClasses.length > 0 ? "코치별 출석 확정 상태 확인 필요" : "기간 내 출석 처리 완료",
-        tone: lowAttendanceClasses.length > 0 ? "text-amber-700 bg-amber-50 border-amber-200" : "text-emerald-700 bg-emerald-50 border-emerald-200",
+        id: "general-members",
+        label: "일반관원",
+        memberIds: new Set(scopedMembers.filter((member) => !member.level.includes("훈련단")).map((member) => member.id)),
+        tone: "border-zinc-200 bg-white",
       },
-    ];
+    ].map((group) => ({
+      ...group,
+      categories: ownerPaymentCategories.map((category) => {
+        const payments = collectedPayments.filter(
+          (payment) => group.memberIds.has(payment.memberId) && getOwnerPaymentCategory(payment.planName) === category.id,
+        );
+
+        return {
+          ...category,
+          amount: payments.reduce((sum, payment) => sum + getPaymentRemainingRefundableAmount(payment), 0),
+          count: payments.length,
+        };
+      }),
+    }));
     const ownerOperationalGraphRows = [
       {
         accentClass: ownerActionCount > 0 ? "bg-amber-500" : "bg-zinc-400",
@@ -1084,71 +1231,44 @@ export function DashboardScreen() {
           </div>
 
           <div className="order-2 grid gap-2 xl:gap-3">
-            <div className="rounded-lg border border-zinc-200 bg-white p-2 xl:p-3" data-testid="owner-dashboard-risk-summary">
+            <section data-testid="owner-dashboard-risk-summary">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-zinc-950 xl:text-base">위험 알림</h2>
-                </div>
-                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 xl:h-5 xl:w-5" aria-hidden />
+                <h2 className="text-sm font-semibold text-zinc-950 xl:text-base">납부내역</h2>
+                <CreditCard className="h-4 w-4 shrink-0 text-teal-700 xl:h-5 xl:w-5" aria-hidden />
               </div>
-              <div className="mt-1.5 grid grid-cols-2 gap-1 xl:mt-2 xl:gap-1.5">
-                {riskAlerts.map((alert) => (
-                  <div className={`min-w-0 rounded-md border px-2 py-1 ${alert.tone} xl:py-1.5`} key={alert.id}>
-                    <p className="text-xs font-semibold opacity-75">{alert.scope}</p>
-                    <p className="break-words text-[11px] font-semibold leading-4 xl:text-xs">{alert.title}</p>
-                    <p className="mt-1 hidden text-xs leading-4 sm:block">{alert.body}</p>
-                  </div>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5 xl:mt-2" data-testid="owner-dashboard-payment-groups">
+                {ownerPaymentGroups.map((group) => (
+                  <article
+                    className={`min-w-0 rounded-lg border px-2 py-1.5 ${group.tone}`}
+                    data-testid={`owner-dashboard-payment-group-${group.id}`}
+                    key={group.id}
+                  >
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <h3 className="truncate text-xs font-semibold text-zinc-950">{group.label}</h3>
+                      <span className="shrink-0 text-[11px] font-medium text-zinc-500">{group.memberIds.size}명</span>
+                    </div>
+                    <div className="mt-1 grid divide-y divide-zinc-200">
+                      {group.categories.map((category) => (
+                        <div className="grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-1 py-0.5" key={category.id}>
+                          <p className="truncate text-[10px] font-semibold leading-4 text-zinc-600">{category.label}</p>
+                          <p className="shrink-0 text-[10px] font-semibold tabular-nums leading-4 text-zinc-950">{category.count}건</p>
+                          <p className="truncate text-right text-[10px] tabular-nums leading-4 text-zinc-500">{formatCurrency(category.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
                 ))}
               </div>
-            </div>
+            </section>
 
-            {showOwnerDashboardDetails ? (
-              <>
-                <div className="rounded-lg border border-zinc-200 bg-white p-3" data-testid="owner-dashboard-branch-detail">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-base font-semibold text-zinc-950">운영 지점</h2>
-                    </div>
-                    <Building2 className="h-5 w-5 shrink-0 text-teal-700" aria-hidden />
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {scopedBranches.map((branch) => (
-                      <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-700" key={branch.id}>
-                        {branch.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-zinc-200 bg-white p-3" data-testid="owner-dashboard-payment-risk-detail">
-                  <h2 className="text-base font-semibold text-zinc-950">결제 위험 회원</h2>
-                  {paymentRisks.length === 0 ? (
-                    <p className="mt-3 rounded-md bg-zinc-50 px-3 py-3 text-sm text-zinc-600">위험 결제 항목이 없습니다.</p>
-                  ) : (
-                    <div className="mt-3 space-y-2">
-                      {paymentRisks.slice(0, 4).map((payment) => {
-                        const member = memberById.get(payment.memberId);
-                        const branch = branchById.get(payment.branchId);
-
-                        return (
-                          <div className="rounded-md border border-zinc-200 p-2.5" key={payment.id}>
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-zinc-950">{member?.name ?? "회원 확인 중"}</p>
-                              <PaymentStatusBadge status={payment.status} />
-                            </div>
-                            <p className="mt-1 text-sm text-zinc-600">
-                              {branch?.name ?? "지점 확인 중"} · {payment.planName} · {formatCurrency(payment.amount)}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
-                        </div>
+          </div>
         </section>
+        <DashboardUpdates
+          noticeHref="/app/notices"
+          notices={data.notices}
+          tournaments={dashboardTournaments}
+          userId={context.user.id}
+        />
       </div>
     );
   }
@@ -1304,6 +1424,12 @@ export function DashboardScreen() {
           )}
         </div>
       </section>
+      <DashboardUpdates
+        noticeHref="/app/notices"
+        notices={data.notices}
+        tournaments={dashboardTournaments}
+        userId={context.user.id}
+      />
     </div>
   );
 }

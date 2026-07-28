@@ -63,6 +63,10 @@ export function canMutateTournament(
   tournament: Tournament,
   accessibleBranchIds: readonly string[],
 ) {
+  if (tournament.source === "korea_judo_association") {
+    return false;
+  }
+
   if (hasGlobalAdminDataAccess(actor)) {
     return true;
   }

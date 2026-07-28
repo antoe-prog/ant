@@ -225,8 +225,12 @@ function assertStaticContracts() {
   for (const snippet of [
     'data-testid="member-invite-field"',
     'data-testid="member-invite-submit"',
+    'testId="member-invite-dialog"',
     'data-testid="member-create-field"',
     'data-testid="member-create-submit"',
+    'testId="member-create-dialog"',
+    'data-testid={`member-delete-open-${member.id}`}',
+    'data-testid="member-delete-confirm"',
     'data-testid="member-status-select"',
     'data-touch-target="member-profile-field"',
     'data-testid="member-note-field"',
@@ -354,16 +358,37 @@ async function captureOwnerMembers(context) {
     assert.equal(collapsedLayout.health.frameworkOverlayCount, 0, "owner members must not show a framework overlay");
     assert(collapsedLayout.health.bodyTextLength > 100, "owner members must not render a blank page");
     assert.equal(collapsedLayout.health.horizontalOverflow, 0, "owner members must not overflow horizontally");
-    assert.equal(collapsedLayout.inviteFormCount, 0, "member invite form must stay collapsed by default");
-    assert.equal(collapsedLayout.createFormCount, 0, "member create form must stay collapsed by default");
+    assert.equal(collapsedLayout.inviteFormCount, 0, "member invite dialog must stay closed by default");
+    assert.equal(collapsedLayout.createFormCount, 0, "member create dialog must stay closed by default");
     assertHeightsAtLeast("member invite toggle", collapsedLayout.inviteToggleHeights);
     assertHeightsAtLeast("member create toggle", collapsedLayout.createToggleHeights);
     await page.screenshot({ fullPage: false, path: collapsedScreenshotPath });
 
     await page.getByTestId("member-invite-toggle").click();
-    await page.waitForSelector("#member-invite-form", { timeout: 15000 });
+    await page.waitForSelector('dialog[open][data-testid="member-invite-dialog"] #member-invite-form', { timeout: 15000 });
+    const inviteDialogIsIndependent = await page
+      .getByTestId("member-invite-dialog")
+      .evaluate((dialog) => dialog.closest('[data-testid="member-invite-panel"]') === null);
+    assert(inviteDialogIsIndependent, "member invite form must open in an independent dialog");
+    const inviteControlHeights = {
+      inviteFields: await readHeights(page, '[data-testid="member-invite-field"]'),
+      inviteSubmit: await readHeights(page, '[data-testid="member-invite-submit"]'),
+    };
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('dialog[open][data-testid="member-invite-dialog"]', { state: "detached", timeout: 15000 });
+
     await page.getByTestId("member-create-toggle").click();
-    await page.waitForSelector("#member-create-form", { timeout: 15000 });
+    await page.waitForSelector('dialog[open][data-testid="member-create-dialog"] #member-create-form', { timeout: 15000 });
+    const createDialogIsIndependent = await page
+      .getByTestId("member-create-dialog")
+      .evaluate((dialog) => dialog.closest('[data-testid="member-create-panel"]') === null);
+    assert(createDialogIsIndependent, "member create form must open in an independent dialog");
+    const createControlHeights = {
+      createFields: await readHeights(page, '[data-testid="member-create-field"]'),
+      createSubmit: await readHeights(page, '[data-testid="member-create-submit"]'),
+    };
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('dialog[open][data-testid="member-create-dialog"]', { state: "detached", timeout: 15000 });
 
     // 회원 상세는 오버레이 다이얼로그로 한 번에 하나씩 열린다.
     // 보호자 검색 입력이 있는 카드를 찾을 때까지 순서대로 열어 본다.
@@ -408,13 +433,11 @@ async function captureOwnerMembers(context) {
     assert.equal(noteBodyMaxLength, "2000", "member note editor must match the server body limit");
 
     const openControlHeights = {
-      createFields: await readHeights(page, '[data-testid="member-create-field"]'),
-      createSubmit: await readHeights(page, '[data-testid="member-create-submit"]'),
+      ...createControlHeights,
       guardianSearchInputs: await readHeights(page, '[data-testid^="member-guardian-search-input-"]'),
       guardianSelected: await readHeights(page, '[data-testid^="member-guardian-selected-"]'),
       guardianSubmit: await readHeights(page, '[data-testid^="member-guardian-submit-"]'),
-      inviteFields: await readHeights(page, '[data-testid="member-invite-field"]'),
-      inviteSubmit: await readHeights(page, '[data-testid="member-invite-submit"]'),
+      ...inviteControlHeights,
       noteFields: await readHeights(page, '[data-testid="member-note-field"]'),
       noteBody: await readHeights(page, '[data-testid="member-note-body"]'),
       noteSubmit: await readHeights(page, '[data-testid="member-note-submit"]'),

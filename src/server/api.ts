@@ -313,14 +313,29 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     attendance,
     counselingNotes,
     promotions,
-    tournaments: (db.tournaments ?? []).filter((tournament) => {
-      if (isGooglePlayReviewAccount(user)) {
-        const access = resolveTournamentAccess(tournament);
-        return access.scope === "branch" && access.branchId !== null && branchIds.includes(access.branchId);
-      }
+    tournaments: (db.tournaments ?? [])
+      .filter((tournament) => {
+        if (isGooglePlayReviewAccount(user)) {
+          const access = resolveTournamentAccess(tournament);
+          return access.scope === "branch" && access.branchId !== null && branchIds.includes(access.branchId);
+        }
 
-      return canViewTournament(tournament, branchIds);
-    }),
+        return canViewTournament(tournament, branchIds);
+      })
+      .map((tournament) => ({
+        ...tournament,
+        registrations: (tournament.registrations ?? [])
+          .filter((registration) => allowedMemberIds.has(registration.memberId))
+          .map((registration) => {
+            if (user.role !== "member" && user.role !== "guardian") {
+              return registration;
+            }
+
+            const familyRegistration = { ...registration };
+            delete familyRegistration.reviewedByUserId;
+            return familyRegistration;
+          }),
+      })),
     payments,
     notices,
     authSessions: [],

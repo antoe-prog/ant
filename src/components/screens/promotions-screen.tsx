@@ -199,17 +199,17 @@ export function PromotionsScreen() {
 
   return (
     <div className="grid gap-5">
-      <SectionHeader
-        title="승급 심사"
-        action={
-          canManage ? (
+      {canManage ? (
+        <SectionHeader
+          title="승급 심사"
+          action={
             <Button size="lg" variant="primary" onClick={() => setComposerOpen((open) => !open)}>
               <Plus className="h-4 w-4" aria-hidden />
               심사 등록
             </Button>
-          ) : undefined
-        }
-      />
+          }
+        />
+      ) : null}
 
       {user.role === "guardian" ? (
         <ChildSwitcher
@@ -226,20 +226,22 @@ export function PromotionsScreen() {
 
       <FinalPromotionPolicyReference />
 
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-center">
-          <p className="text-xs font-medium text-sky-700">심사 예정</p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-sky-900">{scheduledCount}</p>
+      {canManage ? (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-center">
+            <p className="text-xs font-medium text-sky-700">심사 예정</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-sky-900">{scheduledCount}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-center">
+            <p className="text-xs font-medium text-emerald-700">누적 승급</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">{passedCount}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 text-center">
+            <p className="text-xs font-medium text-zinc-600">전체 기록</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-zinc-900">{promotions.length}</p>
+          </div>
         </div>
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-center">
-          <p className="text-xs font-medium text-emerald-700">누적 승급</p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">{passedCount}</p>
-        </div>
-        <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 text-center">
-          <p className="text-xs font-medium text-zinc-600">전체 기록</p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-zinc-900">{promotions.length}</p>
-        </div>
-      </div>
+      ) : null}
 
       {decisionFeedback ? (
         <p

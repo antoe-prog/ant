@@ -19,6 +19,7 @@ import type {
   MemberStatus,
   MockDatabase,
   SaveStatus,
+  TournamentRegistrationStatus,
   UserRole,
 } from "@/lib/domain";
 import { createMockData } from "@/lib/mock-data";
@@ -41,6 +42,7 @@ import {
   type InvitationCreatePayload,
   type InvitationApprovalResult,
   type LoginCredentials,
+  type MemberDeletePayload,
   type MemberUpdatePayload,
   type NoticeCreatePayload,
   type NoticeUpdatePayload,
@@ -53,6 +55,8 @@ import {
   type PilotOperationLogPayload,
   type PilotReadinessUpdatePayload,
   type TournamentPayload,
+  type TournamentRegistrationInput,
+  type TournamentSyncResult,
   type RecurringAgreementPayload,
 } from "@/lib/api-client";
 
@@ -156,6 +160,7 @@ type NoticeCreateResult = { ok: true; message: string } | { ok: false; message: 
 type NoticeDeleteResult = { ok: true; message: string } | { ok: false; message: string };
 type PaymentCreateResult = { ok: true; message: string } | { ok: false; message: string };
 type ClassEnrollmentActionResult = { ok: true; message: string } | { ok: false; message: string };
+type TournamentRegistrationActionResult = { ok: true; message: string } | { ok: false; message: string };
 type AttendanceQrScanActionResult =
   | { ok: true; scan: AttendanceQrScanResult }
   | { ok: false; message: string };
@@ -190,9 +195,10 @@ type AppStore = AppState & {
     gender?: Member["gender"] | "";
     birthDate?: string;
     address?: string;
-  }) => void;
+  }) => Promise<boolean>;
   updateMemberStatus: (memberId: string, status: MemberStatus) => void;
   updateMemberProfile: (memberId: string, payload: MemberUpdatePayload) => Promise<boolean>;
+  deleteMember: (memberId: string, payload: MemberDeletePayload) => Promise<boolean>;
   createCounselingNote: (branchId: string, memberId: string, payload: CounselingNoteCreatePayload) => Promise<boolean>;
   updateCounselingNote: (
     branchId: string,
@@ -238,6 +244,17 @@ type AppStore = AppState & {
   createTournament: (payload: TournamentPayload) => Promise<boolean>;
   updateTournament: (tournamentId: string, payload: TournamentPayload) => Promise<boolean>;
   deleteTournament: (tournamentId: string) => Promise<boolean>;
+  syncKoreaJudoTournaments: (year: number) => Promise<TournamentSyncResult | null>;
+  registerForTournament: (
+    tournamentId: string,
+    payload: TournamentRegistrationInput,
+  ) => Promise<TournamentRegistrationActionResult>;
+  cancelTournamentRegistration: (tournamentId: string, memberId: string) => Promise<TournamentRegistrationActionResult>;
+  reviewTournamentRegistration: (
+    tournamentId: string,
+    memberId: string,
+    status: TournamentRegistrationStatus,
+  ) => Promise<TournamentRegistrationActionResult>;
   updatePilotReadiness: (payload: PilotReadinessUpdatePayload) => Promise<boolean>;
   createPilotIncident: (payload: PilotIncidentCreatePayload) => Promise<boolean>;
   updatePilotIncident: (incidentId: string, payload: PilotIncidentUpdatePayload) => Promise<boolean>;
@@ -1377,13 +1394,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       if (!state.user) {
-        return;
+        return Promise.resolve(false);
       }
 
-      void apiClient
+      return apiClient
         .createMember(branchId, payload, state.selectedBranchId)
-        .then((nextPayload) => dispatch({ type: "serverSnapshot", payload: nextPayload }))
-        .catch((error) => reportOperationError(error, "회원 정보를 저장하지 못했습니다."));
+        .then((nextPayload) => {
+          dispatch({ type: "serverSnapshot", payload: nextPayload });
+          return true;
+        })
+        .catch((error) => {
+          reportOperationError(error, "회원 정보를 저장하지 못했습니다.");
+          return false;
+        });
     },
     [reportOperationError, state.selectedBranchId, state.user],
   );
@@ -1415,6 +1438,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (error) {
         reportOperationError(error, "회원 기본 정보를 변경하지 못했습니다.");
+        return false;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const deleteMember = useCallback(
+    async (memberId: string, payload: MemberDeletePayload) => {
+      if (!state.user) {
+        return false;
+      }
+
+      try {
+        const nextPayload = await apiClient.deleteMember(memberId, payload, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return true;
+      } catch (error) {
+        reportOperationError(error, "회원 정보를 삭제하지 못했습니다.");
         return false;
       }
     },
@@ -2061,6 +2103,119 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
+  const syncKoreaJudoTournaments = useCallback(
+    async (year: number) => {
+      if (!state.user) {
+        return null;
+      }
+
+      try {
+        const nextPayload = await apiClient.syncKoreaJudoTournaments(year, state.selectedBranchId);
+
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return nextPayload.sync;
+      } catch (error) {
+        reportOperationError(error, "대한유도회 대회 일정을 동기화하지 못했습니다.");
+        return null;
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const registerForTournament = useCallback(
+    async (
+      tournamentId: string,
+      payload: TournamentRegistrationInput,
+    ): Promise<TournamentRegistrationActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.registerForTournament(tournamentId, payload, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return {
+          ok: true,
+          message: nextPayload.registration.unchanged
+            ? "신청 정보가 이미 동일하게 저장되어 있습니다."
+            : nextPayload.registration.operation === "update"
+              ? "대회 참가 신청 정보를 수정했습니다."
+              : "대회 참가를 신청했습니다.",
+        };
+      } catch (error) {
+        reportOperationError(error, "대회 참가를 신청하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "대회 참가를 신청하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const cancelTournamentRegistration = useCallback(
+    async (tournamentId: string, memberId: string): Promise<TournamentRegistrationActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.cancelTournamentRegistration(tournamentId, memberId, state.selectedBranchId);
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return {
+          ok: true,
+          message: nextPayload.registration.unchanged ? "이미 취소된 신청입니다." : "대회 참가 신청을 취소했습니다.",
+        };
+      } catch (error) {
+        reportOperationError(error, "대회 참가 신청을 취소하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "대회 참가 신청을 취소하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
+  const reviewTournamentRegistration = useCallback(
+    async (
+      tournamentId: string,
+      memberId: string,
+      status: TournamentRegistrationStatus,
+    ): Promise<TournamentRegistrationActionResult> => {
+      if (!state.user) {
+        return { ok: false, message: "로그인이 필요합니다." };
+      }
+
+      try {
+        const nextPayload = await apiClient.reviewTournamentRegistration(
+          tournamentId,
+          memberId,
+          status,
+          state.selectedBranchId,
+        );
+        dispatch({ type: "serverSnapshot", payload: nextPayload });
+        return {
+          ok: true,
+          message: nextPayload.registration.unchanged
+            ? "이미 같은 처리 상태입니다."
+            : status === "confirmed"
+              ? "대회 참가 신청을 확정했습니다."
+              : status === "rejected"
+                ? "대회 참가 신청을 반려했습니다."
+                : "대회 참가 신청을 검토 중으로 변경했습니다.",
+        };
+      } catch (error) {
+        reportOperationError(error, "대회 참가 신청 상태를 변경하지 못했습니다.");
+        return {
+          ok: false,
+          message: error instanceof ApiClientError ? error.message : "대회 참가 신청 상태를 변경하지 못했습니다.",
+        };
+      }
+    },
+    [reportOperationError, state.selectedBranchId, state.user],
+  );
+
   const updatePromotion = useCallback(
     async (
       promotionId: string,
@@ -2246,6 +2401,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       markNoticeAsRead,
       markNoticesAsRead,
       createMember,
+      deleteMember,
       updateMemberStatus,
       updateMemberProfile,
       createCounselingNote,
@@ -2285,6 +2441,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createTournament,
       updateTournament,
       deleteTournament,
+      syncKoreaJudoTournaments,
+      registerForTournament,
+      cancelTournamentRegistration,
+      reviewTournamentRegistration,
       updatePilotReadiness,
       createPilotIncident,
       updatePilotIncident,
@@ -2307,6 +2467,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createInvitation,
       reissueInvitationLink,
       createMember,
+      deleteMember,
       createClassSession,
       registerForClass,
       cancelClassRegistration,
@@ -2320,6 +2481,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createRecurringAgreement,
       createTournament,
       deleteTournament,
+      syncKoreaJudoTournaments,
+      registerForTournament,
+      cancelTournamentRegistration,
+      reviewTournamentRegistration,
       updateTournament,
       updateNotice,
       deleteNotice,

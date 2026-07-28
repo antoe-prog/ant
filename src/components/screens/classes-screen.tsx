@@ -30,6 +30,8 @@ import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemb
 import { isFinalMainBranch } from "@/lib/final-main-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { attendanceStatusLabels } from "@/lib/roles";
+import { getTournamentDateKeys } from "@/lib/tournament-dates";
+import { canViewTournament } from "@/lib/tournament-policy";
 import { useAppStore } from "@/store/app-store";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-blocks";
 import { AttendanceStatusBadge, AttendanceStatusButton, Button, SectionHeader } from "@/components/ui/primitives";
@@ -786,7 +788,22 @@ export function ClassesScreen() {
   const registrationDateKeys = [
     ...new Set(relevantRegistrationOptions.map((option) => formatDateKey(option.startsAt))),
   ].sort();
-  const familySelectableDateKeys = [...new Set([...familyMonthDateKeys, ...registrationDateKeys])];
+  const familyTournaments =
+    isFamilyRole && selectedRegistrationMember
+      ? (context.db.tournaments ?? []).filter((tournament) =>
+          canViewTournament(tournament, [selectedRegistrationMember.branchId]),
+        )
+      : [];
+  const familyTournamentDateKeys = [
+    ...new Set(
+      familyTournaments
+        .flatMap(getTournamentDateKeys)
+        .filter((dateKey) => dateKey.startsWith(`${familyCalendarMonth}-`)),
+    ),
+  ].sort();
+  const familySelectableDateKeys = [
+    ...new Set([...familyMonthDateKeys, ...registrationDateKeys, ...familyTournamentDateKeys]),
+  ];
   const activeFamilyDateKey =
     selectedFamilyDateKey && familySelectableDateKeys.includes(selectedFamilyDateKey)
       ? selectedFamilyDateKey
@@ -802,7 +819,10 @@ export function ClassesScreen() {
       : familySelectedDateSessions
     : visibleSessions;
   const hasFamilyCalendarContent =
-    visibleSessions.length > 0 || registrationDateKeys.length > 0 || registrationLoading;
+    visibleSessions.length > 0 ||
+    registrationDateKeys.length > 0 ||
+    familyTournamentDateKeys.length > 0 ||
+    registrationLoading;
   const otherDateCoachSessions = isCoachRole
     ? scopedSessions.filter((session) => formatDateKey(session.startsAt) !== todayDateKey)
     : [];
@@ -920,7 +940,7 @@ export function ClassesScreen() {
 
   return (
     <div className={`relative ${canEditAttendance ? "pb-36 lg:pb-0" : ""}`}>
-      {showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : <SectionHeader title="수업" />}
+      {showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : null}
 
       {attendanceBatchConfirmation ? (
         <div
@@ -1379,6 +1399,7 @@ export function ClassesScreen() {
               referenceTime={screenReferenceTime}
               selectedDateKey={activeFamilyDateKey}
               sessions={visibleSessions}
+              tournaments={familyTournaments}
               onMonthChange={(monthKey) => {
                 setFamilyCalendarMonth(monthKey);
                 setSelectedFamilyDateKey(null);
@@ -1771,7 +1792,7 @@ export function ClassesScreen() {
           ) : null}
 
           {isFamilyRole && !selectedDateUsesRegistrationPanel ? (
-            activeFamilyDateKey ? (
+            activeFamilyDateKey && familySelectedDateSessions.length > 0 ? (
               <div className="mb-2 flex items-end justify-between gap-3" data-testid="family-selected-date-heading">
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold text-zinc-950">{formatDate(`${activeFamilyDateKey}T12:00:00+09:00`)} 수업</h2>

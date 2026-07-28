@@ -44,6 +44,33 @@ for (const snippet of ["대기 초대", "초대 승인", "사용자 보기"]) {
   assertIncludes(p5ReadinessSource, snippet, "P5-P10 dashboard copy guard");
 }
 
+for (const snippet of [
+  'const ownerPaymentGroups = [',
+  'id: "training-team"',
+  'label: "훈련단"',
+  'id: "general-members"',
+  'label: "일반관원"',
+  'label: "훈련비"',
+  'label: "시합비"',
+  'label: "심사비"',
+  'data-testid="owner-dashboard-payment-groups"',
+  'data-testid={`owner-dashboard-payment-group-${group.id}`}',
+  "getPaymentRemainingRefundableAmount(payment)",
+]) {
+  assertIncludes(dashboardSource, snippet, "owner dashboard payment summary");
+}
+
+for (const snippet of [
+  'scope: "현재 상태"',
+  "출석 미처리 수업 ${lowAttendanceClasses.length}개",
+  'data-testid="owner-dashboard-branch-detail"',
+  'data-testid="owner-dashboard-payment-risk-detail"',
+  ">운영 지점<",
+  ">결제 위험 회원<",
+]) {
+  assertExcludes(dashboardSource, snippet, "retired owner dashboard detail");
+}
+
 console.log(
   JSON.stringify(
     {
@@ -52,6 +79,9 @@ console.log(
         "admin dashboard first-screen KPI points to pending invitations, not audit logs",
         "pending invitations remain actionable through /app/admin/users",
         "P5-P10 readiness guard blocks the retired internal record KPI copy",
+        "owner dashboard separates collected fees into training team and general member summaries",
+        "each owner payment group keeps training, competition, and promotion fee totals",
+        "retired risk, attendance, branch, and payment-risk detail cards do not regress",
       ],
     },
     null,

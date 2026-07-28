@@ -210,7 +210,7 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
 
   const panel = page.getByTestId("member-attendance-qr-card");
   await panel.waitFor({ timeout: 10000 });
-  await panel.getByRole("heading", { name: "수업 QR 스캔" }).waitFor({ timeout: 10000 });
+  await panel.getByRole("button", { name: "QR 스캔하기" }).waitFor({ timeout: 10000 });
 
   assert.equal(
     await page.getByTestId("guardian-learning-summary-panel").count(),
@@ -235,6 +235,21 @@ async function verifyFamilyMobilePriorityPanel(page, roleLabel) {
   assert(panelBox, `${roleLabel} attendance QR card must have a visible bounding box`);
   assert(panelBox.width <= 390, `${roleLabel} attendance QR card must fit the viewport, got width ${panelBox.width}`);
   assert(scannerButtonBox && scannerButtonBox.height >= 44, `${roleLabel} QR scanner button must keep a 44px touch target`);
+  assert.equal(
+    await panel.getByText("수업 QR 스캔", { exact: true }).count(),
+    0,
+    `${roleLabel} attendance QR card must not restore the removed outer heading`,
+  );
+  assert.equal(
+    await panel.getByText("코치 화면의 QR을 스캔하면 본인 출석이 바로 기록됩니다.", { exact: true }).count(),
+    0,
+    `${roleLabel} attendance QR card must not restore the removed outer description`,
+  );
+  assert.equal(
+    await panel.getByText("본인 수련 지점의 수업이라면 미등록 상태여도 명단에 자동 추가되어 출석 처리됩니다.", { exact: true }).count(),
+    0,
+    `${roleLabel} attendance QR card must not restore the removed footer guidance`,
+  );
   assert(!/CSV/.test(panelText ?? ""), `${roleLabel} attendance QR card must not expose CSV wording`);
   assert(!retiredGuidancePattern.test(panelText ?? ""), `${roleLabel} attendance QR card must not expose internal operations guidance`);
   assert(

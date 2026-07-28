@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Bell, ChevronDown, CircleAlert, Copy, CreditCard, ExternalLink, MapPin, Pencil, Phone, PlusCircle, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
+import { Bell, CircleAlert, Copy, CreditCard, ExternalLink, MapPin, Pencil, Phone, PlusCircle, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import type { CounselingNote, CounselingNoteVisibility, Member, MemberGender, MemberStatus, Payment, UserRole } from "@/lib/domain";
 import { memberGenderLabels } from "@/lib/domain";
 import { ChildSwitcher } from "@/components/domain/child-switcher";
@@ -333,6 +333,101 @@ function MemberDetailContainer({
   );
 }
 
+function MemberFormDialog({
+  children,
+  description,
+  icon,
+  labelId,
+  onClose,
+  testId,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  icon: ReactNode;
+  labelId: string;
+  onClose: () => void;
+  testId: string;
+  title: string;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+
+    if (!dialog) {
+      return;
+    }
+
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+
+      if (dialog.open) {
+        dialog.close();
+      }
+
+      window.requestAnimationFrame(() => returnFocusRef.current?.isConnected && returnFocusRef.current.focus());
+    };
+  }, []);
+
+  return (
+    <dialog
+      aria-describedby={`${labelId}-description`}
+      aria-labelledby={labelId}
+      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-0 backdrop:bg-zinc-950/40 open:flex open:items-end open:justify-center sm:open:items-center sm:p-6"
+      data-testid={testId}
+      ref={dialogRef}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCloseRef.current();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onCloseRef.current();
+        }
+      }}
+    >
+      <div
+        className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+              {icon}
+            </span>
+            <span className="min-w-0">
+              <h2 className="text-base font-semibold text-zinc-950" id={labelId}>{title}</h2>
+              <p className="mt-1 text-sm leading-5 text-zinc-500" id={`${labelId}-description`}>{description}</p>
+            </span>
+          </div>
+          <button
+            aria-label={`${title} 창 닫기`}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+            ref={closeButtonRef}
+            type="button"
+            onClick={() => onCloseRef.current()}
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </div>
+        <div className="overflow-y-auto px-4 py-4">{children}</div>
+      </div>
+    </dialog>
+  );
+}
+
 function CounselingNoteDialog({
   draft,
   intent,
@@ -566,6 +661,7 @@ export function MembersScreen() {
     createInvitation,
     createMember,
     deleteCounselingNote,
+    deleteMember,
     linkGuardian,
     replaceGuardian,
     unlinkGuardian,
@@ -621,6 +717,10 @@ export function MembersScreen() {
   const [newMemberBirthDate, setNewMemberBirthDate] = useState("");
   const [newMemberAddress, setNewMemberAddress] = useState("");
   const [memberCreateFormOpen, setMemberCreateFormOpen] = useState(false);
+  const [memberDeleteId, setMemberDeleteId] = useState<string | null>(null);
+  const [memberDeleteReason, setMemberDeleteReason] = useState("");
+  const [memberDeleteFeedback, setMemberDeleteFeedback] = useState<string | null>(null);
+  const [memberDeletePending, setMemberDeletePending] = useState(false);
   const [guardianLinkDrafts, setGuardianLinkDrafts] = useState<Record<string, GuardianLinkDraft>>({});
   const [noteDraft, setNoteDraft] = useState<NoteDraft>(() => createEmptyNoteDraft(context.user.role));
   const [noteDialog, setNoteDialog] = useState<NoteDialogState | null>(null);
@@ -664,7 +764,6 @@ export function MembersScreen() {
 
     const revealTimer = window.setTimeout(() => {
       setMemberCreateFormOpen(true);
-      document.getElementById("member-create-panel")?.scrollIntoView({ block: "start" });
     }, 0);
 
     return () => window.clearTimeout(revealTimer);
@@ -791,14 +890,14 @@ export function MembersScreen() {
     return () => window.clearTimeout(openHandle);
   }, [canEditOwnContact, data, guardianChildId]);
 
-  function handleCreateMember(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!selectedCreateBranchId || !newMemberName.trim() || !newMemberEmergencyContact.trim()) {
       return;
     }
 
-    createMember(selectedCreateBranchId, {
+    const created = await createMember(selectedCreateBranchId, {
       name: newMemberName.trim(),
       status: newMemberStatus,
       ageGroup: newMemberAgeGroup,
@@ -809,11 +908,56 @@ export function MembersScreen() {
       birthDate: newMemberBirthDate.trim(),
       address: newMemberAddress.trim(),
     });
+
+    if (!created) {
+      return;
+    }
+
     setNewMemberName("");
     setNewMemberEmergencyContact("");
     setNewMemberGender("");
     setNewMemberBirthDate("");
     setNewMemberAddress("");
+    setMemberCreateFormOpen(false);
+  }
+
+  function openMemberDeleteDialog(memberId: string) {
+    setMemberDeleteId(memberId);
+    setMemberDeleteReason("");
+    setMemberDeleteFeedback(null);
+  }
+
+  function closeMemberDeleteDialog() {
+    if (memberDeletePending) {
+      return;
+    }
+
+    setMemberDeleteId(null);
+    setMemberDeleteReason("");
+    setMemberDeleteFeedback(null);
+  }
+
+  async function handleDeleteMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!memberDeleteId || !memberDeleteReason.trim()) {
+      setMemberDeleteFeedback("삭제 사유를 입력해 주세요.");
+      return;
+    }
+
+    setMemberDeletePending(true);
+    const deleted = await deleteMember(memberDeleteId, { reason: memberDeleteReason.trim() });
+    setMemberDeletePending(false);
+
+    if (!deleted) {
+      setMemberDeleteFeedback("회원과 연결 데이터를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
+    setExpandedMemberIds(new Set());
+    setMemberDeleteId(null);
+    setMemberDeleteReason("");
+    setMemberDeleteFeedback(null);
   }
 
   async function handleCreateInvitation(event: FormEvent<HTMLFormElement>) {
@@ -1197,6 +1341,9 @@ export function MembersScreen() {
   const noteDialogMember = noteDialog
     ? data.find((member) => member.id === noteDialog.memberId) ?? null
     : null;
+  const memberDeleteTarget = memberDeleteId
+    ? data.find((member) => member.id === memberDeleteId) ?? null
+    : null;
   const coachMemberMobileVisibleLimit = 1;
   const coachMemberListCollapsible = isCoachRole && !query.trim() && filteredMembers.length > coachMemberMobileVisibleLimit;
   const hiddenCoachMemberCount = coachMemberListCollapsible ? filteredMembers.length - coachMemberMobileVisibleLimit : 0;
@@ -1301,19 +1448,30 @@ export function MembersScreen() {
             </div>
             <Button
               aria-controls="member-invite-form"
-              aria-expanded={inviteFormOpen}
+              aria-haspopup="dialog"
               data-testid="member-invite-toggle"
               size="lg"
               type="button"
               variant="secondary"
-              onClick={() => setInviteFormOpen((open) => !open)}
+              onClick={() => setInviteFormOpen(true)}
             >
-              {inviteFormOpen ? "닫기" : "열기"}
+              열기
             </Button>
           </div>
-          {inviteFormOpen ? (
+        </section>
+      ) : null}
+
+      {canInviteUsers && inviteFormOpen ? (
+        <MemberFormDialog
+          description="역할과 지점을 선택한 뒤 로그인에 사용할 초대 링크를 발급합니다."
+          icon={<UserPlus className="h-5 w-5" aria-hidden />}
+          labelId="member-invite-dialog-title"
+          testId="member-invite-dialog"
+          title="계정 초대"
+          onClose={() => setInviteFormOpen(false)}
+        >
             <form
-              className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_0.9fr_auto]"
+              className="grid gap-3 sm:grid-cols-2"
               id="member-invite-form"
               onSubmit={(event) => void handleCreateInvitation(event)}
             >
@@ -1386,7 +1544,7 @@ export function MembersScreen() {
                 </select>
               </label>
               <Button
-                className="self-end"
+                className="self-end sm:col-span-2"
                 data-testid="member-invite-submit"
                 disabled={!selectedInviteBranchId || !inviteName.trim() || !invitePhone.trim()}
                 size="lg"
@@ -1396,12 +1554,12 @@ export function MembersScreen() {
                 초대
               </Button>
               {inviteFeedback ? (
-                <p className="text-sm font-medium text-zinc-700 md:col-span-full" data-testid="member-invite-feedback" aria-live="polite" role="status">
+                <p className="text-sm font-medium text-zinc-700 sm:col-span-2" data-testid="member-invite-feedback" aria-live="polite" role="status">
                   {inviteFeedback}
                 </p>
               ) : null}
               {invitePath ? (
-                <div className="flex flex-col gap-2 rounded-md border border-teal-200 bg-teal-50 p-3 sm:flex-row sm:items-center sm:justify-between md:col-span-full">
+                <div className="flex flex-col gap-2 rounded-md border border-teal-200 bg-teal-50 p-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm font-semibold text-teal-900">초대 링크가 준비됐습니다.</p>
                   <div className="flex flex-wrap gap-2">
                     <a
@@ -1423,8 +1581,7 @@ export function MembersScreen() {
                 </div>
               ) : null}
             </form>
-          ) : null}
-        </section>
+        </MemberFormDialog>
       ) : null}
 
       {canManageMembers ? (
@@ -1440,21 +1597,32 @@ export function MembersScreen() {
             </div>
             <Button
               aria-controls="member-create-form"
-              aria-expanded={memberCreateFormOpen}
+              aria-haspopup="dialog"
               data-testid="member-create-toggle"
               size="lg"
               type="button"
               variant="secondary"
-              onClick={() => setMemberCreateFormOpen((open) => !open)}
+              onClick={() => setMemberCreateFormOpen(true)}
             >
-              {memberCreateFormOpen ? "닫기" : "열기"}
+              열기
             </Button>
           </div>
-          {memberCreateFormOpen ? (
+        </section>
+      ) : null}
+
+      {canManageMembers && memberCreateFormOpen ? (
+        <MemberFormDialog
+          description="기본 수련 정보와 연락처를 입력해 회원 프로필을 등록합니다."
+          icon={<PlusCircle className="h-5 w-5" aria-hidden />}
+          labelId="member-create-dialog-title"
+          testId="member-create-dialog"
+          title="회원 등록"
+          onClose={() => setMemberCreateFormOpen(false)}
+        >
             <form
-              className="mt-3 grid gap-3 md:grid-cols-[1fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_1fr_auto]"
+              className="grid gap-3 sm:grid-cols-2"
               id="member-create-form"
-              onSubmit={handleCreateMember}
+              onSubmit={(event) => void handleCreateMember(event)}
             >
               {context.db.branches.length > 1 ? (
                 <label>
@@ -1584,7 +1752,7 @@ export function MembersScreen() {
                 />
               </label>
               <button
-                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"
                 data-testid="member-create-submit"
                 disabled={!selectedCreateBranchId || !newMemberName.trim() || !newMemberEmergencyContact.trim()}
                 type="submit"
@@ -1592,8 +1760,7 @@ export function MembersScreen() {
                 등록
               </button>
             </form>
-          ) : null}
-        </section>
+        </MemberFormDialog>
       ) : null}
 
       {filteredMembers.length === 0 ? (
@@ -1703,10 +1870,10 @@ export function MembersScreen() {
                     <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${statusClasses[member.status]}`}>
                       {memberStatusLabels[member.status]}
                     </span>
-                    <ChevronDown
-                      className={`h-4 w-4 text-zinc-400 transition-transform ${memberDetailExpanded ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
+                    <span className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-xs font-semibold text-zinc-600">
+                      <Pencil className="h-3.5 w-3.5" aria-hidden />
+                      수정
+                    </span>
                   </span>
                 </button>
               ) : (
@@ -2450,6 +2617,29 @@ export function MembersScreen() {
                   </ul>
                 ) : null}
               </div>
+              {canManageMembers ? (
+                <div className="mt-5 border-t border-zinc-100 pt-4">
+                  <div className="flex flex-col gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-900">회원 삭제</p>
+                      <p className="mt-1 text-xs leading-5 text-zinc-600">
+                        회원 프로필과 연결된 출석·결제·승급·상담 기록을 함께 삭제합니다.
+                      </p>
+                    </div>
+                    <Button
+                      className="shrink-0 text-red-700 hover:bg-red-100"
+                      data-testid={`member-delete-open-${member.id}`}
+                      size="lg"
+                      type="button"
+                      variant="secondary"
+                      onClick={() => openMemberDeleteDialog(member.id)}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                      회원 삭제
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               </div>
               </MemberDetailContainer>
               ) : null}
@@ -2469,6 +2659,55 @@ export function MembersScreen() {
             onDraftChange={updateNoteDraft}
             onSubmit={() => void handleSaveCounselingNote()}
           />
+        ) : null}
+        {memberDeleteTarget ? (
+          <MemberFormDialog
+            description={`${memberDeleteTarget.name} 회원을 삭제합니다. 삭제한 프로필은 복구할 수 없습니다.`}
+            icon={<Trash2 className="h-5 w-5 text-red-700" aria-hidden />}
+            labelId={`member-delete-dialog-title-${memberDeleteTarget.id}`}
+            testId={`member-delete-dialog-${memberDeleteTarget.id}`}
+            title="회원 삭제 확인"
+            onClose={closeMemberDeleteDialog}
+          >
+            <form onSubmit={(event) => void handleDeleteMember(event)}>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+                출석·결제·승급·상담 기록과 수업 배정이 함께 삭제됩니다. 해당 회원만 연결된 일반 회원 로그인 계정도 삭제됩니다.
+              </div>
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs font-semibold text-zinc-600">삭제 사유</span>
+                <textarea
+                  autoFocus
+                  className="min-h-28 w-full resize-y rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-red-400"
+                  data-testid="member-delete-reason"
+                  disabled={memberDeletePending}
+                  maxLength={memberInputLimits.deleteReasonLength}
+                  placeholder="예: 중복으로 등록한 회원"
+                  value={memberDeleteReason}
+                  onChange={(event) => {
+                    setMemberDeleteReason(event.target.value);
+                    setMemberDeleteFeedback(null);
+                  }}
+                />
+              </label>
+              <p className="mt-2 min-h-5 text-xs font-medium text-red-700" aria-live="polite" role="status">
+                {memberDeleteFeedback}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <Button disabled={memberDeletePending} size="lg" type="button" onClick={closeMemberDeleteDialog}>
+                  취소
+                </Button>
+                <button
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid="member-delete-confirm"
+                  disabled={memberDeletePending || !memberDeleteReason.trim()}
+                  type="submit"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                  {memberDeletePending ? "삭제 중" : "삭제"}
+                </button>
+              </div>
+            </form>
+          </MemberFormDialog>
         ) : null}
         {isCoachRole ? <div className="h-28 lg:hidden" data-testid="coach-member-bottom-safe-area" aria-hidden /> : null}
         </>

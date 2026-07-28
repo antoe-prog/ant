@@ -831,15 +831,6 @@ export function PaymentsScreen() {
   const filteredDue = filteredPayments
     .filter((payment) => payment.status === "scheduled" || payment.status === "overdue" || payment.status === "expiringSoon")
     .reduce((sum, payment) => sum + getPaymentCheckoutAmount(payment), 0);
-  const totalDue = scopedPayments
-    .filter((payment) => payment.status === "scheduled" || payment.status === "overdue" || payment.status === "expiringSoon")
-    .reduce((sum, payment) => sum + getPaymentCheckoutAmount(payment), 0);
-  const familyAttentionCount =
-    effectivePaymentFilter === "all"
-      ? familyPaymentFilterCounts.risk ?? 0
-      : effectivePaymentFilter === "risk"
-        ? filteredPayments.length
-        : 0;
   const filteredOverdueCount = filteredPayments.filter((payment) => payment.status === "overdue").length;
   const renewalCandidateCount = filteredPayments.filter((payment) => payment.status === "expiringSoon").length;
   const discountedPaymentCount = filteredPayments.filter((payment) => (payment.discountAmount ?? 0) > 0).length;
@@ -984,9 +975,7 @@ export function PaymentsScreen() {
             ) : null
           }
         />
-      ) : (
-        <SectionHeader title="결제" />
-      )}
+      ) : null}
 
       {exportStatus ? (
         <p className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
@@ -1127,20 +1116,6 @@ export function PaymentsScreen() {
                   );
                 })}
               </div>
-            </div>
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <p
-                className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"
-                data-testid="member-payment-due-summary-label"
-              >
-                주의 {familyAttentionCount}건
-              </p>
-              <p
-                className="shrink-0 text-right text-xs font-semibold leading-5 tabular-nums text-zinc-950"
-                data-testid="member-payment-due-summary-amount"
-              >
-                납부 예정<br />{formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)}
-              </p>
             </div>
           </div>
         )}

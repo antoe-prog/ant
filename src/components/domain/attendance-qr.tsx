@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
-import { Camera, CheckCircle2, QrCode, RefreshCw, ScanLine, X } from "lucide-react";
+import { Camera, CheckCircle2, QrCode, RefreshCw, X } from "lucide-react";
 import QRCode from "qrcode";
 import { ApiClientError, apiClient, type AttendanceQrIssuePayload, type AttendanceQrScanResult } from "@/lib/api-client";
 import type { ClassSession, Member } from "@/lib/domain";
@@ -159,40 +159,25 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
   return (
     <>
       <section
-        className="mx-auto w-full max-w-lg rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6"
+        aria-label={`${member.name} 출석 QR 스캔`}
+        className="mx-auto w-full max-w-lg rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-5 text-center"
         data-testid="member-attendance-qr-card"
       >
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
-            <ScanLine className="h-6 w-6" aria-hidden />
-          </span>
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold text-zinc-950">수업 QR 스캔</h1>
-            <p className="mt-1 text-sm leading-6 text-zinc-600">코치 화면의 QR을 스캔하면 본인 출석이 바로 기록됩니다.</p>
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-5 text-center">
-          <p className="font-semibold text-zinc-950">{member.name}</p>
-          <p className="mt-1 text-sm leading-6 text-zinc-600">수업 장소에서 코치가 띄운 QR만 스캔해 주세요.</p>
-          <button
-            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800"
-            data-testid="member-attendance-qr-open"
-            onClick={() => {
-              setCameraError(null);
-              setScanResult(null);
-              setScannerOpen(true);
-            }}
-            type="button"
-          >
-            <Camera className="h-4 w-4" aria-hidden />
-            QR 스캔하기
-          </button>
-        </div>
-
-        <p className="mt-4 border-t border-zinc-100 pt-4 text-xs leading-5 text-zinc-500">
-          본인 수련 지점의 수업이라면 미등록 상태여도 명단에 자동 추가되어 출석 처리됩니다.
-        </p>
+        <p className="font-semibold text-zinc-950">{member.name}</p>
+        <p className="mt-1 text-sm leading-6 text-zinc-600">수업 장소에서 코치가 띄운 QR만 스캔해 주세요.</p>
+        <button
+          className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800"
+          data-testid="member-attendance-qr-open"
+          onClick={() => {
+            setCameraError(null);
+            setScanResult(null);
+            setScannerOpen(true);
+          }}
+          type="button"
+        >
+          <Camera className="h-4 w-4" aria-hidden />
+          QR 스캔하기
+        </button>
       </section>
 
       {scannerOpen ? (

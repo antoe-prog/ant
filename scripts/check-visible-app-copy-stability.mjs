@@ -62,7 +62,24 @@ const appCases = [
   { id: "guardian-account", role: "guardian", next: "/app/account" },
 ];
 
-const cases = [...publicCases, ...appCases];
+const allCases = [...publicCases, ...appCases];
+const requestedCaseIds = new Set(
+  (process.env.VISIBLE_APP_COPY_CASE_IDS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const unknownRequestedCaseIds = [...requestedCaseIds].filter(
+  (caseId) => !allCases.some((testCase) => testCase.id === caseId),
+);
+assert.equal(
+  unknownRequestedCaseIds.length,
+  0,
+  `Unknown VISIBLE_APP_COPY_CASE_IDS: ${unknownRequestedCaseIds.join(", ")}`,
+);
+const cases = requestedCaseIds.size > 0
+  ? allCases.filter((testCase) => requestedCaseIds.has(testCase.id))
+  : allCases;
 
 const blockedVisibleCopyPattern =
   /더미|dummy|샘플|sample|테스트|test@|@finaljudo\.test|\.test|localhost|127\.0\.0\.1|example\.com|FinalJudoPilot|데모|mock|P[0-9]|npm run|release|ready|blocked|readiness|doctor|audit|handoff|IPA|APK|provisioning|Simulator|CSV|TODO|placeholder|릴리즈|인수인계|시뮬레이터|출시 판단/i;
@@ -85,6 +102,7 @@ function shouldRunVisibleCopyScan() {
         "Environment:",
         "  SMOKE_BASE_URL=http://localhost:3000",
         "  VISIBLE_APP_COPY_OUT_DIR=.data/mobile-builds/ios/visible-app-copy-stability",
+        "  VISIBLE_APP_COPY_CASE_IDS=owner-dashboard,coach-classes",
         "  E2E_CHROME_EXECUTABLE=/path/to/chrome",
         "",
         "The scan accepts no positional arguments. Localhost runs reset dev data before and after notice read interactions.",
@@ -849,7 +867,7 @@ async function main() {
             .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "")
             .join("|"),
           authSubmitButtonCount: Array.from(document.querySelectorAll("main button")).filter((button) =>
-            /로그인|회원가입|비밀번호 설정 후 초대 수락|재설정 요청/.test(button.textContent ?? ""),
+            /로그인|회원가입|비밀번호 설정 후 초대 수락|인증번호 받기/.test(button.textContent ?? ""),
           ).length,
           adminBranchSummaryGridCount: document.querySelectorAll('[data-testid="admin-branch-summary-grid"]').length,
           adminBranchSummaryGridHeight: Math.round(
@@ -2337,8 +2355,8 @@ async function main() {
         }
 
         if (testCase.id === "auth-reset-password") {
-          assert.equal(layout.authFormCount, 1, "password reset must render one request form");
-          assert.equal(layout.authSubmitButtonCount, 1, "password reset must render one request action");
+          assert.equal(layout.authFormCount, 1, "password reset must render one phone verification form");
+          assert.equal(layout.authSubmitButtonCount, 1, "password reset must render one verification-code request action");
         }
 
         if (testCase.id === "auth-invite-accept") {

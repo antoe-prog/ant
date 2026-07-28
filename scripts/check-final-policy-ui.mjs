@@ -55,6 +55,8 @@ assert.doesNotMatch(promotionsScreen, /isFinalMainBranch/);
 assert.doesNotMatch(promotionsScreen, /자격 충족/);
 assert.match(promotionReference, /전 지점 공통 승급 기준/);
 assert.match(promotionReference, /maximumRecognizedHoursPerDay/);
+assert.match(promotionReference, /final-promotion-policy-details/);
+assert.doesNotMatch(promotionReference, /data-testid="final-promotion-policy-details"[^>]*\sopen/);
 assert.match(promotionReference, /final-promotion-reference-details/);
 assert.match(promotionReference, /final-promotion-reference-scroll-region/);
 assert.match(promotionReference, /overflow-x-auto/);

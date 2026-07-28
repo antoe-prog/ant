@@ -23,6 +23,8 @@ import type {
   PilotOperationLog,
   Payment,
   PaymentStatus,
+  TournamentDivision,
+  TournamentRegistrationStatus,
   UserRole,
 } from "@/lib/domain";
 import { getAccessibleBranchIds, getAccessibleMemberIds, getSelectedBranchIds, mockApi } from "@/lib/mock-api";
@@ -301,6 +303,36 @@ export type TournamentPayload = {
   description?: string;
 };
 
+export type TournamentSyncResult = {
+  createdCount: number;
+  importedCount: number;
+  skippedCount: number;
+  syncedAt: string;
+  unchangedCount: number;
+  updatedCount: number;
+  year: number;
+};
+
+export type TournamentSyncResponsePayload = BootstrapPayload & {
+  sync: TournamentSyncResult;
+};
+
+export type TournamentRegistrationResponsePayload = BootstrapPayload & {
+  registration: {
+    memberId: string;
+    operation: "apply" | "update" | "cancel" | "review";
+    status: "applied" | "cancelled" | TournamentRegistrationStatus;
+    tournamentId: string;
+    unchanged: boolean;
+  };
+};
+
+export type TournamentRegistrationInput = {
+  memberId: string;
+  division: TournamentDivision;
+  weightClass: string;
+};
+
 export type MemberUpdatePayload = Partial<
   Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "primaryCoachId" | "status">
 > & {
@@ -308,6 +340,10 @@ export type MemberUpdatePayload = Partial<
   gender?: Member["gender"] | "";
   birthDate?: string;
   address?: string;
+};
+
+export type MemberDeletePayload = {
+  reason: string;
 };
 
 export type InvitationCreatePayload = {
@@ -784,6 +820,16 @@ export const apiClient = {
     );
   },
 
+  deleteMember(memberId: string, payload: MemberDeletePayload, selectedBranchId: string | null) {
+    return apiRequest<BootstrapPayload>(
+      `/api/v1/members/${encodeURIComponent(memberId)}${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
   updateMemberStatus(memberId: string, status: MemberStatus, selectedBranchId: string | null) {
     return this.updateMember(memberId, { status }, selectedBranchId);
   },
@@ -1211,6 +1257,55 @@ export const apiClient = {
       `/api/v1/tournaments/${encodeURIComponent(tournamentId)}${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "DELETE",
+      },
+    );
+  },
+
+  syncKoreaJudoTournaments(year: number, selectedBranchId: string | null) {
+    return apiRequest<TournamentSyncResponsePayload>(
+      `/api/v1/tournaments/korea-judo/sync${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ year }),
+      },
+    );
+  },
+
+  registerForTournament(
+    tournamentId: string,
+    payload: TournamentRegistrationInput,
+    selectedBranchId: string | null,
+  ) {
+    return apiRequest<TournamentRegistrationResponsePayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}/registrations${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  cancelTournamentRegistration(tournamentId: string, memberId: string, selectedBranchId: string | null) {
+    return apiRequest<TournamentRegistrationResponsePayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}/registrations${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ memberId }),
+      },
+    );
+  },
+
+  reviewTournamentRegistration(
+    tournamentId: string,
+    memberId: string,
+    status: TournamentRegistrationStatus,
+    selectedBranchId: string | null,
+  ) {
+    return apiRequest<TournamentRegistrationResponsePayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}/registrations${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ memberId, status }),
       },
     );
   },

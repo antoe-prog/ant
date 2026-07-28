@@ -396,6 +396,158 @@ async function main() {
     });
     assert.equal(result.response.status, 200, "admins must create branch tournaments in selected scope");
 
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
+    });
+    assert.equal(result.response.status, 403, "staff accounts must not submit family tournament registrations");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
+    });
+    assert.equal(result.response.status, 404, "members must not register another family's member");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "임의 종별", weightClass: "-73kg" },
+    });
+    assert.equal(result.response.status, 400, "registration must reject unsupported divisions");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "일반부", weightClass: "" },
+    });
+    assert.equal(result.response.status, 400, "registration must require a weight class");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
+    });
+    assert.equal(result.response.status, 200, "guardians must register a linked child");
+    assert.equal(result.payload.data.registration.status, "applied");
+    assert.equal(result.payload.data.registration.operation, "apply");
+    assert.equal(
+      result.payload.data.db.tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "pending",
+      "new tournament registrations must start in pending review",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "일반부", weightClass: "-73kg" },
+    });
+    assert.equal(result.response.status, 200, "members must register their own profile");
+    assert.equal(result.payload.data.registration.unchanged, false);
+    const memberTournamentSnapshot = result.payload.data.db.tournaments.find((item) => item.id === "tournament-global");
+    assert.deepEqual(
+      memberTournamentSnapshot.registrations.map((registration) => ({
+        division: registration.division,
+        memberId: registration.memberId,
+        weightClass: registration.weightClass,
+      })),
+      [{ division: "일반부", memberId: "member-minjae", weightClass: "-73kg" }],
+      "family snapshots must not reveal other families' tournament registrations",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      method: "PATCH",
+      body: { memberId: "member-minjae", status: "confirmed" },
+    });
+    assert.equal(result.response.status, 403, "family accounts must not review their own tournament registration");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { memberId: "member-jun", status: "confirmed" },
+    });
+    assert.equal(result.response.status, 200, "coaches must review registrations for assigned members");
+    assert.equal(result.payload.data.registration.status, "confirmed");
+    assert.equal(result.payload.data.registration.operation, "review");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
+    });
+    assert.equal(result.response.status, 200, "guardians must see an unchanged confirmed registration");
+    assert.equal(result.payload.data.registration.unchanged, true);
+    const guardianReviewedRegistration = result.payload.data.db.tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.find((registration) => registration.memberId === "member-jun");
+    assert.equal(
+      guardianReviewedRegistration.status,
+      "confirmed",
+      "family snapshots must expose the operator review status for their own registration",
+    );
+    assert.equal(
+      guardianReviewedRegistration.reviewedByUserId,
+      undefined,
+      "family snapshots must not expose the internal reviewer user ID",
+    );
+    const guardianReviewNotice = result.payload.data.db.notices.find(
+      (notice) => notice.title === "대회 참가 확정" && notice.targetMemberIds?.includes("member-jun"),
+    );
+    assert(guardianReviewNotice, "operator review must create a family-visible targeted notice");
+    assert.deepEqual(
+      guardianReviewNotice.audience,
+      ["member", "guardian"],
+      "registration review notices must stay limited to family roles",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-60kg" },
+    });
+    assert.equal(result.response.status, 200, "guardians must update their linked child's registration details");
+    assert.equal(result.payload.data.registration.operation, "update");
+    assert.equal(
+      result.payload.data.db.tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "pending",
+      "editing a reviewed registration must return it to pending review",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "일반부", weightClass: "-73kg" },
+    });
+    assert.equal(result.response.status, 200, "duplicate tournament registration must be idempotent");
+    assert.equal(result.payload.data.registration.unchanged, true);
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.filter((registration) => registration.memberId === "member-minjae").length,
+      1,
+      "duplicate registration must not persist twice",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "생활체육부", weightClass: "-81kg" },
+    });
+    assert.equal(result.response.status, 200, "members must update their existing tournament registration details");
+    assert.equal(result.payload.data.registration.operation, "update");
+    assert.equal(result.payload.data.registration.unchanged, false);
+    const updatedRegistration = (await readDb(dbFile)).tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.find((registration) => registration.memberId === "member-minjae");
+    assert.equal(updatedRegistration.division, "생활체육부", "registration update must persist the selected division");
+    assert.equal(updatedRegistration.weightClass, "-81kg", "registration update must persist the selected weight class");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      method: "DELETE",
+      body: { memberId: "member-minjae" },
+    });
+    assert.equal(result.response.status, 200, "members must cancel their own tournament registration");
+    assert.equal(result.payload.data.registration.status, "cancelled");
+
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-owner-songpa?selectedBranchId=branch-songpa", {
       userId: "user-admin",
       method: "DELETE",
@@ -421,6 +573,9 @@ async function main() {
     const concurrentPatchAudits = tournamentAudits.filter(
       (log) => log.action === "tournament.update" && log.targetId === createdCoachTournament.id,
     );
+    const registrationAudits = tournamentAudits.filter(
+      (log) => log.action === "tournament.registration.update" && log.targetId === "tournament-global",
+    );
     assert.equal(concurrentCreateRecords.length, 2, "concurrent tournament creates must both persist");
     assert.equal(new Set(concurrentCreateRecords.map((item) => item.id)).size, 2, "concurrent tournament IDs must be unique");
     assert.equal(concurrentCreateAudits.length, 2, "concurrent tournament creates must preserve both audits");
@@ -432,6 +587,15 @@ async function main() {
     assert.equal(globalCreateAudit?.branchId, null, "global create audit must keep null branchId");
     assert.equal(songpaCreateAudit?.branchId, "branch-songpa", "admin branch create audit must use selected branchId");
     assert.equal(songpaDeleteAudit?.branchId, "branch-songpa", "admin branch delete audit must use the resource branchId");
+    assert.equal(
+      registrationAudits.length,
+      6,
+      "family apply/update/cancel and operator review mutations must preserve registration audits",
+    );
+    assert(
+      registrationAudits.every((log) => log.branchId === "branch-gangnam"),
+      "global tournament registration audits must use the participant branch",
+    );
 
     const executablePath = chromeCandidates.find(existsSync);
     assert(executablePath, "Chrome is required for tournament mobile deletion verification");
@@ -442,6 +606,35 @@ async function main() {
     });
     const page = await browserContext.newPage();
     await page.goto(`${baseUrl}/app/tournaments`, { waitUntil: "networkidle" });
+    const managementButton = page.getByTestId("tournament-registration-manage-tournament-global");
+    await managementButton.waitFor({ state: "visible" });
+    const managementButtonBox = await managementButton.boundingBox();
+    assert(managementButtonBox && managementButtonBox.height >= 44, "registration management trigger must be at least 44px high");
+    await managementButton.click();
+    const managementDialog = page.getByTestId("tournament-registration-management-dialog");
+    await managementDialog.waitFor({ state: "visible" });
+    const managementRow = page.getByTestId("tournament-registration-management-row-member-jun");
+    await managementRow.waitFor({ state: "visible" });
+    await managementRow.getByText("중등부 · -60kg", { exact: false }).waitFor({ state: "visible" });
+    const confirmRegistrationButton = page.getByTestId("tournament-registration-review-member-jun-confirmed");
+    const confirmRegistrationButtonBox = await confirmRegistrationButton.boundingBox();
+    assert(
+      confirmRegistrationButtonBox && confirmRegistrationButtonBox.height >= 44,
+      "registration review controls must be at least 44px high",
+    );
+    await confirmRegistrationButton.click();
+    await page.getByText("대회 참가 신청을 확정했습니다.").waitFor({ state: "visible" });
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "confirmed",
+      "coach registration management must persist the selected status",
+    );
+    await page.getByRole("button", { name: "참가 신청 관리 창 닫기" }).click();
+    await managementDialog.waitFor({ state: "hidden" });
+
     const deleteButton = page.getByTestId("tournament-delete-tournament-coach-ui");
     await deleteButton.waitFor({ state: "visible" });
     const deleteBox = await deleteButton.boundingBox();
@@ -479,6 +672,50 @@ async function main() {
     assert(layout.scrollWidth <= layout.clientWidth, "390px tournament screen must not overflow horizontally");
     await browserContext.close();
 
+    const memberBrowserContext = await browser.newContext({
+      extraHTTPHeaders: { "x-user-id": "user-member" },
+      viewport: { width: 390, height: 844 },
+    });
+    const memberPage = await memberBrowserContext.newPage();
+    await memberPage.goto(`${baseUrl}/app/tournaments`, { waitUntil: "networkidle" });
+    const registrationButton = memberPage.getByTestId("tournament-registration-open-tournament-global");
+    await registrationButton.waitFor({ state: "visible" });
+    const registrationButtonBox = await registrationButton.boundingBox();
+    const registrationCardBox = await registrationButton.locator("xpath=ancestor::li").boundingBox();
+    assert(registrationButtonBox && registrationButtonBox.height >= 44, "mobile registration trigger must be at least 44px high");
+    assert(
+      registrationButtonBox && registrationCardBox && registrationButtonBox.x > registrationCardBox.x + registrationCardBox.width / 2,
+      "registration trigger must stay in the card's bottom-right action area",
+    );
+
+    await registrationButton.click();
+    const registrationDialog = memberPage.getByTestId("tournament-registration-dialog");
+    await registrationDialog.waitFor({ state: "visible" });
+    await memberPage.getByTestId("tournament-registration-member-member-minjae").check();
+    await memberPage.getByTestId("tournament-registration-division").selectOption("일반부");
+    await memberPage.getByTestId("tournament-registration-weight-class").fill("-73kg");
+    const registrationSubmit = memberPage.getByTestId("tournament-registration-submit");
+    const registrationSubmitBox = await registrationSubmit.boundingBox();
+    assert(registrationSubmitBox && registrationSubmitBox.height >= 44, "registration decision control must be at least 44px high");
+    await registrationSubmit.click();
+    await memberPage.getByText("대회 참가를 신청했습니다.").waitFor({ state: "visible" });
+    const mobileRegistration = (await readDb(dbFile)).tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.find((registration) => registration.memberId === "member-minjae");
+    assert.equal(mobileRegistration?.division, "일반부", "mobile registration dialog must persist the selected division");
+    assert.equal(mobileRegistration?.weightClass, "-73kg", "mobile registration dialog must persist the selected weight class");
+    await memberPage.getByRole("button", { name: "참가 신청 창 닫기" }).click();
+    await registrationDialog.waitFor({ state: "hidden" });
+    await registrationButton.click();
+    await registrationDialog.waitFor({ state: "visible" });
+    await memberPage.getByText("검토 중 상태입니다.", { exact: false }).waitFor({ state: "visible" });
+    const memberLayout = await memberPage.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    assert(memberLayout.scrollWidth <= memberLayout.clientWidth, "390px registration dialog must not overflow horizontally");
+    await memberBrowserContext.close();
+
     console.log(JSON.stringify({
       ok: true,
       checked: [
@@ -488,6 +725,11 @@ async function main() {
         "input type and exact calendar validation",
         "serialized concurrent create and update audit integrity",
         "server-side snapshot visibility",
+        "family registration authorization and privacy",
+        "duplicate registration idempotency and cancellation",
+        "coach review authorization and family-visible status",
+        "registration audit trail",
+        "390px family registration and staff management dialogs",
         "resource branchId audit accuracy",
         "390px delete cancel and confirm",
         "44px deletion touch targets",

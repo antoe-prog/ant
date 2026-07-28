@@ -135,6 +135,30 @@ assert(
   "member invitation feedback must stay announced as a polite status message",
 );
 assert(
+  membersScreenSource.includes("function MemberFormDialog") &&
+    membersScreenSource.includes('testId="member-invite-dialog"') &&
+    membersScreenSource.includes('testId="member-create-dialog"') &&
+    membersScreenSource.includes('aria-haspopup="dialog"') &&
+    !/data-testid="member-invite-panel"[\s\S]{0,900}id="member-invite-form"/.test(membersScreenSource) &&
+    !/data-testid="member-create-panel"[\s\S]{0,900}id="member-create-form"/.test(membersScreenSource),
+  "member invitation and registration must open independent dialogs instead of expanding list cards",
+);
+assert(
+  membersScreenSource.includes('data-testid={`member-delete-open-${member.id}`}') &&
+    membersScreenSource.includes('data-testid="member-delete-reason"') &&
+    membersScreenSource.includes('data-testid="member-delete-confirm"') &&
+    membersScreenSource.includes("await deleteMember(memberDeleteId") &&
+    memberRouteSource.includes("export async function DELETE") &&
+    memberRouteSource.includes('"member.delete"') &&
+    memberRouteSource.includes("removedAttendanceCount") &&
+    memberRouteSource.includes("removedPaymentCount") &&
+    memberRouteSource.includes("removedPromotionCount") &&
+    memberRouteSource.includes("removedCounselingNoteCount") &&
+    memberRouteSource.includes("deletedUserIds") &&
+    memberRouteSource.includes("memberInputLimits.deleteReasonLength"),
+  "member deletion must require a reason, use a confirmation dialog, and cascade linked operations and sole member accounts",
+);
+assert(
   membersScreenSource.includes("updateGuardianLinkDraft(member, {") &&
     membersScreenSource.includes("guardianSearch: event.target.value") &&
     membersScreenSource.includes('guardianUserId: ""') &&
