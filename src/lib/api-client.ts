@@ -320,10 +320,13 @@ export type TournamentSyncResponsePayload = BootstrapPayload & {
 export type TournamentRegistrationResponsePayload = BootstrapPayload & {
   registration: {
     memberId: string;
+    memberIds?: string[];
     operation: "apply" | "update" | "cancel" | "review";
     status: "applied" | "cancelled" | TournamentRegistrationStatus;
     tournamentId: string;
     unchanged: boolean;
+    unchangedCount?: number;
+    updatedCount?: number;
   };
 };
 
@@ -1300,12 +1303,29 @@ export const apiClient = {
     memberId: string,
     status: TournamentRegistrationStatus,
     selectedBranchId: string | null,
+    note?: string,
   ) {
     return apiRequest<TournamentRegistrationResponsePayload>(
       `/api/v1/tournaments/${encodeURIComponent(tournamentId)}/registrations${selectedBranchQuery(selectedBranchId)}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ memberId, status }),
+        body: JSON.stringify({ memberId, status, ...(note ? { note } : {}) }),
+      },
+    );
+  },
+
+  reviewTournamentRegistrations(
+    tournamentId: string,
+    memberIds: string[],
+    status: TournamentRegistrationStatus,
+    selectedBranchId: string | null,
+    note?: string,
+  ) {
+    return apiRequest<TournamentRegistrationResponsePayload>(
+      `/api/v1/tournaments/${encodeURIComponent(tournamentId)}/registrations${selectedBranchQuery(selectedBranchId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ memberIds, status, ...(note ? { note } : {}) }),
       },
     );
   },

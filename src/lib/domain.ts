@@ -543,7 +543,7 @@ export const tournamentDivisions = [
 
 export type TournamentDivision = (typeof tournamentDivisions)[number];
 
-export const tournamentRegistrationStatuses = ["pending", "confirmed", "rejected"] as const;
+export const tournamentRegistrationStatuses = ["pending", "confirmed", "rejected", "submitted"] as const;
 
 export type TournamentRegistrationStatus = (typeof tournamentRegistrationStatuses)[number];
 
@@ -557,6 +557,7 @@ export type TournamentRegistration = {
   appliedAt: string;
   reviewedByUserId?: string;
   reviewedAt?: string;
+  reviewNote?: string;
   updatedAt?: string;
 };
 

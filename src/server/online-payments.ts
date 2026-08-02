@@ -1,4 +1,5 @@
 import type { OnlinePaymentProvider, Payment, PaymentReceipt } from "@/lib/domain";
+import { formatDateKey } from "../lib/format.ts";
 import { getPaymentRemainingRefundableAmount } from "../lib/payment-amounts.ts";
 
 export type PaymentWebhookEvent = "paid" | "failed" | "refunded";
@@ -135,7 +136,7 @@ export function getNextBillingDateFromExpiry(expiresAt: string) {
   const expiryDate = new Date(`${expiresAt}T00:00:00.000Z`);
 
   if (Number.isNaN(expiryDate.getTime())) {
-    return new Date().toISOString().slice(0, 10);
+    return formatDateKey(new Date());
   }
 
   expiryDate.setUTCDate(expiryDate.getUTCDate() + 1);

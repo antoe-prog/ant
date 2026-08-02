@@ -13,6 +13,7 @@ const userDisplay = await import("../src/lib/user-display.ts");
 const classRecurrence = await import("../src/lib/class-recurrence.ts");
 const counselingNoteVisibility = await import("../src/lib/counseling-note-visibility.ts");
 const finalMainSchedule = await import("../src/lib/final-main-schedule-policy.ts");
+const format = await import("../src/lib/format.ts");
 const [
   paymentsExportRouteSource,
   operationsExportRouteSource,
@@ -29,6 +30,10 @@ const [
   adminRolesScreenSource,
   adminUserRoleRouteSource,
   familyClassCalendarSource,
+  dashboardScreenSource,
+  tournamentsScreenSource,
+  membersScreenSource,
+  onlinePaymentsSource,
 ] = await Promise.all([
   readFile("src/app/api/v1/exports/payments/route.ts", "utf8"),
   readFile("src/app/api/v1/exports/operations/route.ts", "utf8"),
@@ -45,6 +50,10 @@ const [
   readFile("src/components/screens/admin-roles-screen.tsx", "utf8"),
   readFile("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8"),
   readFile("src/components/domain/family-class-calendar.tsx", "utf8"),
+  readFile("src/components/screens/dashboard-screen.tsx", "utf8"),
+  readFile("src/components/screens/tournaments-screen.tsx", "utf8"),
+  readFile("src/components/screens/members-screen.tsx", "utf8"),
+  readFile("src/server/online-payments.ts", "utf8"),
 ]);
 
 const db = {
@@ -789,6 +798,20 @@ assert.deepEqual(
     unreadNoticeCount: 6,
   },
   "owner notification counts must stay scoped to assigned branches",
+);
+
+assert.equal(
+  format.formatDateKey(new Date("2026-08-01T15:30:00.000Z")),
+  "2026-08-02",
+  "business date keys must advance at Korean midnight instead of UTC midnight",
+);
+assert(
+  tournamentsScreenSource.includes("const todayKey = formatDateKey(new Date());") &&
+    dashboardScreenSource.includes("const todayKey = formatDateKey(new Date());") &&
+    serverApiSource.includes("current.expiresAt < formatDateKey(new Date())") &&
+    membersScreenSource.includes("max={formatDateKey(new Date())}") &&
+    onlinePaymentsSource.includes("return formatDateKey(new Date());"),
+  "tournament, dashboard, membership, member form, and payment fallbacks must share the Korean business date key",
 );
 
 const promotionExamSoon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

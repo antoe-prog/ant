@@ -23,7 +23,7 @@ import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient } from "@/lib/api-client";
 import { beltPromotionResultLabels, type Notice, type Tournament } from "@/lib/domain";
-import { formatCompactTimeRange, formatCurrency, formatDate } from "@/lib/format";
+import { formatCompactTimeRange, formatCurrency, formatDate, formatDateKey } from "@/lib/format";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
@@ -378,7 +378,7 @@ function DashboardUpdates({
   userId: string;
 }) {
   const latestNotices = sortNoticesForDisplay(notices).slice(0, 3);
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = formatDateKey(new Date());
   const upcomingTournaments = [...tournaments]
     .filter((tournament) => tournament.eventDate >= todayKey)
     .sort((left, right) => left.eventDate.localeCompare(right.eventDate))
@@ -508,6 +508,14 @@ export function DashboardScreen() {
   const dashboardScopeBranchIds = context.selectedBranchId ? [context.selectedBranchId] : context.user.branchIds;
   const dashboardTournaments = (context.db.tournaments ?? []).filter((tournament) =>
     canViewTournament(tournament, dashboardScopeBranchIds),
+  );
+  const dashboardPendingTournamentRegistrationCount = dashboardTournaments.reduce(
+    (count, tournament) =>
+      count +
+      (tournament.registrations ?? []).filter(
+        (registration) => (registration.status ?? "pending") === "pending",
+      ).length,
+    0,
   );
   const dashboardScopedMembers = context.db.members.filter((member) => dashboardScopeBranchIds.includes(member.branchId));
   const dashboardScopedUsers = context.db.users.filter((user) => user.branchIds.some((branchId) => dashboardScopeBranchIds.includes(branchId)));
@@ -655,6 +663,19 @@ export function DashboardScreen() {
       tone: coachDashboardFollowUpNotes.length > 0 ? "violet" : "blue",
       value: `${coachDashboardFollowUpNotes.length}건`,
     },
+    {
+      actionHref: "/app/tournaments#registration-queue",
+      helper:
+        dashboardPendingTournamentRegistrationCount > 0
+          ? "담당 회원의 참가 신청 검토"
+          : "검토할 참가 신청 없음",
+      icon: Trophy,
+      label: "대회 신청",
+      progress: dashboardPendingTournamentRegistrationCount > 0 ? 100 : 0,
+      status: dashboardPendingTournamentRegistrationCount > 0 ? "검토 대기" : "완료",
+      tone: dashboardPendingTournamentRegistrationCount > 0 ? "amber" : "teal",
+      value: `${dashboardPendingTournamentRegistrationCount}명`,
+    },
   ] as const;
   const personalMemberIds = new Set(
     context.user.role === "guardian" && selectedPersonalMember
@@ -719,7 +740,7 @@ export function DashboardScreen() {
           )[0]
       : null;
     const nextTournament = [...(context.db.tournaments ?? [])]
-      .filter((tournament) => tournament.eventDate >= new Date().toISOString().slice(0, 10))
+      .filter((tournament) => tournament.eventDate >= formatDateKey(new Date()))
       .sort((left, right) => left.eventDate.localeCompare(right.eventDate))[0];
     const selectedChildUnreadNoticeCount = selectedChildVisibleNotices.filter((notice) => !isNoticeReadByUser(notice, context.user.id)).length;
     const guardianLearningInsights: GuardianLearningInsight[] = [];

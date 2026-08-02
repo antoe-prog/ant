@@ -14,7 +14,7 @@ import { useUrlSyncedTextParam } from "@/hooks/use-url-synced-text-param";
 import { apiClient } from "@/lib/api-client";
 import { counselingNoteInputLimits } from "@/lib/counseling-note-input-policy";
 import { canManageCounselingNote, canReadCounselingNote } from "@/lib/counseling-note-visibility";
-import { formatCurrency, formatDate, formatDateTime, formatPhoneNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateKey, formatDateTime, formatPhoneNumber } from "@/lib/format";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
@@ -1734,7 +1734,7 @@ export function MembersScreen() {
                 <input
                   className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                   data-testid="member-create-field"
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={formatDateKey(new Date())}
                   type="date"
                   value={newMemberBirthDate}
                   onChange={(event) => setNewMemberBirthDate(event.target.value)}
@@ -2246,7 +2246,7 @@ export function MembersScreen() {
                             className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                             data-touch-target="member-profile-field"
                             data-testid={`member-birth-date-input-${member.id}`}
-                            max={new Date().toISOString().slice(0, 10)}
+                            max={formatDateKey(new Date())}
                             type="date"
                             value={getProfileDraft(member).birthDate}
                             onChange={(event) => updateProfileDraft(member, { birthDate: event.target.value, feedback: undefined })}

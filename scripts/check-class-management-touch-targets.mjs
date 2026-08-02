@@ -392,6 +392,7 @@ async function captureOwnerClasses(context) {
     await page.waitForSelector('[data-testid="class-create-toggle"]', { timeout: roleScreenTimeoutMs });
 
     const collapsedLayout = {
+      dialogCount: await page.locator('[data-testid="class-create-dialog"]').count(),
       health: await collectPageHealth(page),
       formCount: await page.locator('[data-testid="class-create-form"]').count(),
       toggleHeight: (await readHeights(page, '[data-testid="class-create-toggle"]'))[0] ?? 0,
@@ -400,6 +401,7 @@ async function captureOwnerClasses(context) {
     assert.equal(collapsedLayout.health.frameworkOverlayCount, 0, "owner classes must not show a framework overlay");
     assert(collapsedLayout.health.bodyTextLength > 100, "owner classes must not render a blank page");
     assert.equal(collapsedLayout.health.scrollWidth, collapsedLayout.health.clientWidth, "owner classes must not overflow horizontally");
+    assert.equal(collapsedLayout.dialogCount, 0, "class create dialog must stay closed by default");
     assert.equal(collapsedLayout.formCount, 0, "class create form must stay collapsed by default");
     assert(collapsedLayout.toggleHeight >= 44, `class create toggle must stay 44px tall; got ${collapsedLayout.toggleHeight}px`);
     await page.screenshot({ fullPage: false, path: collapsedScreenshotPath });
@@ -410,6 +412,10 @@ async function captureOwnerClasses(context) {
     await classAgeGroupSelect.selectOption("all");
 
     const openLayout = {
+      ariaModal: await page.getByTestId("class-create-dialog").getAttribute("aria-modal"),
+      bodyOverflow: await page.evaluate(() => document.body.style.overflow),
+      closeButtonHeight: (await readHeights(page, '[data-testid="class-create-close"]'))[0] ?? 0,
+      dialogCount: await page.locator('[data-testid="class-create-dialog"]').count(),
       health: await collectPageHealth(page),
       createTextMaxLengths: {
         level: Number(await page.getByLabel("레벨", { exact: true }).getAttribute("maxlength")),
@@ -426,11 +432,17 @@ async function captureOwnerClasses(context) {
       editInputHeights: await readHeights(page, '[data-testid="class-edit-input"]'),
       editSubmitHeights: await readHeights(page, '[data-testid="class-edit-submit"]'),
       formCount: await page.locator('[data-testid="class-create-form"]').count(),
+      overlayCount: await page.locator('[data-testid="class-create-overlay"]').count(),
     };
 
     assert.equal(openLayout.health.frameworkOverlayCount, 0, "owner classes open form must not show a framework overlay");
     assert.equal(openLayout.health.scrollWidth, openLayout.health.clientWidth, "owner classes open form must not overflow horizontally");
+    assert.equal(openLayout.ariaModal, "true", "class create surface must be exposed as a modal dialog");
+    assert.equal(openLayout.bodyOverflow, "hidden", "class create dialog must lock background scrolling");
+    assert.equal(openLayout.dialogCount, 1, "class create dialog must open after tapping the toggle");
     assert.equal(openLayout.formCount, 1, "class create form must open after tapping the toggle");
+    assert.equal(openLayout.overlayCount, 1, "class create form must render in an independent overlay");
+    assert(openLayout.closeButtonHeight >= 44, `class create close control must stay 44px tall; got ${openLayout.closeButtonHeight}px`);
     assert.equal(openLayout.ageGroupValue, "all", "class create form must select the unrestricted all-age option");
     assert(
       openLayout.ageGroupOptionLabels.includes("무관 (모두 가능)"),
@@ -477,11 +489,24 @@ async function captureOwnerClasses(context) {
     assertHeightsAtLeast("class create weekday", weeklyLayout.weekdayHeights);
     await page.screenshot({ fullPage: false, path: weeklyScreenshotPath });
 
+    await page.getByTestId("class-create-close").click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="class-create-dialog"]'));
+    const closedLayout = {
+      bodyOverflow: await page.evaluate(() => document.body.style.overflow),
+      dialogCount: await page.locator('[data-testid="class-create-dialog"]').count(),
+      formCount: await page.locator('[data-testid="class-create-form"]').count(),
+    };
+
+    assert.equal(closedLayout.bodyOverflow, "", "closing the class create dialog must restore background scrolling");
+    assert.equal(closedLayout.dialogCount, 0, "class create dialog must close from its close control");
+    assert.equal(closedLayout.formCount, 0, "class create form must leave the page after closing the dialog");
+
     assert(statSync(collapsedScreenshotPath).size > 10_000, "owner classes collapsed screenshot must be non-empty");
     assert(statSync(openScreenshotPath).size > 10_000, "owner classes open screenshot must be non-empty");
     assert(statSync(weeklyScreenshotPath).size > 10_000, "owner classes weekly screenshot must be non-empty");
 
     return {
+      closedLayout,
       collapsedLayout,
       messages,
       openLayout,

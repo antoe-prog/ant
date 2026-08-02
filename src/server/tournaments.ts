@@ -1,3 +1,5 @@
+import { noticeStateLockKey } from "../lib/notices.ts";
+
 export type TournamentBody = {
   title?: string;
   organizer?: string;
@@ -32,7 +34,7 @@ const tournamentBodyFields = [
   "description",
 ] as const;
 
-export const tournamentStateLockKey = "tournament-state";
+export const tournamentStateLockKey = noticeStateLockKey;
 
 function isDateOnly(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

@@ -4,11 +4,14 @@ import { type FormEvent, useMemo, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
+  Download,
   ExternalLink,
   MapPin,
   Pencil,
   PlusCircle,
   RefreshCw,
+  Search,
+  Send,
   Trash2,
   Trophy,
   UserPlus,
@@ -16,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   tournamentDivisions,
+  tournamentRegistrationStatuses,
   type Member,
   type Tournament,
   type TournamentDivision,
@@ -35,6 +39,7 @@ const tournamentRegistrationStatusLabels: Record<TournamentRegistrationStatus, s
   pending: "검토 중",
   confirmed: "참가 확정",
   rejected: "신청 반려",
+  submitted: "협회 제출",
 };
 
 function getTournamentRegistrationStatus(status?: TournamentRegistrationStatus) {
@@ -66,6 +71,12 @@ function getDdayLabel(dateKey: string) {
   return diffDays > 0 ? `D-${diffDays}` : "종료";
 }
 
+function escapeCsvCell(value: string | number) {
+  const raw = String(value);
+  const protectedValue = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${protectedValue.replaceAll('"', '""')}"`;
+}
+
 export function TournamentsScreen() {
   const context = useApiContext();
   const {
@@ -74,6 +85,7 @@ export function TournamentsScreen() {
     deleteTournament,
     registerForTournament,
     reviewTournamentRegistration,
+    reviewTournamentRegistrations,
     syncKoreaJudoTournaments,
     updateTournament,
   } = useAppStore();
@@ -114,10 +126,14 @@ export function TournamentsScreen() {
   const [managementTournamentId, setManagementTournamentId] = useState<string | null>(null);
   const [reviewPendingKey, setReviewPendingKey] = useState<string | null>(null);
   const [managementFeedback, setManagementFeedback] = useState<string | null>(null);
+  const [managementSearch, setManagementSearch] = useState("");
+  const [managementStatusFilter, setManagementStatusFilter] = useState<"all" | TournamentRegistrationStatus>("all");
+  const [managementDivisionFilter, setManagementDivisionFilter] = useState<"all" | TournamentDivision>("all");
+  const [managementSelectedMemberIds, setManagementSelectedMemberIds] = useState<string[]>([]);
+  const [managementReviewNote, setManagementReviewNote] = useState("");
 
+  const todayKey = formatDateKey(new Date());
   const tournaments = useMemo(() => {
-    const todayKey = new Date().toISOString().slice(0, 10);
-
     return [...(context.db.tournaments ?? [])]
       .filter((tournament) => canViewTournament(tournament, visibleBranchIds))
       .sort((a, b) => {
@@ -131,8 +147,8 @@ export function TournamentsScreen() {
         // 예정 대회는 가까운 순, 지난 대회는 최근 순
         return aUpcoming ? a.eventDate.localeCompare(b.eventDate) : b.eventDate.localeCompare(a.eventDate);
       });
-  }, [context.db.tournaments, visibleBranchIds]);
-  const upcomingCount = tournaments.filter((tournament) => tournament.eventDate >= new Date().toISOString().slice(0, 10)).length;
+  }, [context.db.tournaments, todayKey, visibleBranchIds]);
+  const upcomingCount = tournaments.filter((tournament) => tournament.eventDate >= todayKey).length;
   const importedTournaments = tournaments.filter((tournament) => tournament.source === "korea_judo_association");
   const latestSourceSyncAt = importedTournaments
     .map((tournament) => tournament.sourceSyncedAt)
@@ -153,8 +169,62 @@ export function TournamentsScreen() {
     registrationTournament?.registrations?.find(
       (registration) => registration.memberId === selectedRegistrationMember?.id,
     ) ?? null;
+  const selectedRegistrationSubmitted = selectedRegistration?.status === "submitted";
   const managementTournament =
     tournaments.find((tournament) => tournament.id === managementTournamentId) ?? null;
+  const pendingRegistrationTournaments = tournaments
+    .map((tournament) => ({
+      tournament,
+      pendingCount: (tournament.registrations ?? []).filter(
+        (registration) => getTournamentRegistrationStatus(registration.status) === "pending",
+      ).length,
+    }))
+    .filter((row) => row.pendingCount > 0);
+  const pendingRegistrationCount = pendingRegistrationTournaments.reduce((sum, row) => sum + row.pendingCount, 0);
+  const managementRows = useMemo(() => {
+    if (!managementTournament) {
+      return [];
+    }
+
+    const normalizedSearch = managementSearch.trim().toLocaleLowerCase("ko-KR");
+
+    return (managementTournament.registrations ?? [])
+      .map((registration) => {
+        const member = context.db.members.find((candidate) => candidate.id === registration.memberId);
+        const branch = member
+          ? context.db.branches.find((candidate) => candidate.id === member.branchId)
+          : null;
+
+        return {
+          branch,
+          member,
+          registration,
+          status: getTournamentRegistrationStatus(registration.status),
+        };
+      })
+      .filter((row) => managementStatusFilter === "all" || row.status === managementStatusFilter)
+      .filter((row) => managementDivisionFilter === "all" || row.registration.division === managementDivisionFilter)
+      .filter((row) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+
+        return [
+          row.member?.name,
+          row.branch?.name,
+          row.registration.division,
+          row.registration.weightClass,
+        ].some((value) => value?.toLocaleLowerCase("ko-KR").includes(normalizedSearch));
+      })
+      .sort((left, right) => right.registration.appliedAt.localeCompare(left.registration.appliedAt));
+  }, [
+    context.db.branches,
+    context.db.members,
+    managementDivisionFilter,
+    managementSearch,
+    managementStatusFilter,
+    managementTournament,
+  ]);
 
   async function handleKoreaJudoSync() {
     if (syncPending) {
@@ -325,6 +395,11 @@ export function TournamentsScreen() {
   function openRegistrationManagement(tournament: Tournament) {
     setManagementTournamentId(tournament.id);
     setManagementFeedback(null);
+    setManagementSearch("");
+    setManagementStatusFilter("all");
+    setManagementDivisionFilter("all");
+    setManagementSelectedMemberIds([]);
+    setManagementReviewNote("");
   }
 
   function closeRegistrationManagement() {
@@ -334,6 +409,8 @@ export function TournamentsScreen() {
 
     setManagementTournamentId(null);
     setManagementFeedback(null);
+    setManagementSelectedMemberIds([]);
+    setManagementReviewNote("");
   }
 
   async function handleRegistrationReview(
@@ -342,16 +419,117 @@ export function TournamentsScreen() {
     status: TournamentRegistrationStatus,
   ) {
     const pendingKey = `${memberId}:${status}`;
+    const note = managementReviewNote.trim();
 
     if (reviewPendingKey) {
       return;
     }
 
+    if (status === "rejected" && !note) {
+      setManagementFeedback("신청을 반려하려면 처리 사유를 입력해 주세요.");
+      return;
+    }
+
     setReviewPendingKey(pendingKey);
     setManagementFeedback(null);
-    const result = await reviewTournamentRegistration(tournamentId, memberId, status);
+    const result = await reviewTournamentRegistration(tournamentId, memberId, status, note || undefined);
     setReviewPendingKey(null);
     setManagementFeedback(result.message);
+
+    if (result.ok) {
+      setManagementReviewNote("");
+    }
+  }
+
+  async function handleBulkRegistrationReview(status: TournamentRegistrationStatus) {
+    if (!managementTournament || managementSelectedMemberIds.length === 0 || reviewPendingKey) {
+      return;
+    }
+
+    const note = managementReviewNote.trim();
+
+    if (status === "rejected" && !note) {
+      setManagementFeedback("선택한 신청을 반려하려면 처리 사유를 입력해 주세요.");
+      return;
+    }
+
+    if (
+      status === "submitted" &&
+      managementRows
+        .filter((row) => managementSelectedMemberIds.includes(row.registration.memberId))
+        .some((row) => row.status !== "confirmed" && row.status !== "submitted")
+    ) {
+      setManagementFeedback("참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.");
+      return;
+    }
+
+    setReviewPendingKey(`bulk:${status}`);
+    setManagementFeedback(null);
+    const result = await reviewTournamentRegistrations(
+      managementTournament.id,
+      managementSelectedMemberIds,
+      status,
+      note || undefined,
+    );
+    setReviewPendingKey(null);
+    setManagementFeedback(result.message);
+
+    if (result.ok) {
+      setManagementSelectedMemberIds([]);
+      setManagementReviewNote("");
+    }
+  }
+
+  function toggleManagementSelection(memberId: string) {
+    setManagementSelectedMemberIds((selected) =>
+      selected.includes(memberId)
+        ? selected.filter((candidate) => candidate !== memberId)
+        : [...selected, memberId],
+    );
+  }
+
+  function toggleAllVisibleManagementRows() {
+    const visibleMemberIds = managementRows.map((row) => row.registration.memberId);
+    const allSelected =
+      visibleMemberIds.length > 0 &&
+      visibleMemberIds.every((memberId) => managementSelectedMemberIds.includes(memberId));
+
+    setManagementSelectedMemberIds((selected) =>
+      allSelected
+        ? selected.filter((memberId) => !visibleMemberIds.includes(memberId))
+        : [...new Set([...selected, ...visibleMemberIds])],
+    );
+  }
+
+  function exportRegistrationCsv() {
+    if (!managementTournament || managementRows.length === 0) {
+      setManagementFeedback("출력할 참가 신청 명단이 없습니다.");
+      return;
+    }
+
+    const header = ["대회", "회원명", "지점", "종별", "체급", "상태", "신청일시", "처리사유"];
+    const rows = managementRows.map(({ branch, member, registration, status }) => [
+      managementTournament.title,
+      member?.name ?? "삭제된 회원",
+      branch?.name ?? "지점 미확인",
+      registration.division,
+      registration.weightClass,
+      tournamentRegistrationStatusLabels[status],
+      formatDateTime(registration.appliedAt),
+      registration.reviewNote ?? "",
+    ]);
+    const csv = [header, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\r\n");
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `final-judo-tournament-registrations-${managementTournament.eventDate}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setManagementFeedback(`현재 필터 기준 ${managementRows.length}명의 참가 명단을 저장했습니다.`);
   }
 
   return (
@@ -537,6 +715,49 @@ export function TournamentsScreen() {
         </p>
       ) : null}
 
+      {canManage ? (
+        <section
+          className="mb-4 overflow-hidden rounded-lg border border-zinc-200 bg-white"
+          id="registration-queue"
+          data-testid="tournament-registration-queue"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-950">참가 신청 현황</h2>
+              <p className="mt-0.5 text-xs font-medium text-zinc-500">
+                검토 대기 {pendingRegistrationCount}명
+              </p>
+            </div>
+            <UserPlus className="h-5 w-5 shrink-0 text-teal-700" aria-hidden />
+          </div>
+          {pendingRegistrationTournaments.length > 0 ? (
+            <div className="divide-y divide-zinc-100">
+              {pendingRegistrationTournaments.map(({ pendingCount, tournament }) => (
+                <button
+                  className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-zinc-50"
+                  data-testid={`tournament-registration-queue-${tournament.id}`}
+                  key={tournament.id}
+                  type="button"
+                  onClick={() => openRegistrationManagement(tournament)}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-zinc-900">{tournament.title}</span>
+                    <span className="mt-0.5 block text-xs font-medium text-zinc-500">
+                      {formatDate(tournament.eventDate)} · 신청 {(tournament.registrations ?? []).length}명
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                    대기 {pendingCount}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="px-4 py-4 text-sm font-medium text-zinc-500">검토할 참가 신청이 없습니다.</p>
+          )}
+        </section>
+      ) : null}
+
       {tournaments.length === 0 ? (
         <EmptyState
           title="등록된 대회 공지가 없습니다"
@@ -556,9 +777,9 @@ export function TournamentsScreen() {
               : "전 지점";
             const canEditTournament = canMutateTournament(context.user, tournament, visibleBranchIds);
             const deadlinePassed = tournament.registrationDeadline
-              ? tournament.registrationDeadline < formatDateKey(new Date())
+              ? tournament.registrationDeadline < todayKey
               : false;
-            const eventEnded = (tournament.eventEndDate ?? tournament.eventDate) < formatDateKey(new Date());
+            const eventEnded = (tournament.eventEndDate ?? tournament.eventDate) < todayKey;
             const registeredMemberCount = (tournament.registrations ?? []).length;
 
             return (
@@ -841,7 +1062,7 @@ export function TournamentsScreen() {
                   <select
                     className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-base font-medium text-zinc-950 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-zinc-100"
                     data-testid="tournament-registration-division"
-                    disabled={!selectedRegistrationMember || registrationPending}
+                    disabled={!selectedRegistrationMember || registrationPending || selectedRegistrationSubmitted}
                     value={registrationDivision}
                     onChange={(event) => {
                       setRegistrationDivision(event.target.value as TournamentDivision);
@@ -861,7 +1082,7 @@ export function TournamentsScreen() {
                   <input
                     className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-base font-medium text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-zinc-100"
                     data-testid="tournament-registration-weight-class"
-                    disabled={!selectedRegistrationMember || registrationPending}
+                    disabled={!selectedRegistrationMember || registrationPending || selectedRegistrationSubmitted}
                     inputMode="text"
                     maxLength={30}
                     placeholder="예: -60kg, +100kg, 무제한급"
@@ -887,21 +1108,33 @@ export function TournamentsScreen() {
                 role="status"
               >
                 {registrationFeedback ??
-                  (selectedRegistration
+                  (selectedRegistrationSubmitted
+                    ? "협회에 제출된 참가 신청은 직접 수정하거나 취소할 수 없습니다. 담당 코치에게 문의해 주세요."
+                    : selectedRegistration
                     ? `${selectedRegistrationMember?.name ?? "선택 회원"}님의 ${selectedRegistration.division ?? "종별 미입력"} · ${selectedRegistration.weightClass ?? "체급 미입력"} 신청은 ${tournamentRegistrationStatusLabels[getTournamentRegistrationStatus(selectedRegistration.status)]} 상태입니다.`
                     : "참가 회원, 종별, 체급을 확인한 뒤 신청해 주세요.")}
               </p>
 
+              {selectedRegistration?.reviewNote ? (
+                <div
+                  className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2.5 text-sm leading-6 text-teal-900"
+                  data-testid="tournament-registration-review-guidance"
+                >
+                  <span className="font-semibold">처리 안내</span>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words">{selectedRegistration.reviewNote}</p>
+                </div>
+              ) : null}
+
               {selectedRegistration ? (
                 <Button
                   data-testid="tournament-registration-cancel"
-                  disabled={registrationPending}
+                  disabled={registrationPending || selectedRegistrationSubmitted}
                   size="lg"
                   type="button"
                   variant="danger"
                   onClick={() => void handleRegistrationCancel()}
                 >
-                  {registrationPending ? "처리 중" : "신청 취소"}
+                  {registrationPending ? "처리 중" : selectedRegistrationSubmitted ? "협회 제출 완료" : "신청 취소"}
                 </Button>
               ) : null}
 
@@ -911,13 +1144,24 @@ export function TournamentsScreen() {
                 </Button>
                 <Button
                   data-testid="tournament-registration-submit"
-                  disabled={!selectedRegistrationMember || !registrationWeightClass.trim() || registrationPending}
+                  disabled={
+                    !selectedRegistrationMember ||
+                    !registrationWeightClass.trim() ||
+                    registrationPending ||
+                    selectedRegistrationSubmitted
+                  }
                   size="lg"
                   type="button"
                   variant="primary"
                   onClick={() => void handleRegistrationSubmit()}
                 >
-                  {registrationPending ? "저장 중" : selectedRegistration ? "신청 정보 수정" : "참가 신청"}
+                  {registrationPending
+                    ? "저장 중"
+                    : selectedRegistrationSubmitted
+                      ? "수정 불가"
+                      : selectedRegistration
+                        ? "신청 정보 수정"
+                        : "참가 신청"}
                 </Button>
               </div>
             </div>
@@ -957,106 +1201,267 @@ export function TournamentsScreen() {
             </div>
 
             <div className="grid gap-4 p-4">
-              <div className="grid grid-cols-3 gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-center">
-                {(["pending", "confirmed", "rejected"] as const).map((status) => (
-                  <div key={status}>
-                    <p className="text-lg font-semibold text-zinc-950">
+              <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-center sm:grid-cols-4">
+                {tournamentRegistrationStatuses.map((status) => (
+                  <button
+                    aria-pressed={managementStatusFilter === status}
+                    className={`min-h-14 rounded-md px-2 transition ${
+                      managementStatusFilter === status ? "bg-white shadow-sm ring-1 ring-zinc-200" : "hover:bg-white"
+                    }`}
+                    key={status}
+                    type="button"
+                    onClick={() => {
+                      setManagementStatusFilter((current) => current === status ? "all" : status);
+                      setManagementSelectedMemberIds([]);
+                    }}
+                  >
+                    <span className="block text-lg font-semibold text-zinc-950">
                       {(managementTournament.registrations ?? []).filter(
                         (registration) => getTournamentRegistrationStatus(registration.status) === status,
                       ).length}
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-zinc-500">
+                    </span>
+                    <span className="mt-0.5 block text-xs font-medium text-zinc-500">
                       {tournamentRegistrationStatusLabels[status]}
-                    </p>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
 
-              <ul className="grid gap-3">
-                {(managementTournament.registrations ?? []).map((registration) => {
-                  const member = context.db.members.find((candidate) => candidate.id === registration.memberId);
-                  const branch = member
-                    ? context.db.branches.find((candidate) => candidate.id === member.branchId)
-                    : null;
-                  const currentStatus = getTournamentRegistrationStatus(registration.status);
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_9rem]">
+                <label className="relative min-w-0">
+                  <span className="sr-only">참가 회원 검색</span>
+                  <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-400" aria-hidden />
+                  <input
+                    className="min-h-11 w-full rounded-md border border-zinc-300 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    data-testid="tournament-registration-management-search"
+                    placeholder="이름, 지점, 체급 검색"
+                    type="search"
+                    value={managementSearch}
+                    onChange={(event) => {
+                      setManagementSearch(event.target.value);
+                      setManagementSelectedMemberIds([]);
+                    }}
+                  />
+                </label>
+                <label>
+                  <span className="sr-only">처리 상태 필터</span>
+                  <select
+                    className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 outline-none focus:border-teal-600"
+                    data-testid="tournament-registration-management-status-filter"
+                    value={managementStatusFilter}
+                    onChange={(event) => {
+                      setManagementStatusFilter(event.target.value as "all" | TournamentRegistrationStatus);
+                      setManagementSelectedMemberIds([]);
+                    }}
+                  >
+                    <option value="all">전체 상태</option>
+                    {tournamentRegistrationStatuses.map((status) => (
+                      <option key={status} value={status}>{tournamentRegistrationStatusLabels[status]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="sr-only">종별 필터</span>
+                  <select
+                    className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 outline-none focus:border-teal-600"
+                    data-testid="tournament-registration-management-division-filter"
+                    value={managementDivisionFilter}
+                    onChange={(event) => {
+                      setManagementDivisionFilter(event.target.value as "all" | TournamentDivision);
+                      setManagementSelectedMemberIds([]);
+                    }}
+                  >
+                    <option value="all">전체 종별</option>
+                    {tournamentDivisions.map((division) => <option key={division} value={division}>{division}</option>)}
+                  </select>
+                </label>
+              </div>
 
-                  return (
-                    <li
-                      className="rounded-md border border-zinc-200 bg-white p-3"
-                      data-testid={`tournament-registration-management-row-${registration.memberId}`}
-                      key={registration.id}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
+                  <input
+                    checked={managementRows.length > 0 && managementRows.every((row) =>
+                      managementSelectedMemberIds.includes(row.registration.memberId)
+                    )}
+                    className="h-5 w-5 accent-teal-700"
+                    data-testid="tournament-registration-management-select-all"
+                    type="checkbox"
+                    onChange={toggleAllVisibleManagementRows}
+                  />
+                  현재 목록 전체
+                </label>
+                <button
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  data-testid="tournament-registration-export"
+                  type="button"
+                  onClick={exportRegistrationCsv}
+                >
+                  <Download className="h-4 w-4" aria-hidden />
+                  CSV
+                </button>
+              </div>
+
+              <label className="grid gap-1.5 text-sm font-semibold text-zinc-900">
+                처리 사유
+                <textarea
+                  className="min-h-20 w-full resize-y rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium leading-6 outline-none transition placeholder:text-zinc-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                  data-testid="tournament-registration-review-note"
+                  maxLength={300}
+                  placeholder="반려 사유 또는 참가 안내를 입력하세요. 반려 시 필수입니다."
+                  value={managementReviewNote}
+                  onChange={(event) => {
+                    setManagementReviewNote(event.target.value);
+                    setManagementFeedback(null);
+                  }}
+                />
+              </label>
+
+              {managementSelectedMemberIds.length > 0 ? (
+                <div className="rounded-md border border-teal-200 bg-teal-50 p-3" data-testid="tournament-registration-bulk-actions">
+                  <p className="text-sm font-semibold text-teal-900">선택 {managementSelectedMemberIds.length}명 일괄 처리</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center rounded-md bg-teal-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={Boolean(reviewPendingKey)}
+                      type="button"
+                      onClick={() => void handleBulkRegistrationReview("confirmed")}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-zinc-950">{member?.name ?? "삭제된 회원"}</p>
-                          <p className="mt-1 text-xs font-medium text-zinc-500">
-                            {branch?.name ?? "지점 미확인"} · {registration.division ?? "종별 미입력"} ·{" "}
-                            {registration.weightClass ?? "체급 미입력"}
-                          </p>
-                          <p className="mt-1 text-xs text-zinc-400">신청 {formatDateTime(registration.appliedAt)}</p>
+                      참가 확정
+                    </button>
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center rounded-md bg-red-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={Boolean(reviewPendingKey)}
+                      type="button"
+                      onClick={() => void handleBulkRegistrationReview("rejected")}
+                    >
+                      신청 반려
+                    </button>
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md bg-blue-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={Boolean(reviewPendingKey)}
+                      type="button"
+                      onClick={() => void handleBulkRegistrationReview("submitted")}
+                    >
+                      <Send className="h-3.5 w-3.5" aria-hidden />
+                      협회 제출
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {managementRows.length > 0 ? (
+                <ul className="grid gap-3">
+                  {managementRows.map(({ branch, member, registration, status: currentStatus }) => {
+                    const selected = managementSelectedMemberIds.includes(registration.memberId);
+
+                    return (
+                      <li
+                        className={`rounded-md border p-3 ${selected ? "border-teal-300 bg-teal-50/40" : "border-zinc-200 bg-white"}`}
+                        data-testid={`tournament-registration-management-row-${registration.memberId}`}
+                        key={registration.id}
+                      >
+                        <div className="flex items-start gap-3">
+                          <label className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-zinc-100">
+                            <span className="sr-only">{member?.name ?? "회원"} 선택</span>
+                            <input
+                              checked={selected}
+                              className="h-5 w-5 accent-teal-700"
+                              type="checkbox"
+                              onChange={() => toggleManagementSelection(registration.memberId)}
+                            />
+                          </label>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-zinc-950">{member?.name ?? "삭제된 회원"}</p>
+                                <p className="mt-1 text-xs font-medium text-zinc-500">
+                                  {branch?.name ?? "지점 미확인"} · {registration.division} · {registration.weightClass}
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-400">신청 {formatDateTime(registration.appliedAt)}</p>
+                              </div>
+                              <span
+                                className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${
+                                  currentStatus === "confirmed"
+                                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                                    : currentStatus === "rejected"
+                                      ? "border-red-200 bg-red-50 text-red-700"
+                                      : currentStatus === "submitted"
+                                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-700"
+                                }`}
+                              >
+                                {tournamentRegistrationStatusLabels[currentStatus]}
+                              </span>
+                            </div>
+                            {registration.reviewNote ? (
+                              <p className="mt-2 rounded-md bg-zinc-50 px-2.5 py-2 text-xs leading-5 text-zinc-600">
+                                처리 사유: {registration.reviewNote}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
-                        <span
-                          className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${
-                            currentStatus === "confirmed"
-                              ? "border-teal-200 bg-teal-50 text-teal-700"
-                              : currentStatus === "rejected"
-                                ? "border-red-200 bg-red-50 text-red-700"
-                                : "border-amber-200 bg-amber-50 text-amber-700"
-                          }`}
-                        >
-                          {tournamentRegistrationStatusLabels[currentStatus]}
-                        </span>
-                      </div>
 
-                      <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label={`${member?.name ?? "회원"} 신청 상태`}>
-                        {(["pending", "confirmed", "rejected"] as const).map((status) => {
-                          const pendingKey = `${registration.memberId}:${status}`;
-                          const active = currentStatus === status;
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label={`${member?.name ?? "회원"} 신청 상태`}>
+                          {tournamentRegistrationStatuses.map((status) => {
+                            const pendingKey = `${registration.memberId}:${status}`;
+                            const active = currentStatus === status;
+                            const submittedBlocked = status === "submitted" && currentStatus !== "confirmed" && currentStatus !== "submitted";
 
-                          return (
-                            <button
-                              aria-pressed={active}
-                              className={`inline-flex min-h-11 items-center justify-center rounded-md border px-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                                active
-                                  ? status === "confirmed"
-                                    ? "border-teal-700 bg-teal-700 text-white"
-                                    : status === "rejected"
-                                      ? "border-red-700 bg-red-700 text-white"
-                                      : "border-amber-700 bg-amber-700 text-white"
-                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                              }`}
-                              data-testid={`tournament-registration-review-${registration.memberId}-${status}`}
-                              disabled={Boolean(reviewPendingKey) || active}
-                              key={status}
-                              type="button"
-                              onClick={() =>
-                                void handleRegistrationReview(
-                                  managementTournament.id,
-                                  registration.memberId,
-                                  status,
-                                )
-                              }
-                            >
-                              {reviewPendingKey === pendingKey
-                                ? "처리 중"
-                                : tournamentRegistrationStatusLabels[status]}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                            return (
+                              <button
+                                aria-pressed={active}
+                                className={`inline-flex min-h-11 items-center justify-center rounded-md border px-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  active
+                                    ? status === "confirmed"
+                                      ? "border-teal-700 bg-teal-700 text-white"
+                                      : status === "rejected"
+                                        ? "border-red-700 bg-red-700 text-white"
+                                        : status === "submitted"
+                                          ? "border-blue-700 bg-blue-700 text-white"
+                                          : "border-amber-700 bg-amber-700 text-white"
+                                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                                }`}
+                                data-testid={`tournament-registration-review-${registration.memberId}-${status}`}
+                                disabled={Boolean(reviewPendingKey) || active || submittedBlocked}
+                                key={status}
+                                type="button"
+                                onClick={() =>
+                                  void handleRegistrationReview(
+                                    managementTournament.id,
+                                    registration.memberId,
+                                    status,
+                                  )
+                                }
+                              >
+                                {reviewPendingKey === pendingKey
+                                  ? "처리 중"
+                                  : tournamentRegistrationStatusLabels[status]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-5 text-center text-sm font-medium text-zinc-500">
+                  검색 조건에 맞는 참가 신청이 없습니다.
+                </p>
+              )}
 
               <p
                 aria-live="polite"
                 className={`min-h-5 text-sm font-medium ${
-                  managementFeedback?.includes("못했습니다") ? "text-red-700" : "text-zinc-600"
+                  managementFeedback?.includes("못했습니다") ||
+                  managementFeedback?.includes("입력") ||
+                  managementFeedback?.includes("확정된")
+                    ? "text-red-700"
+                    : "text-zinc-600"
                 }`}
                 role="status"
               >
-                {managementFeedback ?? "신청자의 종별과 체급을 확인한 뒤 처리 상태를 선택해 주세요."}
+                {managementFeedback ?? "검색과 필터로 명단을 좁힌 뒤 개별 또는 일괄 처리할 수 있습니다."}
               </p>
 
               <Button disabled={Boolean(reviewPendingKey)} size="lg" type="button" onClick={closeRegistrationManagement}>

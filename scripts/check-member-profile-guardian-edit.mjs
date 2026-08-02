@@ -24,6 +24,7 @@ const [
   counselingNoteVisibilityPolicySource,
   counselingNoteRouteSource,
   counselingNoteMutationRouteSource,
+  appStoreSource,
   smokeApiSource,
   adminUserManagementApiSource,
   packageJsonSource,
@@ -45,6 +46,7 @@ const [
   readFile("src/lib/counseling-note-visibility.ts", "utf8"),
   readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/route.ts", "utf8"),
   readFile("src/app/api/v1/branches/[branchId]/members/[memberId]/counseling-notes/[noteId]/route.ts", "utf8"),
+  readFile("src/store/app-store.tsx", "utf8"),
   readFile("scripts/smoke-api.mjs", "utf8"),
   readFile("scripts/check-admin-user-management-api.mjs", "utf8"),
   readFile("package.json", "utf8"),
@@ -223,6 +225,15 @@ assert(
     counselingNoteVisibilityPolicySource.includes('note.visibility === "member_visible"') &&
     counselingNoteVisibilityPolicySource.includes("const isSelfProfile"),
   "counseling note sharing must expose a member option and distinguish guardian self from child visibility",
+);
+assert(
+  appStoreSource.includes("const familySnapshotRefreshIntervalMs = 15_000;") &&
+    appStoreSource.includes("window.setInterval(() => {") &&
+    appStoreSource.includes("void refreshFamilyScope();") &&
+    appStoreSource.includes("window.clearInterval(refreshIntervalId);") &&
+    smokeApiSource.includes("member bootstrap must reflect a staff counseling note edit") &&
+    smokeApiSource.includes("member bootstrap must reflect a staff counseling note deletion"),
+  "family snapshots must periodically refresh and role-crossing note mutations must stay covered",
 );
 assert(
   counselingNoteMutationRouteSource.includes("export async function PATCH") &&

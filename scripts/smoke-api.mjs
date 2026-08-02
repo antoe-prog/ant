@@ -2022,6 +2022,10 @@ async function run() {
     ),
     "member-visible counseling note create did not persist",
   );
+  const memberVisibleCounselingNote = result.payload.data.db.counselingNotes.find(
+    (note) => note.body === memberVisibleCounselingBody,
+  );
+  assert(memberVisibleCounselingNote, "member-visible counseling note fixture missing");
 
   const memberClient = createClient();
   result = await login(memberClient, "member");
@@ -2070,6 +2074,40 @@ async function run() {
     result.db.counselingNotes.some((note) => note.body === memberVisibleCounselingBody) &&
       result.db.counselingNotes.every((note) => note.visibility === "member_visible"),
     "member must only see member-visible counseling notes for the connected profile",
+  );
+  const updatedMemberVisibleCounselingBody = `Updated member-visible counseling note ${stamp}`;
+  await owner.request(
+    `/api/v1/branches/branch-gangnam/members/member-minjae/counseling-notes/${memberVisibleCounselingNote.id}?selectedBranchId=branch-gangnam`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        body: updatedMemberVisibleCounselingBody,
+        noteType: "follow_up",
+        visibility: "member_visible",
+      }),
+    },
+  );
+  let memberCounselingSnapshot = await memberClient.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+  );
+  assert(
+    memberCounselingSnapshot.payload.data.db.counselingNotes.some(
+      (note) => note.id === memberVisibleCounselingNote.id && note.body === updatedMemberVisibleCounselingBody,
+    ),
+    "member bootstrap must reflect a staff counseling note edit",
+  );
+  await owner.request(
+    `/api/v1/branches/branch-gangnam/members/member-minjae/counseling-notes/${memberVisibleCounselingNote.id}?selectedBranchId=branch-gangnam`,
+    { method: "DELETE" },
+  );
+  memberCounselingSnapshot = await memberClient.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+  );
+  assert(
+    !memberCounselingSnapshot.payload.data.db.counselingNotes.some(
+      (note) => note.id === memberVisibleCounselingNote.id,
+    ),
+    "member bootstrap must reflect a staff counseling note deletion",
   );
 
   const guardianAttendanceQrIssue = await guardian.request(
@@ -2730,8 +2768,8 @@ async function run() {
     },
   );
 
-  const capacityRaceStartsAt = new Date(stamp + 30 * 60 * 60 * 1000).toISOString();
-  const capacityRaceEndsAt = new Date(stamp + 31 * 60 * 60 * 1000).toISOString();
+  const capacityRaceStartsAt = new Date(stamp + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const capacityRaceEndsAt = new Date(stamp + (14 * 24 + 1) * 60 * 60 * 1000).toISOString();
   result = await owner.request("/api/v1/branches/branch-gangnam/classes?selectedBranchId=branch-gangnam", {
     method: "POST",
     body: JSON.stringify({
@@ -5741,6 +5779,10 @@ async function run() {
   );
   assert(malformedPasswordReset.response.status === 400, "malformed password reset must fail without a server error");
 
+  const passwordResetRequestAuditCountBefore = (
+    await admin.request("/api/v1/me/bootstrap")
+  ).payload.data.db.auditLogs.filter((log) => log.action === "auth.password_reset.request").length;
+
   result = await anonymous.request("/api/v1/auth/password-reset", {
     method: "POST",
     body: JSON.stringify({ action: "request", phone: "01000000000" }),
@@ -5748,6 +5790,14 @@ async function run() {
   assert(
     result.payload.data.ok === true && result.payload.data.next === "verify",
     "password reset request must return a non-enumerating verification response",
+  );
+  const passwordResetRequestAuditCountAfter = (
+    await admin.request("/api/v1/me/bootstrap")
+  ).payload.data.db.auditLogs.filter((log) => log.action === "auth.password_reset.request").length;
+  assert.equal(
+    passwordResetRequestAuditCountAfter,
+    passwordResetRequestAuditCountBefore,
+    "unknown password reset requests must not create user-attributed audit logs",
   );
 
   const invitee = createClient();
@@ -6810,7 +6860,6 @@ async function run() {
     "branch.update",
     "branch.owner.assign",
     "user.invite.create",
-    "auth.password_reset.request",
     "auth.password_reset.complete",
     "auth.invite.accept",
     "user.role.update",

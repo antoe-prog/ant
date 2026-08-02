@@ -14,6 +14,15 @@ import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { canViewTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import {
+  prepareNoticePushDispatchJobs,
+  processNotificationOutbox,
+} from "@/server/notification-outbox-runner";
+import {
+  createNoticePushDispatchRequestAuditLog,
+  getNoticeFamilyRecipientCount,
+  getNoticePushSubscriptions,
+} from "@/server/push-notifications";
 import { createRuntimeId } from "@/server/runtime-id";
 import { tournamentStateLockKey } from "@/server/tournaments";
 
@@ -24,7 +33,9 @@ type RegistrationApplyBody = RegistrationCancelBody & {
   division: TournamentDivision;
   weightClass: string;
 };
-type RegistrationReviewBody = RegistrationCancelBody & {
+type RegistrationReviewBody = {
+  memberIds: string[];
+  note?: string;
   status: TournamentRegistrationStatus;
 };
 type RegistrationUpdate =
@@ -87,14 +98,38 @@ function parseRegistrationReviewBody(value: unknown): RegistrationReviewBody | n
   }
 
   const body = value as Record<string, unknown>;
-  const memberId = parseMemberId(body.memberId);
+  const singleMemberId = parseMemberId(body.memberId);
+  const memberIds = Array.isArray(body.memberIds)
+    ? [...new Set(body.memberIds.map(parseMemberId))]
+    : singleMemberId
+      ? [singleMemberId]
+      : [];
+  const note = typeof body.note === "string" ? body.note.trim() : "";
   const status =
     typeof body.status === "string" &&
     tournamentRegistrationStatuses.includes(body.status as TournamentRegistrationStatus)
       ? body.status as TournamentRegistrationStatus
       : null;
+  const allowedKeys = new Set(singleMemberId ? ["memberId", "note", "status"] : ["memberIds", "note", "status"]);
 
-  return Object.keys(body).length === 2 && memberId && status ? { memberId, status } : null;
+  if (
+    !status ||
+    memberIds.length === 0 ||
+    memberIds.length > 100 ||
+    memberIds.some((memberId) => memberId === null) ||
+    Object.keys(body).some((key) => !allowedKeys.has(key)) ||
+    note.length > 300 ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note) ||
+    (status === "rejected" && !note)
+  ) {
+    return null;
+  }
+
+  return {
+    memberIds: memberIds as string[],
+    ...(note ? { note } : {}),
+    status,
+  };
 }
 
 function getRegistrationContext(
@@ -174,6 +209,40 @@ function getApplicationBlockReason(tournament: Tournament, memberStatus: string,
   return null;
 }
 
+function prepareRegistrationStatusNoticePush(
+  db: MockDatabase,
+  notices: Notice[],
+  actorUserId: string,
+  requestedAt: string,
+) {
+  let nextDb = db;
+  let enqueuedCount = 0;
+
+  for (const notice of notices) {
+    const dispatchAudit = createNoticePushDispatchRequestAuditLog({
+      auditId: createRuntimeId("audit"),
+      branchId: notice.branchId,
+      actorUserId,
+      noticeId: notice.id,
+      candidateCount: getNoticePushSubscriptions(nextDb, notice).length,
+      recipientCount: getNoticeFamilyRecipientCount(nextDb, notice),
+      requestedAt,
+      autoDispatchedOnCreate: true,
+    });
+    const prepared = prepareNoticePushDispatchJobs(
+      { ...nextDb, auditLogs: [dispatchAudit, ...nextDb.auditLogs] },
+      notice,
+      dispatchAudit,
+      requestedAt,
+    );
+
+    nextDb = prepared.db;
+    enqueuedCount += prepared.enqueued;
+  }
+
+  return { db: nextDb, enqueuedCount };
+}
+
 async function updateRegistration(
   request: NextRequest,
   tournamentId: string,
@@ -198,6 +267,14 @@ async function updateRegistration(
     const { member, selectedBranchId, tournament, user } = context;
     const registrations = tournament.registrations ?? [];
     const existing = registrations.find((registration) => registration.memberId === member.id);
+
+    if (existing?.status === "submitted") {
+      return jsonError(
+        422,
+        "BUSINESS_RULE_FAILED",
+        "협회에 제출된 참가 신청은 직접 수정하거나 취소할 수 없습니다. 담당 코치에게 문의해 주세요.",
+      );
+    }
 
     if (operation === "cancel" && !existing) {
       return jsonOk({
@@ -249,6 +326,7 @@ async function updateRegistration(
                     division: body.division,
                     reviewedAt: undefined,
                     reviewedByUserId: undefined,
+                    reviewNote: undefined,
                     status: "pending" as const,
                     weightClass: body.weightClass,
                     updatedAt: now,
@@ -330,11 +408,11 @@ async function updateRegistration(
   });
 }
 
-function getRegistrationReviewContext(
+function getRegistrationReviewBatchContext(
   request: NextRequest,
   db: MockDatabase,
   tournamentId: string,
-  memberId: string,
+  memberIds: string[],
 ) {
   const { user, response } = requireSession(request, db);
 
@@ -361,41 +439,47 @@ function getRegistrationReviewContext(
     return { ok: false as const, response: jsonError(404, "NOT_FOUND", "대회를 찾을 수 없습니다.") };
   }
 
-  const member = db.members.find((candidate) => candidate.id === memberId);
-  const accessibleMemberIds = getAccessibleMemberIds(user, db, selectedScope.branchIds);
-
-  if (
-    !member ||
-    !selectedScope.branchIds.includes(member.branchId) ||
-    !accessibleMemberIds.includes(member.id)
-  ) {
-    return { ok: false as const, response: jsonError(404, "NOT_FOUND", "처리할 참가 회원을 찾을 수 없습니다.") };
-  }
-
   const tournamentAccess = resolveTournamentAccess(tournament);
-
-  if (tournamentAccess.scope === "branch" && tournamentAccess.branchId !== member.branchId) {
-    return {
-      ok: false as const,
-      response: jsonError(403, "FORBIDDEN", "회원이 등록된 지점의 대회 신청만 처리할 수 있습니다."),
-    };
-  }
-
-  const registration = (tournament.registrations ?? []).find(
-    (candidate) => candidate.memberId === member.id,
+  const accessibleMemberIds = new Set(getAccessibleMemberIds(user, db, selectedScope.branchIds));
+  const memberById = new Map(db.members.map((member) => [member.id, member]));
+  const registrationByMemberId = new Map(
+    (tournament.registrations ?? []).map((registration) => [registration.memberId, registration]),
   );
+  const contexts = [];
 
-  if (!registration) {
-    return {
-      ok: false as const,
-      response: jsonError(404, "NOT_FOUND", "처리할 대회 참가 신청을 찾을 수 없습니다."),
-    };
+  for (const memberId of memberIds) {
+    const member = memberById.get(memberId);
+
+    if (
+      !member ||
+      !selectedScope.branchIds.includes(member.branchId) ||
+      !accessibleMemberIds.has(member.id)
+    ) {
+      return { ok: false as const, response: jsonError(404, "NOT_FOUND", "처리할 참가 회원을 찾을 수 없습니다.") };
+    }
+
+    if (tournamentAccess.scope === "branch" && tournamentAccess.branchId !== member.branchId) {
+      return {
+        ok: false as const,
+        response: jsonError(403, "FORBIDDEN", "회원이 등록된 지점의 대회 신청만 처리할 수 있습니다."),
+      };
+    }
+
+    const registration = registrationByMemberId.get(member.id);
+
+    if (!registration) {
+      return {
+        ok: false as const,
+        response: jsonError(404, "NOT_FOUND", "처리할 대회 참가 신청을 찾을 수 없습니다."),
+      };
+    }
+
+    contexts.push({ member, registration });
   }
 
   return {
-    member,
+    contexts,
     ok: true as const,
-    registration,
     selectedBranchId: selectedScope.selectedBranchId,
     tournament,
     user,
@@ -408,59 +492,108 @@ async function reviewRegistration(
   body: RegistrationReviewBody,
 ) {
   const initialDb = await readServerDb();
-  const initialContext = getRegistrationReviewContext(request, initialDb, tournamentId, body.memberId);
+  const initialContext = getRegistrationReviewBatchContext(request, initialDb, tournamentId, body.memberIds);
 
   if (!initialContext.ok) {
     return initialContext.response;
   }
 
-  return withServerDbLock(tournamentStateLockKey, async () => {
+  if (
+    body.status === "submitted" &&
+    initialContext.contexts.some(
+      (context) =>
+        (context.registration.status ?? "pending") !== "confirmed" && context.registration.status !== "submitted",
+    )
+  ) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.");
+  }
+
+  const reviewResult = await withServerDbLock(tournamentStateLockKey, async () => {
     const db = await readServerDb();
-    const context = getRegistrationReviewContext(request, db, tournamentId, body.memberId);
+    const context = getRegistrationReviewBatchContext(request, db, tournamentId, body.memberIds);
 
     if (!context.ok) {
       return context.response;
     }
 
-    const { member, registration, selectedBranchId, tournament, user } = context;
-    const currentStatus = registration.status ?? "pending";
+    if (
+      body.status === "submitted" &&
+      context.contexts.some(
+        (item) =>
+          (item.registration.status ?? "pending") !== "confirmed" && item.registration.status !== "submitted",
+      )
+    ) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.");
+    }
 
-    if (currentStatus === body.status) {
+    const { contexts, selectedBranchId, tournament, user } = context;
+    const now = new Date().toISOString();
+    const nextNote = body.status === "pending" ? undefined : body.note;
+    const changedContexts = contexts.filter((context) => {
+      const currentStatus = context.registration.status ?? "pending";
+      return currentStatus !== body.status || (context.registration.reviewNote ?? undefined) !== nextNote;
+    });
+
+    if (changedContexts.length === 0) {
       return jsonOk({
-        ...createBootstrapPayload(db, user, selectedBranchId ?? member.branchId),
+        ...createBootstrapPayload(db, user, selectedBranchId),
         registration: {
-          memberId: member.id,
+          memberId: body.memberIds[0],
+          memberIds: body.memberIds,
           operation: "review",
           status: body.status,
           tournamentId: tournament.id,
           unchanged: true,
+          unchangedCount: body.memberIds.length,
+          updatedCount: 0,
         },
       });
     }
 
-    const now = new Date().toISOString();
-    const nextRegistration = {
-      ...registration,
-      reviewedAt: body.status === "pending" ? undefined : now,
-      reviewedByUserId: body.status === "pending" ? undefined : user.id,
-      status: body.status,
-      updatedAt: now,
-    };
-    const statusLabel = body.status === "confirmed" ? "확정" : body.status === "rejected" ? "반려" : "재검토";
+    const statusLabel =
+      body.status === "confirmed"
+        ? "참가 확정"
+        : body.status === "rejected"
+          ? "신청 반려"
+          : body.status === "submitted"
+            ? "협회 제출 완료"
+            : "재검토";
     const noticeTitle =
-      body.status === "confirmed" ? "대회 참가 확정" : `대회 참가 신청 ${statusLabel}`;
-    const statusNotice: Notice = {
+      body.status === "confirmed"
+        ? "대회 참가 확정"
+        : body.status === "rejected"
+          ? "대회 참가 신청 반려"
+          : body.status === "submitted"
+            ? "대회 참가 명단 제출"
+            : "대회 참가 재검토";
+    const nextRegistrationsByMemberId = new Map(
+      changedContexts.map(({ member, registration }) => [
+        member.id,
+        {
+          ...registration,
+          reviewedAt: body.status === "pending" ? undefined : now,
+          reviewedByUserId: body.status === "pending" ? undefined : user.id,
+          reviewNote: nextNote,
+          status: body.status,
+          updatedAt: now,
+        },
+      ]),
+    );
+    const statusNotices: Notice[] = changedContexts.map(({ member, registration }) => ({
       id: createRuntimeId("notice"),
       branchId: member.branchId,
       title: noticeTitle,
-      body: `${member.name} 회원의 ${tournament.title} 참가 신청이 ${statusLabel} 상태로 변경되었습니다. 종별 ${registration.division}, 체급 ${registration.weightClass}.`,
+      body: `${member.name} 회원의 ${tournament.title} 참가 신청이 ${statusLabel} 상태로 변경되었습니다. 종별 ${registration.division}, 체급 ${registration.weightClass}.${body.note ? ` 안내: ${body.note}` : ""}`,
       audience: ["member", "guardian"],
       createdAt: now,
       createdByUserId: user.id,
       readByUserIds: [],
       targetMemberIds: [member.id],
-    };
-    const auditLog: AuditLog = {
+    }));
+    const noticeIdByMemberId = new Map(
+      changedContexts.map(({ member }, index) => [member.id, statusNotices[index].id]),
+    );
+    const auditLogs: AuditLog[] = changedContexts.map(({ member, registration }) => ({
       id: createRuntimeId("audit"),
       branchId: member.branchId,
       actorUserId: user.id,
@@ -469,11 +602,12 @@ async function reviewRegistration(
       targetId: tournament.id,
       before: {
         memberId: member.id,
-        status: currentStatus,
+        status: registration.status ?? "pending",
       },
       after: {
         memberId: member.id,
-        noticeId: statusNotice.id,
+        noticeId: noticeIdByMemberId.get(member.id),
+        noteProvided: Boolean(body.note),
         operation: "review",
         status: body.status,
       },
@@ -483,36 +617,65 @@ async function reviewRegistration(
           ? "대회 참가 신청을 확정했습니다."
           : body.status === "rejected"
             ? "대회 참가 신청을 반려했습니다."
-            : "대회 참가 신청을 검토 중 상태로 변경했습니다.",
+            : body.status === "submitted"
+              ? "대회 참가 명단을 협회 제출 상태로 변경했습니다."
+              : "대회 참가 신청을 검토 중 상태로 변경했습니다.",
       createdAt: now,
-    };
-    const nextDb = await writeServerDb({
+    }));
+    const dbWithStatusNotices = {
       ...db,
       tournaments: db.tournaments.map((candidate) =>
         candidate.id === tournament.id
           ? {
               ...candidate,
               registrations: (candidate.registrations ?? []).map((candidateRegistration) =>
-                candidateRegistration.memberId === member.id ? nextRegistration : candidateRegistration,
+                nextRegistrationsByMemberId.get(candidateRegistration.memberId) ?? candidateRegistration,
               ),
             }
           : candidate,
       ),
-      notices: [statusNotice, ...db.notices],
-      auditLogs: [auditLog, ...db.auditLogs],
-    });
+      notices: [...statusNotices, ...db.notices],
+      auditLogs: [...auditLogs, ...db.auditLogs],
+    };
+    const preparedPush = prepareRegistrationStatusNoticePush(
+      dbWithStatusNotices,
+      statusNotices,
+      user.id,
+      now,
+    );
+    const nextDb = await writeServerDb(preparedPush.db);
 
-    return jsonOk({
-      ...createBootstrapPayload(nextDb, user, selectedBranchId ?? member.branchId),
-      registration: {
-        memberId: member.id,
-        operation: "review",
-        status: body.status,
-        tournamentId: tournament.id,
-        unchanged: false,
-      },
-    });
+    return {
+      enqueuedPushCount: preparedPush.enqueuedCount,
+      response: jsonOk({
+        ...createBootstrapPayload(nextDb, user, selectedBranchId),
+        registration: {
+          memberId: body.memberIds[0],
+          memberIds: body.memberIds,
+          operation: "review",
+          status: body.status,
+          tournamentId: tournament.id,
+          unchanged: changedContexts.length === 0,
+          unchangedCount: body.memberIds.length - changedContexts.length,
+          updatedCount: changedContexts.length,
+        },
+      }),
+    };
   });
+
+  if (reviewResult instanceof Response) {
+    return reviewResult;
+  }
+
+  if (reviewResult.enqueuedPushCount > 0) {
+    try {
+      await processNotificationOutbox({ limit: Math.min(reviewResult.enqueuedPushCount, 20) });
+    } catch {
+      // Durable jobs remain available for the scheduled outbox worker.
+    }
+  }
+
+  return reviewResult.response;
 }
 
 export async function POST(
@@ -571,7 +734,7 @@ export async function PATCH(
   const body = parseRegistrationReviewBody(await request.json().catch(() => null));
 
   if (!body) {
-    return jsonError(400, "VALIDATION_ERROR", "참가 회원과 처리 상태를 올바르게 입력해 주세요.");
+    return jsonError(400, "VALIDATION_ERROR", "참가 회원, 처리 상태와 사유를 올바르게 입력해 주세요. 반려 시 사유가 필요합니다.");
   }
 
   const { tournamentId } = await params;

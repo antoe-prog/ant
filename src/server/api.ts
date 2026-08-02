@@ -14,6 +14,7 @@ import {
   isGooglePlayReviewAccount,
   shouldBlockGooglePlayReviewAdminMutation,
 } from "@/lib/google-play-review-access";
+import { formatDateKey } from "../lib/format.ts";
 import { findAuthSessionUser } from "@/server/auth-session";
 
 export const sessionCookieName = "final-judo-session";
@@ -25,7 +26,7 @@ function createCoachMembershipSummary(payments: Payment[]): MemberMembershipSumm
     return { status: "none" };
   }
 
-  if (current.expiresAt < new Date().toISOString().slice(0, 10)) {
+  if (current.expiresAt < formatDateKey(new Date())) {
     return { status: "inactive", expiresAt: current.expiresAt };
   }
 

@@ -463,6 +463,28 @@ async function main() {
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
       userId: "user-coach",
       method: "PATCH",
+      body: { memberId: "member-jun", status: "rejected" },
+    });
+    assert.equal(result.response.status, 400, "registration rejection must require an operator reason");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { memberIds: ["member-jun", "member-harin"], status: "confirmed" },
+    });
+    assert.equal(result.response.status, 404, "batch review must reject a member outside the coach scope");
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "pending",
+      "a rejected batch must not partially update accessible registrations",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
       body: { memberId: "member-jun", status: "confirmed" },
     });
     assert.equal(result.response.status, 200, "coaches must review registrations for assigned members");
@@ -496,6 +518,16 @@ async function main() {
       guardianReviewNotice.audience,
       ["member", "guardian"],
       "registration review notices must stay limited to family roles",
+    );
+    const registrationReviewDispatchAudit = (await readDb(dbFile)).auditLogs.find(
+      (auditLog) =>
+        auditLog.action === "notification.dispatch" &&
+        auditLog.targetType === "notice" &&
+        auditLog.targetId === guardianReviewNotice.id,
+    );
+    assert(
+      registrationReviewDispatchAudit?.after?.autoDispatchedOnCreate === true,
+      "registration review notices must enter the durable push dispatch path",
     );
 
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
@@ -548,6 +580,86 @@ async function main() {
     assert.equal(result.response.status, 200, "members must cancel their own tournament registration");
     assert.equal(result.payload.data.registration.status, "cancelled");
 
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-seo", division: "초등부", weightClass: "-40kg" },
+    });
+    assert.equal(result.response.status, 200, "guardians must register another linked child for batch review");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: {
+        memberIds: ["member-jun", "member-seo"],
+        note: "보호자 확인 및 참가비 안내 완료",
+        status: "confirmed",
+      },
+    });
+    assert.equal(result.response.status, 200, "coaches must confirm multiple accessible registrations atomically");
+    assert.equal(result.payload.data.registration.updatedCount, 2, "batch confirmation must report its mutation count");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: {
+        memberIds: ["member-jun", "member-seo"],
+        note: "대한유도회 제출 명단 반영",
+        status: "submitted",
+      },
+    });
+    assert.equal(result.response.status, 200, "confirmed registrations must support a batch submitted transition");
+    assert.equal(result.payload.data.registration.updatedCount, 2, "batch submission must report its mutation count");
+    const submittedRegistrations = (await readDb(dbFile)).tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.filter((registration) => ["member-jun", "member-seo"].includes(registration.memberId));
+    assert(
+      submittedRegistrations.every(
+        (registration) =>
+          registration.status === "submitted" &&
+          registration.reviewNote === "대한유도회 제출 명단 반영",
+      ),
+      "batch submission must persist status and the operator note for every selected member",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      method: "GET",
+    });
+    const guardianSubmittedRegistration = result.payload.data.db.tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.find((registration) => registration.memberId === "member-jun");
+    assert.equal(
+      guardianSubmittedRegistration.reviewNote,
+      "대한유도회 제출 명단 반영",
+      "families must see the operator guidance for their submitted registration",
+    );
+    assert.equal(
+      guardianSubmittedRegistration.reviewedByUserId,
+      undefined,
+      "family guidance must not expose the internal reviewer ID",
+    );
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-66kg" },
+    });
+    assert.equal(result.response.status, 422, "families must not edit a registration after association submission");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      method: "DELETE",
+      body: { memberId: "member-jun" },
+    });
+    assert.equal(result.response.status, 422, "families must not cancel a registration after association submission");
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "submitted",
+      "blocked family mutations must preserve the submitted registration",
+    );
+
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-owner-songpa?selectedBranchId=branch-songpa", {
       userId: "user-admin",
       method: "DELETE",
@@ -589,8 +701,8 @@ async function main() {
     assert.equal(songpaDeleteAudit?.branchId, "branch-songpa", "admin branch delete audit must use the resource branchId");
     assert.equal(
       registrationAudits.length,
-      6,
-      "family apply/update/cancel and operator review mutations must preserve registration audits",
+      11,
+      "family apply/update/cancel and individual or batch operator mutations must preserve registration audits",
     );
     assert(
       registrationAudits.every((log) => log.branchId === "branch-gangnam"),
@@ -605,6 +717,15 @@ async function main() {
       viewport: { width: 390, height: 844 },
     });
     const page = await browserContext.newPage();
+    await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "networkidle" });
+    const dashboardTournamentQueueLink = page.getByRole("link", { name: /대회 신청/ });
+    await dashboardTournamentQueueLink.waitFor({ state: "visible" });
+    assert.equal(
+      await dashboardTournamentQueueLink.getAttribute("href"),
+      "/app/tournaments#registration-queue",
+      "coach dashboard must link tournament registration work to the pending queue",
+    );
+
     await page.goto(`${baseUrl}/app/tournaments`, { waitUntil: "networkidle" });
     const managementButton = page.getByTestId("tournament-registration-manage-tournament-global");
     await managementButton.waitFor({ state: "visible" });
@@ -616,6 +737,13 @@ async function main() {
     const managementRow = page.getByTestId("tournament-registration-management-row-member-jun");
     await managementRow.waitFor({ state: "visible" });
     await managementRow.getByText("중등부 · -60kg", { exact: false }).waitFor({ state: "visible" });
+    await page.getByTestId("tournament-registration-management-search").fill("이서");
+    await page.getByTestId("tournament-registration-management-status-filter").selectOption("submitted");
+    await page.getByTestId("tournament-registration-management-row-member-seo").waitFor({ state: "visible" });
+    await managementRow.waitFor({ state: "hidden" });
+    await page.getByTestId("tournament-registration-management-search").fill("");
+    await page.getByTestId("tournament-registration-management-status-filter").selectOption("all");
+    await managementRow.waitFor({ state: "visible" });
     const confirmRegistrationButton = page.getByTestId("tournament-registration-review-member-jun-confirmed");
     const confirmRegistrationButtonBox = await confirmRegistrationButton.boundingBox();
     assert(
@@ -623,7 +751,7 @@ async function main() {
       "registration review controls must be at least 44px high",
     );
     await confirmRegistrationButton.click();
-    await page.getByText("대회 참가 신청을 확정했습니다.").waitFor({ state: "visible" });
+    await page.getByText("1명의 대회 참가 신청을 확정했습니다.").waitFor({ state: "visible" });
     assert.equal(
       (await readDb(dbFile)).tournaments
         .find((item) => item.id === "tournament-global")
@@ -726,8 +854,10 @@ async function main() {
         "serialized concurrent create and update audit integrity",
         "server-side snapshot visibility",
         "family registration authorization and privacy",
-        "duplicate registration idempotency and cancellation",
-        "coach review authorization and family-visible status",
+        "duplicate registration idempotency, cancellation, and submitted-state locking",
+        "coach individual and atomic batch review authorization",
+        "operator review reasons, filters, and family-visible status",
+        "coach dashboard registration queue entry",
         "registration audit trail",
         "390px family registration and staff management dialogs",
         "resource branchId audit accuracy",

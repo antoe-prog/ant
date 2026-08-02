@@ -60,6 +60,8 @@ import {
   type RecurringAgreementPayload,
 } from "@/lib/api-client";
 
+const familySnapshotRefreshIntervalMs = 15_000;
+
 type PersistedSession = {
   userId: string;
   selectedBranchId: string | null;
@@ -254,6 +256,13 @@ type AppStore = AppState & {
     tournamentId: string,
     memberId: string,
     status: TournamentRegistrationStatus,
+    note?: string,
+  ) => Promise<TournamentRegistrationActionResult>;
+  reviewTournamentRegistrations: (
+    tournamentId: string,
+    memberIds: string[],
+    status: TournamentRegistrationStatus,
+    note?: string,
   ) => Promise<TournamentRegistrationActionResult>;
   updatePilotReadiness: (payload: PilotReadinessUpdatePayload) => Promise<boolean>;
   createPilotIncident: (payload: PilotIncidentCreatePayload) => Promise<boolean>;
@@ -842,9 +851,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    const refreshIntervalId = window.setInterval(() => {
+      void refreshFamilyScope();
+    }, familySnapshotRefreshIntervalMs);
 
     return () => {
       disposed = true;
+      window.clearInterval(refreshIntervalId);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -2177,33 +2190,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [reportOperationError, state.selectedBranchId, state.user],
   );
 
-  const reviewTournamentRegistration = useCallback(
+  const reviewTournamentRegistrations = useCallback(
     async (
       tournamentId: string,
-      memberId: string,
+      memberIds: string[],
       status: TournamentRegistrationStatus,
+      note?: string,
     ): Promise<TournamentRegistrationActionResult> => {
       if (!state.user) {
         return { ok: false, message: "로그인이 필요합니다." };
       }
 
       try {
-        const nextPayload = await apiClient.reviewTournamentRegistration(
+        const nextPayload = await apiClient.reviewTournamentRegistrations(
           tournamentId,
-          memberId,
+          memberIds,
           status,
           state.selectedBranchId,
+          note,
         );
         dispatch({ type: "serverSnapshot", payload: nextPayload });
+        const updatedCount = nextPayload.registration.updatedCount ?? memberIds.length;
         return {
           ok: true,
           message: nextPayload.registration.unchanged
             ? "이미 같은 처리 상태입니다."
             : status === "confirmed"
-              ? "대회 참가 신청을 확정했습니다."
+              ? `${updatedCount}명의 대회 참가 신청을 확정했습니다.`
               : status === "rejected"
-                ? "대회 참가 신청을 반려했습니다."
-                : "대회 참가 신청을 검토 중으로 변경했습니다.",
+                ? `${updatedCount}명의 대회 참가 신청을 반려했습니다.`
+                : status === "submitted"
+                  ? `${updatedCount}명의 참가 명단을 협회 제출 상태로 변경했습니다.`
+                  : `${updatedCount}명의 신청을 검토 중으로 변경했습니다.`,
         };
       } catch (error) {
         reportOperationError(error, "대회 참가 신청 상태를 변경하지 못했습니다.");
@@ -2214,6 +2232,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
     },
     [reportOperationError, state.selectedBranchId, state.user],
+  );
+  const reviewTournamentRegistration = useCallback(
+    (
+      tournamentId: string,
+      memberId: string,
+      status: TournamentRegistrationStatus,
+      note?: string,
+    ) => reviewTournamentRegistrations(tournamentId, [memberId], status, note),
+    [reviewTournamentRegistrations],
   );
 
   const updatePromotion = useCallback(
@@ -2445,6 +2472,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       registerForTournament,
       cancelTournamentRegistration,
       reviewTournamentRegistration,
+      reviewTournamentRegistrations,
       updatePilotReadiness,
       createPilotIncident,
       updatePilotIncident,
@@ -2485,6 +2513,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       registerForTournament,
       cancelTournamentRegistration,
       reviewTournamentRegistration,
+      reviewTournamentRegistrations,
       updateTournament,
       updateNotice,
       deleteNotice,

@@ -386,6 +386,28 @@ export function ClassesScreen() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!classCreateFormOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !classCreatePending) {
+        setClassCreateFormOpen(false);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [classCreateFormOpen, classCreatePending]);
+
   const selectedCreateBranchId = newClassBranchId || context.selectedBranchId || context.db.branches[0]?.id || "";
   const selectedCreateBranch = context.db.branches.find((branch) => branch.id === selectedCreateBranchId) ?? null;
   const usesFinalMainSchedule = isFinalMainBranch(selectedCreateBranch);
@@ -1035,24 +1057,60 @@ export function ClassesScreen() {
               <h2 className="min-w-0 truncate text-base font-semibold text-zinc-950">수업 생성</h2>
             </div>
             <Button
-              aria-controls="class-create-form"
+              aria-controls="class-create-dialog"
               aria-expanded={classCreateFormOpen}
               data-testid="class-create-toggle"
               size="lg"
               type="button"
               variant="secondary"
-              onClick={() => setClassCreateFormOpen((open) => !open)}
+              onClick={() => setClassCreateFormOpen(true)}
             >
-              {classCreateFormOpen ? "닫기" : "열기"}
+              열기
             </Button>
           </div>
           {classCreateFormOpen ? (
-            <form
-              className="mt-3 grid gap-3 lg:grid-cols-[0.9fr_1.2fr_0.8fr_0.8fr_0.8fr_0.8fr]"
-              data-testid="class-create-form"
-              id="class-create-form"
-              onSubmit={handleCreateClass}
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:items-center"
+              data-testid="class-create-overlay"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.currentTarget === event.target && !classCreatePending) {
+                  setClassCreateFormOpen(false);
+                }
+              }}
             >
+              <section
+                aria-labelledby="class-create-title"
+                aria-modal="true"
+                className="max-h-[calc(100dvh-1.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl"
+                data-testid="class-create-dialog"
+                id="class-create-dialog"
+                role="dialog"
+              >
+                <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-4">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold text-zinc-950" id="class-create-title">
+                      수업 생성
+                    </h2>
+                    <p className="mt-1 text-sm text-zinc-600">수업 일정과 담당 코치, 참여 회원을 등록합니다.</p>
+                  </div>
+                  <button
+                    aria-label="수업 생성 창 닫기"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    data-testid="class-create-close"
+                    disabled={classCreatePending}
+                    type="button"
+                    onClick={() => setClassCreateFormOpen(false)}
+                  >
+                    <X className="h-5 w-5" aria-hidden />
+                  </button>
+                </div>
+                <form
+                  className="grid gap-3 p-4 lg:grid-cols-[0.9fr_1.2fr_0.8fr_0.8fr_0.8fr_0.8fr]"
+                  data-testid="class-create-form"
+                  id="class-create-form"
+                  onSubmit={handleCreateClass}
+                >
               {context.db.branches.length > 1 ? (
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-zinc-500">지점</span>
@@ -1383,7 +1441,9 @@ export function ClassesScreen() {
                   {classCreateFeedback}
                 </p>
               ) : null}
-            </form>
+                </form>
+              </section>
+            </div>
           ) : null}
         </section>
       ) : null}
