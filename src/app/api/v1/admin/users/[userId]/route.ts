@@ -1,14 +1,19 @@
 import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, Member, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
-import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
+import {
+  findAdultGuardianChildMemberIds,
+  findInvalidFamilyMemberLinkIds,
+  findNonAdultGuardianSelfMemberIds,
+} from "@/lib/family-members";
 import { getNoticeReadByUserIds } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
-import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
+import { readUnmodifiedPassword, revokeUserSecurityAccess } from "@/server/auth-session";
 import { consumePasswordResetChallenges } from "@/server/password-reset";
 import { createRuntimeId } from "@/server/runtime-id";
 import { isActiveAdmin } from "@/server/user-administration";
@@ -99,32 +104,6 @@ function cleanMemberIds(value: unknown) {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function findInvalidLinkedMemberIds(
-  db: Awaited<ReturnType<typeof readServerDb>>,
-  memberIds: string[],
-  branchIds: string[],
-) {
-  return memberIds.filter(
-    (memberId) => !db.members.some((member) => member.id === memberId && branchIds.includes(member.branchId)),
-  );
-}
-
-function findAdultGuardianChildMemberIds(db: Awaited<ReturnType<typeof readServerDb>>, memberIds: string[]) {
-  return memberIds.filter((memberId) => {
-    const member = db.members.find((candidate) => candidate.id === memberId);
-
-    return member ? !canMemberHaveGuardianLink(member) : false;
-  });
-}
-
-function findNonAdultGuardianSelfMemberIds(db: Awaited<ReturnType<typeof readServerDb>>, memberIds: string[]) {
-  return memberIds.filter((memberId) => {
-    const member = db.members.find((candidate) => candidate.id === memberId);
-
-    return member ? member.ageGroup !== "adult" : false;
-  });
 }
 
 function findMemberAccountConflicts(
@@ -273,7 +252,7 @@ export async function PATCH(
     return jsonError(400, "VALIDATION_ERROR", "수정할 사용자 정보가 필요합니다.");
   }
 
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
     const { user, response: freshSessionResponse } = requireSession(request, db);
 
@@ -464,8 +443,8 @@ export async function PATCH(
   const dbWithProvisionedMember = provisionedMember
     ? { ...db, members: [provisionedMember, ...db.members] }
     : db;
-  const invalidLinkedMemberIds = findInvalidLinkedMemberIds(
-    dbWithProvisionedMember,
+  const invalidLinkedMemberIds = findInvalidFamilyMemberLinkIds(
+    dbWithProvisionedMember.members,
     [...nextMemberIds, ...nextChildMemberIds],
     nextBranchIds,
   );
@@ -477,7 +456,7 @@ export async function PATCH(
   }
 
   const adultGuardianChildMemberIds =
-    nextRole === "guardian" ? findAdultGuardianChildMemberIds(dbWithProvisionedMember, nextChildMemberIds) : [];
+    nextRole === "guardian" ? findAdultGuardianChildMemberIds(dbWithProvisionedMember.members, nextChildMemberIds) : [];
 
   if (adultGuardianChildMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 자녀로 연결할 수 없습니다.", {
@@ -486,7 +465,7 @@ export async function PATCH(
   }
 
   const nonAdultGuardianSelfMemberIds =
-    nextRole === "guardian" ? findNonAdultGuardianSelfMemberIds(dbWithProvisionedMember, nextMemberIds) : [];
+    nextRole === "guardian" ? findNonAdultGuardianSelfMemberIds(dbWithProvisionedMember.members, nextMemberIds) : [];
 
   if (nonAdultGuardianSelfMemberIds.length > 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 본인 수련에는 성인 회원만 연결할 수 있습니다.", {
@@ -644,7 +623,7 @@ export async function PATCH(
   const securityContextChanged = Boolean(nextPassword) ||
     nextRole !== targetUser.role ||
     nextBranchIds.join("\u0000") !== targetUser.branchIds.join("\u0000");
-  const securedDb = securityContextChanged ? revokeUserAuthSessions(updatedDb, targetUser.id) : updatedDb;
+  const securedDb = securityContextChanged ? revokeUserSecurityAccess(updatedDb, targetUser.id) : updatedDb;
   const nextDb = await writeServerDb(
     nextPassword ? consumePasswordResetChallenges(securedDb, targetUser.id) : securedDb,
   );
@@ -698,7 +677,7 @@ export async function DELETE(
     return jsonError(400, "VALIDATION_ERROR", "사용자 삭제 사유가 필요합니다.");
   }
 
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
     const { user, response: freshSessionResponse } = requireSession(request, db);
 

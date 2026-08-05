@@ -1,9 +1,9 @@
 {
   "bundleId": "kr.co.finaljudo.multigym",
-  "appleTeamId": "5GWZ792DWH",
+  "appleTeamId": "CA7A5SP5G5",
   "project": "mobile/ios/App/App.xcodeproj",
   "scheme": "App",
-  "exportMethod": "release-testing",
+  "exportMethod": "app-store-connect",
   "doctorReport": ".data/mobile-builds/ios/ios-ipa-doctor.json",
   "doctorMarkdown": ".data/mobile-builds/ios/ios-ipa-doctor.md",
   "buildReport": ".data/mobile-builds/ios/ios-ipa-build-report.json",

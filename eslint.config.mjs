@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "**/build/**",
     ".data/xcode-derived/**",
     ".data/mobile-builds/ios/**/DerivedData/**",
+    ".data/mobile-builds/ios/**/*.xcarchive/**",
+    ".data/mobile-builds/ios/**/*.app/**",
     "tmp/**",
     ".claude/**",
     "mobile/android-cap/app/build/**",

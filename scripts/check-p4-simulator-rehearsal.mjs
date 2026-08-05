@@ -91,11 +91,13 @@ assert.equal(
 
 assert.equal(p1Readiness.ok, false, "P1 readiness must remain not ok during P4 simulator rehearsal");
 assert.equal(p1Readiness.releaseDecision, "blocked", "P1 readiness releaseDecision must remain blocked");
-assert.equal(p1Readiness.summary?.blocked, 7, "P1 readiness must keep blocked 7/7");
 assert.equal(p1Readiness.summary?.total, 7, "P1 readiness total must remain 7");
+assert.equal(p1Readiness.summary?.ready, 1, "P1 readiness must include the successful iOS upload");
+assert((p1Readiness.summary?.blocked ?? 0) > 0, "P1 readiness must keep unresolved external requirements blocked");
+assert.equal(p1Readiness.requirements?.iosIpa?.status, "ready", "P1 readiness must keep iOS upload ready");
 assert(
-  p1Readiness.blockers?.some((blocker) => blocker.key === "iosIpa"),
-  "P1 readiness must keep iosIpa blocker",
+  !p1Readiness.blockers?.some((blocker) => blocker.key === "iosIpa"),
+  "P1 readiness must not recreate the resolved iOS IPA blocker",
 );
 
 assert.equal(
@@ -103,7 +105,7 @@ assert.equal(
   "simulator_connected_release_blocked",
   "iOS Capacitor simulator connection must stay release blocked",
 );
-assert.equal(iosIpaDoctor.releaseDecision, "blocked", "iOS IPA doctor must remain blocked");
+assert.equal(iosIpaDoctor.releaseDecision, "ready", "iOS IPA doctor must reflect the App Store profile");
 
 const ipaBlockerChecks = new Set((iosIpaDoctor.blockers ?? []).map((blocker) => blocker.check));
 assert.equal(iosIpaDoctor.checks?.origin?.ok, true, "iOS IPA doctor must use the deployed web app origin");
@@ -113,7 +115,11 @@ assert.equal(
   "iOS IPA doctor origin must point at the deployed web app",
 );
 assert(!ipaBlockerChecks.has("origin"), "iOS IPA doctor must not keep stale origin blocker after deployed origin evidence");
-assert(ipaBlockerChecks.has("provisioningProfile"), "iOS IPA doctor must keep provisioningProfile blocker");
+assert.equal(ipaBlockerChecks.size, 0, "iOS IPA doctor must not keep resolved blockers");
+assert(
+  (iosIpaDoctor.checks?.provisioningProfile?.inventory?.matchingExportMethodProfiles ?? 0) > 0,
+  "iOS IPA doctor must find an export-method-compatible provisioning profile",
+);
 
 for (const screenshotFile of screenshotFiles) {
   assert(existsSync(screenshotFile), `${screenshotFile} must exist`);
@@ -127,8 +133,8 @@ console.log(
       checked: [
         "admin settings keeps internal P4 simulator status out of app UI",
         "P4 simulator screenshots for admin dashboard/admin settings/coach/member/guardian",
-        "P1 readiness remains blocked 7/7",
-        "iOS IPA doctor remains blocked on provisioning profile after deployed origin evidence",
+        "P1 readiness remains blocked while unresolved external requirements remain",
+        "iOS IPA doctor recognizes the App Store distribution profile independently of simulator evidence",
         "README/QA/release/backlog P4 documentation",
       ],
       screenshots: screenshotFiles,

@@ -177,6 +177,7 @@ const paths = {
 const productionOrigin = text(args.productionOrigin) || text(process.env.FINAL_JUDO_PRODUCTION_ORIGIN);
 const releaseSha256 = text(args.releaseSha256);
 const appleTeamId = text(args.appleTeamId) || text(process.env.APPLE_TEAM_ID) || text(process.env.IOS_TEAM_ID);
+const profilesDir = text(args.profilesDir);
 const githubRepo = await resolveGitHubRepository(args.githubRepo, { env: process.env });
 const commands = [];
 
@@ -238,6 +239,7 @@ commands.push(
     `--markdown=${paths.iosIpaDoctorMarkdown}`,
     ...maybeArg("origin", productionOrigin),
     ...maybeArg("team-id", appleTeamId),
+    ...maybeArg("profiles-dir", profilesDir),
   ]),
 );
 commands.push(
@@ -246,6 +248,7 @@ commands.push(
     `--out-dir=${paths.iosBuildsDir}`,
     ...maybeArg("origin", productionOrigin),
     ...maybeArg("team-id", appleTeamId),
+    ...maybeArg("profiles-dir", profilesDir),
   ]),
 );
 

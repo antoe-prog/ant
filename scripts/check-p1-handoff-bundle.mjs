@@ -172,7 +172,7 @@ function validateChecklist(checklist, blockers) {
   }
 }
 
-function validateOwnerPackageIndex(source, ownerPackageDirs, blockers) {
+function validateOwnerPackageIndex(source, ownerPackageDirs, checklist, blockers) {
   if (!source) {
     return;
   }
@@ -185,14 +185,11 @@ function validateOwnerPackageIndex(source, ownerPackageDirs, blockers) {
     }
   }
 
-  for (const command of [
-    "npm run deployment:handoff",
-    "npm run android:release-handoff",
-    "npm run ios:ipa:doctor",
-    "npm run payment-provider:handoff",
-    "npm run notification-push:handoff",
-    "npm run pilot:status",
-  ]) {
+  const strictCommands = Array.isArray(checklist?.teamSummary)
+    ? checklist.teamSummary.flatMap((group) => (Array.isArray(group.strictCommands) ? group.strictCommands : []))
+    : [];
+
+  for (const command of strictCommands) {
     if (!source.includes(command)) {
       addBlocker(blockers, "P1_HANDOFF_BUNDLE_INDEX_COMMAND_MISSING", "Owner package index must list every strict handoff command.", {
         command,
@@ -283,7 +280,7 @@ const actionChecklist = parseJsonArtifact(topLevel.actionChecklistJson, blockers
 const expectedOwnerGroups = Array.isArray(actionChecklist?.teamSummary) ? actionChecklist.teamSummary.length : 0;
 
 validateChecklist(actionChecklist, blockers);
-validateOwnerPackageIndex(topLevel.ownerPackageIndex?.source, ownerPackageDirs, blockers);
+validateOwnerPackageIndex(topLevel.ownerPackageIndex?.source, ownerPackageDirs, actionChecklist, blockers);
 
 if (expectedOwnerGroups > 0 && ownerBriefArtifacts.filter(Boolean).length !== expectedOwnerGroups) {
   addBlocker(blockers, "P1_HANDOFF_BUNDLE_OWNER_BRIEF_COUNT", "Bundle must include one owner brief Markdown file per checklist owner group.", {

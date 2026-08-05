@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 
 const directory = await mkdtemp(path.join(os.tmpdir(), "final-judo-p1-evidence-intake-"));
 const workspace = path.join(directory, "workspace");
+const emptyProfilesDirectory = path.join(directory, "empty-provisioning-profiles");
 
 async function runNode(script, args = []) {
   return new Promise((resolve, reject) => {
@@ -41,7 +42,12 @@ function parseJsonOutput(stdout) {
   return JSON.parse(stdout.slice(start));
 }
 
-await runNode("scripts/create-p1-handoff-draft-workspace.mjs", [`--out-dir=${workspace}`, "--github-repo=antoe-prog/ant"]);
+await mkdir(emptyProfilesDirectory, { recursive: true });
+await runNode("scripts/create-p1-handoff-draft-workspace.mjs", [
+  `--out-dir=${workspace}`,
+  "--github-repo=antoe-prog/ant",
+  `--profiles-dir=${emptyProfilesDirectory}`,
+]);
 const draftRun = await runNode("scripts/create-p1-evidence-intake-draft.mjs", [`--workspace=${workspace}`]);
 const draftReport = parseJsonOutput(draftRun.stdout);
 

@@ -12,8 +12,9 @@ const now = new Date("2026-07-21T09:00:00+09:00");
 const db = createMockData();
 const coach = db.users.find((candidate) => candidate.id === "user-coach");
 const session = db.classes.find((candidate) => candidate.id === "class-adult-night");
+const otherSession = db.classes.find((candidate) => candidate.id !== "class-adult-night");
 
-assert(coach && session, "coach QR fixtures must exist");
+assert(coach && session && otherSession, "coach QR fixtures must exist");
 
 const issued = createAttendanceQrChallenge(db, {
   branchId: session.branchId,
@@ -64,6 +65,37 @@ const reissued = createAttendanceQrChallenge(issued.db, {
 });
 assert.deepEqual(findAttendanceQrChallenge(reissued.db, issued.payload, now), { ok: false, reason: "invalid" });
 assert.equal(findAttendanceQrChallenge(reissued.db, reissued.payload, now).ok, true);
+
+const crossIssuerReissued = createAttendanceQrChallenge(issued.db, {
+  branchId: session.branchId,
+  sessionId: session.id,
+  userId: "user-owner",
+  now: new Date(now.getTime() + 2_000),
+});
+assert.deepEqual(
+  findAttendanceQrChallenge(crossIssuerReissued.db, issued.payload, now),
+  { ok: false, reason: "invalid" },
+  "a replacement QR must invalidate the previous class QR even when a different authorized operator issues it",
+);
+assert.equal(findAttendanceQrChallenge(crossIssuerReissued.db, crossIssuerReissued.payload, now).ok, true);
+
+const otherSessionIssued = createAttendanceQrChallenge(issued.db, {
+  branchId: otherSession.branchId,
+  sessionId: otherSession.id,
+  userId: "user-owner",
+  now: new Date(now.getTime() + 3_000),
+});
+const targetSessionReissued = createAttendanceQrChallenge(otherSessionIssued.db, {
+  branchId: session.branchId,
+  sessionId: session.id,
+  userId: "user-owner",
+  now: new Date(now.getTime() + 4_000),
+});
+assert.equal(
+  findAttendanceQrChallenge(targetSessionReissued.db, otherSessionIssued.payload, now).ok,
+  true,
+  "reissuing one class QR must not invalidate another class QR",
+);
 
 const [issueRoute, scanRoute, dashboardSource, qrComponentSource, serverApiSource] = await Promise.all([
   readFile("src/app/api/v1/me/attendance-qr/route.ts", "utf8"),
@@ -142,7 +174,7 @@ console.log(
       "coach-issued opaque hashed class QR storage",
       "five-minute expiration",
       "multi-member redemption and per-member deduplication",
-      "reissue invalidation",
+      "same-issuer and cross-issuer reissue invalidation",
       "bootstrap challenge redaction",
       "unrestricted issue and scan timing",
       "unregistered member auto-enrollment contract",

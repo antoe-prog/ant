@@ -28,9 +28,16 @@ async function runStatus(workspace, extraArgs = []) {
 }
 
 const pendingWorkspace = path.join(directory, "pending");
+const pendingProfilesDir = path.join(directory, "pending-profiles");
+await mkdir(pendingProfilesDir, { recursive: true });
 await execFile(
   process.execPath,
-  ["scripts/create-p1-handoff-draft-workspace.mjs", `--out-dir=${pendingWorkspace}`, "--github-repo=antoe-prog/ant"],
+  [
+    "scripts/create-p1-handoff-draft-workspace.mjs",
+    `--out-dir=${pendingWorkspace}`,
+    `--profiles-dir=${pendingProfilesDir}`,
+    "--github-repo=antoe-prog/ant",
+  ],
   { cwd: process.cwd() },
 );
 
@@ -66,11 +73,12 @@ assert.equal(pendingReport.deferredExternalPrep.length, 2);
 assert(pendingReport.deferredExternalPrep.some((item) => item.key === "webappOrigin" && item.status === "사용자 보류"));
 assert(pendingReport.deferredExternalPrep.some((item) => item.key === "iosProvisioningProfile" && item.status === "사용자 보류"));
 assert(pendingReport.deferredExternalPrep.some((item) => item.reason.includes("/login") && item.reason.includes("/app/dashboard")));
-assert(pendingReport.deferredExternalPrep.some((item) => item.reason.includes("profile inventory 0")));
+assert(pendingReport.deferredExternalPrep.some((item) => item.reason.includes("호환 profile inventory 0")));
 assert(pendingReport.deferredExternalPrep.every((item) => item.readinessTreatment === "readiness에서는 blocked 유지"));
 assert.equal(pendingReport.externalBlockersCsv.endsWith("p1-operator-status-external-blockers.csv"), true);
 assert.equal(pendingReport.iosProvisioningProfileInventory?.totalProfileFiles, 0);
 assert.equal(pendingReport.iosProvisioningProfileInventory?.matchingProfilesWithRegisteredDevices, 0);
+assert.equal(pendingReport.iosProvisioningProfileInventory?.matchingExportMethodProfiles, 0);
 assert.equal(pendingReport.iosProvisioningProfileInventory?.rawUdidWritten, false);
 assert.equal(pendingReport.evidenceFormatGuardrails.length, 5);
 assert(pendingReport.evidenceFormatGuardrails.some((guardrail) => guardrail.label === "증빙 참조 형식"));
@@ -115,15 +123,16 @@ assert(pendingAndroidPlayReleaseArtifact?.nextAction.includes("android:play:buil
 assert.equal(pendingAndroidRoleApksArtifact?.status, "missing");
 assert.equal(pendingAndroidRoleApksArtifact?.path.endsWith("role-apk-build-report.json"), true);
 assert.equal(pendingIosCapacitorConnectionArtifact?.status, "ready");
-assert.equal(pendingIosCapacitorConnectionArtifact?.releaseDecision, "simulator_connected_release_blocked");
+assert.equal(pendingIosCapacitorConnectionArtifact?.releaseDecision, "production_connection_configured");
+assert.equal(pendingIosCapacitorConnectionArtifact?.mode, "production_https");
 assert.equal(pendingIosCapacitorConnectionArtifact?.path.endsWith("ios-capacitor-connection.json"), true);
 assert.equal(pendingIosIpaDoctorArtifact?.status, "blocked");
 assert.equal(pendingIosIpaDoctorArtifact?.path.endsWith("ios-ipa-doctor.json"), true);
 assert(Number(pendingIosIpaDoctorArtifact?.blockerCount) > 0);
 assert(Array.isArray(pendingIosIpaDoctorArtifact?.blockerChecks));
-// 서버 URL(origin)은 확정될 수 있으므로 실기기 provisioning profile 부재로 검증한다.
+// 서버 URL(origin)은 확정될 수 있으므로 선택한 export method용 provisioning profile 부재로 검증한다.
 assert(pendingIosIpaDoctorArtifact?.blockerChecks.includes("provisioningProfile"));
-assert(pendingIosIpaDoctorArtifact?.nextAction.includes("iPhone UDID"));
+assert(pendingIosIpaDoctorArtifact?.nextAction.includes("App Store distribution"));
 assert(pendingIosIpaDoctorArtifact?.nextAction.includes("provisioning profile"));
 assert.equal(pendingIosIpaDoctorMarkdownArtifact?.status, "ready");
 assert.equal(pendingIosIpaDoctorMarkdownArtifact?.path.endsWith("ios-ipa-doctor.md"), true);
@@ -202,8 +211,8 @@ assert(pendingMarkdownSource.includes("readiness에서는 blocked 유지"));
 assert(pendingMarkdownSource.includes("운영 웹앱 origin 확정"));
 assert(pendingMarkdownSource.includes("/login"));
 assert(pendingMarkdownSource.includes("/app/dashboard"));
-assert(pendingMarkdownSource.includes("iOS 실제 iPhone/provisioning profile"));
-assert(pendingMarkdownSource.includes("profile inventory 0"));
+assert(pendingMarkdownSource.includes("iOS export-method provisioning profile"));
+assert(pendingMarkdownSource.includes("호환 profile inventory 0"));
 assert(pendingMarkdownSource.includes("등록하지 않습니다"));
 assert(!pendingMarkdownSource.includes("GitHub connector `_create_issue`를 사용했다면"));
 assert(!pendingMarkdownSource.includes("If GitHub connector"));
@@ -352,12 +361,13 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-ipa-docto
   generatedAt: "2026-07-15T03:00:55.000Z",
   requestedArtifact: "iOS IPA",
   bundleId: "kr.co.finaljudo.multigym",
-  teamId: "5GWZ792DWH",
+  teamId: "CA7A5SP5G5",
+  exportMethod: "app-store-connect",
   checks: {
     origin: { ok: true, value: "https://app.finaljudo.kr" },
     provisioningProfile: {
       ok: true,
-      value: "1 matching profile with registered devices",
+      value: "1 profile ready for app-store-connect",
       inventory: {
         directory: "/Users/operator/Library/MobileDevice/Provisioning Profiles",
         totalProfileFiles: 2,
@@ -366,15 +376,18 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-ipa-docto
         matchingTeamProfiles: 1,
         matchingBundleProfiles: 1,
         matchingProfiles: 1,
-        matchingProfilesWithRegisteredDevices: 1,
+        matchingProfilesWithRegisteredDevices: 0,
+        matchingAppStoreProfiles: 1,
+        matchingDistributionReadyProfiles: 1,
+        matchingExportMethodProfiles: 1,
         profiles: [
           {
-            name: "Final Judo Ad Hoc",
+            name: "Final Judo App Store Connect",
             uuid: "READY-PROFILE-UUID",
             teamIdentifierCount: 1,
             matchesTeam: true,
             matchesBundle: true,
-            provisionedDeviceCount: 1,
+            provisionedDeviceCount: 0,
           },
         ],
       },
@@ -383,7 +396,7 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-ipa-docto
   blockers: [],
   resolutionHints: {
     rerun:
-      "APPLE_TEAM_ID=5GWZ792DWH FINAL_JUDO_IOS_SERVER_URL=https://app.finaljudo.kr npm run ios:ipa:doctor -- --team-id=5GWZ792DWH --strict",
+      "APPLE_TEAM_ID=CA7A5SP5G5 FINAL_JUDO_IOS_SERVER_URL=https://app.finaljudo.kr npm run ios:ipa:doctor -- --team-id=CA7A5SP5G5 --strict",
   },
   nextActions: [],
 });
@@ -577,7 +590,8 @@ assert.equal(readyReport.releaseCustody.prerequisitesReady, true);
 assert.equal(readyReport.summary.releaseCustodyPrerequisitesReady, true);
 assert.equal(readyReport.summary.releaseCustodyReady, true);
 assert.equal(readyReport.iosProvisioningProfileInventory?.totalProfileFiles, 2);
-assert.equal(readyReport.iosProvisioningProfileInventory?.matchingProfilesWithRegisteredDevices, 1);
+assert.equal(readyReport.iosProvisioningProfileInventory?.matchingProfilesWithRegisteredDevices, 0);
+assert.equal(readyReport.iosProvisioningProfileInventory?.matchingExportMethodProfiles, 1);
 assert.equal(readyReport.iosProvisioningProfileInventory?.rawUdidWritten, false);
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "androidDoctor" && artifact.status === "ready"));
 assert(readyReport.supportArtifacts.some((artifact) => artifact.key === "androidDoctorMarkdown" && artifact.status === "ready"));
@@ -611,7 +625,7 @@ assert(readyMarkdownSource.includes("iOS IPA doctor status"));
 assert(readyMarkdownSource.includes("iOS IPA doctor Markdown"));
 assert(readyMarkdownSource.includes("## iOS Local Profile Inventory"));
 assert(readyMarkdownSource.includes("Profile files: 2"));
-assert(readyMarkdownSource.includes("Matching profiles with registered devices: 1"));
+assert(readyMarkdownSource.includes("Matching profiles with registered devices: 0"));
 assert(readyMarkdownSource.includes("Raw iPhone UDIDs are not written"));
 assert(readyMarkdownSource.includes("## Owner Decision Register"));
 assert(readyMarkdownSource.includes("State: `decisions_recorded`"));

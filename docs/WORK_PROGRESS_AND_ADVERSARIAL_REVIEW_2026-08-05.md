@@ -1,0 +1,553 @@
+# 작업 진행 및 적대적 검토 보고서
+
+- 기준일: 2026-08-05 (KST)
+- 작업 루트: `/Users/sny0219/Desktop/파이널유도멀티짐`
+- 브랜치: `codex/mvp1`
+- 검토 기준 HEAD: `89edbde` (`feat: harden tournament and member workflows`)
+- 원격 기준: `origin/codex/mvp1`보다 로컬 HEAD가 1커밋 앞섬
+- 검토 방법: 위협 모델, RBAC/테넌트 경계, 동시성, 실패 경로, 릴리스 게이트 및 실제 산출물 교차 검증
+
+## 결론
+
+이번 적대적 검토에서 확정한 애플리케이션·릴리스 결함 60건을 수정하고 회귀 검증을 추가했다. 반려된 대회 재신청, 감사 로그 순서, 공지 삭제와 outbox 경합, 알림 worker 직렬 처리, 결제 표시명 위조와 결제 채널 중복 진행, 결제 웹훅 이벤트 ID 충돌·미래 시각 오염·약한 인증 secret 허용·잘못된 발생 시각 은폐, 결제 provider 설정 오타 허용, 대기 계정과 계정별 제한 응답·PBKDF2 생략을 통한 로그인 계정 열거, 비밀번호 인증번호 재전송·지연 도착·발송 실패 충돌·계정 존재 노출과 운영 SMS 응답 시간 노출, 휴대폰 소유 확인 없이 공개 가입할 수 있던 문제, 가입·재설정 보안 검증이 전체 릴리스 러너에서 누락된 문제, PostgreSQL 중첩 잠금 거부로 인한 계정 보안·푸시·결제 웹훅 500 오류, 강화된 비밀번호 재설정 세션·푸시 폐기를 실패로 처리한 릴리스 게이트, 회원 삭제 뒤 개인 공지가 지점 공지로 확대되는 문제, 가족 응답의 보호자·공지·결제·대회·출석 내부 정보 노출, 마지막 자녀 연결 해제 시 학부모 계정 저장 실패, 한쪽에만 남은 보호자 관계 미복구, 가족 계정의 지점 범위 역할 변경 500 오류, 역할·지점 변경 뒤 푸시 구독 범위 고착, 보안 변경과 직접 구독 해지 뒤 이전 기기 푸시 자격증명·대기 발송이 잔존하는 문제, 만료된 기기 구독의 같은 기기 잔여 발송이 큐에 남는 문제, 푸시 재시도 중 구독 소유권 보호가 풀리고 이전 전달 불확실성이 지워지는 문제, provider timeout 뒤 실제 호출이 남아 있어도 재시도·구독 이전·키 교체가 겹칠 수 있는 문제, stale settlement 감사에서 이전 전달 불확실성이 지워지는 문제, 일부 발송·일부 취소 요청이 전체 성공으로 기록되는 문제, provider 시작 없이 sent/failed 상태를 확정할 수 있는 문제, provider 시작 후 취소 결과가 호출 전 상태로 축소되는 문제, 공용 브라우저 계정 전환 뒤 푸시 엔드포인트가 이전 계정에 남는 문제와 알림함 진입 전 소유권 미교정, 자동 소유권 교정이 보안 폐기 기기를 재활성화하는 회귀, 전송 중 구독의 키 교체와 보안 변경·푸시 상태의 교차 잠금 경합, 모바일 검증의 공용 포트·빌드 디렉터리 오염, 승급 심사자 표시 누락, 발급자가 바뀌면 이전 수업 QR이 살아남는 문제, 외부 일정 redirect, 격리 릴리스 스모크의 휴대폰 인증, iOS App Store 프로파일 판정 및 P1 상태판 오안내가 해소됐다. 이후 현재 UI와 어긋나 있던 P5-P10 내부 readiness 계약도 역할별 화면의 실제 동작에 맞게 교정했고, 모바일 결제 딥링크와 기존 온라인 결제 대기 상태의 정상 노출을 실패로 처리하던 검증 오탐, 회원 삭제 연쇄 처리의 빌드 타입 결함도 수정했다.
+
+현재 P1 readiness는 **1건 ready(iOS), 6건 blocked**다. 이는 코드 실패가 아니라 운영 배포, Android 실기기, 실 PG/VAN, 운영 푸시, 외부 이슈 인계, 파일럿 증빙이 아직 충족되지 않은 상태다. 따라서 **현재 개선 묶음의 내부 검증만 완료됐으며 운영 ready/출시 완료는 아니다**.
+
+## 기존 변경 보존
+
+작업 시작 전 dirty worktree를 기준선으로 기록했고 사용자 변경을 되돌리지 않았다. 특히 Android/iOS 버전 설정, 회원·보호자 편집 테스트, readiness 문서와 백로그의 기존 수정 위에 필요한 변경만 통합했다. 초기 적대적 검토와 개선 단계에서는 commit, push, 운영 배포, 운영 데이터 변경을 수행하지 않았으며, 이후 사용자의 명시적 릴리스 요청에 따라 검증 완료 작업 트리를 전체 커밋·푸시·운영 배포하고 Android/iOS 산출물을 갱신하는 단계로 전환했다.
+
+## 현재까지 구현된 제품 흐름
+
+### 계정·회원·가족
+
+- 30일 로그인 유지, 초대 가입, 휴대폰 인증 기반 비밀번호 재설정.
+- 회원 정보·연령·지점·담당 코치·보호자 연결 수정.
+- 학부모 계정의 본인/자녀 전환과 결제·커리큘럼·상담 메모 가시성 분리.
+- 회원·학부모 부트스트랩에서 타 보호자의 연락처·가족 구성·타 지점 배정·초대 상태와 사용하지 않는 내부 담당자 식별자를 비공개 처리.
+- 상담/주의 메모의 공유 대상, 작성·수정·삭제, 모달 조회.
+- 회원 삭제 시 계정·세션·출석·결제·승급·상담·대회 신청·공지 대상·QR redemption 연쇄 정리와 감사 기록.
+
+### 수업·출석·승급
+
+- 코치·대표·총괄 수업 생성, 요일 반복 시간표, 장소·정원·연령 조건.
+- 회원 달력 신청/취소와 예정·출석·결석·미기록 상태.
+- 코치 QR 상시 발급, 회원 스캔, 미배정 회원 자동 등록, 중복 방지.
+- 승급 기준, 수련시간 정책, 심사 기록과 역할별 조회.
+
+### 결제·공지·대회
+
+- 수기 결제 등록·수정·취소/환불, 상태 이력과 감사 기록.
+- 성인 본인/학부모 납부 대상 분기와 온라인 결제 provider 경계.
+- 동일 결제에서 온라인 checkout과 가족 수기 납부 요청이 동시에 대기 상태가 되지 않도록 공유 잠금 안에서 양방향 차단.
+- 지점·반·개인·역할 공지, 개인 검색, 읽음 처리, 수정·삭제, 푸시 outbox.
+- 대한유도회 일정 동기화, 달력·목록·상세, 종별·체급 신청, 코치/대표/어드민 명단 검토·반려·확정·제출·CSV.
+
+### 모바일·릴리스
+
+- Android package와 iOS bundle: `kr.co.finaljudo.multigym`.
+- iOS 버전 `1.0`, 빌드 `1`, iOS 15+, Team `CA7A5SP5G5`.
+- App Store Connect archive/IPA codesign 검증 및 업로드 성공.
+- 업로드 증빙: `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`.
+- IPA: `/Users/sny0219/Desktop/Final-Judo-AppStore-1.0-build-1.ipa`.
+
+## 후속 통합 개선
+
+- 가족 화면의 하단 내비 제거와 헤더 메뉴 중심 탐색, 수업 달력의 기본 접힘 상태, 삭제된 결제 요약 카드 계약을 현재 UI 기준으로 통일했다.
+- 회원 API 응답의 `primaryCoachId` 계약을 readiness 검증에 포함해 담당 코치 연결 회귀를 감지하도록 했다.
+- 런타임 저장소에서 사용자가 삭제한 공지를 내부 readiness가 다시 요구하지 않도록, 고정 시드 문구 검증은 mock seed에만 한정했다.
+- 결제 운영 화면, 회원·학부모 공지/알림, 코치 수업 카드의 오래된 마크업 기대값을 현재 접근성·레이아웃 계약으로 교체했다.
+- 39개 역할/경로를 390x844 모바일 viewport에서 다시 검사해 가로 overflow, 콘솔 오류, 읽음 톤다운 및 역할별 탐색을 확인했다.
+- 별도 포트와 임시 JSON 저장소에서 코치 출석·되돌리기·메모, 대표 수업 생성 모달, 학부모 수업 달력 상태를 재검증했다. 기존 4326 개발 서버와 데이터는 건드리지 않았다.
+
+## 적대적 검토 결과와 조치
+
+### 해결 P1-01. 반려된 대회 신청의 동일 정보 재신청 차단
+
+- 원인: 동일 종별·체급 빠른 반환이 기존 `rejected` 상태까지 포함했다.
+- 조치: `rejected`는 동일 정보라도 `pending`으로 다시 제출되도록 변경했다.
+- 회귀 검증: 반려 후 동일 정보 재신청과 감사 로그 증가를 `scripts/check-tournament-access.mjs`에 추가했다.
+
+### 해결 P2-01. 대회 감사 로그 최신 항목 누락
+
+- 원인: 생성·수정·삭제·동기화 로그를 배열 뒤에 추가했지만 조회는 앞에서 제한했다.
+- 조치: 관련 API가 새 감사 로그를 배열 앞에 기록하도록 통일했다.
+- 범위: 대회 생성, 수정, 삭제, 대한유도회 동기화.
+
+### 해결 P2-02. 공지 DELETE와 푸시 outbox 경합
+
+- 원인: PATCH와 달리 DELETE가 공지 상태 공유 잠금 밖에서 공지와 대기 발송을 함께 변경했다.
+- 조치: DELETE 전체를 `noticeStateLockKey` 잠금 안에서 다시 읽고 권한·상태를 검증한 후 저장하도록 변경했다.
+- 회귀 검증: DELETE 잠금 계약을 notification outbox 통합 게이트에 추가했다.
+
+### 부분 해결 P2-03. 대한유도회 외부 일정 공급망
+
+- 조치: 운영 환경의 호스트·경로 allowlist, 로컬 개발 예외, redirect 거부를 적용했다.
+- 남은 위험: 공식 HTTPS endpoint의 인증서 호스트 불일치로 현재 공식 HTTP POST를 사용한다. 임의 호스트와 redirect 오염은 차단했지만 전송 구간 서명이나 신뢰 가능한 HTTPS가 없어 데이터 출처의 암호학적 무결성은 보장하지 못한다.
+- 운영 원칙: 동기화 실패 시 기존 일정은 보존하며, 공식 제공처가 정상 HTTPS/API를 제공하면 즉시 전환한다.
+
+### 해결 P2-04. App Store 프로파일과 iOS readiness 오판
+
+- 원인: App Store 프로파일에도 등록 기기 UDID를 요구했고, 오래된 실패 리포트가 최신 업로드 성공보다 우선했다.
+- 조치:
+  - `app-store-connect`는 기기 없는 배포 프로파일을 정상으로 판정한다.
+  - Development/Ad Hoc만 기기 포함 프로파일을 요구한다.
+  - Xcode UserData와 MobileDevice의 프로파일 디렉터리를 모두 검사한다.
+  - 최신 업로드 증빙의 bundle/version/build/SHA/codesign 일치를 P1 readiness에 반영한다.
+- 실제 결과: iOS doctor `ready`, P1 iOS 요구사항 `ready`.
+
+### 해결 P2-05. 납부 방법 표시명 위조
+
+- 원인: 결제 방법 enum은 검증했지만 표시명은 클라이언트 문자열을 저장했다.
+- 조치: 서버 공통 정책의 method/label 조합만 허용하고 checkout UI도 동일 정책을 사용한다.
+- 회귀 검증: `카드 결제 완료` 같은 오도 문자열 제출을 거부하는 테스트를 추가했다.
+
+### 해결 P1-02. 동일 결제의 온라인·수기 납부 채널 중복 진행
+
+- 재현: 가족 수기 납부 요청이 `pending`이어도 운영자가 온라인 checkout을 만들 수 있었고, 반대로 온라인 checkout이 `pending`이어도 가족이 새 수기 납부 요청을 만들 수 있었다.
+- 영향: 동일 청구가 서로 다른 납부 채널에서 동시에 진행되어 이중 납부, 상태 불일치, 담당자 오처리로 이어질 수 있었다.
+- 조치: 두 API 모두 `payment-mutation:${paymentId}` 공유 잠금 안에서 상대 채널의 대기 상태를 다시 확인하고 `409 BUSINESS_RULE_FAILED`로 차단한다. 온라인 checkout 대기 화면은 기존 링크만 제공하고 두 번째 수기 납부 요청 UI를 숨긴다.
+- 회귀 검증: 정적 계약, 양방향 API smoke, 390x844 학부모 화면에서 기존 링크 재사용·중복 요청 버튼 미노출을 확인했다.
+
+### 해결 P1-03. 격리 production smoke의 휴대폰 인증 재설정 경로 실패
+
+- 재현: 릴리스 러너가 소유한 임시 JSON 저장소와 개발용 SMS 코드를 명시해도 `NODE_ENV=production`이면 비밀번호 재설정 readiness가 이를 무조건 거부해 전체 smoke가 실패했다.
+- 안전 경계: 일반 production 환경의 개발용 SMS 코드는 계속 차단한다. helper가 발급한 강한 ownership token, 임시 데이터 디렉터리, 소유 marker와 대상 파일이 모두 일치하는 격리 smoke에서만 예외를 허용한다.
+- 조치: SMS readiness를 비동기 소유권 검증으로 변경하고 API에서 이를 await한다.
+- 회귀 검증: 무소유 production 거부, 일반 개발 허용, HTTPS provider 허용, helper 소유 production smoke 허용을 각각 검사했다.
+
+### 해결 P1-04. 푸시 outbox 직렬 처리로 인한 요청·예약 실행 시간 초과
+
+- 재현: 제공자 응답이 15초 제한까지 지연되면 공지 생성·재발송은 최대 100건을 순차 처리해 1,500초, 예약 worker는 50건을 순차 처리해 750초가 걸릴 수 있었다.
+- 영향: 공지는 이미 저장됐는데 사용자 요청이 시간 초과돼 실패로 보일 수 있고, 예약 함수가 종료되면 대기열 처리가 다음 일일 실행까지 밀릴 수 있었다.
+- 조치: 공지·재발송·대회 검토의 외부 푸시는 Next `after()`에서 응답 이후 처리한다. 공통 worker pool은 동시 10개·실행당 100건 절대 상한을 강제하고, 요청 후 작업은 최대 20건, 예약 작업은 최대 50건으로 분리했다. lease·revision·취소·감사 기록은 기존 공유 잠금 계약을 유지한다.
+- 회귀 검증: 실제 비동기 작업 풀의 처리 상한·동시 실행 상한·큐 소진 중단을 검증하고, 세 요청 라우트의 응답 후 실행 및 예약 라우트의 별도 정책 연결을 확인했다.
+
+### 해결 P1-05. 비밀번호 인증번호 재전송 실패·지연 도착 시 계정 복구 차단
+
+- 재현: 이미 받은 인증번호가 있어도 재전송을 요청하는 순간 기존 challenge가 삭제됐다. 새 SMS 발송이 실패하면 사용할 번호가 하나도 남지 않았고, 두 SMS 도착 순서가 뒤집히면 가장 늦게 받은 이전 번호가 거절됐다.
+- 영향: 네트워크 지연, 중복 탭, 재전송 실패만으로 정상 사용자가 계정 복구에 실패하고 시간당 3회 제한까지 소모할 수 있었다.
+- 조치: 10분 안의 미소모 인증번호는 함께 유지하고 어느 번호든 검증할 수 있게 했다. 새 번호는 기존 오입력 횟수를 물려받고, 오입력은 모든 활성 번호에 동일하게 누적해 사용자당 5회 한도를 유지한다. 하나가 성공하면 나머지 번호를 모두 소모하며, SMS 실패 시에는 실패한 예약만 제거한다.
+- 회귀 검증: 이전 번호 지연 도착, 재전송 실패 후 이전 번호 유지, 새 번호의 실패 횟수 상속, 활성 번호 전체의 5회 한도, 성공 후 나머지 번호 소모를 실제 순수 로직으로 검증했다.
+
+### 해결 P3-04. 결제 딥링크 가시성 검증 오탐
+
+- 원인: 계좌이체 안내가 화면과 하단 내비 위에 완전히 보여도 패널 상단이 임의 기준인 520px을 넘으면 실패했다.
+- 실제 측정: 390x844에서 패널은 548~646px, 하단 내비 시작점은 844px으로 전체가 노출됐다.
+- 조치: 패널 상단 고정 임계값 대신 패널 전체가 viewport와 모바일 내비 경계 안에 있는지 검사한다. 데이터 초기화 전후의 역할 페이지도 분리해 만료 세션의 일시적 401이 다음 시나리오 콘솔에 섞이지 않게 했다.
+
+### 해결 P3-05. 기존 온라인 결제 대기 화면을 API 호출로 오인한 readiness 오탐
+
+- 원인: 결제 준비 화면에서 `online-checkout` 문자열 자체를 금지해, 실제 생성 API를 호출하지 않는 `payment-online-checkout-pending` 테스트 식별자까지 실패로 판정했다.
+- 조치: 금지 대상을 일반 문자열에서 실제 `createOnlinePaymentCheckout` 호출 계약으로 좁혔다. 직접 `fetch`, provider SDK 표식과 결제 생성 함수 금지는 유지한다.
+- 회귀 검증: `npm run test:p5-p10-internal-readiness` 전체 통과와 기존 결제 대기 링크 UI 계약을 확인했다.
+
+### 해결 P3-06. 강화된 비밀번호 재설정 보안을 실패로 오인한 릴리스 게이트
+
+- 원인: 비밀번호 재설정 완료가 세션만 폐기하던 `revokeUserAuthSessions`에서 세션·이전 기기 푸시 자격증명·대기 발송까지 폐기하는 `revokeUserSecurityAccess`와 교차 잠금으로 강화됐지만, production guard는 과거 함수 이름을 계속 요구했다.
+- 조치: 검증 기준을 `withAuthAndNotificationStateLock`과 `revokeUserSecurityAccess` 조합으로 갱신해 실제 보안 불변식을 확인하도록 했다.
+- 회귀 검증: `npm run test:auth-production-guard`를 다시 실행해 휴대폰 인증, 세션·푸시 보안 폐기, production 인증 정책 전체가 통과했다.
+
+### 해결 P3-01. 로그인 응답의 대기 계정 열거
+
+- 원인: 대기 초대 계정은 오입력에도 별도 403 코드를 반환했다.
+- 조치: 비인증 단계의 대기/없는/비밀번호 오입력 응답을 일반 자격증명 실패 401로 통일했다.
+
+### 해결 P3-02. iOS 아카이브 생성물 lint 혼입
+
+- 조치: `.xcarchive`와 `.app` 생성물을 ESLint 대상에서 제외해 실제 소스 경고만 남기도록 했다.
+
+### 해결 P2-06. P1 게이트의 개발자 Mac 상태 의존
+
+- 원인: operator status 테스트가 로컬 키체인과 provisioning profile 보유 여부에 따라 결과가 달라졌다.
+- 조치: handoff draft에 `--profiles-dir` 전달 경로를 추가하고 테스트는 빈 임시 프로파일 디렉터리를 사용하도록 격리했다.
+
+### 해결 P2-07. App Store 차단 해소 안내가 iPhone UDID를 요구
+
+- 원인: 모든 export method에 Development/Ad Hoc용 후속 안내를 재사용했다.
+- 조치: App Store, Development, Ad Hoc별 후속 작업을 분리했다. App Store에는 배포 프로파일만 요구한다.
+
+### 해결 P2-08. 다른 보호자의 가족 구성 식별자 재노출
+
+- 재현: 회원 또는 학부모가 연결된 회원의 다른 보호자 정보를 부트스트랩으로 받을 때 연락처와 가족 ID를 먼저 삭제했지만, 뒤이은 보호자 정규화가 그 보호자의 전체 유효 자녀 ID를 다시 계산해 응답에 붙였다.
+- 영향: 회원 상세에 포함되지 않은 형제·자매의 식별자와 가족 구성 규모를 추론할 수 있었다.
+- 조치: 가족 연결 투영을 순수 함수로 분리하고, 본인이 아닌 보호자를 보는 회원·학부모 요청에서는 투영 결과 자체를 반환하지 않도록 했다. 본인 보호자 응답은 기존처럼 유효한 성인 본인 프로필과 상호 연결된 미성년 자녀만 유지한다.
+- 회귀 검증: 타 보호자 투영 차단, 본인 가족 연결 복구, 가족 결제, 보호자 연결 수정, 검색, 대회 가족 신청 권한을 함께 검증했다.
+
+### 해결 P1-06. 가족 결제의 다른 보호자 개인정보와 제공사 식별자 우회 노출
+
+- 재현: 가족 결제 스냅샷의 중첩 객체와 납부 요청·온라인 checkout·정기결제 변이 응답이 다른 보호자의 이름·전화번호·요청자 ID 또는 provider 결제·약정·webhook·영수증 식별자를 그대로 반환했다.
+- 영향: 같은 자녀에 연결된 다른 보호자가 납부 요청을 조회하거나 중복 요청할 때 불필요한 개인정보와 결제 내부 식별자를 확인할 수 있었다.
+- 조치: 수기 납부 요청, 온라인 결제, 정기결제의 가족용 투영을 순수 함수로 분리했다. 표시 상태·방법·checkout/영수증 URL은 유지하되 다른 보호자 이름은 일반화하고 전화번호, 요청자 ID, 내부 request/receipt/provider/webhook ID와 상태 이력은 제거했다. 스냅샷뿐 아니라 각 변이 API의 최상위 응답에도 같은 투영을 적용했다.
+- 회귀 검증: 다른 보호자와 본인 요청 분기, provider·영수증·webhook·상태 이력 제거, 세 변이 라우트 연결, 390x844 납부 요청·온라인 대기 화면을 확인했다.
+
+### 해결 P2-09. 가족 공지의 다른 수신자·읽은 사용자 식별자 노출
+
+- 재현: 한 공지에 여러 회원·반·읽은 사용자가 연결되면 회원·학부모 응답의 `targetMemberIds`, `targetClassIds`, `readByUserIds`에 다른 가족과 반의 내부 ID가 포함됐다.
+- 조치: 현재 사용자의 읽음 여부만 단일 값으로 투영하고, 가족이 접근 가능한 회원·수업 대상만 남겼다. 가족 화면에서 사용하지 않는 공지 작성자 ID도 제거했다.
+- 회귀 검증: 읽음·미읽음, 다중 회원 대상, 다중 수업 대상, outbox와 알림 readiness 게이트를 함께 확인했다.
+
+### 해결 P2-10. 가족 회원·참조 사용자에서 공동 보호자와 조직 메타데이터 노출
+
+- 재현: 자녀 회원의 `guardianIds`에 공동 보호자 ID가 모두 남고, 코치 이름 표시를 위해 포함된 사용자 객체에는 타 지점 배정, 초대 상태, 검토계정 표식과 가족 링크가 포함됐다.
+- 조치: 일반 회원에게는 보호자 ID를 모두 숨기고 학부모에게는 자신의 상호 연결 ID만 남겼다. 참조 사용자는 표시 이름·역할·직함과 현재 조회 지점만 유지하고 연락처, 가족 링크, 초대·비밀번호 상태, 검토계정 표식을 제거했다.
+- 회귀 검증: 회원·학부모 투영, 가족 결제, 보호자 연결 수정과 단위 RBAC 게이트를 확인했다.
+
+### 해결 P2-11. 가족 대회·승급·공지의 내부 작업자 ID 노출
+
+- 재현: 가족이 볼 수 있는 대회와 참가 신청, 승급 기록, 공지에 생성자·신청자·검토자 ID가 남았지만 실제 가족 화면은 해당 값을 사용하지 않았다.
+- 조치: 대회 상태·종별·체급·검토 안내, 승급 평가자, 공지 본문은 유지하고 생성·신청·검토 담당자 내부 ID만 제거했다.
+- 회귀 검증: 대회 가족 신청·운영자 검토 전체 게이트, 승급·공지 순수 투영과 린트를 확인했다.
+
+### 해결 P1-07. 회원 삭제 후 개인 공지가 지점 전체 공지로 확대
+
+- 재현: 개인 대상 공지의 마지막 `targetMemberId`를 회원 삭제 연쇄 처리에서 제거하면 대상 배열이 비었다. 공지 판정 로직은 반·회원 대상이 모두 없을 때 지점 전체 공지로 해석하므로 삭제된 회원에게만 보낸 내용이 다른 회원에게 노출될 수 있었다.
+- 조치: 개인 대상만 있던 공지는 마지막 대상 회원 삭제 시 함께 삭제한다. 다중 회원·반 대상 공지는 남은 대상만 보존하고, 변경된 모든 공지의 대기 중 푸시 작업을 취소한다.
+- 회귀 검증: 단일 개인, 다중 개인, 개인+반, 원래 지점 공지 네 상태와 푸시 취소 대상 ID를 단위 검증하고 회원 삭제 게이트에 연결했다.
+
+### 해결 P2-12. 가족 출석 응답의 운영 메모 노출
+
+- 재현: 회원·학부모 부트스트랩의 출석 기록에 코치가 입력한 `note`가 그대로 포함됐다. 화면은 출석 상태만 사용하지만 운영자가 연락·건강 맥락을 적으면 가족 응답에 불필요한 내부 메모가 전달될 수 있었다.
+- 조치: 가족용 출석 투영은 출석 ID, 수업, 회원, 상태, 확정 시각만 유지하고 내부 메모를 제거한다.
+- 회귀 검증: 상태·확정 시각 보존과 메모 제거를 순수 함수 및 API 연결 계약으로 확인했다.
+
+### 해결 P1-08. SMS 발송 실패가 비밀번호 재설정 요청 한도를 소모
+
+- 재현: 인증번호를 예약할 때 성공 감사 로그를 먼저 저장하고, 실제 SMS 발송 실패 시 별도 실패 로그만 추가했다. 성공 로그가 남아 시간당 3회 제한에 포함되므로 실제 번호를 받지 못한 사용자가 복구 흐름에서 차단될 수 있었다.
+- 조치: 발송 실패 시 해당 challenge를 폐기하고 최초 성공 감사 로그를 실패로 재분류한다. 동일 요청의 `passwordResetRequestedAt`만 제거하며, 지연된 실패가 더 새로운 재요청 상태를 지우지 못하게 시각 일치를 검사한다.
+- 회귀 검증: challenge 폐기, 감사 결과 재분류, 모순된 감사 로그 미생성, 현재 요청 표식 제거, 새 요청 표식 보존을 검증했다.
+
+### 해결 P2-13. 가족 승급 기록의 심사자 표시 누락
+
+- 재현: 승급 기록은 `evaluatorUserId`를 보존했지만 가족용 사용자 목록을 만들 때 심사자를 참조 사용자에 포함하지 않았다. 심사자가 담당 코치가 아니면 승급 목록과 증서에서 이름이 비었다.
+- 조치: 접근 가능한 승급 기록의 심사자를 참조 사용자 목록에 포함한다. 가족 응답에서는 기존 최소 사용자 투영을 적용해 이름·역할 외 연락처, 가족 링크, 계정 상태는 계속 숨긴다.
+- 회귀 검증: 가족 승급 투영과 심사자 참조 연결을 단위 계약에 추가했다.
+
+### 해결 P2-14. 회원 삭제 연쇄 처리의 프로덕션 빌드 타입 실패
+
+- 재현: 공지 발송 취소를 `reduce`로 누적하는 객체에서 대회 `registrations`가 항상 배열인 좁은 타입으로 추론돼 정상 `MockDatabase` 반환값과 충돌했다. 린트와 단위 테스트는 통과했지만 TypeScript 프로덕션 빌드가 실패했다.
+- 조치: 삭제 연쇄 중간 DB와 누산 결과를 `MockDatabase`로 명시해 선택 필드 계약을 보존했다.
+- 회귀 검증: 최신 소스로 `npm run build`를 다시 실행해 TypeScript, 61개 정적 페이지 생성, build readiness 기록까지 통과했다.
+
+### 해결 P2-15. 다른 운영자가 새로 발급해도 이전 수업 QR이 계속 유효
+
+- 재현: 같은 수업에서 코치가 QR을 발급한 뒤 대표 또는 총괄이 새 QR을 발급하면, 발급자 ID가 달라 기존 코치 QR이 제거되지 않고 남은 5분 동안 계속 스캔됐다.
+- 영향: 유출·스크린샷된 QR을 운영자가 교체해도 이전 QR이 즉시 폐기되지 않아 원격 대리 출석 위험을 줄일 수 없었다.
+- 조치: QR 교체 시 발급자와 무관하게 같은 수업의 기존 challenge를 모두 폐기한다. 다른 수업의 활성 QR은 그대로 보존한다.
+- 회귀 검증: 동일 발급자 교체, 다른 발급자 교체, 다른 수업 QR 보존을 순수 상태 테스트로 확인하고 격리 production API smoke의 권한·자동 등록·중복 방지 흐름을 다시 실행했다.
+
+### 해결 P1-09. 결제 웹훅 이벤트 ID 충돌로 멱등성 우회 가능
+
+- 재현: 요청 본문의 `providerEventId`와 `x-final-judo-payment-event-id` 헤더가 달라도 본문 값을 우선해 처리했다. 제공사가 헤더에 보내는 안정적인 이벤트 ID와 다른 본문 값을 반복하면 동일 환불·결제 완료 이벤트가 별개 이벤트처럼 처리될 수 있었다.
+- 조치: 본문과 헤더에 이벤트 ID가 모두 있으면 반드시 일치하도록 하고, 다르면 상태 변경 전에 `400 VALIDATION_ERROR`로 거부한다. 하나만 있으면 기존처럼 해당 값을 사용한다.
+- 회귀 검증: 순수 결제 게이트, 라우트 연결 계약, 격리 production API smoke에서 충돌 요청의 400 응답과 결제 상태·이력·감사 로그 불변을 확인했다.
+
+### 해결 P1-10. 미래 웹훅 시각으로 후속 정상 이벤트 차단 가능
+
+- 재현: 첫 웹훅이 유효한 ISO 형식의 먼 미래 `occurredAt`을 보내면 해당 시각이 최신 이벤트 기준으로 저장돼 이후 실제 제공사 이벤트가 `OUT_OF_ORDER`로 거부됐다.
+- 조치: 이벤트 시각은 서버 수신 시각보다 최대 5분 미래까지만, 온라인 checkout 요청 시각보다 최대 5분 이전까지만 허용한다. 범위를 벗어나면 상태 변경 전에 `400 EVENT_TIME_OUT_OF_RANGE`로 거부한다.
+- 회귀 검증: checkout 경계 시각 허용, 과거·미래 범위 거부, 실제 API의 미래 시각 거부와 상태·이력·감사 로그 불변을 확인했다.
+
+### 해결 P1-11. 약한 결제 웹훅 secret과 예제 값이 운영 준비로 인정됨
+
+- 재현: production 외부 결제 provider에서 `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET=secret`처럼 짧은 값이나 공개된 `.env.production.example` placeholder도 설정됨으로 판정됐다. 라우트는 일반 문자열 비교를 사용해 설정 실수 시 웹훅 위조 방어가 급격히 약해졌다.
+- 조치: production secret은 UTF-8 기준 32바이트 이상, 8개 이상의 서로 다른 문자, 예제·placeholder 금지를 요구한다. 미준수 시 runtime readiness와 preflight는 `PAYMENT_WEBHOOK_SECRET_WEAK`로 차단하고 웹훅 라우트도 `503`으로 닫는다. 요청 secret은 SHA-256 고정 길이 digest의 상수 시간 비교로 검증한다.
+- 회귀 검증: 짧은 값·문서 placeholder 거부, 정책 준수 값 허용, 동일·다른 길이·같은 길이 불일치 비교, production preflight, provider handoff 초안, 격리 production 전체 smoke를 확인했다.
+
+### 해결 P2-16. 최초 웹훅의 잘못된 발생 시각을 서버 시각으로 은폐
+
+- 재현: 최초 결제 웹훅이 `occurredAt`을 잘못된 문자열이나 비문자 값으로 보내면 형식 오류를 반환하지 않고 서버 수신 시각으로 바꿔 정상 처리했다.
+- 영향: provider 계약 오류가 감춰지고 결제 이력·감사 로그의 발생 시각이 실제 사건과 달라져 후속 이벤트 순서 판단과 운영 조사 신뢰도가 떨어질 수 있었다.
+- 조치: `occurredAt`이 제공되면 최초·후속 이벤트 모두 엄격한 ISO 시각 형식을 요구한다. 최초 이벤트에서 필드 자체를 생략한 경우에만 서버 수신 시각을 사용한다.
+- 회귀 검증: 잘못된 명시 시각의 `400 VALIDATION_ERROR`, 결제 상태·이력·감사 로그 불변, 정상 최초 이벤트와 후속 시각 규칙을 격리 production 전체 smoke로 확인했다.
+
+### 해결 P2-17. 결제 provider 설정 오타를 외부 provider로 활성화
+
+- 재현: `FINAL_JUDO_PAYMENT_PROVIDER=externla`처럼 비어 있지 않은 임의 문자열을 설정하면 runtime readiness가 이를 정상 외부 provider로 취급했다.
+- 영향: 배포 환경 오타가 preflight를 통과하고 mock/external 분기 상태가 운영자의 의도와 다르게 표시될 수 있었다.
+- 조치: provider 값은 비움(개발 mock) 또는 정확한 `external`만 허용한다. 그 외 값은 개발·운영 모두 `PAYMENT_PROVIDER_INVALID`로 차단하고 production preflight에도 같은 blocker를 전달한다.
+- 회귀 검증: 개발 runtime의 오타 거부, production preflight blocker, 정상 `external` 경로, 최신 production 빌드와 격리 전체 smoke를 확인했다.
+
+### 해결 P1-12. 마지막 자녀 연결 해제 시 학부모 계정 저장 실패
+
+- 재현: 자녀가 한 명뿐인 학부모의 연결을 대표가 해제하면 사용자 `branchIds`까지 빈 배열로 덮어썼다. 비총괄 계정은 최소 한 지점이 필요하다는 저장 무결성 검사에 걸려 API가 `500`을 반환했다.
+- 영향: 잘못된 보호자 연결을 해제할 수 없었고, 지점 배정이 사라지면 대표가 같은 학부모를 다시 검색·연결할 수도 없었다.
+- 조치: 보호자 연결 동기화는 상호 연결된 자녀 목록만 다시 계산하고, 초대·관리에서 배정한 기존 지점 범위는 보존한다. 새 연결의 지점은 기존 범위에 추가한다.
+- 회귀 검증: 격리 production 서버에서 송파 학부모의 유일한 자녀 연결 해제가 수정 전 `500`, 수정 후 `200`임을 확인했다. 해제 후 `childMemberIds=[]`, `branchIds=["branch-songpa"]`, 즉시 재연결 `200`을 검증하고 전체 API smoke를 다시 통과했다.
+
+### 해결 P2-18. 성공 응답이 한쪽에만 남은 보호자 관계를 복구하지 않음
+
+- 재현: 회원의 `guardianIds`에는 학부모가 있지만 학부모의 `childMemberIds`가 비어 있는 상태에서 연결 추가·변경 API를 호출하면 `200`만 반환하고 저장소는 그대로였다. 반대 방향으로 학부모 자녀 ID만 남은 상태에서 해제해도 오래된 ID가 유지됐다.
+- 영향: 화면의 안전 투영은 관계를 보정해 보여 주지만 원본 저장소의 상호 연결 오류와 production preflight blocker가 계속 남아, 운영자가 정상 처리된 것으로 오인할 수 있었다.
+- 조치: 가족 연결 동기화를 공통 순수 함수로 분리했다. 회원·학부모·지점이 모두 일치할 때만 무변경 응답하고, 한쪽이 누락된 추가·변경은 복구 저장, 학부모 쪽에만 남은 해제는 정리 저장과 감사 로그를 수행한다.
+- 회귀 검증: 격리 JSON에 양방향 불일치 상태를 각각 주입해 추가 후 `childMemberIds=["member-harin"]`, 해제 후 `childMemberIds=[]`가 영속되는 것을 확인했다. `npm run test:unit`, 보호자 연결 게이트, production build와 전체 API smoke를 통과했다.
+
+### 해결 P1-13. 가족 계정의 지점 범위 역할 변경이 500으로 실패
+
+- 재현: 총괄 어드민이 강남 학부모 계정의 역할은 유지한 채 담당 지점을 송파로 바꾸면, 별도 역할 변경 API가 기존 본인·자녀 회원 연결을 검사하지 않았다. 저장 단계에서 `users.memberLinks`와 `members.guardianIds` 무결성 문제가 새로 감지돼 응답이 `500`으로 종료됐다. 같은 조건의 일반 사용자 수정 API는 이미 `422`로 차단하고 있어 두 API의 계약도 달랐다.
+- 조치: 가족 회원의 존재·지점 범위와 학부모 본인/자녀 연령 규칙을 공통 순수 함수로 통합했다. 역할 변경 API는 회원·학부모 계정의 기존 본인·자녀 연결이 새 지점 범위를 벗어나면 저장 전에 `422 BUSINESS_RULE_FAILED`로 거부하고 사용자 정보에서 연결을 먼저 변경하도록 안내한다.
+- 회귀 검증: 수정 전 격리 production 서버에서 학부모 지점 변경 `500`을 재현했다. 수정 후 관리자 API 통합 게이트에서 학부모와 일반 회원의 범위 밖 지점 변경이 모두 `422`인지, 계정·양방향 가족 연결·감사 로그가 불변인지 확인했다. 단위 규칙, JSON 저장소, lint, production build, 전체 격리 API smoke도 통과했다.
+
+### 해결 P1-14. 역할·지점 변경 뒤 휴대폰 푸시가 이전 지점 범위에 고착
+
+- 재현: 푸시 구독은 연결 당시 사용자의 `branchIds`를 복사해 저장했고, 발송 후보와 전송 직전 검증이 이 복사본을 권한 조건으로 사용했다. 관리자가 계정을 다른 지점으로 옮겨 현재 사용자가 새 지점 공지의 정상 수신 대상이 되어도 기존 기기는 새 지점 알림 후보에서 제외됐다. 대표 화면의 연결 기기 수도 과거 지점 기준으로 집계됐다.
+- 안전성 확인: 반대 방향의 이전 지점 정보 노출은 현재 사용자 역할·지점을 다시 검사하는 `isNoticeRecipient`가 차단하고 있었다. 따라서 저장된 구독 지점은 권한 근거가 아니라 오래될 수 있는 메타데이터로 분류했다.
+- 조치: 푸시 후보, outbox 전송 직전 구독 소유권, 대표·총괄 연결 기기 수를 현재 사용자 계정 범위로 계산하는 순수 규칙으로 통합했다. 구독의 과거 `branchIds`는 더 이상 허용·거부 판단에 사용하지 않는다. 예약 작업은 기존처럼 전송 직전에 현재 공지 수신 권한을 다시 검사한다.
+- 회귀 검증: 구독 메타데이터가 강남에 남고 사용자는 송파로 이동한 상태에서 송파 공지는 후보에 포함되고 강남 공지는 제외되는지, 송파 대표와 강남 대표의 기기 수가 현재 사용자 범위를 따르는지 단위 테스트로 확인했다. 알림 readiness, outbox 상태·통합 게이트, lint, production build와 격리 전체 API smoke를 통과했다.
+
+### 해결 P1-15. 비밀번호·역할·지점 변경 뒤 이전 기기 푸시 자격증명 존속
+
+- 재현: 회원 기기에 푸시 구독을 등록한 뒤 관리자가 비밀번호를 재발급했다. 활성 로그인 세션은 `0`건으로 폐기됐지만 이전 기기의 활성 푸시 구독은 `1`건으로 남아, 분실 기기나 이전 역할 기기가 현재 계정 범위의 공지를 계속 받을 수 있었다.
+- 조치: 비밀번호 재설정·재발급, 초대 수락·비밀번호 발급, 역할·지점 변경이 공통 `revokeUserSecurityAccess`를 사용하도록 통합했다. 이 함수는 모든 로그인 세션을 폐기하고 해당 사용자의 활성 푸시 구독을 삭제하지 않은 채 비활성화한다. 이미 비활성인 구독의 시각과 다른 사용자의 구독은 보존한다.
+- 복구 계약: 보안 변경 뒤 새 비밀번호로 로그인하는 것만으로 이전 기기를 다시 신뢰하지 않는다. 인증된 사용자가 알림 화면에서 브라우저 구독 엔드포인트를 명시적으로 다시 등록하면 같은 레코드가 활성화된다. 대기 outbox는 전송 직전 비활성 구독을 취소한다.
+- 회귀 검증: 순수 규칙에서 대상 세션·구독 폐기와 다른 사용자/기존 비활성 구독 보존을 확인했다. 격리 production API에서 비밀번호 재발급 뒤 활성 푸시 투영 제외, 새 로그인 `currentUserSubscribed=false`, 명시적 재연결 뒤 `true`를 검증했다. `test:unit`, `test:password-reset-security`, 관리자 사용자 API, 알림 outbox 상태·통합/readiness, lint, production build, 전체 격리 smoke를 통과했다.
+
+### 해결 P1-16. 공용 브라우저 계정 전환 뒤 푸시 구독 소유권 잔존
+
+- 재현: 브라우저 푸시 엔드포인트가 계정 A에 연결된 상태에서 계정 B로 로그인했다. B가 다른 기기 구독을 하나라도 가지고 있으면 `currentUserSubscribed=true`와 기존 브라우저 구독 존재 조건 때문에 클라이언트가 등록 API를 호출하지 않아, 해당 브라우저는 계속 A의 공지를 받을 수 있었다.
+- 조치: 권한이 허용된 브라우저에서는 현재 엔드포인트를 항상 인증된 계정으로 서버 확인한다. 서버는 엔드포인트의 소유자가 다르면 기존 outbox 잠금과 소유권 변경 감사 로그를 유지해 B로 이전한다.
+- 무변경 계약: 같은 사용자, 활성 상태, 같은 키·현재 지점 집합·기기 정보인 요청은 저장소를 쓰거나 중복 `notification.subscribe` 감사 로그를 만들지 않고 현재 상태만 반환한다.
+- 회귀 검증: 격리 production API에서 A→B 소유권 이전, 단일 엔드포인트 보존, 감사 기록, 같은 요청 재전송의 `updatedAt`·감사 건수 불변을 확인했다. 모바일 Playwright에서는 다른 기기 구독이 이미 있고 현재 브라우저 구독도 존재하는 회원 계정과 신규 구독이 필요한 학부모 계정을 각각 검증했다.
+
+### 해결 P1-17. 알림함 진입 전 가족 계정 푸시 소유권 미교정
+
+- 재현: 엔드포인트 소유권 교정은 알림함 화면에만 연결되어 있었다. 공용 브라우저에서 A에서 B로 계정을 전환한 뒤 B가 홈·수업만 이용하고 알림함을 열지 않으면 기존 엔드포인트는 계속 A 소유로 남을 수 있었다.
+- 조치: 브라우저 푸시 연결을 공통 모듈로 분리하고 회원·학부모 앱 셸 진입 시 이미 허용된 활성 구독만 현재 계정으로 동기화한다. 앱 진입에서는 권한 팝업이나 보안 폐기 기기의 재활성화를 요청하지 않고, Android 네이티브 권한 흐름은 기존 전용 처리에 남겼다. React 개발 모드 효과 재실행으로 발견된 중복 POST는 사용자 ID별 실행 가드로 제거했다.
+- 회귀 검증: 회원 대시보드 진입만으로 기존 엔드포인트 등록 요청이 정확히 1회 발생하고 권한 요청, 새 구독 생성, 서비스워커 재등록은 모두 0회인지 모바일 Playwright로 확인했다. 회원·학부모 알림함의 명시적 권한 버튼, 공지 읽음 톤다운, 가로 overflow·콘솔 오류 계약도 함께 통과했다.
+
+### 해결 P1-18. 자동 푸시 소유권 교정이 보안 폐기 기기를 재활성화
+
+- 재현: 비밀번호·역할·지점 변경으로 구독을 비활성화해도 가족 계정 앱 셸의 자동 동기화가 알림함의 명시적 활성화와 같은 등록 API를 호출했다. 회원·학부모의 항상 켜짐 DELETE 정책도 이미 비활성화된 레코드를 다시 활성 상태로 덮을 수 있었다.
+- 영향: 분실·공용 기기의 푸시 자격증명을 보안 변경으로 폐기한 직후 새 로그인만으로 다시 신뢰해 P1-15의 복구 계약을 무효화할 수 있었다.
+- 조치: 등록 요청에 `allowReactivation` 의도를 추가하고 서버 기본값을 `false`로 고정했다. 자동 앱 진입은 활성 endpoint의 계정 소유권만 교정하며 보안 폐기 레코드는 `reactivationRequired: true`로 유지한다. 사용자가 알림 화면에서 직접 활성화한 요청만 `true`를 보낸다. 가족 계정 DELETE도 기존 `disabledAt`을 보존한다.
+- 회귀 검증: 관리자 API에서 비밀번호 재발급 뒤 자동 POST와 DELETE가 비활성 상태를 유지하고, 명시적 POST 뒤에만 활성화되는 순서를 검증했다. 모바일 390x844에서는 앱 진입 요청 `allowReactivation=false`, 회원·학부모 직접 활성화 요청 `true`, POST 1회, 권한 자동 요청 0회, 가로 overflow·콘솔 오류 0을 확인했다.
+
+### 해결 P1-19. 전송 중인 같은 계정 구독의 키 교체가 새 자격증명을 비활성화
+
+- 재현: outbox worker가 구독 레코드의 이전 endpoint key로 provider 호출을 시작한 뒤 같은 사용자가 같은 endpoint의 key를 갱신할 수 있었다. 늦게 도착한 이전 호출의 `404`/`410` 결과는 같은 구독 ID를 기준으로 정산되므로, 방금 저장한 정상 key까지 비활성화할 수 있었다.
+- 조치: 정확히 같은 활성 구독의 멱등 요청과 자동 재활성화 금지 응답은 그대로 허용하되, provider 호출이 진행 중인 구독의 계정 이전·key 교체·명시적 재활성화·기기 정보 변경은 `409 PUSH_SUBSCRIPTION_UPDATE_PENDING`으로 보류한다. 호출 정산 후 클라이언트가 안전하게 재시도할 수 있다.
+- 회귀 검증: 알림 readiness가 소유자 변경뿐 아니라 같은 사용자 구독 변경 전체에 in-flight 차단을 요구하도록 강화했다. outbox 상태·통합 게이트와 `git diff --check`를 통과했다.
+
+### 해결 P1-20. 계정 보안 폐기와 푸시 상태 변경의 분리 잠금 경합
+
+- 재현: 비밀번호 재설정·재발급, 초대 수락, 역할·지점·계정 상태 변경은 인증 보안 잠금만 사용하고 구독 등록·worker 정산은 알림 잠금을 사용했다. 두 작업이 동시에 저장되면 한쪽 변경이 충돌하거나, 폐기 대상 자격증명이 구독 변경·전송 정산에 의해 다시 덮일 수 있었다.
+- 조치: 계정 보안과 푸시 자격증명을 함께 바꾸는 경로에 공통 이중 잠금 함수를 적용했다. 모든 경로가 `auth-security` 다음 `notification-outbox` 순서로 잠금을 얻으며, 구독 POST/DELETE와 사용자 삭제·상태·역할·지점·비밀번호·초대 변경이 같은 순서를 공유한다. 알림 worker는 기존 알림 잠금에서 직렬화된다.
+- 회귀 검증: 인증 보안 게이트와 알림 readiness가 공통 잠금 사용 범위와 잠금 순서를 정적으로 검증한다. 비밀번호·역할·사용자·초대·구독 경로의 직접 호출을 교차 확인했고 lint, 인증 세션, 알림 outbox 상태·통합/readiness, `git diff --check`를 통과했다.
+
+### 해결 P1-21. 보안 변경 뒤 이전 기기 푸시 작업이 대기열에 잔존
+
+- 재현: 비밀번호·역할·지점·계정 상태 변경은 이전 기기의 구독만 비활성화했다. 아직 시작하지 않은 outbox 작업은 worker가 나중에 선택해 취소할 때까지 대기열을 점유했고, provider 호출이 이미 시작된 작업에는 보안 폐기 시점의 취소 의도와 단말 전달 가능성이 기록되지 않았다.
+- 조치: `revokeUserSecurityAccess`가 대상 사용자의 모든 구독 ID를 수집해 기존 outbox 상태 전이 함수로 작업을 함께 취소한다. 대기·재시도 작업은 즉시 `cancelled`, 임대 작업은 `cancellationRequestedAt`을 기록하며 provider 호출이 시작됐다면 `deliveryMayHaveOccurred: true`를 보존한다. 다른 사용자의 작업과 이미 비활성인 구독 시각은 바꾸지 않는다.
+- 회귀 검증: 단위 상태에 대상 사용자의 pending·provider in-flight 작업과 다른 사용자의 pending 작업을 함께 구성했다. 보안 폐기 후 각각 취소·취소 요청/전달 가능성·불변 상태가 되는지 확인했고 인증 보안, 알림 outbox 상태·통합, `git diff --check`를 통과했다.
+
+### 해결 P1-22. 직접 푸시 구독 해지 후 이전 작업이 발송 대기열에 잔존
+
+- 재현: 코치·대표·총괄 계정이 기기 푸시 구독을 해지하면 구독 레코드만 비활성화되고, 해지 전에 생성된 pending·retry·leased outbox 작업은 남았다. worker 재개 타이밍에 따라 해지한 기기에 이전 공지가 늦게 전달될 수 있었다.
+- 조치: 구독 ID 집합의 모든 outbox 작업을 취소하는 공통 상태 전이 함수를 추가했다. 직접 구독 해지와 계정 보안 폐기가 같은 함수를 사용하며, 대기·재시도 작업은 즉시 취소하고 provider 호출이 시작된 작업은 취소 요청과 `deliveryMayHaveOccurred` 경계를 남긴다.
+- 회귀 검증: 한 DB에 대상 구독의 pending·provider in-flight 작업과 다른 구독의 pending 작업을 넣어 해지 후 즉시 취소·전달 불확실성 보존·타 구독 불변을 확인했다. 알림 outbox 단위·통합·readiness, 인증 보안, lint, `git diff --check`를 통과했다.
+
+### 해결 P1-23. 푸시 재시도 중 구독 소유권 보호와 전달 불확실성 소실
+
+- 재현: 첫 provider 시도가 실패해 재시도 작업을 임대할 때 이전 시도의 `providerCallCompletedAt`과 `providerOutcome`이 남았다. 두 번째 provider 호출이 시작돼도 전송 중 판정은 이전 완료 시각 때문에 false가 되어 같은 브라우저 endpoint의 계정 이전·키 교체를 허용할 수 있었다. 이전 시도가 timeout 등으로 전달 불확실 상태였어도 다음 시도 시작 전 대상 변경 취소가 이를 false로 덮었다.
+- 조치: 새 임대마다 시도별 provider 시작·완료·결과 필드만 초기화하고 누적 `deliveryMayHaveOccurred`는 보존한다. 두 번째 호출 시작 뒤 전송 중 판정이 다시 true가 되어 소유권·키 변경을 차단하며, 이후 provider 호출 전 취소되더라도 이전 시도의 전달 불확실성을 유지한다.
+- 회귀 검증: transient 실패 뒤 재임대·provider 시작 시 이전 완료/결과 제거와 전송 중 판정을 확인했다. 별도 timeout 불확실 시나리오에서는 다음 시도 시작 전 취소 후에도 `deliveryMayHaveOccurred: true`가 남는지 확인했고 알림 outbox 단위·통합을 통과했다.
+
+### 해결 P1-24. provider timeout 뒤 실제 호출이 남아 있어도 보호 경계가 조기 해제
+
+- 재현: `Promise.race` 기반 15초 제한은 worker의 대기만 끝내며 이미 시작한 provider Promise의 종료를 보장하지 않는다. 기존 상태 전이는 timeout 결과를 즉시 `retry_scheduled`로 바꾸고 lease와 전송 중 판정을 해제해, 늦게 끝나는 이전 호출과 새 재시도·구독 계정 이전·키 교체가 겹칠 수 있었다.
+- 조치: provider 호출 시작 시 원래 lease 만료를 `providerFenceExpiresAt`으로 저장한다. timeout처럼 결과가 불확실하면 해당 시각 전까지 재임대와 구독 소유권·키 변경을 차단하며, 그 사이 작업을 취소해도 `providerOutcome: uncertain`과 누적 전달 가능성을 유지한다. 정상 성공·확정 실패는 fence와 stale 실패 사유를 정리한다.
+- 회귀 검증: 5초 lease에서 1초 backoff timeout을 구성해 일반 재시도 시각에는 임대되지 않고 원래 lease 만료 뒤에만 재시도되는지 확인했다. fence 중 직접 취소도 소유권 보호와 전달 불확실성을 유지하고 만료 뒤 해제되는지 검증했으며 알림 outbox 단위·통합을 통과했다.
+
+### 해결 P1-25. 계정별 로그인 제한 응답과 해시 검증 생략으로 계정 존재 노출
+
+- 재현: 등록 계정에 잘못된 비밀번호를 5회 보낸 뒤에는 `429 TOO_MANY_REQUESTS`와 `Retry-After`가 반환됐지만 미등록 번호는 계속 `401 UNAUTHENTICATED`였다. 미등록·대기·손상 해시는 PBKDF2도 건너뛰어 응답 코드·헤더와 계산 시간으로 계정 존재를 추정할 수 있었다.
+- 조치: 계정별 15분·5회 제한과 차단 감사는 내부에 유지하되 외부에는 미등록·대기·일반 오입력과 같은 `401` 코드·문구만 반환하고 `Retry-After`를 제거했다. 사용할 수 없는 해시도 고정 더미 PBKDF2 검증을 정확히 한 번 수행하되 인증 성공에는 사용할 수 없게 했다.
+- 회귀 검증: 인증 단위 게이트에서 정상·오입력·미등록·손상 해시를 확인하고, 격리 서버의 관리자 API 게이트에서 제한된 등록 계정과 미등록 번호의 상태·오류 코드·문구·헤더가 동일한지, 차단 감사가 남고 올바른 비밀번호는 로그인되는지 검증한다.
+
+### 해결 P1-26. 비밀번호 재설정 인증번호 검증·발송 결과를 통한 계정 존재 노출
+
+- 재현: 미등록 번호와 활성 challenge가 없는 등록 계정은 인증번호 PBKDF2 검증을 건너뛰었다. 등록 계정의 개별 SMS 발송 실패만 `503`을 반환해 미등록 번호의 중립 `200` 응답과 구분됐다.
+- 조치: 미등록·비활성 대상도 고정 더미 PBKDF2를 정확히 한 번 수행하고, 서비스 전체 미설정은 기존 `503`을 유지하되 개별 발송 실패는 예약 challenge와 감사를 실패로 정리한 뒤 계정 중립 `200` 응답을 반환한다.
+- 회귀 검증: `npm run test:password-reset-security`에서 미등록·비활성 타이밍 작업, 중립 발송 응답, 원문 인증번호·토큰 미저장, 인증번호 공유 시도 한도, 토큰 단일 사용과 세션·푸시 폐기를 확인했다.
+
+### 해결 P1-27. PostgreSQL 중첩 도메인 잠금 거부로 계정 보안·결제 웹훅 500
+
+- 재현: 계정 보안 변경은 `auth-security` 뒤 `notification-outbox`, 결제 웹훅은 전역 event 뒤 결제별 잠금을 얻는다. JSON 저장소는 이를 허용하지만 PostgreSQL 저장소가 활성 트랜잭션 안의 두 번째 잠금을 예외로 거부해 운영 경로가 저장 전 `500`으로 실패했다.
+- 조치: 중첩 잠금은 새 트랜잭션을 만들지 않고 현재 PostgreSQL client와 transaction을 재사용해 두 advisory key를 모두 획득한다. 기존 호출부의 전역→세부 잠금 순서는 유지한다.
+- 회귀 검증: 가짜 PostgreSQL 게이트에서 `BEGIN/COMMIT` 1쌍과 advisory lock 2개를 확인했다. Docker 통합 게이트에는 다른 store의 내부 key 경쟁 직렬화와 동일 비밀번호 재설정 토큰의 동시 완료 `200/400`, 변경 비밀번호 재로그인을 추가했다. 현재 Docker 데몬이 꺼져 있어 새 컨테이너 시나리오의 이번 실행 증빙은 대기 중이다.
+
+### 해결 P1-28. 비밀번호 재설정 운영 SMS 지연을 통한 계정 존재 추정
+
+- 재현: 공개 응답 본문은 등록·미등록·제한 계정에 동일했지만 등록 계정만 challenge PBKDF2 생성과 최대 8초의 HTTPS SMS webhook 호출을 응답 전에 수행했다. 반복 요청자는 응답 시간 분포로 등록 휴대폰 번호를 추정할 수 있었다.
+- 조치: 미등록·요청 제한 계정에도 challenge 생성과 같은 PBKDF2 1회를 수행한다. 운영 webhook 발송과 실패 교정은 중립 응답 확정 뒤 Next `after()`에서 실행하고, 개발 및 run-owned 격리 smoke만 기존처럼 인증번호를 즉시 반환한다.
+- 회귀 검증: 비밀번호 재설정 보안 게이트와 production guard가 미등록·제한 분기의 PBKDF2 작업과 운영 webhook의 응답 후 실행을 확인한다. 발송 실패 challenge·감사 교정, 인증번호 원문 비저장, 토큰 단일 사용 계약은 유지한다.
+
+### 해결 P1-29. 휴대폰 소유 확인 없는 공개 회원가입
+
+- 재현: 공개 `/auth/register`에 지점·이름·휴대폰 번호·비밀번호만 보내면 해당 번호를 실제로 소유하지 않아도 즉시 로그인 계정과 성인 회원 프로필이 생성됐다. 중복 번호는 직접 `409`로 응답해 등록 계정 열거도 가능했다.
+- 조치: 가입을 `request`와 `complete` 2단계로 분리했다. 6자리 인증번호는 10분 만료, 최대 5회 오입력, 번호당 시간당 3회 요청을 적용하고 휴대폰·인증번호 원문을 저장하지 않는다. 기존·미등록 번호 요청은 같은 응답과 PBKDF2 비용을 사용하고 운영 SMS는 응답 후 발송한다. 인증 확인·지점 재검증·휴대폰 유일성·사용자/회원/감사 저장은 같은 번호 잠금 안에서 원자적으로 처리한다.
+- 회귀 검증: `test:phone-signup-security`, `test:auth-production-guard`, `test:auth-session-security`, 격리 모바일 `test:phone-signup-login-flow`, production `test:admin-user-management-api`, TypeScript와 빌드를 통과했다. 같은 인증번호의 동시 완료는 `200/400 SIGNUP_CODE_INVALID` 한 건씩이며 계정·회원은 한 건만 생성된다.
+- QA 인프라: 브라우저 게이트가 사용자 개발 서버의 `.next/dev/lock`과 충돌하지 않도록 실행별 Next `distDir`·tsconfig·JSON 저장소를 격리하고, Chrome 종료가 지연돼도 5초 안에 소유 프로세스와 산출물을 정리하도록 제한했다.
+
+### 해결 P2-19. 모바일 알림 검증의 공용 포트·Next 출력 오염
+
+- 재현: 모바일 알림 검증이 기본 `localhost:3000`과 공용 `.next`를 사용해 다른 개발 서버의 잠금과 충돌했고, 수동 격리 실행은 일회성 `.next-mobile-{port}` 경로를 루트 `tsconfig.json`에 남겼다. 서버 시작 전에 실패하면 임시 DB와 출력 디렉터리 정리도 보장되지 않았다.
+- 조치: 기본 실행마다 미사용 포트, 실행 ID가 포함된 전용 Next `distDir`, 전용 TypeScript 설정, 소유권 표시가 있는 임시 JSON 저장소를 생성한다. 서버 시작을 포함한 전체 수명주기를 `finally`로 감싸 성공·실패 모두 생성물을 정리한다.
+- 회귀 검증: 고유 포트 `54933`에서 검증 통과 후 관리 서버, 임시 DB, Next 출력, 임시 tsconfig가 모두 제거되고 루트 `tsconfig.json`이 변경되지 않았으며 사용자 개발 서버 `4326`은 계속 실행 중임을 확인했다.
+
+### 해결 P2-20. 만료된 푸시 구독의 같은 기기 작업이 대기열에 잔존
+
+- 재현: 한 기기 구독에 여러 공지 발송이 쌓인 상태에서 provider가 첫 작업에 404/410을 반환하면 현재 작업과 구독만 비활성화됐다. 같은 구독의 pending·retry 작업은 다음 worker가 다시 선택해 취소할 때까지 큐를 점유했고, 병렬 provider 호출이 시작된 작업에는 구독 만료 시점의 취소 의도가 남지 않았다.
+- 조치: 영구 구독 실패를 정산한 직후 같은 잠금 안에서 구독 ID 범위의 나머지 outbox 작업을 공통 취소 상태 전이로 비운다. 현재 실패 작업은 `disabled`를 유지하고, 대기·재시도 작업은 `cancelled`, 임대 작업은 취소 요청으로 전환하며 이미 provider 호출이 시작됐으면 `deliveryMayHaveOccurred`를 보존한다. 다른 기기 구독과 작업은 변경하지 않는다.
+- 회귀 검증: 동일 구독의 현재 leased·pending·provider in-flight 작업과 다른 구독의 pending 작업을 함께 구성했다. 현재 작업의 `disabled`, 형제 작업의 취소·취소 요청/전달 불확실성, 타 구독 불변과 늦은 provider 정산을 확인했고 알림 outbox 단위·통합·readiness를 통과했다.
+
+### 해결 P2-21. stale settlement 거부 감사에서 이전 시도 불확실성 소실
+
+- 재현: timeout으로 첫 시도의 `deliveryMayHaveOccurred`가 true인 작업을 재시도한 뒤, 두 번째 결과 저장이 revision 충돌로 거부되면 거부 감사는 두 번째 결과만 보고 전달 가능성을 다시 false로 기록했다. 실제 작업 상태와 운영 감사가 서로 달라 사고 확인 시 잘못된 확신을 줄 수 있었다.
+- 조치: 거부 감사의 전달 가능성을 현재 결과뿐 아니라 worker가 들고 있던 작업과 최신 저장 작업의 누적 불확실성까지 합쳐 계산한다.
+- 회귀 검증: 통합 게이트가 stale settlement 감사 생성 경로에서 claimed/current 작업의 `deliveryMayHaveOccurred`를 모두 반영하는 계약을 확인한다.
+
+### 해결 P2-22. 일부 발송·일부 취소 요청이 전체 성공으로 기록
+
+- 재현: 같은 공지 발송 요청에서 한 기기는 전송에 성공하고 다른 기기는 대상 변경이나 구독 해지로 취소되면 `after.cancelled`는 1건이지만 감사 결과와 메시지는 성공·발송 완료로만 표시됐다.
+- 조치: 완료된 요청에 취소 작업이 하나라도 있으면 `result`와 `dispatchState`를 `blocked`로 남기고 발송·취소·전달 가능성 확인 필요 수를 메시지에 함께 기록한다. 만료 구독이나 최종 실패가 있으면 실패 우선순위를 유지하되 취소 수를 숨기지 않는다.
+- 회귀 검증: 후보 2건 중 1건 발송·1건 취소 상태를 구성해 성공으로 닫히지 않고 `sent: 1`, `cancelled: 1`, 확인 필요 메시지가 남는지 확인했다.
+
+### 해결 P2-23. provider 시작 없이 발송 결과를 확정할 수 있는 내부 상태 전이
+
+- 재현: `settlePushDispatchJob`에 유효한 lease와 revision만 전달하면 `beginPushDispatchProviderCall`을 거치지 않은 작업도 `sent` 또는 `failed`로 확정됐다. 내부 호출 실수나 향후 runner 변경이 실제 provider 호출 없이 성공 감사를 만들 수 있었다.
+- 조치: `sent`와 `failed` 정산은 현재 시도의 `providerCallStartedAt`이 반드시 있어야 하며, 없으면 `provider_call_not_started`로 거부한다. 대상·권한 재검증 실패처럼 provider를 호출하지 않는 `cancelled` 전이만 예외로 유지한다.
+- 회귀 검증: lease 직후 성공 정산이 거부되는지 먼저 확인하고 provider 시작 fence를 저장한 뒤 같은 결과가 성공하는지 검증했다. 재시도·dead letter·410 비활성화 테스트도 모두 시작→정산 순서로 교정했다.
+
+### 해결 P2-24. provider 시작 후 취소 결과가 호출 전 상태로 축소
+
+- 재현: provider 시작 시각과 fence가 저장된 작업에 취소 요청이 들어온 뒤 `cancelled` 결과를 정산하면 `providerOutcome: not_started`로 기록되고 fence가 제거됐다. 실제 호출은 시작됐으므로 단말 전달 가능성을 배제할 수 없는 상태와 모순됐다.
+- 조치: 취소 결과도 저장된 provider 시작 시각을 기준으로 분기한다. 호출 전 취소는 `not_started`이고 provider 완료 시각을 만들지 않으며, 호출 후 결과 불명 취소는 `uncertain`과 `deliveryMayHaveOccurred`를 남기고 원래 lease까지 bounded fence를 유지한다.
+- 회귀 검증: 호출 전 직접 취소 정산과 호출 시작→동시 취소→결과 불명 정산을 각각 구성해 provider 결과, 완료 시각, 전달 가능성, fence가 실제 상태와 일치하는지 확인했다.
+
+### 해결 P2-25. 가입·비밀번호 재설정 보안 게이트의 릴리스 러너 누락
+
+- 재현: 릴리스 체크리스트는 `test:phone-signup-security`, `test:phone-signup-login-flow`, `test:password-reset-security` 통과를 요구했지만 `test:release` 실행 목록에는 세 명령이 없었다. 문서 게이트는 명령 존재만 확인해 이 불일치를 통과시켰다.
+- 조치: 세 게이트를 인증 production guard 직후의 전체 릴리스 순서에 등록하고 README 검증 명령 블록과 설명을 같은 순서로 갱신했다.
+- 회귀 검증: `test:release-docs`가 릴리스 러너와 README 명령 순서, package script 존재를 다시 대조한다.
+
+### 해결 P3-03. P1 운영 상태판의 거짓 후속 작업
+
+- 원인: 일부 요구사항의 `partial` 상태를 잃어 이미 확인된 production origin을 다시 미확정으로 표시했고, ready인 iOS doctor에도 재빌드 행동을 남겼다.
+- 조치: 부분 충족 상태와 origin readiness를 보존하고, 실제 미해결 항목만 deferred action에 포함한다.
+- 실제 결과: `deferredExternalPrep: 0`, iOS doctor `nextAction: ""`.
+
+## 위협 모델과 안전성이 확인된 영역
+
+- 주요 자산: 미성년자·보호자 개인정보, 출석·상담·부상, 결제·환불, 공지·푸시, 대회 신청, 지점 운영권.
+- 신뢰 경계: 세션/로그인, 역할별 API, 지점·가족 관계, JSON/Postgres 저장소, outbox, 외부 일정, Capacitor wrapper.
+- 회원 삭제는 owner/admin과 지점 범위를 검사하고 연관 데이터와 세션을 잠금 안에서 정리한다.
+- 수기 결제·환불은 변경 사유, 상태 이력, 감사 로그를 남긴다.
+- QR 원문은 저장하지 않고 해시하며 5분 만료, 중복 방지, 지점·역할 검사를 적용한다.
+- runtime integrity는 무감사 자동 수정을 하지 않고 명시적 reconcile가 `system.integrity.repair` 감사 로그를 남긴다.
+
+## 검증 결과
+
+### 이번 개선에서 통과한 게이트
+
+- `npm run test:release` (전체 릴리스 배터리 연속 실행, 종료 코드 0)
+- `npm run lint`
+- `npm run build`
+- `npm run test:next-build-readiness`
+- `npm run test:unit`
+- `npm run test:store`
+- `npm run test:store-write-validation` (JSON 통과, PostgreSQL은 테스트 DB URL이 없어 미실행)
+- `npm run test:runtime-state-integrity`
+- `npm run test:attendance-qr`
+- `npm run test:qa-plan`
+- `npm run test:release-docs`
+- `npm run test:env-readiness`
+- `npm run test:preflight`
+- `npm run test:payment-provider-handoff-draft`
+- `npm run test:implementation-backlog`
+- `npm run test:admin-settings-gates`
+- `npm run test:pilot-operator-support`
+- `npm run test:role-csv-export-gates`
+- `npm run test:p3-operations`
+- `npm run test:p4-simulator-rehearsal`
+- `npm run test:p5-p10-internal-readiness`
+- `npm run test:family-mobile-menu-dashboard`
+- `npm run test:adversarial-design-fixes`
+- `npm run test:class-management-touch-targets` (포트 4389, 임시 JSON 저장소)
+- `npm run test:tournament-access`
+- `npm run test:notification-outbox-integration`
+- `npm run test:notification-outbox`
+- `npm run test:notification-readiness`
+- `npm run test:mobile-notification-inbox` (포트 54933, 전용 Next distDir·tsconfig와 임시 JSON 저장소 자동 정리)
+- `npm run test:korea-judo-tournament-sync`
+- `npm run test:family-payment-checkout`
+- `npm run test:member-profile-guardian-edit`
+- `npm run test:global-search`
+- `npm run test:online-payments`
+- `npm run test:payment-lifecycle`
+- `npm run test:recurring-billing`
+- `npm run test:payment-checkout-method-flow` (포트 62025, 격리 JSON 저장소와 별도 Next distDir)
+- `npm run test:password-reset-security`
+- `npm run test:auth-session-security`
+- `npm run test:invitation-token-security`
+- `npm run test:auth-production-guard`
+- `npm run test:phone-signup-security`
+- `npm run test:phone-signup-login-flow` (포트 63311, 전용 Next distDir·tsconfig와 임시 JSON 저장소)
+- `npm run test:postgres-runtime-identity` (중첩 도메인 잠금이 한 transaction에서 advisory key 2개를 획득하는 계약 포함)
+- `npm run test:release-smoke-isolation`
+- 격리 production `next start` 전체 `scripts/smoke-api.mjs`
+- 격리 production `next start`의 `scripts/check-payment-checkout-method-flow.mjs`
+- `npm run test:admin-user-management-api`
+- `npm run test:ios-ipa-doctor`
+- `npm run test:ios-provisioning-runbook`
+- `npm run test:team-agent-prompts`
+- `npm run test:p1-readiness`
+- `npm run test:p1-operator-status`
+- 실제 `p1:readiness`: ready 1, blocked 6.
+- 실제 `p1:operator-status`: deferred external prep 0, iOS doctor ready.
+- 최신 격리 build ID: `vMCCOOTLCHsmBTPE78HBp` (입력 해시 `537375a688632179bd695c21aeb1bc31ee2569baf918b80e5da0b6678b383aec`, 입력 416개). 휴대폰 본인 확인 기반 가입과 가입 계정 열거 방어까지 포함한 소스를 빌드했다.
+- 최신 build readiness: 현재 작업 트리와 build 입력 지문 일치, 삭제·이름 변경·신규 public asset·mtime 보존 변경 감지 계약 통과.
+- 최신 격리 production smoke: `http://127.0.0.1:62386`, 전체 `scripts/smoke-api.mjs` 43개 항목 통과 후 소유 프로세스와 임시 JSON 저장소를 정리했다. 사용자 개발 서버 `4326`은 재사용하거나 종료하지 않았다.
+- 최신 모바일 알림함 증빙: `http://127.0.0.1:54933`, 앱 진입 `allowReactivation=false`, 회원·학부모 직접 활성화 `true`, 각 등록 요청 1회, 권한 자동 요청·가로 overflow·콘솔 오류 0을 확인하고 소유 프로세스·전용 Next 출력·임시 tsconfig·임시 JSON 저장소를 정리.
+- 기존 사용자 개발 서버 `127.0.0.1:4326`은 PID 59979로 계속 유지됨을 확인했다.
+- 최신 추가 점검에서 결제 웹훅 이벤트 ID 충돌, 미래 시각 오염, 약한 webhook secret 허용, 잘못된 발생 시각 은폐, 결제 provider 설정 오타 허용, readiness 문자열 오탐, 마지막 자녀 연결 해제 저장 실패, 한쪽 보호자 관계 미복구, 가족 계정 지점 역할 변경 500 오류, 역할·지점 변경 뒤 푸시 구독 범위 고착, 보안 변경 뒤 이전 기기 푸시 자격증명 존속과 대기 발송 잔존, 직접 구독 해지 뒤 이전 푸시 작업 잔존, 만료 구독의 같은 기기 잔여 작업 잔존, 푸시 재시도 중 소유권 보호·전달 불확실성 소실, provider timeout 뒤 보호 경계 조기 해제, stale settlement 거부 감사의 누적 불확실성 소실, 일부 발송·일부 취소 요청의 성공 오기록, provider 시작 없는 발송 결과 확정, provider 시작 후 취소 상태 축소, 로그인 제한 응답·해시 검증 생략을 통한 계정 존재 노출, 비밀번호 재설정 검증·개별 발송 응답을 통한 계정 존재 노출, PostgreSQL 중첩 잠금 거부, 강화된 비밀번호 재설정 보안을 실패로 오인한 production guard, 공용 브라우저 계정 전환 뒤 푸시 소유권 잔존, 알림함 진입 전 푸시 소유권 미교정, 자동 푸시 재활성화 회귀, 전송 중 구독 key 교체, 계정 보안·푸시 상태 분리 잠금, 모바일 검증 격리 실패 30건을 확정·수정했다. 저장소, 가족 연결, 관리자 계정, 결제, 대회, 대한유도회 동기화, 알림 outbox 핵심 게이트와 격리 production smoke는 수정 후 모두 통과했다.
+- 후속 인증 점검에서 운영 SMS webhook 지연, 휴대폰 소유 확인 없는 공개 회원가입, 인증 보안 게이트의 전체 릴리스 누락 3건을 추가 확정·수정해 최신 누적 결함은 60건이다.
+- 실제 Docker 통합 게이트 `npm run test:db`와 `npm run test:postgres-store`를 실행해 마이그레이션·시드, runtime 저장소 읽기/쓰기, advisory lock, stale snapshot merge, 휴대폰 가입 유일성, 결제 멱등성, 교차 도메인 동시성까지 통과했다.
+- 현재 작업 트리의 최종 연속 릴리스 로그: `/tmp/final-judo-test-release-20260805-green.log`.
+
+### 갱신한 화면 증빙
+
+- 회원 관리 390x844: overflow 0, 콘솔 오류 0, 터치 영역 44px 이상.
+  - `.data/mobile-builds/ios/member-management-touch-targets-20260705/summary.json`
+- 수업/출석 390x844: 코치 출석·되돌리기·메모, 대표 수업 생성, 학부모 달력·신청 통과.
+  - `.data/mobile-builds/ios/class-management-touch-targets-20260705/summary.json`
+- 역할별 39개 화면: overflow 0, 콘솔·페이지 오류 0, 읽음 톤다운과 역할별 경로 통과.
+  - `.data/mobile-builds/ios/visible-app-copy-stability/visible-app-copy-stability-report.json`
+- 결제 채널 잠금 390x844: 온라인 결제 대기 시 기존 링크만 노출, 중복 수기 요청 버튼 없음, 콘솔 오류 0, 계좌이체 딥링크 패널 전체 노출.
+  - `.data/mobile-builds/ios/payment-checkout-channel-lock-20260805/summary.json`
+  - `.data/mobile-builds/ios/payment-checkout-channel-lock-20260805/guardian-online-checkout-pending-mobile.png`
+- 가족 앱 진입·알림함 390x844: 알림함을 열지 않은 회원 대시보드에서 기존 브라우저 구독을 `allowReactivation=false`로 등록 요청 1회, 권한 팝업·새 구독·서비스워커 재등록 0회. 회원·학부모의 직접 활성화는 `allowReactivation=true`로 각 1회이며, 가로 overflow 0, 콘솔 오류 0, 공지 읽음 톤다운과 하단 여백 통과.
+  - `.data/mobile-builds/ios/mobile-notification-inbox-20260701/summary.json`
+
+## 남은 외부 blocker와 잔여 위험
+
+1. 운영 DB 복제본을 이용한 production preflight가 없어 실제 데이터 분포·고아 레코드 회귀는 미검증이다.
+2. 실 PG/VAN checkout, webhook 서명·멱등성, billing key 보관 증빙이 없다.
+3. 운영 VAPID 키와 실제 iOS/Android 기기 푸시 증빙이 없다.
+4. Android AAB/APK release fingerprint와 브라우저 UI 없는 실기기 smoke 증빙이 미완료다.
+5. P1 외부 이슈 담당자 전달·acknowledgement와 파일럿 현장 증빙이 미완료다.
+6. 대한유도회 공식 피드는 정상 HTTPS 또는 서명된 API가 없어 allowlist된 HTTP transport 위험을 수용 중이다.
+7. QR은 상시 발급되고 토큰 유효시간이 5분이므로 스크린샷 공유에 의한 원격 대리 출석을 완전히 막지는 못한다.
+8. 이번 변경분의 iOS Simulator 전 역할 재검증은 미실행했다. 현재 코드의 화면 검증은 Chromium 모바일 viewport 증빙이며, 기존 Simulator rehearsal은 회귀 게이트로만 확인했다.
+9. 기본 Vercel cron은 플랜 호환을 위해 일 1회이므로 50건을 넘는 푸시 backlog 또는 재시도 작업은 다음 실행까지 남을 수 있다. 배포 플랜 확인 전에는 더 짧은 주기로 바꾸지 않았다.
+10. 회원 삭제는 앱 내부 결제 기록을 연쇄 정리하지만 실제 외부 PG 정기결제·checkout을 취소하는 provider API는 아직 없다. 실 PG 연결 전에는 외부 약정 취소 성공을 삭제 선행 조건으로 만드는 운영·보상 트랜잭션 설계가 필요하다.
+
+## 현재 릴리스 판정
+
+- 이번 내부 개선 사이클: 가족 개인정보·가족 계정 역할/지점 범위·회원 삭제·계정 복구·출석 QR·결제 웹훅 상태 전이 묶음 완료 (지속 적대적 검토는 진행 중)
+- 관련 코드 회귀 검증: 완료
+- iOS archive/IPA/upload: 증빙상 완료
+- 운영 배포 준비: 차단
+- Android 배포 준비: 차단
+- 실결제·실푸시 준비: 차단
+- 파일럿/운영 ready/출시 완료: 아님

@@ -101,6 +101,57 @@ assert.equal(workspaceReport.releaseDecision, "ready");
 assert.equal(workspaceReport.workspace, path.relative(process.cwd(), directory));
 assert.equal(workspaceReport.requirements.deployment.path, paths.deployment);
 
+const uploadWorkspace = path.join(directory, "app-store-upload-workspace");
+const uploadWorkspacePaths = {
+  deployment: path.join(uploadWorkspace, "deployment-handoff.report.json"),
+  android: path.join(uploadWorkspace, "android-release-handoff.report.json"),
+  iosIpa: path.join(uploadWorkspace, "mobile-builds", "ios", "ios-ipa-build-report.json"),
+  paymentProvider: path.join(uploadWorkspace, "payment-provider-handoff.report.json"),
+  notificationPush: path.join(uploadWorkspace, "notification-push-handoff.report.json"),
+  issueRegistration: path.join(uploadWorkspace, "p1-handoff-issue-registration-report.json"),
+  pilot: path.join(uploadWorkspace, "pilot-status.json"),
+};
+for (const [label, filePath] of Object.entries(uploadWorkspacePaths)) {
+  if (label !== "iosIpa") {
+    await writeReadyReport(filePath, label);
+  }
+}
+await mkdir(path.dirname(uploadWorkspacePaths.iosIpa), { recursive: true });
+await writeFile(
+  uploadWorkspacePaths.iosIpa,
+  `${JSON.stringify(
+    {
+      ok: false,
+      releaseDecision: "blocked",
+      generatedAt: "2026-07-04T11:30:39.137Z",
+      blockers: [{ check: "provisioningProfile", reason: "stale failed build" }],
+    },
+    null,
+    2,
+  )}\n`,
+);
+const uploadEvidencePath = path.join(uploadWorkspace, "mobile-builds", "ios", "app-store", "1.0-1", "upload-result.md");
+await mkdir(path.dirname(uploadEvidencePath), { recursive: true });
+await writeFile(
+  uploadEvidencePath,
+  `# App Store Connect Upload Result
+
+- Uploaded at: 2026-08-05 00:32 KST
+- Bundle ID: \`kr.co.finaljudo.multigym\`
+- Marketing version: \`1.0\`
+- Build number: \`1\`
+- IPA SHA-256: \`c455603ba9fe173e5fbfd32eac34927fa3f265f8ea8dc45c56ae875c829561ad\`
+- Upload result: \`Upload succeeded\`
+
+The archive and exported IPA passed \`codesign --verify --deep --strict\` before upload.
+`,
+);
+const uploadFallbackReport = await runWorkspaceReadiness(uploadWorkspace);
+assert.equal(uploadFallbackReport.ok, true, "successful App Store upload evidence must supersede a stale failed build report");
+assert.equal(uploadFallbackReport.requirements.iosIpa.status, "ready");
+assert.equal(uploadFallbackReport.requirements.iosIpa.evidenceType, "app-store-connect-upload");
+assert.equal(uploadFallbackReport.requirements.iosIpa.path, uploadEvidencePath);
+
 const partialDeploymentPath = reportPath("deployment-handoff.partial-web-deployment.report.json");
 await writeFile(
   partialDeploymentPath,
@@ -336,8 +387,8 @@ assert(
   "ios:ipa:build checks must include provisioningProfile before archive/export",
 );
 assert(
-  iosBuildScriptSource.includes("matching provisioning profile has no registered iPhone devices"),
-  "ios:ipa:build must distinguish Simulator success from a real-device provisioning profile",
+  iosBuildScriptSource.includes("profileSupportsExportMethod"),
+  "ios:ipa:build must validate provisioning profiles against the selected export method",
 );
 
 console.log(
@@ -346,6 +397,7 @@ console.log(
       ok: true,
       checked: [
         "ready P1 aggregate report",
+        "App Store upload success fallback over stale iOS build report",
         "JSON output writing",
         "Markdown output writing",
         "missing Android release report blocker",
@@ -357,7 +409,7 @@ console.log(
         "unreadable pilot status report blocker",
         "allow-pending audit mode",
         "workspace report defaults",
-        "iOS IPA build doctor requires real-device provisioning profile",
+        "iOS IPA build doctor requires an export-method-compatible provisioning profile",
       ],
     },
     null,

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Payment, PaymentRecurringAgreement } from "@/lib/domain";
+import { createFamilySafeRecurringAgreement } from "@/lib/family-payment-privacy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import {
@@ -274,7 +275,7 @@ export async function POST(
 
       return jsonOk({
         ...createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId),
-        recurringAgreement,
+        recurringAgreement: createFamilySafeRecurringAgreement(recurringAgreement),
       });
     });
   } catch (error) {
@@ -370,7 +371,7 @@ export async function DELETE(
 
       return jsonOk({
         ...createBootstrapPayload(nextDb, user, selectedBranchId ?? payment.branchId),
-        recurringAgreement,
+        recurringAgreement: createFamilySafeRecurringAgreement(recurringAgreement),
       });
     });
   } catch (error) {

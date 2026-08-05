@@ -202,13 +202,13 @@ const phases = [
     id: "P9",
     name: "배포 준비 패키지",
     decision: "internal-audited-handoff-blocked",
-    evidence: ["Android TWA doctor blocked", "iOS IPA doctor blocked", "handoff locations documented"],
+    evidence: ["Android TWA doctor blocked", "iOS App Store upload ready", "handoff locations documented"],
   },
   {
     id: "P10",
     name: "최종 내부 readiness audit",
     decision: "internal-audit-ready-release-blocked",
-    evidence: [p5P10AuditPaths.json, p5P10AuditPaths.markdown, "P1 readiness blocked 7/7"],
+    evidence: [p5P10AuditPaths.json, p5P10AuditPaths.markdown, "P1 readiness tracks 7 external requirements"],
   },
 ];
 
@@ -328,7 +328,6 @@ export function buildP5P10InternalAudit() {
   const iosIpaDoctor = readJsonIfExists(reportFiles.iosIpaDoctor);
   const paymentCheckoutEvidence = readJsonIfExists(paymentCheckoutEvidencePath);
   const screenshots = screenshotEvidence();
-  const p1BlockerSet = new Set(p1Blockers(p1Readiness));
   const androidBlockerSet = new Set(doctorBlockers(androidTwaDoctor));
   const iosBlockerSet = new Set(doctorBlockers(iosIpaDoctor));
   const paymentCheckoutScreenshotFiles = new Set(
@@ -346,19 +345,25 @@ export function buildP5P10InternalAudit() {
       caveat.includes("not IPA ready or payment provider ready"),
     );
 
-  const externalBlockers = externalBlockerKeys.map((key) => ({
+  const externalRequirements = externalBlockerKeys.map((key) => ({
     key,
-    status: p1BlockerSet.has(key) ? "blocked" : "missing-from-p1-readiness",
-    nextAction:
-      key === "iosIpa"
-        ? "운영 HTTPS 웹앱 origin은 final-judo.vercel.app 기준으로 확인됨. 실제 iPhone UDID 등록과 provisioning profile 준비 후 doctor 재실행"
-        : "외부 handoff 증빙이 들어오기 전까지 ready 처리 금지",
+    status: p1Readiness?.requirements?.[key]?.status ?? "missing-from-p1-readiness",
+    nextAction: p1Readiness?.requirements?.[key]?.nextAction ?? "",
   }));
+  const externalBlockers = externalRequirements.filter((requirement) => requirement.status === "blocked");
+  const readinessCountsReconcile =
+    (p1Readiness?.summary?.ready ?? 0) +
+      (p1Readiness?.summary?.missing ?? 0) +
+      (p1Readiness?.summary?.blocked ?? 0) ===
+    p1Readiness?.summary?.total;
 
   const requiredInternalEvidenceReady =
     p1Readiness?.releaseDecision === "blocked" &&
-    p1Readiness?.summary?.blocked === 7 &&
     p1Readiness?.summary?.total === 7 &&
+    readinessCountsReconcile &&
+    (p1Readiness?.summary?.blocked ?? 0) > 0 &&
+    p1Readiness?.requirements?.iosIpa?.status === "ready" &&
+    externalRequirements.every((requirement) => ["ready", "blocked"].includes(requirement.status)) &&
     externalBlockers.every((blocker) => blocker.status === "blocked") &&
     screenshots.every((screenshot) => screenshot.exists && screenshot.bytes > 10_000) &&
     paymentCheckoutEvidenceReady &&
@@ -367,11 +372,12 @@ export function buildP5P10InternalAudit() {
     androidTwaDoctor?.checks?.origin?.value === "https://final-judo.vercel.app" &&
     !androidBlockerSet.has("origin") &&
     androidBlockerSet.has("sha256") &&
-    iosIpaDoctor?.releaseDecision === "blocked" &&
+    iosIpaDoctor?.releaseDecision === "ready" &&
     iosIpaDoctor?.checks?.origin?.ok === true &&
     iosIpaDoctor?.checks?.origin?.value === "https://final-judo.vercel.app" &&
     !iosBlockerSet.has("origin") &&
-    iosBlockerSet.has("provisioningProfile");
+    !iosBlockerSet.has("provisioningProfile") &&
+    (iosIpaDoctor?.checks?.provisioningProfile?.inventory?.matchingExportMethodProfiles ?? 0) > 0;
 
   return {
     ok: requiredInternalEvidenceReady,
@@ -381,12 +387,13 @@ export function buildP5P10InternalAudit() {
       : "p5_p10_internal_audit_needs_attention_release_blocked",
     releaseDecision: "blocked",
     strictBoundary:
-      "P5~P10 내부 audit 통과는 출시 완료, IPA ready, 운영 ready가 아니며 P1 외부 blocker 7개를 계속 blocked로 유지한다.",
+      "P5~P10 내부 audit 통과는 출시 완료나 운영 ready를 뜻하지 않으며, 해결된 iOS 업로드와 남은 P1 외부 blocker를 구분한다.",
     p1: {
       blockerKeys: p1Blockers(p1Readiness),
       releaseDecision: p1Readiness?.releaseDecision ?? null,
       summary: p1Readiness?.summary ?? null,
     },
+    externalRequirements,
     externalBlockers,
     phases,
     evidence: {

@@ -19,6 +19,58 @@ export function isNoticeReadByUser(notice: Pick<Notice, "readByUserIds">, userId
   return getNoticeReadByUserIds(notice).includes(userId);
 }
 
+export function createFamilySafeNotice(
+  notice: Notice,
+  viewerUserId: string,
+  allowedMemberIds: ReadonlySet<string> | readonly string[],
+  allowedClassIds: ReadonlySet<string> | readonly string[],
+): Notice {
+  const allowedMemberIdSet = allowedMemberIds instanceof Set ? allowedMemberIds : new Set(allowedMemberIds);
+  const allowedClassIdSet = allowedClassIds instanceof Set ? allowedClassIds : new Set(allowedClassIds);
+  const familyNotice = {
+    ...notice,
+    readByUserIds: isNoticeReadByUser(notice, viewerUserId) ? [viewerUserId] : [],
+    targetClassIds: notice.targetClassIds?.filter((classId) => allowedClassIdSet.has(classId)),
+    targetMemberIds: notice.targetMemberIds?.filter((memberId) => allowedMemberIdSet.has(memberId)),
+  };
+
+  delete familyNotice.createdByUserId;
+  return familyNotice;
+}
+
+export function removeMemberFromTargetedNotices(
+  sourceNotices: readonly Notice[],
+  memberId: string,
+) {
+  const changedNoticeIds: string[] = [];
+  const deletedNoticeIds: string[] = [];
+  const nextNotices: Notice[] = [];
+
+  for (const notice of sourceNotices) {
+    if (!(notice.targetMemberIds ?? []).includes(memberId)) {
+      nextNotices.push(notice);
+      continue;
+    }
+
+    changedNoticeIds.push(notice.id);
+    const targetMemberIds = (notice.targetMemberIds ?? []).filter((candidate) => candidate !== memberId);
+
+    // A direct notice with no remaining target would otherwise become branch-wide.
+    if (targetMemberIds.length === 0 && (notice.targetClassIds ?? []).length === 0) {
+      deletedNoticeIds.push(notice.id);
+      continue;
+    }
+
+    nextNotices.push({ ...notice, targetMemberIds });
+  }
+
+  return {
+    changedNoticeIds,
+    deletedNoticeIds,
+    notices: nextNotices,
+  };
+}
+
 export function hasSameNoticeAudience(left: readonly NoticeAudience[], right: readonly NoticeAudience[]) {
   const leftSet = new Set(left);
   const rightSet = new Set(right);

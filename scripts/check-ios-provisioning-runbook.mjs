@@ -11,17 +11,20 @@ const releaseChecklist = readFileSync("docs/RELEASE_CHECKLIST.md", "utf8");
 const teamPrompts = readFileSync("docs/TEAM_AGENT_PROMPTS.md", "utf8");
 
 const requiredRunbookSnippets = [
-  "iOS IPA 실제 기기/provisioning 런북",
+  "iOS IPA 배포/provisioning 런북",
   "roehf45@naver.com",
-  "5GWZ792DWH",
+  "CA7A5SP5G5",
   "kr.co.finaljudo.multigym",
   "mobile/ios/App/App.xcodeproj",
   "~/Library/MobileDevice/Provisioning Profiles",
+  "~/Library/Developer/Xcode/UserData/Provisioning Profiles",
   "FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin>",
-  "API 전용 origin은 앱 화면 origin으로 인정하지 않는다",
+  "API 전용 origin",
   "--allow-api-origin-webapp",
   "Apple Developer",
-  "실제 iPhone UDID",
+  "app-store-connect",
+  "테스트 기기 UDID는 필요하지 않는다",
+  "등록된 실제 iPhone UDID",
   "UDID 원문은 git, 문서, `.data` report, 채팅 요약에 기록하지 않는다",
   "matching provisioning profile",
   "Download Manual Profiles",
@@ -34,7 +37,8 @@ const requiredRunbookSnippets = [
   "npm run p1:operator-status",
   "npm run p1:completion-evidence",
   "npm run p1:readiness",
-  "Simulator에서 앱 실행이 성공했어도 IPA ready가 아니다",
+  "Simulator에서 앱 실행만 성공한 상태",
+  "Upload succeeded",
 ];
 
 for (const snippet of requiredRunbookSnippets) {
@@ -65,7 +69,7 @@ const requiredDocSnippets = [
   runbookPath,
   "npm run test:ios-provisioning-runbook",
   "FINAL_JUDO_IOS_SERVER_URL",
-  "5GWZ792DWH",
+  "CA7A5SP5G5",
   "kr.co.finaljudo.multigym",
 ];
 
@@ -86,7 +90,8 @@ console.log(
       ok: true,
       checked: [
         runbookPath,
-        "iOS real device and provisioning runbook references current Team ID/bundle id",
+        "iOS distribution and provisioning runbook references current Team ID/bundle id",
+        "App Store Connect profiles are separated from device-bound development and Ad Hoc profiles",
         "runbook requires HTTPS web app origin and avoids raw UDID storage",
         "runbook separates API base URL from web app origin",
         "release runner runs test:ios-provisioning-runbook after ios:ipa:doctor",

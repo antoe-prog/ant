@@ -20,7 +20,11 @@ const passwords = {
   owner: "FJ-Play-owner-api-2026",
 };
 const dataDirectory = path.resolve(`.data/google-play-review-api-${process.pid}`);
+const runtimeStamp = `${process.pid}-${Date.now()}`;
+const managedDistDir = `.next-google-play-review-api-${runtimeStamp}`;
+const managedTsconfigPath = `.tsconfig.google-play-review-api-${runtimeStamp}.json`;
 let appServer = null;
+let serverOutput = "";
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -39,7 +43,9 @@ async function waitForServer(baseUrl, timeoutMs = 45_000) {
 
   while (Date.now() < deadline) {
     if (appServer?.exitCode !== null) {
-      throw new Error(`Google Play review API server exited with code ${appServer?.exitCode}`);
+      throw new Error(
+        `Google Play review API server exited with code ${appServer?.exitCode}\n${serverOutput.slice(-4000)}`,
+      );
     }
 
     try {
@@ -105,6 +111,20 @@ try {
   }];
   const db = provisionGooglePlayReviewAccess(sourceDb, passwords, new Date("2026-07-22T03:00:00.000Z"));
   await writeFile(path.join(dataDirectory, "final-judo-db.json"), `${JSON.stringify(db, null, 2)}\n`, "utf8");
+  await writeFile(
+    managedTsconfigPath,
+    `${JSON.stringify({
+      extends: "./tsconfig.json",
+      include: [
+        "next-env.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        `${managedDistDir}/types/**/*.ts`,
+        `${managedDistDir}/dev/types/**/*.ts`,
+      ],
+    }, null, 2)}\n`,
+    "utf8",
+  );
 
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -118,6 +138,8 @@ try {
         FINAL_JUDO_DATA_DIR: dataDirectory,
         FINAL_JUDO_ENABLE_DEMO_LOGIN: "0",
         FINAL_JUDO_ENABLE_DEV_RESET: "0",
+        FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
+        FINAL_JUDO_NEXT_TSCONFIG_PATH: managedTsconfigPath,
         FINAL_JUDO_ROLL_DEMO_DATES: "0",
         NEXT_TELEMETRY_DISABLED: "1",
       },
@@ -126,8 +148,13 @@ try {
   );
 
   let serverErrors = "";
+  appServer.stdout.on("data", (chunk) => {
+    serverOutput += chunk.toString();
+  });
   appServer.stderr.on("data", (chunk) => {
-    serverErrors += chunk.toString();
+    const text = chunk.toString();
+    serverErrors += text;
+    serverOutput += text;
   });
   await waitForServer(baseUrl);
 
@@ -188,4 +215,6 @@ try {
 } finally {
   await stopServer();
   await rm(dataDirectory, { force: true, recursive: true });
+  await rm(managedDistDir, { force: true, recursive: true });
+  await rm(managedTsconfigPath, { force: true });
 }

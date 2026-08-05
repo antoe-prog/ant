@@ -9,6 +9,7 @@ import { chromium } from "playwright-core";
 import { createMockData } from "../src/lib/mock-data.ts";
 import {
   canMutateTournament,
+  createFamilySafeTournament,
   getTournamentCreateAccess,
   resolveTournamentAccess,
 } from "../src/lib/tournament-policy.ts";
@@ -20,6 +21,50 @@ const chromeCandidates = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
 ];
+
+const familySafeTournament = createFamilySafeTournament(
+  {
+    id: "tournament-family-safe",
+    scope: "global",
+    title: "가족 공개 대회",
+    organizer: "대한유도회",
+    eventDate: "2026-08-01",
+    createdByUserId: "user-admin",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    registrations: [
+      {
+        id: "registration-family-safe",
+        memberId: "member-jun",
+        division: "중등부",
+        weightClass: "-55kg",
+        status: "confirmed",
+        appliedByUserId: "user-guardian",
+        appliedAt: "2026-07-02T00:00:00.000Z",
+        reviewedByUserId: "user-coach",
+      },
+      {
+        id: "registration-other-family",
+        memberId: "member-seo",
+        division: "중등부",
+        weightClass: "-60kg",
+        status: "pending",
+        appliedByUserId: "user-other-guardian",
+        appliedAt: "2026-07-02T00:00:00.000Z",
+      },
+    ],
+  },
+  ["member-jun"],
+);
+assert.equal(familySafeTournament.createdByUserId, undefined, "family tournaments must hide the internal creator ID");
+assert.deepEqual(
+  familySafeTournament.registrations?.map(({ appliedByUserId, memberId, reviewedByUserId }) => ({
+    appliedByUserId,
+    memberId,
+    reviewedByUserId,
+  })),
+  [{ appliedByUserId: "", memberId: "member-jun", reviewedByUserId: undefined }],
+  "family tournaments must keep only authorized registrations and remove operator identities",
+);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -531,6 +576,25 @@ async function main() {
     );
 
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { memberId: "member-jun", status: "rejected", note: "체급 증빙을 확인해 다시 신청해 주세요." },
+    });
+    assert.equal(result.response.status, 200, "coaches must reject an assigned member registration with a reason");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-guardian",
+      body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
+    });
+    assert.equal(result.response.status, 200, "guardians must resubmit a rejected registration without changing accurate details");
+    assert.equal(result.payload.data.registration.unchanged, false);
+    const resubmittedRegistration = result.payload.data.db.tournaments
+      .find((item) => item.id === "tournament-global")
+      .registrations.find((registration) => registration.memberId === "member-jun");
+    assert.equal(resubmittedRegistration.status, "pending", "rejected registrations must return to pending on resubmission");
+    assert.equal(resubmittedRegistration.reviewNote, undefined, "resubmission must clear the previous rejection reason");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
       userId: "user-guardian",
       body: { memberId: "member-jun", division: "중등부", weightClass: "-60kg" },
     });
@@ -701,7 +765,7 @@ async function main() {
     assert.equal(songpaDeleteAudit?.branchId, "branch-songpa", "admin branch delete audit must use the resource branchId");
     assert.equal(
       registrationAudits.length,
-      11,
+      13,
       "family apply/update/cancel and individual or batch operator mutations must preserve registration audits",
     );
     assert(

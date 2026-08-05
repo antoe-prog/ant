@@ -42,6 +42,7 @@ type EnqueuePushDispatchJobInput = Omit<
   | "cancellationReason"
   | "providerCallStartedAt"
   | "providerCallCompletedAt"
+  | "providerFenceExpiresAt"
   | "providerOutcome"
   | "deliveryMayHaveOccurred"
   | "lastFailureReason"
@@ -85,9 +86,25 @@ export type NotificationOutboxMutationFailure = {
     | "job_not_found"
     | "job_not_leased"
     | "job_leased"
+    | "provider_call_not_started"
     | "stale_revision"
     | "stale_lease";
 };
+
+function hasActivePushProviderFence(job: PushDispatchJob, nowMs: number) {
+  if (!job.providerCallStartedAt) {
+    return false;
+  }
+
+  const fallbackFence = job.providerOutcome === "uncertain" ? job.nextAttemptAt : "";
+  const fenceExpiresAt = Date.parse(job.providerFenceExpiresAt ?? job.leaseExpiresAt ?? fallbackFence);
+
+  if (job.status === "leased" && !job.providerCallCompletedAt) {
+    return !Number.isFinite(fenceExpiresAt) || fenceExpiresAt > nowMs;
+  }
+
+  return job.providerOutcome === "uncertain" && Number.isFinite(fenceExpiresAt) && fenceExpiresAt > nowMs;
+}
 
 export function hasInFlightPushDispatchForSubscription(
   db: NotificationOutboxDatabase,
@@ -96,19 +113,9 @@ export function hasInFlightPushDispatchForSubscription(
 ) {
   const nowMs = now.getTime();
 
-  return db.pushDispatchJobs.some((job) => {
-    if (
-      job.subscriptionId !== subscriptionId ||
-      job.status !== "leased" ||
-      !job.providerCallStartedAt ||
-      job.providerCallCompletedAt
-    ) {
-      return false;
-    }
-
-    const leaseExpiresAt = Date.parse(job.leaseExpiresAt ?? "");
-    return !Number.isFinite(leaseExpiresAt) || leaseExpiresAt > nowMs;
-  });
+  return db.pushDispatchJobs.some(
+    (job) => job.subscriptionId === subscriptionId && hasActivePushProviderFence(job, nowMs),
+  );
 }
 
 const defaultRetryPolicy: NotificationOutboxRetryPolicy = {
@@ -153,6 +160,21 @@ function withoutLease(job: PushDispatchJob) {
   return nextJob;
 }
 
+function withoutProviderAttempt(job: PushDispatchJob) {
+  const nextJob = { ...job };
+  delete nextJob.providerCallStartedAt;
+  delete nextJob.providerCallCompletedAt;
+  delete nextJob.providerFenceExpiresAt;
+  delete nextJob.providerOutcome;
+  return nextJob;
+}
+
+function withoutProviderFence(job: PushDispatchJob) {
+  const nextJob = { ...job };
+  delete nextJob.providerFenceExpiresAt;
+  return nextJob;
+}
+
 function replaceJob(db: NotificationOutboxDatabase, job: PushDispatchJob): NotificationOutboxDatabase {
   return {
     ...db,
@@ -182,7 +204,13 @@ function syncDispatchAudit(db: NotificationOutboxDatabase, auditLogId: string, n
   const requestAudit = db.auditLogs.find((auditLog) => auditLog.id === auditLogId);
   const candidateCount = Number(requestAudit?.after?.candidateCount ?? auditJobs.length);
   const complete = pending === 0 && auditJobs.length >= candidateCount;
-  const result: AuditLog["result"] = !complete ? "blocked" : dead > 0 || disabled > 0 ? "failed" : cancelled > 0 && sent === 0 ? "blocked" : "success";
+  const result: AuditLog["result"] = !complete
+    ? "blocked"
+    : dead > 0 || disabled > 0
+      ? "failed"
+      : cancelled > 0
+        ? "blocked"
+        : "success";
   const dispatchState = !complete
     ? cancellationRequested > 0
       ? "cancellation_requested"
@@ -202,7 +230,9 @@ function syncDispatchAudit(db: NotificationOutboxDatabase, auditLogId: string, n
       : `공지 알림 ${auditJobs.length}건을 대기열에서 처리하고 있습니다.`
     : result === "success"
       ? `휴대폰 푸시 ${sent}건 발송을 완료했습니다.`
-      : `휴대폰 푸시 ${sent}건 발송, 만료 구독 ${disabled}건, 최종 실패 ${dead}건입니다.`;
+      : result === "blocked"
+        ? `휴대폰 푸시 ${sent}건 발송, ${cancelled}건 취소${deliveryUncertain > 0 ? `, 전달 가능성 확인 필요 ${deliveryUncertain}건` : ""}입니다.`
+        : `휴대폰 푸시 ${sent}건 발송, 만료 구독 ${disabled}건, 최종 실패 ${dead}건${cancelled > 0 ? `, 취소 ${cancelled}건` : ""}${deliveryUncertain > 0 ? `, 전달 가능성 확인 필요 ${deliveryUncertain}건` : ""}입니다.`;
 
   return {
     ...db,
@@ -352,6 +382,10 @@ export function isPermanentPushSubscriptionFailure(statusCode: number | undefine
   return statusCode === 404 || statusCode === 410;
 }
 
+const expiredPushSubscriptionReason = "알림 수신 등록이 만료되어 비활성화했습니다.";
+const expiredPushSubscriptionCancellationReason =
+  "알림 수신 등록이 만료되어 같은 기기의 남은 발송을 취소했습니다.";
+
 export function enqueuePushDispatchJob(
   db: NotificationOutboxDatabase,
   input: EnqueuePushDispatchJobInput,
@@ -438,6 +472,9 @@ function expireLease(job: PushDispatchJob, now: string, retryPolicy: Notificatio
     ...(job.providerCallStartedAt
       ? {
           providerCallCompletedAt: now,
+          ...(job.providerFenceExpiresAt || job.leaseExpiresAt
+            ? { providerFenceExpiresAt: job.providerFenceExpiresAt ?? job.leaseExpiresAt }
+            : {}),
           providerOutcome: "uncertain" as const,
           deliveryMayHaveOccurred: true,
         }
@@ -488,7 +525,8 @@ export function leasePushDispatchJob(
       (job) =>
         (!input.jobId || job.id === input.jobId) &&
         (job.status === "pending" || job.status === "retry_scheduled") &&
-        timestamp(job.nextAttemptAt, "nextAttemptAt") <= nowMs,
+        timestamp(job.nextAttemptAt, "nextAttemptAt") <= nowMs &&
+        !hasActivePushProviderFence(job, nowMs),
     )
     .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt) || left.createdAt.localeCompare(right.createdAt))[0];
 
@@ -497,7 +535,7 @@ export function leasePushDispatchJob(
   }
 
   const leasedJob: PushDispatchJob = {
-    ...selected,
+    ...withoutProviderAttempt(selected),
     status: "leased",
     revision: revision(selected) + 1,
     attemptCount: selected.attemptCount + 1,
@@ -560,6 +598,7 @@ export function beginPushDispatchProviderCall(
     ...job,
     revision: revision(job) + 1,
     providerCallStartedAt: input.now,
+    providerFenceExpiresAt: job.leaseExpiresAt,
     updatedAt: input.now,
   };
 
@@ -597,6 +636,10 @@ export function settlePushDispatchJob(
     return { ok: false, db, reason: "stale_lease" };
   }
 
+  if (input.result.outcome !== "cancelled" && !job.providerCallStartedAt) {
+    return { ok: false, db, reason: "provider_call_not_started" };
+  }
+
   if (job.cancellationRequestedAt) {
     const providerOutcome =
       input.result.outcome === "sent"
@@ -605,18 +648,23 @@ export function settlePushDispatchJob(
           ? ("uncertain" as const)
           : input.result.outcome === "failed"
             ? ("failed" as const)
-            : ("not_started" as const);
+            : job.providerCallStartedAt
+              ? ("uncertain" as const)
+              : ("not_started" as const);
     const deliveryMayHaveOccurred = Boolean(
       job.deliveryMayHaveOccurred ||
       (job.providerCallStartedAt && (input.result.outcome === "sent" || providerOutcome === "uncertain")),
     );
+    const cancellationBase = providerOutcome === "uncertain"
+      ? withoutLease(job)
+      : withoutProviderFence(withoutLease(job));
     const cancelledJob: PushDispatchJob = {
-      ...withoutLease(job),
+      ...cancellationBase,
       status: "cancelled",
       revision: revision(job) + 1,
       updatedAt: input.now,
       completedAt: input.now,
-      providerCallCompletedAt: input.now,
+      ...(job.providerCallStartedAt ? { providerCallCompletedAt: input.now } : {}),
       providerOutcome,
       deliveryMayHaveOccurred,
       lastFailureReason: deliveryMayHaveOccurred
@@ -631,6 +679,8 @@ export function settlePushDispatchJob(
     return { ok: false, db, reason: "stale_revision" };
   }
 
+  const permanentSubscriptionFailure =
+    input.result.outcome === "failed" && isPermanentPushSubscriptionFailure(input.result.statusCode);
   let nextSubscriptions = db.pushSubscriptions;
   let nextJob: PushDispatchJob;
 
@@ -647,60 +697,75 @@ export function settlePushDispatchJob(
         : subscription,
     );
     nextJob = {
-      ...withoutLease(job),
+      ...withoutProviderFence(withoutLease(job)),
       status: "sent",
       revision: revision(job) + 1,
       updatedAt: input.now,
       completedAt: input.now,
       providerCallCompletedAt: input.now,
       providerOutcome: "accepted",
+      lastFailureReason: undefined,
     };
   } else if (input.result.outcome === "cancelled") {
+    const providerOutcome = job.providerCallStartedAt ? "uncertain" : "not_started";
+    const cancellationBase = providerOutcome === "uncertain"
+      ? withoutLease(job)
+      : withoutProviderFence(withoutLease(job));
     nextJob = {
-      ...withoutLease(job),
+      ...cancellationBase,
       status: "cancelled",
       revision: revision(job) + 1,
       updatedAt: input.now,
       completedAt: input.now,
-      providerOutcome: job.providerCallStartedAt ? "uncertain" : "not_started",
-      deliveryMayHaveOccurred: Boolean(job.providerCallStartedAt),
+      ...(job.providerCallStartedAt ? { providerCallCompletedAt: input.now } : {}),
+      providerOutcome,
+      deliveryMayHaveOccurred: Boolean(job.deliveryMayHaveOccurred || job.providerCallStartedAt),
       lastFailureReason: input.result.reason.trim().slice(0, 240) || "발송 대상에서 제외됐습니다.",
     };
-  } else if (isPermanentPushSubscriptionFailure(input.result.statusCode)) {
-    const reason = "알림 수신 등록이 만료되어 비활성화했습니다.";
+  } else if (permanentSubscriptionFailure) {
     nextSubscriptions = nextSubscriptions.map((subscription) =>
       subscription.id === job.subscriptionId
         ? {
             ...subscription,
             disabledAt: input.now,
             lastFailureAt: input.now,
-            lastFailureReason: reason,
+            lastFailureReason: expiredPushSubscriptionReason,
             updatedAt: input.now,
           }
         : subscription,
     );
     nextJob = {
-      ...withoutLease(job),
+      ...withoutProviderFence(withoutLease(job)),
       status: "disabled",
       revision: revision(job) + 1,
       updatedAt: input.now,
       completedAt: input.now,
       providerCallCompletedAt: input.now,
       providerOutcome: "failed",
-      lastFailureReason: reason,
+      lastFailureReason: expiredPushSubscriptionReason,
     };
   } else {
     const exhausted = job.attemptCount >= job.maxAttempts;
-    const nextAttemptAt = new Date(
+    const backoffAttemptAt = new Date(
       timestamp(input.now, "now") + calculateNotificationOutboxBackoffMs(job.attemptCount, input.retryPolicy),
     ).toISOString();
+    const providerFenceExpiresAt = input.result.deliveryUncertain
+      ? job.providerFenceExpiresAt ?? job.leaseExpiresAt
+      : undefined;
+    const nextAttemptAt = providerFenceExpiresAt && timestamp(providerFenceExpiresAt, "providerFenceExpiresAt") > timestamp(backoffAttemptAt, "nextAttemptAt")
+      ? providerFenceExpiresAt
+      : backoffAttemptAt;
+    const failureBase = input.result.deliveryUncertain
+      ? withoutLease(job)
+      : withoutProviderFence(withoutLease(job));
     nextJob = {
-      ...withoutLease(job),
+      ...failureBase,
       status: exhausted ? "dead" : "retry_scheduled",
       revision: revision(job) + 1,
       nextAttemptAt,
       updatedAt: input.now,
       providerCallCompletedAt: input.now,
+      ...(providerFenceExpiresAt ? { providerFenceExpiresAt } : {}),
       providerOutcome: input.result.deliveryUncertain ? "uncertain" : "failed",
       deliveryMayHaveOccurred: Boolean(job.deliveryMayHaveOccurred || input.result.deliveryUncertain),
       lastFailureReason: failureReason(input.result),
@@ -708,13 +773,19 @@ export function settlePushDispatchJob(
     };
   }
 
-  const nextDb = replaceJobAndSyncAudit(
+  const settledDb = replaceJobAndSyncAudit(
     {
       ...db,
       pushSubscriptions: nextSubscriptions,
     },
     nextJob,
   );
+  const nextDb = permanentSubscriptionFailure
+    ? cancelPushDispatchJobsForSubscriptions(settledDb, new Set([job.subscriptionId]), {
+        now: input.now,
+        reason: expiredPushSubscriptionCancellationReason,
+      })
+    : settledDb;
 
   return { ok: true, db: nextDb, job: nextJob };
 }
@@ -723,7 +794,7 @@ export function cancelPushDispatchJob(
   db: NotificationOutboxDatabase,
   input: { jobId: string; now: string; reason: string },
 ): { ok: true; db: NotificationOutboxDatabase; job: PushDispatchJob } | NotificationOutboxMutationFailure {
-  timestamp(input.now, "now");
+  const nowMs = timestamp(input.now, "now");
   const job = jobs(db).find((candidate) => candidate.id === input.jobId);
 
   if (!job) {
@@ -756,17 +827,48 @@ export function cancelPushDispatchJob(
     return { ok: true, db, job };
   }
 
+  const providerFenceActive = hasActivePushProviderFence(job, nowMs);
+  const cancellationBase = providerFenceActive
+    ? withoutLease(job)
+    : withoutProviderFence(withoutLease(job));
   const cancelledJob: PushDispatchJob = {
-    ...withoutLease(job),
+    ...cancellationBase,
     status: "cancelled",
     revision: revision(job) + 1,
     updatedAt: input.now,
     completedAt: input.now,
     cancellationRequestedAt: input.now,
     cancellationReason: input.reason.trim().slice(0, 240) || "발송 요청을 취소했습니다.",
-    providerOutcome: "not_started",
+    providerOutcome: providerFenceActive ? "uncertain" : "not_started",
+    deliveryMayHaveOccurred: Boolean(job.deliveryMayHaveOccurred || providerFenceActive),
     lastFailureReason: input.reason.trim().slice(0, 240) || "발송 요청을 취소했습니다.",
   };
 
   return { ok: true, db: replaceJobAndSyncAudit(db, cancelledJob), job: cancelledJob };
+}
+
+export function cancelPushDispatchJobsForSubscriptions(
+  db: NotificationOutboxDatabase,
+  subscriptionIds: ReadonlySet<string>,
+  input: { now: string; reason: string },
+): NotificationOutboxDatabase {
+  let nextDb = db;
+
+  for (const job of jobs(db)) {
+    if (!subscriptionIds.has(job.subscriptionId)) {
+      continue;
+    }
+
+    const cancelled = cancelPushDispatchJob(nextDb, {
+      jobId: job.id,
+      now: input.now,
+      reason: input.reason,
+    });
+
+    if (cancelled.ok) {
+      nextDb = cancelled.db;
+    }
+  }
+
+  return nextDb;
 }

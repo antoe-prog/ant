@@ -11,9 +11,13 @@ const notices = await import("../src/lib/notices.ts");
 const promotions = await import("../src/lib/promotions.ts");
 const userDisplay = await import("../src/lib/user-display.ts");
 const classRecurrence = await import("../src/lib/class-recurrence.ts");
+const attendancePolicy = await import("../src/lib/attendance-policy.ts");
 const counselingNoteVisibility = await import("../src/lib/counseling-note-visibility.ts");
 const finalMainSchedule = await import("../src/lib/final-main-schedule-policy.ts");
 const format = await import("../src/lib/format.ts");
+const familyMembers = await import("../src/lib/family-members.ts");
+const pushSubscriptionScope = await import("../src/lib/push-subscription-scope.ts");
+const authSession = await import("../src/server/auth-session.ts");
 const [
   paymentsExportRouteSource,
   operationsExportRouteSource,
@@ -552,6 +556,115 @@ assert.deepEqual(
 );
 assert.deepEqual(scope.getAccessibleMemberIds(guardian, db, ["branch-gangnam"]), ["member-jun"], "guardian member scope must exclude adult stale links");
 assert.deepEqual(scope.getAccessibleMemberIds(member, db, ["branch-gangnam"]), ["member-jun"], "member scope must be self only");
+assert.equal(
+  familyMembers.createGuardianFamilyLinkProjection(guardian, db, { redactFamilyLinks: true }),
+  null,
+  "another guardian's family links must not be reconstructed after bootstrap redaction",
+);
+assert.deepEqual(
+  familyMembers.createGuardianFamilyLinkProjection(guardian, db, { redactFamilyLinks: false }),
+  { memberIds: [], childMemberIds: ["member-jun"] },
+  "the current guardian bootstrap must retain only authorized self and child links",
+);
+assert.deepEqual(
+  familyMembers.syncGuardianUserFamilyLinks(
+    { ...guardian, childMemberIds: [] },
+    db.members,
+  ).childMemberIds,
+  ["member-jun"],
+  "guardian link synchronization must repair a missing user-side child link",
+);
+const guardianAfterLastChildUnlink = familyMembers.syncGuardianUserFamilyLinks(
+  guardian,
+  db.members.map((candidate) =>
+    candidate.id === "member-jun" ? { ...candidate, guardianIds: [] } : candidate,
+  ),
+);
+assert.deepEqual(
+  guardianAfterLastChildUnlink.childMemberIds,
+  [],
+  "guardian link synchronization must remove a stale user-side child link",
+);
+assert.deepEqual(
+  guardianAfterLastChildUnlink.branchIds,
+  ["branch-gangnam"],
+  "guardian link synchronization must preserve explicitly assigned branch scope",
+);
+assert.deepEqual(
+  familyMembers.findInvalidFamilyMemberLinkIds(
+    db.members,
+    ["member-jun", "member-harin", "member-missing"],
+    ["branch-gangnam"],
+  ),
+  ["member-harin", "member-missing"],
+  "family link validation must identify missing and out-of-scope member profiles",
+);
+assert.deepEqual(
+  familyMembers.findAdultGuardianChildMemberIds(db.members, ["member-jun", "member-adult-stale"]),
+  ["member-adult-stale"],
+  "guardian child validation must identify adult member profiles",
+);
+assert.deepEqual(
+  familyMembers.findNonAdultGuardianSelfMemberIds(db.members, ["member-jun", "member-adult-stale", "member-missing"]),
+  ["member-jun", "member-missing"],
+  "guardian self validation must identify youth and missing member profiles",
+);
+assert.deepEqual(
+  familyMembers.createFamilySafeMember(
+    { ...db.members.find((candidate) => candidate.id === "member-jun"), guardianIds: ["user-guardian", "user-other-guardian"], alerts: ["내부 경고"] },
+    guardian,
+  ).guardianIds,
+  ["user-guardian"],
+  "guardian snapshots must retain only the current guardian's reciprocal link",
+);
+assert.deepEqual(
+  familyMembers.createFamilySafeMember(
+    { ...db.members.find((candidate) => candidate.id === "member-jun"), guardianIds: ["user-guardian"], alerts: ["내부 경고"] },
+    member,
+  ),
+  { ...db.members.find((candidate) => candidate.id === "member-jun"), guardianIds: [], alerts: [] },
+  "member snapshots must hide guardian identifiers and internal alerts",
+);
+const familySafeReferencedUser = familyMembers.createFamilySafeReferencedUser(
+  {
+    ...coach,
+    accountPurpose: "google_play_review",
+    branchIds: ["branch-gangnam", "branch-songpa"],
+    childMemberIds: ["member-seo"],
+    email: "coach-private@example.com",
+    invitationStatus: "pending",
+    invitationToken: "private-invitation-token",
+    memberIds: ["member-adult-stale"],
+    passwordHash: "private-password-hash",
+    phone: "01099998888",
+  },
+  ["branch-gangnam"],
+);
+assert.deepEqual(
+  {
+    accountPurpose: familySafeReferencedUser.accountPurpose,
+    branchIds: familySafeReferencedUser.branchIds,
+    childMemberIds: familySafeReferencedUser.childMemberIds,
+    email: familySafeReferencedUser.email,
+    invitationStatus: familySafeReferencedUser.invitationStatus,
+    invitationToken: familySafeReferencedUser.invitationToken,
+    memberIds: familySafeReferencedUser.memberIds,
+    passwordHash: familySafeReferencedUser.passwordHash,
+    phone: familySafeReferencedUser.phone,
+  },
+  {
+    accountPurpose: undefined,
+    branchIds: ["branch-gangnam"],
+    childMemberIds: undefined,
+    email: undefined,
+    invitationStatus: undefined,
+    invitationToken: undefined,
+    memberIds: undefined,
+    passwordHash: undefined,
+    phone: undefined,
+  },
+  "family referenced users must expose only display identity and visible branch membership",
+);
 assert.deepEqual(
   scope.getAccessibleMemberIds(owner, db, ["branch-gangnam"]).sort(),
   ["member-adult-stale", "member-jun", "member-seo"],
@@ -565,11 +678,11 @@ assert(
   "guardian scope helpers must reject stale adult child links for members and notices",
 );
 assert(
-  serverApiSource.includes('safeUser.role === "guardian"') &&
-    serverApiSource.includes("allowedFamilyMemberIds") &&
-    serverApiSource.includes("safeUser.memberIds = selfMemberIds") &&
-    serverApiSource.includes("safeUser.childMemberIds = [...allowedFamilyMemberIds].filter") &&
-    serverApiSource.includes("member?.guardianIds.includes(safeUser.id)"),
+  serverApiSource.includes("createGuardianFamilyLinkProjection(safeUser, db, { redactFamilyLinks })") &&
+    serverApiSource.includes("safeUser.memberIds = guardianFamilyLinks.memberIds") &&
+    serverApiSource.includes("safeUser.childMemberIds = guardianFamilyLinks.childMemberIds") &&
+    familyMembersSource.includes("redactFamilyLinks") &&
+    familyMembersSource.includes("getGuardianFamilyMemberIds(user, db)"),
   "guardian bootstrap user must drop stale self links and expose member-authorized child links",
 );
 assert(
@@ -582,18 +695,147 @@ assert(
     serverApiSource.includes("delete safeUser.passwordResetRequestedAt;") &&
     serverApiSource.includes("delete safeUser.passwordUpdatedAt;") &&
     serverApiSource.includes('(viewerRole === "member" || viewerRole === "guardian") && safeUser.id !== viewerUserId') &&
-    serverApiSource.includes("delete safeUser.email;") &&
-    serverApiSource.includes("delete safeUser.phone;") &&
-    serverApiSource.includes("? { ...member, alerts: [] }") &&
-    serverApiSource.includes("payment.collectionRequest.requestedByUserId !== user.id") &&
-    serverApiSource.includes('payerName: "다른 보호자"') &&
-    serverApiSource.includes('payerPhone: ""') &&
-    serverApiSource.includes("const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role, user.id));") &&
+    serverApiSource.includes("if (redactFamilyLinks)") &&
+    familyMembersSource.includes("delete safeUser.email;") &&
+    familyMembersSource.includes("delete safeUser.phone;") &&
+    serverApiSource.includes("createFamilySafeReferencedUser(safeUser, viewerBranchIds)") &&
+    serverApiSource.includes("? createFamilySafeMember(member, user)") &&
+    serverApiSource.includes("createFamilySafePayment(payment, user.id)") &&
+    serverApiSource.includes("createFamilySafeNotice(notice, user.id, allowedMemberIds, classIds)") &&
+    serverApiSource.includes("scopedAttendance.map(createFamilySafeAttendanceRecord)") &&
+    serverApiSource.includes("scopedPromotions.forEach((promotion) => referencedUserIds.add(promotion.evaluatorUserId));") &&
+    serverApiSource.includes("createSafeUser(candidate, db, user.role, user.id, branchIds)") &&
     serverApiSource.includes("user: createSafeUser(user, db, user.role, user.id),"),
   "guardian bootstrap user and user snapshot sanitizers must both use scoped safe users",
 );
 
+assert.deepEqual(
+  attendancePolicy.createFamilySafeAttendanceRecord({
+    id: "attendance-family-safe",
+    sessionId: "class-kids-am",
+    memberId: "member-jun",
+    status: "late",
+    confirmedAt: "2026-08-05T09:00:00.000Z",
+    note: "보호자 연락처와 건강 관련 내부 확인 내용",
+  }),
+  {
+    id: "attendance-family-safe",
+    sessionId: "class-kids-am",
+    memberId: "member-jun",
+    status: "late",
+    confirmedAt: "2026-08-05T09:00:00.000Z",
+  },
+  "family attendance snapshots must expose status without staff-entered internal notes",
+);
+
 const noticesById = new Map(db.notices.map((notice) => [notice.id, notice]));
+const familySafeNotice = notices.createFamilySafeNotice(
+  {
+    ...noticesById.get("notice-global"),
+    createdByUserId: "user-owner",
+    readByUserIds: ["user-member", "user-owner", "user-other-member"],
+    targetClassIds: ["class-kids-am", "class-other-family"],
+    targetMemberIds: ["member-jun", "member-seo"],
+  },
+  "user-member",
+  ["member-jun"],
+  ["class-kids-am"],
+);
+
+assert.deepEqual(
+  familySafeNotice.readByUserIds,
+  ["user-member"],
+  "family notice snapshots must expose only the current user's read state",
+);
+assert.deepEqual(
+  familySafeNotice.targetMemberIds,
+  ["member-jun"],
+  "family notice snapshots must not expose other recipients' member IDs",
+);
+assert.deepEqual(
+  familySafeNotice.targetClassIds,
+  ["class-kids-am"],
+  "family notice snapshots must not expose other recipient class IDs",
+);
+assert.equal(
+  familySafeNotice.createdByUserId,
+  undefined,
+  "family notice snapshots must not expose the internal creator user ID",
+);
+assert.equal(
+  promotions.createFamilySafePromotion({
+    id: "promotion-family-safe",
+    branchId: "branch-gangnam",
+    memberId: "member-jun",
+    fromBelt: "흰띠",
+    toBelt: "노란띠",
+    examDate: "2026-08-01",
+    result: "scheduled",
+    evaluatorUserId: "user-coach",
+    createdByUserId: "user-owner",
+    createdAt: "2026-07-01T00:00:00.000Z",
+  }).createdByUserId,
+  "",
+  "family promotion snapshots must preserve the evaluator while hiding the internal creator user ID",
+);
+assert.deepEqual(
+  notices.createFamilySafeNotice(
+    { ...noticesById.get("notice-global"), readByUserIds: ["user-owner"] },
+    "user-member",
+    ["member-jun"],
+    ["class-kids-am"],
+  ).readByUserIds,
+  [],
+  "family notice snapshots must not expose other recipients when the current user has not read the notice",
+);
+
+const deletedMemberNoticeCleanup = notices.removeMemberFromTargetedNotices(
+  [
+    {
+      ...noticesById.get("notice-member"),
+      id: "notice-single-member",
+      targetMemberIds: ["member-jun"],
+    },
+    {
+      ...noticesById.get("notice-member"),
+      id: "notice-multiple-members",
+      targetMemberIds: ["member-jun", "member-seo"],
+    },
+    {
+      ...noticesById.get("notice-member"),
+      id: "notice-member-and-class",
+      targetClassIds: ["class-kids-am"],
+      targetMemberIds: ["member-jun"],
+    },
+    noticesById.get("notice-global"),
+  ],
+  "member-jun",
+);
+
+assert.deepEqual(
+  deletedMemberNoticeCleanup.deletedNoticeIds,
+  ["notice-single-member"],
+  "deleting the final direct recipient must remove the personal notice instead of widening it to the branch",
+);
+assert.deepEqual(
+  deletedMemberNoticeCleanup.changedNoticeIds,
+  ["notice-single-member", "notice-multiple-members", "notice-member-and-class"],
+  "member deletion must identify every changed notice so stale pending pushes can be cancelled",
+);
+assert.deepEqual(
+  deletedMemberNoticeCleanup.notices.find((notice) => notice.id === "notice-multiple-members")?.targetMemberIds,
+  ["member-seo"],
+  "deleting one recipient must preserve the remaining direct notice recipients",
+);
+assert.deepEqual(
+  deletedMemberNoticeCleanup.notices.find((notice) => notice.id === "notice-member-and-class")?.targetMemberIds,
+  [],
+  "a class-targeted notice may remain after its direct member target is deleted",
+);
+assert(
+  deletedMemberNoticeCleanup.notices.some((notice) => notice.id === "notice-global"),
+  "branch-wide notices must remain unchanged during member deletion",
+);
 
 assert.equal(scope.canReadNotice(coach, db, noticesById.get("notice-class")), true, "coach must read coached class notice");
 assert.equal(scope.canReadNotice(coach, db, noticesById.get("notice-coach-created-family")), true, "coach must keep creator access to member and guardian notice");
@@ -604,6 +846,207 @@ assert.equal(scope.canReadNotice(guardian, db, noticesById.get("notice-member-on
 assert.equal(scope.canReadNotice(member, db, noticesById.get("notice-member-only-branch")), true, "member must read member-only branch notice");
 assert.equal(scope.canReadNotice(guardian, db, noticesById.get("notice-songpa")), false, "guardian must not read another branch notice");
 assert.equal(scope.canReadNotice(member, db, noticesById.get("notice-songpa")), false, "member must not read another member notice");
+
+const movedMember = {
+  ...member,
+  branchIds: ["branch-songpa"],
+  memberIds: [],
+};
+const movedMemberNotice = {
+  ...noticesById.get("notice-songpa"),
+  body: "지점 이동 뒤에도 현재 지점 공지를 받아야 합니다.",
+  important: false,
+  targetMemberIds: [],
+};
+const stalePushScopeDb = {
+  ...db,
+  users: db.users.map((user) => (user.id === movedMember.id ? movedMember : user)),
+  notices: db.notices.map((notice) => (notice.id === movedMemberNotice.id ? movedMemberNotice : notice)),
+  pushSubscriptions: [
+    {
+      id: "push-member-stale-branch",
+      userId: movedMember.id,
+      branchIds: ["branch-gangnam"],
+      endpoint: "https://push.example/member-stale-branch",
+      keys: { auth: "auth", p256dh: "p256dh" },
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:00.000Z",
+    },
+  ],
+};
+assert.deepEqual(
+  pushSubscriptionScope.getNoticePushSubscriptions(stalePushScopeDb, movedMemberNotice).map((subscription) => subscription.id),
+  ["push-member-stale-branch"],
+  "push delivery must use the subscriber's current branch scope instead of a cached subscription scope",
+);
+assert.equal(
+  pushSubscriptionScope.getNoticePushSubscriptions(stalePushScopeDb, noticesById.get("notice-member-only-branch")).length,
+  0,
+  "a stale subscription scope must not authorize delivery from the subscriber's previous branch",
+);
+assert.equal(
+  pushSubscriptionScope.getVisibleActivePushSubscriptionCount(
+    stalePushScopeDb,
+    { ...owner, branchIds: ["branch-songpa"] },
+  ),
+  1,
+  "owner subscription counts must follow each subscriber's current branch scope",
+);
+assert.equal(
+  pushSubscriptionScope.getVisibleActivePushSubscriptionCount(stalePushScopeDb, owner),
+  0,
+  "owner subscription counts must not include devices only cached in the owner's branch",
+);
+
+assert.equal(
+  pushSubscriptionScope.isPushSubscriptionOwnedByRecipient(
+    stalePushScopeDb.pushSubscriptions[0],
+    movedMember.id,
+  ),
+  true,
+  "outbox subscription ownership must not depend on stale branch scope metadata",
+);
+
+const securityAccessRevokedAt = new Date("2026-08-05T01:00:00.000Z");
+const securityPushPayload = {
+  title: "보안 변경 전 공지",
+  body: "이전 기기로 발송하면 안 됩니다.",
+  tag: "final-judo-notice-security-change",
+  url: "/app/notifications",
+};
+const securityAccessDb = {
+  ...stalePushScopeDb,
+  authSessions: [
+    {
+      id: "session-member-active",
+      tokenHash: "active-token-hash",
+      userId: movedMember.id,
+      createdAt: "2026-08-05T00:00:00.000Z",
+      expiresAt: "2026-08-06T00:00:00.000Z",
+    },
+    {
+      id: "session-owner-active",
+      tokenHash: "owner-token-hash",
+      userId: owner.id,
+      createdAt: "2026-08-05T00:00:00.000Z",
+      expiresAt: "2026-08-06T00:00:00.000Z",
+    },
+  ],
+  pushSubscriptions: [
+    ...stalePushScopeDb.pushSubscriptions,
+    {
+      ...stalePushScopeDb.pushSubscriptions[0],
+      id: "push-member-already-disabled",
+      endpoint: "https://push.example/member-already-disabled",
+      disabledAt: "2026-08-04T23:00:00.000Z",
+      updatedAt: "2026-08-04T23:00:00.000Z",
+    },
+    {
+      ...stalePushScopeDb.pushSubscriptions[0],
+      id: "push-owner-active",
+      endpoint: "https://push.example/owner-active",
+      userId: owner.id,
+    },
+  ],
+  pushDispatchJobs: [
+    {
+      id: "push-job-member-pending",
+      auditLogId: "audit-member-pending",
+      branchId: "branch-songpa",
+      noticeId: "notice-member-pending",
+      subscriptionId: "push-member-stale-branch",
+      recipientUserId: movedMember.id,
+      status: "pending",
+      revision: 1,
+      attemptCount: 0,
+      maxAttempts: 5,
+      nextAttemptAt: "2026-08-05T00:00:00.000Z",
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:00.000Z",
+      payloadSnapshot: securityPushPayload,
+    },
+    {
+      id: "push-job-member-in-flight",
+      auditLogId: "audit-member-in-flight",
+      branchId: "branch-songpa",
+      noticeId: "notice-member-in-flight",
+      subscriptionId: "push-member-stale-branch",
+      recipientUserId: movedMember.id,
+      status: "leased",
+      revision: 3,
+      attemptCount: 1,
+      maxAttempts: 5,
+      nextAttemptAt: "2026-08-05T00:00:00.000Z",
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:59:00.000Z",
+      leaseToken: "lease-member-in-flight",
+      leaseExpiresAt: "2026-08-05T01:05:00.000Z",
+      providerCallStartedAt: "2026-08-05T00:59:30.000Z",
+      payloadSnapshot: securityPushPayload,
+    },
+    {
+      id: "push-job-owner-pending",
+      auditLogId: "audit-owner-pending",
+      branchId: "branch-gangnam",
+      noticeId: "notice-owner-pending",
+      subscriptionId: "push-owner-active",
+      recipientUserId: owner.id,
+      status: "pending",
+      revision: 1,
+      attemptCount: 0,
+      maxAttempts: 5,
+      nextAttemptAt: "2026-08-05T00:00:00.000Z",
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:00.000Z",
+      payloadSnapshot: securityPushPayload,
+    },
+  ],
+};
+const revokedSecurityAccess = authSession.revokeUserSecurityAccess(
+  securityAccessDb,
+  movedMember.id,
+  securityAccessRevokedAt,
+);
+assert.equal(
+  revokedSecurityAccess.authSessions.find((session) => session.id === "session-member-active")?.revokedAt,
+  securityAccessRevokedAt.toISOString(),
+  "security-context changes must revoke the target user's active login sessions",
+);
+assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-stale-branch")?.disabledAt,
+  securityAccessRevokedAt.toISOString(),
+  "security-context changes must disable the target user's active push delivery credentials",
+);
+assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-already-disabled")?.disabledAt,
+  "2026-08-04T23:00:00.000Z",
+  "security-context changes must preserve an earlier push disable timestamp",
+);
+assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-owner-active")?.disabledAt,
+  undefined,
+  "security-context changes must not disable another user's push subscription",
+);
+assert.equal(
+  revokedSecurityAccess.pushDispatchJobs.find((job) => job.id === "push-job-member-pending")?.status,
+  "cancelled",
+  "security-context changes must cancel pending delivery to an earlier device",
+);
+assert.equal(
+  revokedSecurityAccess.pushDispatchJobs.find((job) => job.id === "push-job-member-in-flight")?.cancellationRequestedAt,
+  securityAccessRevokedAt.toISOString(),
+  "security-context changes must request cancellation when provider delivery already started",
+);
+assert.equal(
+  revokedSecurityAccess.pushDispatchJobs.find((job) => job.id === "push-job-member-in-flight")?.deliveryMayHaveOccurred,
+  true,
+  "security-context changes must preserve the delivery-uncertainty boundary for an in-flight provider call",
+);
+assert.equal(
+  revokedSecurityAccess.pushDispatchJobs.find((job) => job.id === "push-job-owner-pending")?.status,
+  "pending",
+  "security-context changes must preserve another user's pending push delivery",
+);
 assert.equal(
   notices.isNoticeRelevantToMember(noticesById.get("notice-global"), "member-jun", db.classes),
   true,
@@ -1069,6 +1512,8 @@ console.log(
         "branch scope selection",
         "member scope by role",
         "notice recipient targeting",
+        "push subscription current branch scope",
+        "security-context push subscription revocation",
         "notice audience equality and visible edit detection",
         "user email display guard",
         "role-scoped notification alert counts",

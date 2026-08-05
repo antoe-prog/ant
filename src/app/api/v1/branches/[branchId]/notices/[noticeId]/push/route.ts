@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { canReadNotice, getAccessibleBranchIds } from "@/lib/mock-api";
 import { noticePublisherRoles } from "@/lib/notice-permissions";
 import { noticeStateLockKey } from "@/lib/notices";
@@ -12,6 +12,7 @@ import {
 import { getNotificationOutboxDispatchSummary } from "@/server/notification-outbox";
 import {
   findManualPushDispatchAudit,
+  notificationOutboxExecutionPolicy,
   prepareNoticePushDispatchJobs,
   processNotificationOutbox,
   resolveManualPushIdempotency,
@@ -135,11 +136,20 @@ export async function POST(
     return dispatch;
   }
 
-  try {
-    await processNotificationOutbox({ auditLogId: dispatch.auditLogId, limit: Math.max(dispatch.candidateCount, 1) });
-  } catch {
-    // The scheduled worker will retry durable jobs after transient request failures.
-  }
+  after(async () => {
+    try {
+      await processNotificationOutbox({
+        auditLogId: dispatch.auditLogId,
+        concurrency: notificationOutboxExecutionPolicy.interactive.concurrency,
+        limit: Math.min(
+          Math.max(dispatch.candidateCount, 1),
+          notificationOutboxExecutionPolicy.interactive.limit,
+        ),
+      });
+    } catch {
+      // The scheduled worker will retry durable jobs after transient request failures.
+    }
+  });
 
   const responseDb = await readServerDb();
   const actor = responseDb.users.find((candidate) => candidate.id === dispatch.actorUserId);

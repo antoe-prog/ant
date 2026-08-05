@@ -50,10 +50,12 @@ export function ServiceWorkerRegistration() {
       }
 
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js", {
-          scope: "/",
-          updateViaCache: "none",
-        });
+        const registration =
+          (await navigator.serviceWorker.getRegistration("/")) ??
+          (await navigator.serviceWorker.register("/sw.js", {
+            scope: "/",
+            updateViaCache: "none",
+          }));
         const installingWorker = registration.installing ?? registration.waiting;
 
         installingWorker?.postMessage({ type: "FINAL_JUDO_SKIP_WAITING" });

@@ -32,7 +32,7 @@ try {
   assert.match(defaultPlan.env.FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN, /^[a-f0-9]{64}$/);
   assert.equal(defaultPlan.env.FINAL_JUDO_PAYMENT_PROVIDER, "external");
   assert.equal(defaultPlan.env.FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL, "https://payments.finaljudo.test");
-  assert.equal(defaultPlan.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET, "final-judo-dev-webhook-secret");
+  assert.equal(defaultPlan.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET, "final-judo-smoke-webhook-0123456789-ABCDEF");
   assert.equal(defaultPlan.env.PILOT_DB_FILE, `${defaultPlan.dataDir}/final-judo-db.json`);
   assert.equal(defaultPlan.env.SMOKE_SKIP_DEV_RESET, "0");
   const smokeRolePasswords = [

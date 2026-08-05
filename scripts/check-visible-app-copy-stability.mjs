@@ -689,16 +689,16 @@ async function main() {
               Array.from(document.querySelectorAll('[data-testid="notification-detail-link"], [data-testid="notification-read-action"]')).at(-1);
             const scrollElement = document.scrollingElement;
 
-            if (!nav || !action || !scrollElement) {
+            if (!action || !scrollElement) {
               return 0;
             }
 
-            const navRect = nav.getBoundingClientRect();
+            const bottomBoundary = nav?.getBoundingClientRect().top ?? window.innerHeight;
             const actionRect = action.getBoundingClientRect();
             const maxScrollY = Math.max(0, scrollElement.scrollHeight - window.innerHeight);
             const actionBottomAtScrollEnd = actionRect.bottom + window.scrollY - maxScrollY;
 
-            return Math.round(navRect.top - actionBottomAtScrollEnd);
+            return Math.round(bottomBoundary - actionBottomAtScrollEnd);
           })(),
           notificationBottomCardClearanceAtScrollEnd: (() => {
             const nav = document.querySelector('[data-testid="mobile-bottom-navigation"]');
@@ -708,16 +708,16 @@ async function main() {
             const card = action?.closest('[data-testid="notification-inbox-card"]');
             const scrollElement = document.scrollingElement;
 
-            if (!nav || !card || !scrollElement) {
+            if (!card || !scrollElement) {
               return 0;
             }
 
-            const navRect = nav.getBoundingClientRect();
+            const bottomBoundary = nav?.getBoundingClientRect().top ?? window.innerHeight;
             const cardRect = card.getBoundingClientRect();
             const maxScrollY = Math.max(0, scrollElement.scrollHeight - window.innerHeight);
             const cardBottomAtScrollEnd = cardRect.bottom + window.scrollY - maxScrollY;
 
-            return Math.round(navRect.top - cardBottomAtScrollEnd);
+            return Math.round(bottomBoundary - cardBottomAtScrollEnd);
           })(),
           notificationReadNoticeCardCount: document.querySelectorAll(
             '[data-testid="notification-inbox-card"][data-notification-read-state="read"]',
@@ -827,6 +827,10 @@ async function main() {
           authSignupInvitationInputCount: document.querySelectorAll('[data-testid="signup-invitation-input"]').length,
           authSignupNameInputCount: document.querySelectorAll('[data-testid="signup-name-input"]').length,
           authSignupPhoneInputCount: document.querySelectorAll('[data-testid="signup-phone-input"]').length,
+          authSignupCodeRequestButtonCount: document.querySelectorAll('[data-testid="signup-code-request-button"]').length,
+          authSignupCodeRequestButtonMinHeight: Math.round(
+            document.querySelector('[data-testid="signup-code-request-button"]')?.getBoundingClientRect().height ?? 0,
+          ),
           authSignupBranchInputCount: document.querySelectorAll('[data-testid="signup-branch-input"]').length,
           authSignupBranchInputMinHeight: Math.round(
             document.querySelector('[data-testid="signup-branch-input"]')?.getBoundingClientRect().height ?? 0,
@@ -866,9 +870,7 @@ async function main() {
           authRoleShortcutButtonText: authRoleShortcutButtons
             .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "")
             .join("|"),
-          authSubmitButtonCount: Array.from(document.querySelectorAll("main button")).filter((button) =>
-            /로그인|회원가입|비밀번호 설정 후 초대 수락|인증번호 받기/.test(button.textContent ?? ""),
-          ).length,
+          authSubmitButtonCount: document.querySelectorAll('main form button[type="submit"]').length,
           adminBranchSummaryGridCount: document.querySelectorAll('[data-testid="admin-branch-summary-grid"]').length,
           adminBranchSummaryGridHeight: Math.round(
             document.querySelector('[data-testid="admin-branch-summary-grid"]')?.getBoundingClientRect().height ?? 0,
@@ -1979,6 +1981,14 @@ async function main() {
               .filter((height) => height > 0),
           ),
           personalAttendanceSummaryCount: document.querySelectorAll('[data-testid^="personal-attendance-summary-"]').length,
+          familyClassCalendarCount: document.querySelectorAll('[data-testid="family-class-calendar"]').length,
+          familyClassCalendarDateButtonCount: document.querySelectorAll('[data-testid^="family-class-calendar-date-"]').length,
+          familyClassCalendarStateCount: document.querySelectorAll('[data-family-calendar-state]').length,
+          familyClassCalendarSelectedDateCount: document.querySelectorAll(
+            '[data-testid^="family-class-calendar-date-"][aria-pressed="true"]',
+          ).length,
+          familySelectedDateHeadingCount: document.querySelectorAll('[data-testid="family-selected-date-heading"]').length,
+          classRegistrationPanelCount: document.querySelectorAll('[data-testid="class-registration-panel"]').length,
           familyClassCardCount: document.querySelectorAll('[data-testid^="family-class-card-"]').length,
           familyClassCardMaxHeight: Math.max(
             0,
@@ -2343,6 +2353,8 @@ async function main() {
           assert.equal(layout.authSignupInvitationInputCount, 0, "signup must not render an invitation link/code input");
           assert.equal(layout.authSignupNameInputCount, 1, "signup must render one name input");
           assert.equal(layout.authSignupPhoneInputCount, 1, "signup must render one phone input");
+          assert.equal(layout.authSignupCodeRequestButtonCount, 1, "signup must render one phone verification request action");
+          assert(layout.authSignupCodeRequestButtonMinHeight >= 44, "signup phone verification request must keep a 44px touch height");
           assert.equal(layout.authSignupBranchInputCount, 1, "multi-branch signup must render one branch selector");
           assert(layout.authSignupBranchInputMinHeight >= 44, "signup branch selector must keep a 44px touch height");
           assert.equal(layout.authPasswordInputCount, 2, "signup must render password and confirmation fields");
@@ -2686,35 +2698,17 @@ async function main() {
         }
 
         if (testCase.role === "member" || testCase.role === "guardian") {
-          const expectedFamilyBottomNavRouteIds = "dashboard|classes|members|payments|tournaments";
-          const expectedFamilyBottomNavLabels =
-            testCase.role === "guardian"
-              ? "홈|수업|가족|결제|대회"
-              : "홈|수업|내 정보|결제|대회";
           assert.equal(layout.mobileAccountMenuToggleCount, 1, `${testCase.id} must expose the same account-menu pattern used by other roles`);
           assert.equal(layout.mobileHeaderLogoutButtonCount, 0, `${testCase.id} must not duplicate logout outside the account menu`);
-          assert.equal(layout.mobileBottomNavLinkCount, 5, `${testCase.id} must show the five family bottom-nav actions`);
-          assert.equal(layout.mobileBottomNavScrollerDisplay, "grid", `${testCase.id} family bottom navigation must render as a fixed grid`);
-          assert.equal(layout.mobileBottomNavGridColumnCount, 5, `${testCase.id} family bottom navigation must allocate one grid column per action`);
-          assert.equal(
-            layout.mobileBottomNavRouteIds,
-            expectedFamilyBottomNavRouteIds,
-            `${testCase.id} family bottom navigation must remove deleted request actions and the duplicated notice inbox`,
-          );
-          assert.equal(
-            layout.mobileBottomNavLabels,
-            expectedFamilyBottomNavLabels,
-            `${testCase.id} family bottom navigation labels must keep unread badges out of visible menu text`,
-          );
+          assert.equal(layout.mobileBottomNavLinkCount, 0, `${testCase.id} must keep family destinations in the header menu`);
+          assert.equal(layout.mobileBottomNavScrollerDisplay, "", `${testCase.id} must not render an empty family bottom-navigation shell`);
+          assert.equal(layout.mobileBottomNavGridColumnCount, 0, `${testCase.id} must not reserve hidden family bottom-navigation columns`);
+          assert.equal(layout.mobileBottomNavRouteIds, "", `${testCase.id} must not duplicate family routes below the page`);
+          assert.equal(layout.mobileBottomNavLabels, "", `${testCase.id} must not duplicate family labels below the page`);
           assert.equal(
             layout.mobileBottomNavNoticeBadgeCount,
             0,
-            `${testCase.id} bottom navigation must not duplicate the header notification inbox`,
-          );
-          assert(layout.mobileBottomNavLinkMinWidth >= 56, `${testCase.id} bottom-nav actions must keep at least a 56px tap width`);
-          assert(
-            layout.mobileBottomNavScrollerScrollWidth <= layout.mobileBottomNavScrollerClientWidth,
-            `${testCase.id} family bottom navigation must fit without horizontal scrolling`,
+            `${testCase.id} must keep the notification inbox in the header only`,
           );
         }
 
@@ -2906,11 +2900,11 @@ async function main() {
           assert.equal(layout.notificationBottomSafeAreaCount, 0, `${testCase.id} must rely on the shared shell bottom safe area`);
           assert(
             layout.notificationBottomActionClearanceAtScrollEnd >= 24,
-            `${testCase.id} bottom notification action must clear the mobile bottom navigation at scroll end`,
+            `${testCase.id} bottom notification action must clear the visible bottom boundary at scroll end`,
           );
           assert(
             layout.notificationBottomCardClearanceAtScrollEnd >= 24,
-            `${testCase.id} bottom notification card must leave breathing room above the mobile bottom navigation`,
+            `${testCase.id} bottom notification card must leave breathing room above the visible bottom boundary`,
           );
           assert.equal(layout.notificationNoticeKindBadgeCount, 0, `${testCase.id} must hide repeated notice kind badges inside notification rows`);
           if (layout.notificationPaymentCardCount > 0) {
@@ -3222,12 +3216,12 @@ async function main() {
 
         if (testCase.id === "coach-dashboard") {
           assert.equal(layout.coachDashboardFlowGraphCount, 1, "coach dashboard must render the compact flow graph");
-          assert.equal(layout.coachDashboardFlowRowCount, 3, "coach dashboard flow graph must render three action rows after removing requests");
-          assert(layout.coachDashboardFlowGraphHeight <= 205, "coach dashboard flow graph must stay compact enough for today's classes to surface");
+          assert.equal(layout.coachDashboardFlowRowCount, 4, "coach dashboard flow graph must render four operational action rows");
+          assert(layout.coachDashboardFlowGraphHeight <= 280, "coach dashboard flow graph must stay compact enough for today's classes to surface");
           assert(layout.coachDashboardFlowRowMaxHeight <= 48, "coach dashboard flow rows must stay in compact single-line rows");
           assert(layout.coachDashboardAllClassesLinkHeight >= 44, "coach dashboard all-classes link must keep a 44px touch height");
           assert(layout.coachDashboardClassesPanelTop <= 830, "coach dashboard today's classes panel must remain visible at the first mobile viewport edge after the class QR card");
-          for (const label of ["오늘 수업", "출석 처리율", "상담/주의"]) {
+          for (const label of ["오늘 수업", "출석 처리율", "상담/주의", "대회 신청"]) {
             assert(layout.coachDashboardFlowText.includes(label), `coach dashboard flow graph must show ${label}`);
           }
           assert(!layout.coachDashboardFlowText.includes("보강"), "coach dashboard flow graph must not show deleted request rows");
@@ -3375,22 +3369,24 @@ async function main() {
 
         if (testCase.id === "guardian-classes") {
           assert.equal(layout.personalAttendanceSummaryCount, 0, "guardian classes must not duplicate child attendance in a header summary");
-          assert(layout.familyClassCardCount > 0, "guardian classes must render family-specific compact class cards");
-          assert(layout.familyClassCardMaxHeight <= 132, "guardian classes must keep compact class cards within the mobile scan height budget");
-          assert(layout.familyAttendanceChipGridCount > 0, "guardian classes must compress child attendance into compact chip grids");
-          assert(layout.familyAttendanceChipCount > 0, "guardian classes must render compact child attendance chips");
-          assert(layout.familyAttendanceChipMinHeight >= 44, "guardian class attendance chips must remain readable and stable");
-          assert(layout.familyAttendanceChipMaxHeight <= 56, "guardian class attendance chips must stay compact");
+          assert.equal(layout.familyClassCalendarCount, 1, "guardian classes must render the attendance calendar");
+          assert(layout.familyClassCalendarDateButtonCount > 0, "guardian classes must expose selectable calendar dates");
+          assert(layout.familyClassCalendarStateCount > 0, "guardian classes must mark scheduled or recorded class dates");
+          assert.equal(layout.familyClassCalendarSelectedDateCount, 0, "guardian classes must not select a date before the guardian chooses one");
+          assert.equal(layout.familySelectedDateHeadingCount, 0, "guardian classes must keep date details closed by default");
+          assert.equal(layout.classRegistrationPanelCount, 0, "guardian classes must keep registration details closed by default");
+          assert.equal(layout.familyClassCardCount, 0, "guardian classes must not list class cards before a date is selected");
         }
 
         if (testCase.id === "member-classes") {
           assert.equal(layout.personalAttendanceSummaryCount, 0, "member classes must keep attendance status in the member row only");
-          assert(layout.familyClassCardCount > 0, "member classes must render family-specific compact class cards");
-          assert(layout.familyClassCardMaxHeight <= 132, "member classes must keep compact class cards within the mobile scan height budget");
-          assert(layout.familyAttendanceChipGridCount > 0, "member classes must render compact attendance chip grids");
-          assert(layout.familyAttendanceChipCount > 0, "member classes must render compact attendance chips");
-          assert(layout.familyAttendanceChipMinHeight >= 44, "member class attendance chips must remain readable and stable");
-          assert(layout.familyAttendanceChipMaxHeight <= 56, "member class attendance chips must stay compact");
+          assert.equal(layout.familyClassCalendarCount, 1, "member classes must render the attendance calendar");
+          assert(layout.familyClassCalendarDateButtonCount > 0, "member classes must expose selectable calendar dates");
+          assert(layout.familyClassCalendarStateCount > 0, "member classes must mark scheduled or recorded class dates");
+          assert.equal(layout.familyClassCalendarSelectedDateCount, 0, "member classes must not select a date before the member chooses one");
+          assert.equal(layout.familySelectedDateHeadingCount, 0, "member classes must keep date details closed by default");
+          assert.equal(layout.classRegistrationPanelCount, 0, "member classes must keep registration details closed by default");
+          assert.equal(layout.familyClassCardCount, 0, "member classes must not list class cards before a date is selected");
         }
 
         if (testCase.id === "owner-reports") {
@@ -4742,6 +4738,12 @@ async function main() {
       guardianChildChipMaxHeight: layout.guardianChildChipMaxHeight,
       personalAttendanceSummaryCount: layout.personalAttendanceSummaryCount,
       familyClassCardCount: layout.familyClassCardCount,
+      familyClassCalendarCount: layout.familyClassCalendarCount,
+      familyClassCalendarDateButtonCount: layout.familyClassCalendarDateButtonCount,
+      familyClassCalendarStateCount: layout.familyClassCalendarStateCount,
+      familyClassCalendarSelectedDateCount: layout.familyClassCalendarSelectedDateCount,
+      familySelectedDateHeadingCount: layout.familySelectedDateHeadingCount,
+      classRegistrationPanelCount: layout.classRegistrationPanelCount,
       familyClassCardMaxHeight: layout.familyClassCardMaxHeight,
       familyAttendanceChipGridCount: layout.familyAttendanceChipGridCount,
       familyAttendanceChipCount: layout.familyAttendanceChipCount,

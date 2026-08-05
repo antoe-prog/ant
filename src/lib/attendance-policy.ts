@@ -1,3 +1,5 @@
+import type { AttendanceRecord } from "./domain.ts";
+
 export const attendanceStateLockKey = "attendance-state";
 
 export const attendanceInputLimits = {
@@ -18,4 +20,11 @@ export function hasAttendanceWindowOpened(startsAt: string, now = new Date()) {
   const startsAtMs = Date.parse(startsAt);
 
   return Number.isFinite(startsAtMs) && startsAtMs <= now.getTime();
+}
+
+export function createFamilySafeAttendanceRecord(record: AttendanceRecord): AttendanceRecord {
+  const familyRecord = { ...record };
+
+  delete familyRecord.note;
+  return familyRecord;
 }

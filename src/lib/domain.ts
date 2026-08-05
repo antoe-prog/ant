@@ -354,6 +354,7 @@ export type PushDispatchJob = {
   cancellationReason?: string;
   providerCallStartedAt?: string;
   providerCallCompletedAt?: string;
+  providerFenceExpiresAt?: string;
   providerOutcome?: PushDispatchProviderOutcome;
   deliveryMayHaveOccurred?: boolean;
   payloadSnapshot: PushDispatchPayloadSnapshot;
@@ -377,6 +378,16 @@ export type PasswordResetChallenge = {
   expiresAt: string;
   failedAttemptCount: number;
   verifiedAt?: string;
+  consumedAt?: string;
+};
+
+export type PhoneSignupChallenge = {
+  id: string;
+  phoneHash: string;
+  codeHash: string;
+  createdAt: string;
+  expiresAt: string;
+  failedAttemptCount: number;
   consumedAt?: string;
 };
 
@@ -595,6 +606,7 @@ export type MockDatabase = {
   notices: Notice[];
   authSessions: AuthSession[];
   passwordResetChallenges: PasswordResetChallenge[];
+  phoneSignupChallenges?: PhoneSignupChallenge[];
   attendanceQrChallenges: AttendanceQrChallenge[];
   pushSubscriptions: PushSubscriptionRecord[];
   pushDispatchJobs: PushDispatchJob[];

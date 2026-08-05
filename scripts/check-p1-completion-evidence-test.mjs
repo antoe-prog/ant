@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-p1-completion-evidence-"));
+const emptyProfilesDirectory = path.join(directory, "empty-provisioning-profiles");
 
 function json(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -27,10 +28,16 @@ async function runCompletion(workspace, extraArgs = []) {
 }
 
 try {
+  await mkdir(emptyProfilesDirectory, { recursive: true });
   const pendingWorkspace = path.join(directory, "pending");
   await execFile(
     process.execPath,
-    ["scripts/create-p1-handoff-draft-workspace.mjs", `--out-dir=${pendingWorkspace}`, "--github-repo=antoe-prog/ant"],
+    [
+      "scripts/create-p1-handoff-draft-workspace.mjs",
+      `--out-dir=${pendingWorkspace}`,
+      "--github-repo=antoe-prog/ant",
+      `--profiles-dir=${emptyProfilesDirectory}`,
+    ],
     { cwd: process.cwd() },
   );
   const pendingRoleApksDir = path.join(pendingWorkspace, "mobile-builds", "role-apks-20260617");

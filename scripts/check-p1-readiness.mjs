@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const args = parseArgs(process.argv.slice(2));
@@ -35,10 +35,13 @@ const requirements = [
     key: "iosIpa",
     label: "iOS IPA build/provisioning",
     path: args.iosIpaReport ? path.resolve(args.iosIpaReport) : defaultReportPath(path.join("mobile-builds", "ios", "ios-ipa-build-report.json")),
+    allowUploadFallback: !args.iosIpaReport,
+    uploadEvidencePath: args.iosAppStoreUploadReport ? path.resolve(args.iosAppStoreUploadReport) : null,
+    uploadEvidenceDirectory: defaultReportPath(path.join("mobile-builds", "ios", "app-store")),
     command:
       "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md && APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:build -- --team-id=<TEAM_ID> --allow-provisioning-updates",
     nextAction:
-      "실제 iPhone UDID를 Apple Developer에 등록하고 kr.co.finaljudo.multigym provisioning profile을 생성한 뒤 `npm run ios:ipa:doctor`와 `npm run ios:ipa:build`를 실제 운영 HTTPS 웹앱 origin/Apple Team ID로 재실행합니다.",
+      "배포 방식에 맞는 kr.co.finaljudo.multigym provisioning profile을 설치하고 `npm run ios:ipa:doctor`와 `npm run ios:ipa:build`를 실제 운영 HTTPS 웹앱 origin/Apple Team ID로 재실행합니다. App Store Connect 배포에는 테스트 기기 UDID가 필요하지 않으며, 성공한 업로드 리포트도 완료 증빙으로 사용할 수 있습니다.",
   },
   {
     key: "paymentProvider",
@@ -107,6 +110,8 @@ function parseArgs(argv) {
       parsed.androidReport = value;
     } else if (key === "--ios-ipa-report") {
       parsed.iosIpaReport = value;
+    } else if (key === "--ios-app-store-upload-report") {
+      parsed.iosAppStoreUploadReport = value;
     } else if (key === "--payment-provider-report") {
       parsed.paymentProviderReport = value;
     } else if (key === "--notification-push-report") {
@@ -277,8 +282,108 @@ async function readJson(filePath) {
   }
 }
 
+function markdownListValue(source, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = source.match(new RegExp(`^- ${escapedLabel}:\\s*(?:\\\`([^\\\`]+)\\\`|(.+))$`, "m"));
+  return text(match?.[1] ?? match?.[2]);
+}
+
+async function candidateUploadEvidencePaths(requirement) {
+  if (requirement.uploadEvidencePath) {
+    return [requirement.uploadEvidencePath];
+  }
+
+  let entries = [];
+  try {
+    entries = await readdir(requirement.uploadEvidenceDirectory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const evidencePath = path.join(requirement.uploadEvidenceDirectory, entry.name, "upload-result.md");
+    try {
+      const fileStat = await stat(evidencePath);
+      candidates.push({ path: evidencePath, modifiedAt: fileStat.mtimeMs });
+    } catch {
+      // An incomplete upload evidence directory is not release evidence.
+    }
+  }
+
+  return candidates.sort((left, right) => right.modifiedAt - left.modifiedAt).map((candidate) => candidate.path);
+}
+
+async function readIosAppStoreUploadEvidence(requirement) {
+  const candidates = await candidateUploadEvidencePaths(requirement);
+
+  for (const evidencePath of candidates) {
+    let source;
+    try {
+      source = await readFile(evidencePath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const uploadResult = markdownListValue(source, "Upload result");
+    const bundleId = markdownListValue(source, "Bundle ID");
+    const marketingVersion = markdownListValue(source, "Marketing version");
+    const buildNumber = markdownListValue(source, "Build number");
+    const ipaSha256 = markdownListValue(source, "IPA SHA-256");
+    const uploadedAt = markdownListValue(source, "Uploaded at");
+    const codesignVerified = source.includes("codesign --verify --deep --strict");
+    const valid =
+      uploadResult === "Upload succeeded" &&
+      bundleId === "kr.co.finaljudo.multigym" &&
+      Boolean(marketingVersion) &&
+      Boolean(buildNumber) &&
+      /^[a-f0-9]{64}$/i.test(ipaSha256) &&
+      codesignVerified;
+
+    if (!valid) {
+      continue;
+    }
+
+    return {
+      ok: true,
+      path: evidencePath,
+      uploadedAt,
+      checked: [
+        "App Store Connect upload succeeded",
+        `bundle ${bundleId} version ${marketingVersion} build ${buildNumber}`,
+        "archive and IPA codesign verification recorded",
+        `IPA SHA-256 ${ipaSha256}`,
+      ],
+    };
+  }
+
+  return null;
+}
+
 async function classifyRequirement(requirement) {
   const readResult = await readJson(requirement.path);
+
+  if (requirement.key === "iosIpa" && requirement.allowUploadFallback && !readyDocument(readResult.json)) {
+    const uploadEvidence = await readIosAppStoreUploadEvidence(requirement);
+
+    if (uploadEvidence?.ok) {
+      return {
+        key: requirement.key,
+        label: requirement.label,
+        path: uploadEvidence.path,
+        command: requirement.command,
+        status: "ready",
+        message: "App Store Connect 업로드 성공 증빙이 확인되었습니다.",
+        generatedAt: uploadEvidence.uploadedAt || null,
+        checked: uploadEvidence.checked,
+        evidenceType: "app-store-connect-upload",
+      };
+    }
+  }
 
   if (!readResult.exists) {
     const missing = /ENOENT|no such file/i.test(readResult.error ?? "");

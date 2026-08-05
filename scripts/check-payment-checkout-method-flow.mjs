@@ -150,9 +150,7 @@ async function resetDevData(label) {
   };
 }
 
-function collectConsoleMessages(page) {
-  const messages = [];
-
+function collectConsoleMessages(page, messages = []) {
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
       const text = message.text();
@@ -171,15 +169,20 @@ function collectConsoleMessages(page) {
   return messages;
 }
 
-async function gotoCheckout(page, role, paymentId, hash = "", method = "") {
-  const methodQuery = method ? `&method=${encodeURIComponent(method)}` : "";
-  const next = `/app/payments/checkout?paymentId=${encodeURIComponent(paymentId)}${methodQuery}${hash}`;
+async function loginToPath(page, role, next) {
   const loginUrl = new URL("/login", baseUrl);
   loginUrl.searchParams.set("autoLogin", "1");
   loginUrl.searchParams.set("role", role);
   loginUrl.searchParams.set("next", next);
 
   await page.goto(loginUrl.toString(), { waitUntil: "networkidle" });
+}
+
+async function gotoCheckout(page, role, paymentId, hash = "", method = "") {
+  const methodQuery = method ? `&method=${encodeURIComponent(method)}` : "";
+  const next = `/app/payments/checkout?paymentId=${encodeURIComponent(paymentId)}${methodQuery}${hash}`;
+
+  await loginToPath(page, role, next);
   await page.waitForURL((url) => url.pathname === "/app/payments/checkout" && url.searchParams.get("paymentId") === paymentId, {
     timeout: 15000,
   });
@@ -394,19 +397,28 @@ async function collectAccountMethodPanel(page, methodTestId, label, options = {}
 
   const layout = await page.evaluate(() => {
     const panel = document.querySelector('[data-testid="payment-account-method-panel"]');
+    const bottomNavigation = document.querySelector('nav[aria-label="모바일 메뉴"]');
     const rect = panel?.getBoundingClientRect();
+    const bottomNavigationRect = bottomNavigation?.getBoundingClientRect();
 
     return {
+      bottom: Math.round(rect?.bottom ?? 0),
+      bottomNavigationTop: Math.round(bottomNavigationRect?.top ?? window.innerHeight),
       height: Math.round(rect?.height ?? 0),
       text: panel?.textContent?.replace(/\s+/g, " ").trim() ?? "",
       top: Math.round(rect?.top ?? 0),
+      viewportHeight: window.innerHeight,
       width: Math.round(rect?.width ?? 0),
     };
   });
 
   assert(layout.height >= 80, `${label} account method panel must remain readable`);
   if (options.expectVisible) {
-    assert(layout.top >= 0 && layout.top <= 520, `${label} account method panel must be visible after hash navigation`);
+    assert(layout.top >= 0, `${label} account method panel must start inside the viewport after hash navigation`);
+    assert(
+      layout.bottom <= Math.min(layout.bottomNavigationTop, layout.viewportHeight),
+      `${label} account method panel must stay fully visible above the mobile navigation after hash navigation`,
+    );
   }
   assert.match(layout.text, /이 화면에서만 확인할 수 있습니다/, `${label} must disclose that the selection is not persisted`);
   assert.match(layout.text, /도장 안내 후 진행합니다/, `${label} must use user-facing payment guidance`);
@@ -532,8 +544,9 @@ const browser = await chromium.launch({
   executablePath: chromeExecutable,
   headless: true,
 });
-const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-const messages = collectConsoleMessages(page);
+const messages = [];
+let page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+collectConsoleMessages(page, messages);
 
 try {
   await gotoCheckout(page, "member", "pay-minjae");
@@ -682,6 +695,47 @@ try {
   const collectionRequestScreenshotPath = join(outDir, "guardian-collection-request-pending-mobile.png");
   await page.screenshot({ path: collectionRequestScreenshotPath, fullPage: false });
 
+  await page.close();
+  await resetDevData("online checkout pending");
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  collectConsoleMessages(page, messages);
+  await loginToPath(page, "owner", "/app/payments");
+  await page.waitForURL((url) => url.pathname === "/app/payments", { timeout: 15000 });
+  const onlineCheckoutCreate = await page.evaluate(async () => {
+    const response = await fetch(
+      "/api/v1/payments/pay-yuna/online-checkout?selectedBranchId=branch-gangnam",
+      {
+        body: "{}",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    return { ok: response.ok, status: response.status };
+  });
+  assert.deepEqual(onlineCheckoutCreate, { ok: true, status: 200 }, "owner must create the online checkout fixture");
+
+  await page.close();
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  collectConsoleMessages(page, messages);
+  const onlineCheckoutPath = "/app/payments/checkout?paymentId=pay-yuna";
+  await loginToPath(page, "guardian", onlineCheckoutPath);
+  await page.waitForURL(
+    (url) => url.pathname === "/app/payments/checkout" && url.searchParams.get("paymentId") === "pay-yuna",
+    { timeout: 15000 },
+  );
+  await page.waitForSelector('[data-testid="payment-online-checkout-pending"]', { timeout: 15000 });
+  const onlineCheckoutPendingText = await page.getByTestId("payment-online-checkout-pending").innerText();
+  assert.match(onlineCheckoutPendingText, /기존 결제 링크를 이용해 주세요/, "pending online checkout must reuse its link");
+  assert.match(onlineCheckoutPendingText, /중복 납부를 막기 위해/, "pending online checkout must explain the channel lock");
+  assert.equal(
+    await page.getByTestId("payment-collection-request-submit").count(),
+    0,
+    "pending online checkout must not render a second collection request action",
+  );
+  const onlineCheckoutPendingScreenshotPath = join(outDir, "guardian-online-checkout-pending-mobile.png");
+  await page.screenshot({ path: onlineCheckoutPendingScreenshotPath, fullPage: false });
+
   assert.deepEqual(messages, [], "payment checkout method flow must not emit console warnings/errors");
 
   const report = {
@@ -705,6 +759,7 @@ try {
       "virtual account and account transfer panels avoid internal setup copy",
       "guardian child checkout uses the same payment input flow",
       "guardian payment request persists and returns as a staff follow-up pending state",
+      "guardian pending online checkout reuses one link without offering a second collection channel",
       "payer email placeholder avoids sample/test account copy",
       "checkout summary stays compact before payer information",
       "optional payer address landline and email details stay collapsed until requested",
@@ -772,6 +827,10 @@ try {
       guardianCollectionRequestPending: {
         path: collectionRequestScreenshotPath,
         sizeBytes: screenshotSize(collectionRequestScreenshotPath),
+      },
+      guardianOnlineCheckoutPending: {
+        path: onlineCheckoutPendingScreenshotPath,
+        sizeBytes: screenshotSize(onlineCheckoutPendingScreenshotPath),
       },
     },
   };

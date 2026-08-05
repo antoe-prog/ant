@@ -4,6 +4,7 @@ import path from "node:path";
 const args = parseArgs(process.argv.slice(2));
 const outPath = path.resolve(args.out ?? ".data/payment-provider-handoff.json");
 const evidenceReferencePattern = /^(https:\/\/|s3:\/\/|gs:\/\/|az:\/\/|drive:\/\/|sharepoint:\/\/|box:\/\/|file:\/\/).+/i;
+const webhookSecretMinBytes = 32;
 
 function parseArgs(argv) {
   const parsed = {};
@@ -81,6 +82,15 @@ function evidenceReady(value) {
   return Boolean(evidence && !isPlaceholder(evidence) && evidenceReferencePattern.test(evidence));
 }
 
+function webhookSecretReady(value) {
+  const secret = text(value);
+  return (
+    !isPlaceholder(secret) &&
+    Buffer.byteLength(secret, "utf8") >= webhookSecretMinBytes &&
+    new Set(secret).size >= 8
+  );
+}
+
 function safeProviderName() {
   const provider = text(args.providerName) || text(process.env.FINAL_JUDO_PAYMENT_PROVIDER);
   return provider && !["external", "mock", "none", "test"].includes(provider.toLowerCase()) ? provider : "TODO_PROVIDER_NAME";
@@ -93,7 +103,7 @@ function safeCheckoutBaseUrl() {
 function secretStored() {
   return (
     args.webhookSecretStored === true ||
-    Boolean(text(process.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET) && !isPlaceholder(process.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET))
+    webhookSecretReady(process.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET)
   );
 }
 

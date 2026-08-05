@@ -54,6 +54,7 @@ async function startPostgresAppServer(connectionString, distDir, tsconfigPath) {
         FINAL_JUDO_POSTGRES_STATE_KEY: "postgres-payment-route-smoke",
         FINAL_JUDO_POSTGRES_URL: connectionString,
         FINAL_JUDO_ROLL_DEMO_DATES: "0",
+        FINAL_JUDO_ENABLE_DEV_SMS_CODE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -147,10 +148,65 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
 
     assert(loginResponse.ok && cookie, "PostgreSQL payment route owner login must return a session cookie");
 
+    const resetRequestResponse = await fetch(`${baseUrl}/api/v1/auth/password-reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "request", phone: "01093645827" }),
+    });
+    const resetRequestPayload = await resetRequestResponse.json();
+    const developmentCode = resetRequestPayload.data?.developmentCode;
+
+    assert.equal(resetRequestResponse.status, 200, "PostgreSQL password reset request must succeed");
+    assert.match(developmentCode ?? "", /^\d{6}$/, "isolated PostgreSQL smoke must receive a development code");
+
+    const resetVerifyResponse = await fetch(`${baseUrl}/api/v1/auth/password-reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "verify", phone: "01093645827", code: developmentCode }),
+    });
+    const resetVerifyPayload = await resetVerifyResponse.json();
+    const resetToken = resetVerifyPayload.data?.resetToken;
+
+    assert.equal(resetVerifyResponse.status, 200, "PostgreSQL password reset verification must succeed");
+    assert.match(resetToken ?? "", /^[A-Za-z0-9_-]{40,64}$/, "password reset verification must return a reset token");
+
+    const resetPassword = `FJ-Postgres-Reset-${Date.now()}!`;
+    const completeReset = () =>
+      fetch(`${baseUrl}/api/v1/auth/password-reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete", resetToken, password: resetPassword }),
+      });
+    const resetCompletionResponses = await Promise.all([completeReset(), completeReset()]);
+
+    assert.deepEqual(
+      resetCompletionResponses.map((response) => response.status).sort((left, right) => left - right),
+      [200, 400],
+      "PostgreSQL password reset completion must consume one token exactly once without a nested-lock 500",
+    );
+
+    const resetLoginResponse = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "01093645827", password: resetPassword }),
+    });
+    assert.equal(resetLoginResponse.status, 200, "the password changed through PostgreSQL must be usable for login");
+
     const registrationStamp = String(Date.now() % 100000000).padStart(8, "0");
     const registrationPhone = `010${registrationStamp}`;
+    const registrationCodeResponse = await fetch(`${baseUrl}/api/v1/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "request", phone: registrationPhone }),
+    });
+    const registrationCodePayload = await registrationCodeResponse.json();
+    const registrationCode = registrationCodePayload.data?.developmentCode;
+    assert.equal(registrationCodeResponse.status, 200, "PostgreSQL signup code request must succeed");
+    assert.match(registrationCode ?? "", /^\d{6}$/, "PostgreSQL signup must receive an isolated development code");
     const registrationBody = JSON.stringify({
+      action: "complete",
       branchId: "branch-gangnam",
+      code: registrationCode,
       name: "PostgreSQL 동시 가입",
       password: `FJ-Postgres-${registrationStamp}!`,
       phone: registrationPhone,
@@ -164,8 +220,8 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
     const registrationResponses = await Promise.all([register(), register()]);
     assert.deepEqual(
       registrationResponses.map((response) => response.status).sort((left, right) => left - right),
-      [200, 409],
-      "PostgreSQL concurrent registration must persist one account and reject the duplicate",
+      [200, 400],
+      "PostgreSQL concurrent registration must persist one account and consume one verification code",
     );
     const registrationPool = new Pool({ connectionString, max: 1 });
     try {
@@ -521,6 +577,39 @@ async function main() {
       lockEvents,
       ["first:start", "first:end", "second:start", "second:end"],
       "PostgreSQL advisory locks must serialize the same key across store instances",
+    );
+
+    const nestedLockEvents = [];
+    let markNestedLockStarted;
+    const nestedLockStarted = new Promise((resolve) => {
+      markNestedLockStarted = resolve;
+    });
+    let nestedOperationFinished = false;
+    const nestedLock = store.withLock("auth-security", () =>
+      store.withLock("notification-outbox", async () => {
+        nestedLockEvents.push("nested:start");
+        markNestedLockStarted();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        nestedLockEvents.push("nested:end");
+        nestedOperationFinished = true;
+      }),
+    );
+
+    await nestedLockStarted;
+    const competingInnerLock = secondStore.withLock("notification-outbox", async () => {
+      assert.equal(
+        nestedOperationFinished,
+        true,
+        "a competing process must wait for the nested transaction to release its inner domain lock",
+      );
+      nestedLockEvents.push("competing:start");
+    });
+
+    await Promise.all([nestedLock, competingInnerLock]);
+    assert.deepEqual(
+      nestedLockEvents,
+      ["nested:start", "nested:end", "competing:start"],
+      "nested PostgreSQL advisory locks must remain held until the shared transaction completes",
     );
   } finally {
     await secondStore.close();

@@ -14,6 +14,7 @@ const runtimeCollectionKeys = [
   "notices",
   "authSessions",
   "passwordResetChallenges",
+  "phoneSignupChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",

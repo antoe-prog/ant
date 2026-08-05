@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import {
   tournamentDivisions,
   tournamentRegistrationStatuses,
@@ -16,6 +16,7 @@ import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, 
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import {
   prepareNoticePushDispatchJobs,
+  notificationOutboxExecutionPolicy,
   processNotificationOutbox,
 } from "@/server/notification-outbox-runner";
 import {
@@ -298,6 +299,7 @@ async function updateRegistration(
 
       if (
         existing &&
+        existing.status !== "rejected" &&
         existing.division === body.division &&
         existing.weightClass === body.weightClass
       ) {
@@ -668,11 +670,19 @@ async function reviewRegistration(
   }
 
   if (reviewResult.enqueuedPushCount > 0) {
-    try {
-      await processNotificationOutbox({ limit: Math.min(reviewResult.enqueuedPushCount, 20) });
-    } catch {
-      // Durable jobs remain available for the scheduled outbox worker.
-    }
+    after(async () => {
+      try {
+        await processNotificationOutbox({
+          concurrency: notificationOutboxExecutionPolicy.interactive.concurrency,
+          limit: Math.min(
+            reviewResult.enqueuedPushCount,
+            notificationOutboxExecutionPolicy.interactive.limit,
+          ),
+        });
+      } catch {
+        // Durable jobs remain available for the scheduled outbox worker.
+      }
+    });
   }
 
   return reviewResult.response;

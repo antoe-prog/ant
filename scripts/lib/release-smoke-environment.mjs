@@ -304,7 +304,7 @@ export async function createReleaseSmokeEnvironment({ baseUrl = null, env = proc
       FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN: ownershipToken,
       FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.test",
       FINAL_JUDO_PAYMENT_PROVIDER: "external",
-      FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "final-judo-dev-webhook-secret",
+      FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "final-judo-smoke-webhook-0123456789-ABCDEF",
       PILOT_DB_FILE: path.join(dataDir, smokeDataFileName),
       SMOKE_SKIP_DEV_RESET: "0",
     },

@@ -34,6 +34,30 @@ export function canViewTournament(tournament: Tournament, branchIds: readonly st
   return access.scope === "global" || (access.branchId !== null && branchIds.includes(access.branchId));
 }
 
+export function createFamilySafeTournament(
+  tournament: Tournament,
+  allowedMemberIds: ReadonlySet<string> | readonly string[],
+): Tournament {
+  const allowedMemberIdSet = allowedMemberIds instanceof Set ? allowedMemberIds : new Set(allowedMemberIds);
+  const familyTournament: Tournament = {
+    ...tournament,
+    registrations: (tournament.registrations ?? [])
+      .filter((registration) => allowedMemberIdSet.has(registration.memberId))
+      .map((registration) => {
+        const familyRegistration = {
+          ...registration,
+          appliedByUserId: "",
+        };
+
+        delete familyRegistration.reviewedByUserId;
+        return familyRegistration;
+      }),
+  };
+
+  delete familyTournament.createdByUserId;
+  return familyTournament;
+}
+
 export function getTournamentCreateAccess(
   actor: TournamentActor,
   selectedBranchId: string | null,

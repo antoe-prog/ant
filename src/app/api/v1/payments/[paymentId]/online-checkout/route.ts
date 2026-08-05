@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Payment } from "@/lib/domain";
+import { createFamilySafeOnlinePayment } from "@/lib/family-payment-privacy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { appendPaymentStatusHistory, createPaymentStatusHistoryEntry } from "@/lib/payment-lifecycle";
 import {
@@ -68,6 +69,10 @@ export async function POST(
 
     if (!canCreateOnlineCheckout(payment)) {
       return jsonError(422, "BUSINESS_RULE_FAILED", "납부 예정, 미납, 만료 예정 또는 부분 환불 결제만 온라인 요청할 수 있습니다.");
+    }
+
+    if (payment.collectionRequest?.status === "pending") {
+      return jsonError(409, "BUSINESS_RULE_FAILED", "회원이 요청한 납부 확인이 진행 중입니다.");
     }
 
     if (payment.onlinePayment?.status === "pending") {
@@ -140,7 +145,7 @@ export async function POST(
 
     return jsonOk({
       ...createBootstrapPayload(nextDb, latestSession.user, selectedScope.selectedBranchId ?? payment.branchId),
-      checkout: onlinePayment,
+      checkout: createFamilySafeOnlinePayment(onlinePayment),
     });
   });
 }

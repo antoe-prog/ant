@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     const persisted = await writeServerDb({
       ...db,
       tournaments: [tournament, ...(db.tournaments ?? [])],
-      auditLogs: [...db.auditLogs, auditLog],
+      auditLogs: [auditLog, ...db.auditLogs],
     });
 
     return jsonOk(createBootstrapPayload(persisted, latestSession.user, latestScope.selectedBranchId ?? null));

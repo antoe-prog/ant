@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  notificationOutboxWorkerLimits,
+  runNotificationOutboxWorkerPool,
+} from "../src/server/notification-outbox-workers.ts";
 
 const files = {
   create: await readFile("src/app/api/v1/branches/[branchId]/notices/route.ts", "utf8"),
@@ -33,19 +38,99 @@ assert(files.tournamentRegistrations.includes("prepareRegistrationStatusNoticePu
 assert(files.tournamentRegistrations.includes("prepareNoticePushDispatchJobs"));
 assert(files.tournamentRegistrations.includes("processNotificationOutbox"));
 assert(files.edit.includes("cancelPendingNoticePushJobs"));
+const noticeDeleteRoute = files.edit.slice(files.edit.indexOf("export async function DELETE"));
+assert(
+  noticeDeleteRoute.includes("return withServerDbLock(noticeStateLockKey"),
+  "notice deletion and outbox cancellation must run under the shared notice lock",
+);
 assert(files.runner.includes("validateLeasedPushDispatchJob"));
 assert(files.runner.includes("createAttemptAuditLog"));
 assert(files.runner.includes("beginPushDispatchProviderCall"));
 assert(files.runner.includes("runPushDeliveryWithTimeout"));
 assert(files.runner.includes("createRejectedSettlementAuditLog"));
+assert(files.runner.includes("claimedJob.deliveryMayHaveOccurred"));
+assert(files.runner.includes("currentJob?.deliveryMayHaveOccurred"));
 assert(files.outbox.includes('reason: "stale_revision"'));
 assert(files.outbox.includes("cancellationRequestedAt"));
 assert(files.domain.includes("deliveryMayHaveOccurred?: boolean"));
+assert(files.domain.includes("providerFenceExpiresAt?: string"));
+assert(files.outbox.includes("hasActivePushProviderFence"));
+assert(files.outbox.includes('reason: "provider_call_not_started"'));
+assert(files.outbox.includes('input.result.outcome !== "cancelled" && !job.providerCallStartedAt'));
+assert(files.outbox.includes('...(job.providerCallStartedAt ? { providerCallCompletedAt: input.now } : {})'));
+assert(files.outbox.includes(': job.providerCallStartedAt\n              ? ("uncertain" as const)'));
 assert(files.push.includes("PUSH_PROVIDER_TIMEOUT"));
 assert(files.push.includes("deliveryUncertain: true"));
 assert(files.cron.includes("timingSafeEqual"));
 assert(files.cron.includes("CRON_SECRET"));
 assert(files.vercel.crons.some((cron) => cron.path === "/api/v1/internal/notification-outbox"));
+assert(files.create.includes('import { after, NextRequest } from "next/server"'));
+assert(files.create.includes("notificationOutboxExecutionPolicy.interactive"));
+assert(files.create.includes("after(async () =>"));
+assert(files.dispatch.includes('import { after, NextRequest } from "next/server"'));
+assert(files.dispatch.includes("notificationOutboxExecutionPolicy.interactive"));
+assert(files.dispatch.includes("after(async () =>"));
+assert(files.tournamentRegistrations.includes('import { after, NextRequest } from "next/server"'));
+assert(files.tournamentRegistrations.includes("notificationOutboxExecutionPolicy.interactive"));
+assert(files.tournamentRegistrations.includes("after(async () =>"));
+assert(files.cron.includes("notificationOutboxExecutionPolicy.scheduled"));
+assert(files.runner.includes("runNotificationOutboxWorkerPool"));
+
+let activeWorkers = 0;
+let maximumActiveWorkers = 0;
+let processedCalls = 0;
+const processed = await runNotificationOutboxWorkerPool({
+  concurrency: 3,
+  limit: 7,
+  processNext: async () => {
+    processedCalls += 1;
+    activeWorkers += 1;
+    maximumActiveWorkers = Math.max(maximumActiveWorkers, activeWorkers);
+    await delay(10);
+    activeWorkers -= 1;
+    return true;
+  },
+});
+
+assert.equal(processed, 7);
+assert.equal(processedCalls, 7);
+assert.equal(maximumActiveWorkers, 3);
+
+let cappedCalls = 0;
+let cappedActiveWorkers = 0;
+let cappedMaximumActiveWorkers = 0;
+const cappedProcessed = await runNotificationOutboxWorkerPool({
+  concurrency: 50,
+  limit: 150,
+  processNext: async () => {
+    cappedCalls += 1;
+    cappedActiveWorkers += 1;
+    cappedMaximumActiveWorkers = Math.max(cappedMaximumActiveWorkers, cappedActiveWorkers);
+    await delay(1);
+    cappedActiveWorkers -= 1;
+    return true;
+  },
+});
+
+assert.equal(cappedProcessed, notificationOutboxWorkerLimits.maximumBatchSize);
+assert.equal(cappedCalls, notificationOutboxWorkerLimits.maximumBatchSize);
+assert.equal(cappedMaximumActiveWorkers, notificationOutboxWorkerLimits.maximumConcurrency);
+
+let availableJobs = 2;
+const exhaustedProcessed = await runNotificationOutboxWorkerPool({
+  concurrency: 4,
+  limit: 20,
+  processNext: async () => {
+    if (availableJobs <= 0) {
+      return false;
+    }
+    availableJobs -= 1;
+    await delay(1);
+    return true;
+  },
+});
+
+assert.equal(exhaustedProcessed, 2);
 
 console.log(JSON.stringify({
   ok: true,
@@ -59,7 +144,13 @@ console.log(JSON.stringify({
     "tournament registration status notices share the durable notice/outbox lock domain",
     "revision fencing and leased cancellation boundary",
     "provider timeout and rejected stale-settlement audit",
+    "provider timeout retains a bounded ownership fence before retry",
+    "provider outcomes cannot settle before the provider-start fence",
+    "cancelled settlement preserves truthful pre-provider and in-flight provider state",
     "timing-safe cron authorization",
     "Vercel cron route registration",
+    "bounded concurrent delivery with batch and worker caps",
+    "request-triggered delivery deferred until after the response",
+    "scheduled delivery uses the larger worker policy",
   ],
 }, null, 2));

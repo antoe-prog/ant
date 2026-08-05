@@ -239,6 +239,7 @@ export type PushConfigPayload = {
 
 export type PushSubscriptionPayload = {
   activeSubscriptionCount: number;
+  reactivationRequired?: boolean;
   subscription: {
     disabledAt: string | null;
     endpointHint: string;
@@ -387,6 +388,7 @@ export type LoginCredentials = {
 
 export type PhoneSignupPayload = {
   branchId: string;
+  code: string;
   name: string;
   password: string;
   phone: string;
@@ -406,6 +408,12 @@ type PhoneSignupResponse = {
   memberId: string;
   ok: boolean;
   userId: string;
+};
+
+type PhoneSignupVerificationResponse = {
+  developmentCode?: string;
+  next: "verify";
+  ok: boolean;
 };
 
 type InvitationPayload = BootstrapPayload & {
@@ -670,7 +678,14 @@ export const apiClient = {
   registerWithPhone(payload: PhoneSignupPayload) {
     return apiRequest<PhoneSignupResponse>("/api/v1/auth/register", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ action: "complete", ...payload }),
+    });
+  },
+
+  requestSignupVerificationCode(phone: string) {
+    return apiRequest<PhoneSignupVerificationResponse>("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ action: "request", phone }),
     });
   },
 
@@ -1367,10 +1382,10 @@ export const apiClient = {
     return apiRequest<PushConfigPayload>("/api/v1/notifications/push-config");
   },
 
-  subscribeToPush(subscription: PushSubscriptionJSON, userAgent: string) {
+  subscribeToPush(subscription: PushSubscriptionJSON, userAgent: string, allowReactivation: boolean) {
     return apiRequest<PushSubscriptionPayload>("/api/v1/notifications/subscriptions", {
       method: "POST",
-      body: JSON.stringify({ subscription, userAgent }),
+      body: JSON.stringify({ allowReactivation, subscription, userAgent }),
     });
   },
 

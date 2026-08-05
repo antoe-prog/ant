@@ -142,7 +142,7 @@ export async function PATCH(
       tournaments: (latestDb.tournaments ?? []).map((candidate) =>
         candidate.id === latestTournament.id ? nextTournament : candidate,
       ),
-      auditLogs: [...latestDb.auditLogs, auditLog],
+      auditLogs: [auditLog, ...latestDb.auditLogs],
     });
 
     return jsonOk(createBootstrapPayload(persisted, latestSession.user, latestScope.selectedBranchId ?? null));
@@ -239,7 +239,7 @@ export async function DELETE(
     const persisted = await writeServerDb({
       ...latestDb,
       tournaments: (latestDb.tournaments ?? []).filter((candidate) => candidate.id !== latestTournament.id),
-      auditLogs: [...latestDb.auditLogs, auditLog],
+      auditLogs: [auditLog, ...latestDb.auditLogs],
     });
 
     return jsonOk(createBootstrapPayload(persisted, latestSession.user, latestScope.selectedBranchId ?? null));

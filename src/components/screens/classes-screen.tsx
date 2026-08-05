@@ -289,7 +289,7 @@ export function ClassesScreen() {
   const canEditAttendance = ["coach", "owner", "admin"].includes(context.user.role);
   const canManageClasses = ["coach", "owner", "admin"].includes(context.user.role);
   const isFamilyRole = context.user.role === "member" || context.user.role === "guardian";
-  const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";
+  const showClassesScreenHeader = !["coach", "member", "guardian"].includes(context.user.role);
   const guardianChildren =
     context.user.role === "guardian"
       ? getGuardianFamilyMembers(context.user, context.db)
@@ -1050,12 +1050,11 @@ export function ClassesScreen() {
       ) : null}
 
       {canManageClasses ? (
-        <section className="mb-3 rounded-lg border border-zinc-200 bg-white p-3" data-testid="class-create-panel">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <CalendarPlus className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
-              <h2 className="min-w-0 truncate text-base font-semibold text-zinc-950">수업 생성</h2>
-            </div>
+        <section
+          className={isCoachRole ? "mb-2 flex justify-end" : "mb-3 rounded-lg border border-zinc-200 bg-white p-3"}
+          data-testid="class-create-panel"
+        >
+          {isCoachRole ? (
             <Button
               aria-controls="class-create-dialog"
               aria-expanded={classCreateFormOpen}
@@ -1065,9 +1064,28 @@ export function ClassesScreen() {
               variant="secondary"
               onClick={() => setClassCreateFormOpen(true)}
             >
-              열기
+              <CalendarPlus className="h-4 w-4" aria-hidden />
+              수업 생성
             </Button>
-          </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <CalendarPlus className="h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                <h2 className="min-w-0 truncate text-base font-semibold text-zinc-950">수업 생성</h2>
+              </div>
+              <Button
+                aria-controls="class-create-dialog"
+                aria-expanded={classCreateFormOpen}
+                data-testid="class-create-toggle"
+                size="lg"
+                type="button"
+                variant="secondary"
+                onClick={() => setClassCreateFormOpen(true)}
+              >
+                열기
+              </Button>
+            </div>
+          )}
           {classCreateFormOpen ? (
             <div
               className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:items-center"
@@ -1451,7 +1469,7 @@ export function ClassesScreen() {
       {!isFamilyRole && visibleSessions.length === 0 ? (
         <EmptyState title="예정 수업이 없습니다" />
       ) : (
-        <>
+        <div className={isCoachRole ? "flex flex-col" : undefined}>
           {isFamilyRole && hasFamilyCalendarContent ? (
             <FamilyClassCalendar
               availableDateKeys={registrationDateKeys}
@@ -1499,10 +1517,10 @@ export function ClassesScreen() {
                     </h2>
                   </div>
 	                  <span
-                      className={`inline-flex shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${syncStatusClasses[attendanceSync.status]}`}
-                      data-attendance-sync-state={attendanceSync.status}
-                      data-testid="attendance-sync-status"
-                    >
+	                    className={`inline-flex shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${syncStatusClasses[attendanceSync.status]}`}
+	                    data-attendance-sync-state={attendanceSync.status}
+	                    data-testid="attendance-sync-status"
+	                  >
 	                    {syncStatusLabels[attendanceSync.status]}
 	                  </span>
 	                </div>
@@ -1694,7 +1712,7 @@ export function ClassesScreen() {
 	          ) : null}
 
           {context.user.role === "coach" && canEditAttendance ? (
-            <div className="mb-2" data-testid="coach-mobile-tools">
+            <div className="order-last mb-2 mt-2" data-testid="coach-mobile-tools">
               <button
                 aria-controls="coach-mobile-tools-details"
                 aria-expanded={coachToolsOpen}
@@ -1883,7 +1901,7 @@ export function ClassesScreen() {
 		              return (
 		              <Fragment key={session.id}>
 		              <article
-		                className={`rounded-lg border border-zinc-200 bg-white ${isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "px-3 py-2" : "p-3"} ${
+		                className={`rounded-lg border border-zinc-200 bg-white ${isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "flex flex-col px-3 py-2" : "p-3"} ${
                     coachClassCollapsedOnMobile ? "hidden lg:block" : ""
                   }`}
                   data-coach-class-mobile-state={isCoachRole ? (coachClassCollapsedOnMobile ? "hidden" : "visible") : undefined}
@@ -2000,7 +2018,7 @@ export function ClassesScreen() {
 		                ) : null}
 
                 {canManageClasses ? (
-                  <>
+                  <div className={isCoachRole ? "order-3" : undefined}>
                     <form
                       className="mt-3 grid gap-3 border-b border-zinc-100 pb-4 sm:grid-cols-[1fr_0.5fr_auto]"
                       data-testid="class-edit-form"
@@ -2044,11 +2062,11 @@ export function ClassesScreen() {
                       selectedBranchId={context.selectedBranchId}
                       onSave={(memberIds) => updateClassSession(session.id, { enrolledMemberIds: memberIds })}
                     />
-                  </>
+                  </div>
                 ) : null}
 
                 {canEditAttendance ? (
-                  <>
+	                  <div className={isCoachRole ? "order-2" : undefined}>
 	                    {isCoachRole ? (
 	                      <button
 	                        aria-controls={`coach-class-roster-panel-${session.id}`}
@@ -2274,7 +2292,7 @@ export function ClassesScreen() {
                           : "출석 완료"}
                       </div>
                     )}
-                  </>
+	                  </div>
                 ) : (
                   <div
                     className={`grid gap-1 pt-1 ${visibleMembers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
@@ -2470,7 +2488,7 @@ export function ClassesScreen() {
               ) : null}
             </div>
           ) : null}
-        </>
+        </div>
       )}
 
       {otherDateCoachSessions.length > 0 ? (

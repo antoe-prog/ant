@@ -34,7 +34,7 @@ Vercel production은 `prebuild`와 서버 런타임에서 `FINAL_JUDO_DB_DRIVER=
 | --- | --- | --- |
 | `FINAL_JUDO_ENABLE_DEMO_LOGIN` | `0` 또는 미설정 | production 역할 선택 데모 로그인을 여는 위험 플래그다. 파일럿 리허설 작업창 외에는 사용하지 않는다. |
 | `FINAL_JUDO_ENABLE_DEV_RESET` | `0` 또는 미설정 | production `/api/v1/dev/reset` 허용 조건 중 하나다. helper 발급 실행별 토큰, run-owned 임시 JSON 마커, 실제 `PILOT_DB_FILE` 대상이 모두 일치해야 하며 공유·심볼릭 링크·PostgreSQL·운영 사용자 데이터에는 사용하지 않는다. |
-| `FINAL_JUDO_ENABLE_DEV_SMS_CODE` | `0` | 인증번호 발송 없이 로컬 격리 테스트를 수행할 때만 `1`로 설정한다. production에서는 무시되며 인증번호를 응답에 노출하지 않는다. |
+| `FINAL_JUDO_ENABLE_DEV_SMS_CODE` | `0` | 인증번호 발송 없이 로컬 격리 테스트를 수행할 때만 `1`로 설정한다. production에서는 릴리즈 도구가 발급한 소유권 토큰·임시 JSON 스토어·표식 파일이 모두 검증된 격리 스모크에서만 허용되며, 일반 운영 환경에서는 인증번호를 응답에 노출하지 않는다. |
 | `FINAL_JUDO_SMOKE_OWNERSHIP_TOKEN` | 미설정 | 격리 테스트 서버·reset 호출자·임시 JSON 저장소 마커를 묶는 256비트 소유권 토큰이다. 테스트 러너가 임의 생성하며 저장·공유하지 않는다. 임의 문자열이나 약한 고정값은 거부한다. |
 
 ## 비밀번호 재설정 문자 인증
@@ -52,9 +52,9 @@ Vercel production은 `prebuild`와 서버 런타임에서 `FINAL_JUDO_DB_DRIVER=
 
 | 변수 | 개발 | 파일럿/운영 | 설명 |
 | --- | --- | --- | --- |
-| `FINAL_JUDO_PAYMENT_PROVIDER` | 비움 | `external` | 비어 있으면 mock provider로 동작한다. |
+| `FINAL_JUDO_PAYMENT_PROVIDER` | 비움 | `external` | 비어 있으면 개발 mock provider로 동작한다. 설정할 때는 정확히 `external`만 허용하며 오타·미지원 값은 `PAYMENT_PROVIDER_INVALID`로 차단한다. |
 | `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL` | 비움 | provider checkout HTTPS origin | 경로·쿼리·fragment·자격증명 없는 외부 provider 결제 요청 origin. |
-| `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET` | 비움 가능 | 필수 | production webhook 인증 secret. 비어 있으면 webhook route는 `503`으로 차단한다. |
+| `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET` | 비움 가능 | 필수 | production webhook 인증 secret. UTF-8 기준 32바이트 이상이며 예제·placeholder가 아닌 값만 허용한다. 누락 또는 약한 값이면 webhook route와 production preflight를 차단한다. |
 
 Provider event ID는 body의 `providerEventId` 또는 `x-final-judo-payment-event-id` header에서 받는다. 같은 event ID 재전송은 상태 이력과 감사 로그를 중복 생성하지 않는다. 실제 provider 연결 전에는 provider의 event ID 필드, 서명 header, 영수증 URL 필드를 최종 매핑해야 한다.
 
@@ -67,7 +67,7 @@ Provider event ID는 body의 `providerEventId` 또는 `x-final-judo-payment-even
 | `FINAL_JUDO_VAPID_SUBJECT` | `mailto:ops@finaljudo.test` | 운영 연락처 | VAPID subject. |
 | `CRON_SECRET` | 비움 가능 | 필수 | 푸시 outbox 재시도 endpoint를 보호하는 무작위 Bearer secret. 원문은 배포 플랫폼 secret store에만 둔다. |
 
-VAPID 키가 없으면 UI와 API는 `configured: false`를 보여주고 실제 push 발송 대신 구성 필요 상태를 기록한다. `vercel.json`의 일일 cron은 모든 Vercel 플랜에서 배포 가능한 안전한 기본값이며, 더 짧은 재시도 주기는 배포 시점의 플랜 제한을 확인한 뒤 조정한다.
+VAPID 키가 없으면 UI와 API는 `configured: false`를 보여주고 실제 push 발송 대신 구성 필요 상태를 기록한다. 공지 발행·재발송·대회 신청 검토 요청은 outbox 저장 후 응답하고, 응답 이후 최대 20건을 10개 worker로 처리한다. 예약 worker는 한 번에 최대 50건을 10개 worker로 처리한다. `vercel.json`의 일일 cron은 모든 Vercel 플랜에서 배포 가능한 안전한 기본값이며, 이 주기에서는 50건을 넘는 대기열이나 재시도 작업이 다음 날까지 남을 수 있다. 더 짧은 재시도 주기는 배포 시점의 플랜 제한을 확인한 뒤 조정한다.
 
 ## Test And Pilot Commands
 

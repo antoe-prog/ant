@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
 import { authInputLimits } from "@/lib/auth-input-policy";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, sessionCookieName } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { createSessionCookieOptions } from "@/server/auth-policy";
 import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
-import { createAuthSession, revokeUserAuthSessions } from "@/server/auth-session";
+import { createAuthSession, revokeUserSecurityAccess } from "@/server/auth-session";
 import {
   findUserByInvitationToken,
   getInvitationPasswordRateLimit,
-  invitationSecurityLockKey,
   isInvitationExpired,
   secureStoredInvitationTokens,
 } from "@/server/invitation-token";
@@ -104,7 +104,7 @@ export async function POST(
   const body = (await request.json().catch(() => null)) as InvitationAcceptBody | null;
   const password = body?.password;
 
-  return withServerDbLock(invitationSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
     const invitedUser = findUserByInvitationToken(db.users, token);
 
@@ -175,7 +175,7 @@ export async function POST(
       message: "초대 수락과 비밀번호 설정을 완료했습니다.",
       createdAt: now,
     };
-    const updatedDb = revokeUserAuthSessions({
+    const updatedDb = revokeUserSecurityAccess({
       ...db,
       users: securedUsers.map((candidate) =>
         candidate.id === invitedUser.id

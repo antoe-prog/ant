@@ -653,6 +653,96 @@ function CounselingNoteDialog({
   );
 }
 
+function CounselingNoteListDialog({
+  authorNamesById,
+  canManageNote,
+  member,
+  notes,
+  role,
+  onClose,
+  onDelete,
+  onEdit,
+}: {
+  authorNamesById: ReadonlyMap<string, string>;
+  canManageNote: (note: CounselingNote) => boolean;
+  member: Member;
+  notes: CounselingNote[];
+  role: UserRole;
+  onClose: () => void;
+  onDelete: (note: CounselingNote) => void;
+  onEdit: (note: CounselingNote) => void;
+}) {
+  const isFamilyRole = role === "member" || role === "guardian";
+
+  return (
+    <MemberFormDialog
+      description={`전체 ${notes.length}건`}
+      icon={<Pencil className="h-5 w-5" aria-hidden />}
+      labelId={`counseling-note-list-dialog-title-${member.id}`}
+      testId={`member-note-list-dialog-${member.id}`}
+      title={`${member.name} 최근 메모`}
+      onClose={onClose}
+    >
+      <ul className="space-y-2" data-testid={`member-note-list-${member.id}`}>
+        {notes.map((note) => {
+          const noteManageable = canManageNote(note);
+
+          return (
+            <li
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+              data-testid={isFamilyRole ? "family-member-feedback-card" : "coach-member-note-card"}
+              key={note.id}
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-zinc-500">
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  {noteTypeLabels[note.noteType]}
+                </span>
+                {!isFamilyRole ? (
+                  <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                    {noteVisibilityLabels[note.visibility]}
+                  </span>
+                ) : null}
+                <span>{formatNoteDate(note.createdAt)}</span>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">{note.body}</p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-zinc-500">
+                  {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
+                  {note.updatedAt && note.updatedAt !== note.createdAt ? " · 수정됨" : ""}
+                </p>
+                {noteManageable ? (
+                  <div className="flex gap-1">
+                    <button
+                      aria-label={`${member.name} 메모 수정`}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-zinc-600 transition hover:bg-white hover:text-zinc-900"
+                      data-testid={`member-note-edit-${note.id}`}
+                      type="button"
+                      onClick={() => onEdit(note)}
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden />
+                      수정
+                    </button>
+                    <button
+                      aria-label={`${member.name} 메모 삭제`}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                      data-testid={`member-note-delete-${note.id}`}
+                      type="button"
+                      onClick={() => onDelete(note)}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                      삭제
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </MemberFormDialog>
+  );
+}
+
 export function MembersScreen() {
   const searchParams = useSearchParams();
   const context = useApiContext();
@@ -725,7 +815,7 @@ export function MembersScreen() {
   const [noteDraft, setNoteDraft] = useState<NoteDraft>(() => createEmptyNoteDraft(context.user.role));
   const [noteDialog, setNoteDialog] = useState<NoteDialogState | null>(null);
   const [noteMutationPending, setNoteMutationPending] = useState(false);
-  const [expandedNoteMemberIds, setExpandedNoteMemberIds] = useState<string[]>([]);
+  const [noteListMemberId, setNoteListMemberId] = useState<string | null>(null);
   const [coachMemberListExpanded, setCoachMemberListExpanded] = useState(false);
   const [profileDrafts, setProfileDrafts] = useState<Record<string, ProfileDraft>>({});
   const [editingContactMemberId, setEditingContactMemberId] = useState<string | null>(null);
@@ -1039,14 +1129,22 @@ export function MembersScreen() {
     }
   }
 
-  function isNoteListExpanded(memberId: string) {
-    return expandedNoteMemberIds.includes(memberId);
+  function openNoteListDialog(memberId: string) {
+    setNoteListMemberId(memberId);
   }
 
-  function toggleNoteList(memberId: string) {
-    setExpandedNoteMemberIds((current) =>
-      current.includes(memberId) ? current.filter((candidate) => candidate !== memberId) : [...current, memberId],
-    );
+  function closeNoteListDialog() {
+    setNoteListMemberId(null);
+  }
+
+  function openEditNoteFromList(member: Member, note: CounselingNote) {
+    closeNoteListDialog();
+    openEditNoteDialog(member, note);
+  }
+
+  function openDeleteNoteFromList(member: Member, note: CounselingNote) {
+    closeNoteListDialog();
+    openDeleteNoteDialog(member, note);
   }
 
   function getAvailableGuardians(member: Member) {
@@ -1296,9 +1394,6 @@ export function MembersScreen() {
     setNoteMutationPending(false);
 
     if (saved) {
-      setExpandedNoteMemberIds((current) =>
-        current.includes(member.id) ? current : [...current, member.id],
-      );
       setNoteDialog(null);
       return;
     }
@@ -1341,6 +1436,12 @@ export function MembersScreen() {
   const noteDialogMember = noteDialog
     ? data.find((member) => member.id === noteDialog.memberId) ?? null
     : null;
+  const noteListMember = noteListMemberId
+    ? data.find((member) => member.id === noteListMemberId) ?? null
+    : null;
+  const noteListNotes = noteListMember
+    ? (notesByMemberId.get(noteListMember.id) ?? []).filter((note) => canReadCounselingNote(context.user, note))
+    : [];
   const memberDeleteTarget = memberDeleteId
     ? data.find((member) => member.id === memberDeleteId) ?? null
     : null;
@@ -1803,9 +1904,8 @@ export function MembersScreen() {
             const memberNotes = (notesByMemberId.get(member.id) ?? []).filter(
               (note) => !isFamilyRole || canReadCounselingNote(context.user, note),
             );
-            const noteListExpanded = isNoteListExpanded(member.id);
             const latestMemberNote = memberNotes[0];
-            const visibleMemberNotes = isCoachRole ? (noteListExpanded ? memberNotes : []) : memberNotes.slice(0, 3);
+            const visibleMemberNotes = isCoachRole ? [] : memberNotes.slice(0, 3);
             const showAlertSection = !isFamilyRole && member.alerts.length > 0;
             const showCoachNoteListToggle = isCoachRole && memberNotes.length > 0;
             const coachMemberCollapsedOnMobile =
@@ -2511,7 +2611,7 @@ export function MembersScreen() {
 
               <div
                 className="mt-4 border-t border-zinc-100 pt-4"
-                data-note-state={isCoachRole ? (noteListExpanded ? "open" : "closed") : undefined}
+                data-note-state={isCoachRole ? "closed" : undefined}
                 data-testid={isCoachRole ? "coach-member-note-section" : undefined}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -2535,10 +2635,10 @@ export function MembersScreen() {
                         className="inline-flex min-h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                         data-testid={`member-note-list-toggle-${member.id}`}
                         type="button"
-                        aria-expanded={isNoteListExpanded(member.id)}
-                        onClick={() => toggleNoteList(member.id)}
+                        aria-haspopup="dialog"
+                        onClick={() => openNoteListDialog(member.id)}
                       >
-                        {isNoteListExpanded(member.id) ? "최근 메모 닫기" : "최근 메모 보기"}
+                        최근 메모 보기
                       </button>
                     ) : null}
                     {canCreateNotes ? (
@@ -2558,7 +2658,6 @@ export function MembersScreen() {
                 {visibleMemberNotes.length > 0 ? (
                   <ul className="mt-2 space-y-2" data-testid={`member-note-list-${member.id}`}>
                     {visibleMemberNotes.map((note) => {
-                      const collapseBody = isCoachRole && !noteListExpanded;
                       const canManageNote = canManageCounselingNote(context.user, note);
 
                       return (
@@ -2578,9 +2677,7 @@ export function MembersScreen() {
                           ) : null}
                           <span>{formatNoteDate(note.createdAt)}</span>
                         </div>
-                        <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800 ${collapseBody ? "max-h-12 overflow-hidden" : ""}`}>
-                          {note.body}
-                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">{note.body}</p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-zinc-500">
                             {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
@@ -2647,6 +2744,18 @@ export function MembersScreen() {
             );
           })}
         </div>
+        {noteListMember && noteListNotes.length > 0 ? (
+          <CounselingNoteListDialog
+            authorNamesById={authorNamesById}
+            canManageNote={(note) => canManageCounselingNote(context.user, note)}
+            member={noteListMember}
+            notes={noteListNotes}
+            role={context.user.role}
+            onClose={closeNoteListDialog}
+            onDelete={(note) => openDeleteNoteFromList(noteListMember, note)}
+            onEdit={(note) => openEditNoteFromList(noteListMember, note)}
+          />
+        ) : null}
         {noteDialog && noteDialogMember ? (
           <CounselingNoteDialog
             draft={noteDraft}

@@ -29,6 +29,7 @@ import {
 } from "@/lib/payment-checkout-access";
 import { roleLabels } from "@/lib/roles";
 import { useAppStore } from "@/store/app-store";
+import { familyPaymentMethodLabels } from "@/lib/family-payment-request-policy";
 import { ErrorState } from "@/components/ui/state-blocks";
 import { PaymentStatusBadge } from "@/components/ui/primitives";
 
@@ -47,30 +48,9 @@ const paymentMethods: Array<{ id: PaymentMethod; label: string; helper: string }
   { id: "accountTransfer", label: "계좌이체", helper: "은행 앱으로 이체" },
 ];
 
-const bankOptions = ["국민은행", "신한은행", "우리은행", "하나은행", "농협은행", "기업은행", "카카오뱅크", "토스뱅크"];
+const bankOptions = familyPaymentMethodLabels.bankTransfer;
 const installmentOptions = ["일시불", "2개월", "3개월", "6개월", "12개월"];
-const cardIssuers = [
-  "신한카드",
-  "비씨카드",
-  "우리카드",
-  "KB국민카드",
-  "롯데카드",
-  "현대카드",
-  "삼성카드",
-  "NH카드",
-  "하나카드",
-  "씨티카드",
-  "카카오뱅크",
-  "광주카드",
-  "전북카드",
-  "수협카드",
-  "제주카드",
-  "신협카드",
-  "우체국체크카드",
-  "새마을금고",
-  "저축은행카드",
-  "KDB산업체크카드",
-];
+const cardIssuers = familyPaymentMethodLabels.card;
 const manualAddressEntryMessage = "우편번호와 주소를 직접 입력해 주세요.";
 
 function getInitialPaymentMethod(value?: string): PaymentMethod {
@@ -207,12 +187,6 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
       });
     }
 
-    if (window.location.hash === "#payment-account-method-panel") {
-      requestAnimationFrame(() => {
-        document.getElementById("payment-account-method-panel")?.scrollIntoView({ block: "center" });
-      });
-    }
-
     if (window.location.hash === "#payment-wooriwonpay-modal") {
       requestAnimationFrame(() => {
         setSelectedPaymentMethod("card");
@@ -222,6 +196,27 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
       });
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      window.location.hash !== "#payment-account-method-panel" ||
+      (selectedPaymentMethod !== "virtualAccount" && selectedPaymentMethod !== "accountTransfer")
+    ) {
+      return;
+    }
+
+    let scrollFrame = 0;
+    const renderFrame = requestAnimationFrame(() => {
+      scrollFrame = requestAnimationFrame(() => {
+        document.getElementById("payment-account-method-panel")?.scrollIntoView({ block: "center" });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(renderFrame);
+      cancelAnimationFrame(scrollFrame);
+    };
+  }, [selectedPaymentMethod]);
 
   useEffect(() => {
     if (!wooriPayOpen) {
@@ -362,6 +357,48 @@ export function PaymentCheckoutScreen({ initialPaymentMethod, paymentId }: Payme
           </dl>
           <p className="mt-3 text-sm leading-6 text-zinc-600">
             실제 결제나 출금은 진행되지 않았습니다. 담당자가 확인 후 안내합니다.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  if (checkoutAccess.state === "pending" && payment.onlinePayment?.status === "pending") {
+    return (
+      <div className="mx-auto max-w-2xl" data-testid="payment-online-checkout-pending">
+        <div className="mb-3">
+          <Link
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            href="/app/payments"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            목록
+          </Link>
+        </div>
+        <section className="rounded-lg border border-teal-200 bg-white p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
+              <CreditCard className="h-5 w-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-teal-700">온라인 결제 요청 중</p>
+              <h1 className="mt-1 text-xl font-semibold text-zinc-950">기존 결제 링크를 이용해 주세요</h1>
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                {member.name} · {branch.name} · {getFamilyPaymentPlanLine(payment.planName, member.ageGroup)}
+              </p>
+            </div>
+          </div>
+          <a
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            href={payment.onlinePayment.checkoutUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <CreditCard className="h-4 w-4" aria-hidden />
+            결제 링크 열기
+          </a>
+          <p className="mt-3 text-sm leading-6 text-zinc-600">
+            중복 납부를 막기 위해 다른 납부 방법은 새로 요청할 수 없습니다.
           </p>
         </section>
       </div>

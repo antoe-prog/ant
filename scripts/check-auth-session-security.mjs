@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createMockData } from "../src/lib/mock-data.ts";
-import { createRandomPasswordHash, verifyPassword } from "../src/server/auth-password.ts";
+import {
+  createRandomPasswordHash,
+  verifyAuthenticationPassword,
+  verifyPassword,
+} from "../src/server/auth-password.ts";
 import {
   authSecurityLockKey,
   createAuthSession,
@@ -53,7 +57,20 @@ for (const malformedHash of [
 ]) {
   assert.doesNotThrow(() => verifyPassword("password", malformedHash));
   assert.equal(verifyPassword("password", malformedHash), false, "malformed password hashes must fail closed");
+  assert.equal(
+    verifyAuthenticationPassword("final-judo-invalid-credential-sentinel", malformedHash),
+    false,
+    "malformed account hashes must use dummy verification without authenticating",
+  );
 }
+const authenticationHash = createRandomPasswordHash("authentication-password");
+assert.equal(verifyAuthenticationPassword("authentication-password", authenticationHash), true);
+assert.equal(verifyAuthenticationPassword("wrong-password", authenticationHash), false);
+assert.equal(
+  verifyAuthenticationPassword("final-judo-invalid-credential-sentinel", undefined),
+  false,
+  "unknown accounts must use dummy verification without authenticating",
+);
 
 function authAudit({ id, result, action = "auth.login", targetId = user.id, createdAt }) {
   return {
@@ -249,38 +266,66 @@ const userRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/route.
 const resetRouteSource = readFileSync("src/app/api/v1/auth/password-reset/route.ts", "utf8");
 const registerRouteSource = readFileSync("src/app/api/v1/auth/register/route.ts", "utf8");
 const logoutRouteSource = readFileSync("src/app/api/v1/auth/logout/route.ts", "utf8");
+const authSessionSource = readFileSync("src/server/auth-session.ts", "utf8");
+const authNotificationStateLockSource = readFileSync("src/server/auth-notification-state-lock.ts", "utf8");
 
 assert(loginRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(loginRouteSource.includes("function isLoginBody(value: unknown)"));
 assert(loginRouteSource.indexOf("if (!isLoginBody(rawBody))") < loginRouteSource.indexOf("loginId ="));
 assert(loginRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < loginRouteSource.indexOf("const db = await readServerDb()"));
-assert(loginRouteSource.indexOf("const throttle = getAccountLoginThrottle") < loginRouteSource.indexOf("verifyPassword(password"));
+assert(loginRouteSource.indexOf("const throttle = user ? getAccountLoginThrottle") < loginRouteSource.indexOf("verifyAuthenticationPassword(password"));
 assert(loginRouteSource.includes("const canBypassAccountThrottle = passwordMatches && !usesBlockedSharedPassword;"));
-assert(loginRouteSource.indexOf("verifyPassword(password") < loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"));
+assert(loginRouteSource.indexOf("verifyAuthenticationPassword(password") < loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"));
+assert(loginRouteSource.includes("verifyAuthenticationPassword(password, user?.passwordHash)"));
 assert(loginRouteSource.includes('process.env.NODE_ENV === "production"'));
 assert(loginRouteSource.includes("password === defaultPilotPassword"));
 assert(loginRouteSource.includes("if (shouldRecordBlockedLoginAudit(db, user.id, now))"));
-assert(loginRouteSource.includes('rateLimitedResponse.headers.set("Retry-After"'));
+const throttledLoginBranch = loginRouteSource.slice(
+  loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"),
+  loginRouteSource.indexOf("if (!user || !passwordMatches || usesBlockedSharedPassword)"),
+);
+assert(throttledLoginBranch.includes("return createInvalidCredentialResponse();"));
+assert(!throttledLoginBranch.includes("429"));
+assert(!throttledLoginBranch.includes("Retry-After"));
 assert(!loginRouteSource.includes("after: { phone:"), "login audits must not persist raw identifiers");
 assert(!/x-forwarded-for|x-real-ip|request\.ip/i.test(loginRouteSource), "login throttling must not persist request-origin identifiers");
 assert(logoutRouteSource.includes("withServerDbLock(authSecurityLockKey"));
 assert(logoutRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < logoutRouteSource.indexOf("const db = await readServerDb()"));
-assert(passwordRouteSource.includes("withServerDbLock(authSecurityLockKey"));
+assert(passwordRouteSource.includes("withAuthAndNotificationStateLock"));
 assert(passwordRouteSource.includes("const freshDb = await readServerDb()"));
 assert(passwordRouteSource.includes("readUnmodifiedPassword(body?.temporaryPassword)"));
-assert(roleRouteSource.includes("withServerDbLock(authSecurityLockKey"));
+assert(roleRouteSource.includes("withAuthAndNotificationStateLock"));
 assert(roleRouteSource.includes("const db = await readServerDb()"));
-assert(userRouteSource.match(/withServerDbLock\(authSecurityLockKey/g)?.length === 2);
+assert(userRouteSource.match(/withAuthAndNotificationStateLock\(/g)?.length === 2);
 assert(userRouteSource.includes("readUnmodifiedPassword(body.password)"));
 assert(resetRouteSource.includes("withServerDbLock(authSecurityLockKey"));
+assert(resetRouteSource.includes("withAuthAndNotificationStateLock"));
+assert(
+  authNotificationStateLockSource.indexOf("withServerDbLock(authSecurityLockKey") <
+    authNotificationStateLockSource.indexOf("withServerDbLock(notificationOutboxLockKey"),
+  "account security and push state mutations must acquire both locks in one stable order",
+);
 assert(resetRouteSource.includes("hasReachedPasswordResetRequestLimit"));
 assert(resetRouteSource.includes("if (!isPasswordResetBody(rawBody))"));
 assert(resetRouteSource.includes("findVerifiedPasswordResetChallenge"));
 assert(resetRouteSource.includes("consumePasswordResetChallenges"));
-assert(resetRouteSource.includes("revokeUserAuthSessions"));
+assert(
+  resetRouteSource.includes("revokeUserSecurityAccess"),
+  "completed password reset must revoke both sessions and earlier-device push credentials",
+);
+assert(
+  authSessionSource.includes("cancelPushDispatchJobsForSubscriptions") &&
+    authSessionSource.includes("revokedSubscriptionIds") &&
+    authSessionSource.includes("return cancelPushDispatchJobsForSubscriptions(nextDb, revokedSubscriptionIds"),
+  "security-context revocation must cancel queued earlier-device push jobs through the outbox state machine",
+);
 assert(resetRouteSource.includes("passwordResetMinimumPasswordLength"));
 assert(!resetRouteSource.includes("after: { identifier }"), "reset audits must not persist the supplied identifier");
-assert(registerRouteSource.indexOf("회원가입 입력 형식이 올바르지 않습니다.") < registerRouteSource.indexOf("withServerDbLock(`auth-register-phone:${phone}`"));
+assert(registerRouteSource.includes("if (!isRegisterBody(rawBody))"));
+assert(registerRouteSource.includes("createPhoneSignupChallenge"));
+assert(registerRouteSource.includes("verifyPhoneSignupCode"));
+assert(registerRouteSource.includes("withServerDbLock(`auth-register-phone:${phone}`"));
+assert(registerRouteSource.indexOf("const verification = verifyPhoneSignupCode") < registerRouteSource.indexOf("const user: AppUser"));
 
 console.log(JSON.stringify({
   ok: true,
@@ -293,12 +338,15 @@ console.log(JSON.stringify({
     "auth and user administration share one security lock",
     "password input whitespace preserved",
     "malformed password hashes fail closed without throwing",
+    "unknown and malformed accounts take dummy password verification without authenticating",
     "five failures activate throttling with one blocked audit per failure window",
+    "account throttling is enforced without a distinguishable status or Retry-After response",
     "valid active-account credentials recover from account-only throttling while the production shared password stays blocked",
     "successful login resets the failure window",
     "password reset writes stop after three account requests per hour",
     "barrier transition rejects stale password and session state",
     "post-transition login observes the latest role",
-    "login/logout and account security routes use the shared lock without raw identifier audit data",
+    "login/logout use the auth lock and account security changes share ordered auth/push locks without raw identifier audit data",
+    "security-context changes cancel queued earlier-device push jobs and fence in-flight delivery uncertainty",
   ],
 }, null, 2));

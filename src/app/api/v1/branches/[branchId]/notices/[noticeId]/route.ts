@@ -253,39 +253,78 @@ export async function DELETE(
     return jsonError(403, "FORBIDDEN", "본인이 관리할 수 있는 공지만 삭제할 수 있습니다.");
   }
 
-  const now = new Date().toISOString();
-  const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-    branchId,
-    actorUserId: user.id,
-    action: "notice.delete",
-    targetType: "notice",
-    targetId: notice.id,
-    before: {
-      title: notice.title,
-      important: notice.important,
-      audience: notice.audience,
-      createdByUserId: notice.createdByUserId ?? null,
-      targetClassIds: notice.targetClassIds ?? [],
-      targetMemberIds: notice.targetMemberIds ?? [],
-      readByUserIds: notice.readByUserIds ?? [],
-    },
-    after: null,
-    result: "success",
-    message: "공지를 삭제했습니다.",
-    createdAt: now,
-  };
-  const nextDb = await writeServerDb(cancelPendingNoticePushJobs({
-    ...db,
-    notices: db.notices.filter((candidate) => candidate.id !== notice.id),
-    auditLogs: [auditLog, ...db.auditLogs],
-  }, notice.id, "공지가 삭제되어 대기 중인 발송 요청을 취소했습니다.", now));
+  return withServerDbLock(noticeStateLockKey, async () => {
+    const latestDb = await readServerDb();
+    const { user: latestUser, response: lockedResponse } = requireSession(request, latestDb);
 
-  return jsonOk({
-    ...createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId),
-    notice: {
-      deletedAt: now,
-      id: notice.id,
-    },
+    if (!latestUser) {
+      return lockedResponse;
+    }
+
+    if (!noticePublisherRoles.has(latestUser.role)) {
+      return jsonError(403, "FORBIDDEN", "공지 삭제 권한이 없습니다.");
+    }
+
+    if (!getAccessibleBranchIds(latestUser, latestDb).includes(branchId)) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점의 공지만 삭제할 수 있습니다.");
+    }
+
+    const latestScope = requireSelectedBranchScope(request, latestUser, latestDb);
+
+    if (latestScope.response) {
+      return latestScope.response;
+    }
+
+    if (latestScope.selectedBranchId && latestScope.selectedBranchId !== branchId) {
+      return jsonError(403, "FORBIDDEN", "선택한 지점의 공지만 삭제할 수 있습니다.");
+    }
+
+    const latestNotice = latestDb.notices.find(
+      (candidate) => candidate.id === noticeId && candidate.branchId === branchId,
+    );
+
+    if (!latestNotice) {
+      return jsonError(404, "NOT_FOUND", "삭제할 공지를 찾을 수 없습니다.");
+    }
+
+    if (!canDeleteNotice(latestUser, latestDb, latestNotice)) {
+      return jsonError(403, "FORBIDDEN", "본인이 관리할 수 있는 공지만 삭제할 수 있습니다.");
+    }
+
+    const now = new Date().toISOString();
+    const auditLog: AuditLog = {
+      id: `audit-${Date.now()}-${latestDb.auditLogs.length + 1}`,
+      branchId,
+      actorUserId: latestUser.id,
+      action: "notice.delete",
+      targetType: "notice",
+      targetId: latestNotice.id,
+      before: {
+        title: latestNotice.title,
+        important: latestNotice.important,
+        audience: latestNotice.audience,
+        createdByUserId: latestNotice.createdByUserId ?? null,
+        targetClassIds: latestNotice.targetClassIds ?? [],
+        targetMemberIds: latestNotice.targetMemberIds ?? [],
+        readByUserIds: latestNotice.readByUserIds ?? [],
+      },
+      after: null,
+      result: "success",
+      message: "공지를 삭제했습니다.",
+      createdAt: now,
+    };
+    const nextDb = await writeServerDb(cancelPendingNoticePushJobs({
+      ...latestDb,
+      notices: latestDb.notices.filter((candidate) => candidate.id !== latestNotice.id),
+      auditLogs: [auditLog, ...latestDb.auditLogs],
+    }, latestNotice.id, "공지가 삭제되어 대기 중인 발송 요청을 취소했습니다.", now));
+
+    return jsonOk({
+      ...createBootstrapPayload(nextDb, latestUser, latestScope.selectedBranchId),
+      notice: {
+        deletedAt: now,
+        id: latestNotice.id,
+      },
+    });
   });
 }

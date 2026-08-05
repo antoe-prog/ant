@@ -1,14 +1,19 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import type { AuditLog, MockDatabase } from "@/lib/domain";
 import { getAuthInputLimitError } from "@/lib/auth-input-policy";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
-import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-password";
+import {
+  createRandomPasswordHash,
+  defaultPilotPassword,
+  runPasswordHashTimingEqualizer,
+} from "@/server/auth-password";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { jsonError, jsonOk } from "@/server/api";
 import {
   authSecurityLockKey,
   hasReachedPasswordResetRequestLimit,
-  revokeUserAuthSessions,
+  revokeUserSecurityAccess,
 } from "@/server/auth-session";
 import {
   consumePasswordResetChallenges,
@@ -16,6 +21,7 @@ import {
   findVerifiedPasswordResetChallenge,
   passwordResetCodeLength,
   passwordResetMinimumPasswordLength,
+  reconcileFailedPasswordResetDelivery,
   verifyPasswordResetCode,
 } from "@/server/password-reset";
 import {
@@ -79,7 +85,7 @@ function createPasswordResetAudit(
 }
 
 async function requestVerificationCode(phone: string) {
-  const readiness = getPasswordResetSmsReadiness();
+  const readiness = await getPasswordResetSmsReadiness();
 
   if (!readiness.ready) {
     return jsonError(
@@ -99,12 +105,14 @@ async function requestVerificationCode(phone: string) {
     );
 
     if (!user) {
+      runPasswordHashTimingEqualizer(phone);
       return { kind: "anonymous" as const };
     }
 
     const now = new Date();
 
     if (hasReachedPasswordResetRequestLimit(db, user.id, now)) {
+      runPasswordHashTimingEqualizer(phone);
       return { kind: "limited" as const };
     }
 
@@ -130,9 +138,11 @@ async function requestVerificationCode(phone: string) {
 
     return {
       kind: "reserved" as const,
+      auditLogId: auditLog.id,
       challengeId: created.challenge.id,
       code: created.code,
       phone: normalizePhoneNumber(user.phone ?? ""),
+      requestedAt: createdAt,
       userId: user.id,
       branchId: user.branchIds[0] ?? null,
     };
@@ -142,39 +152,43 @@ async function requestVerificationCode(phone: string) {
     return jsonOk({ ok: true, next: "verify" as const });
   }
 
-  const delivery = await sendPasswordResetSms(readiness, {
-    code: reserved.code,
-    phone: reserved.phone,
-  });
-
-  if (!delivery.ok) {
-    await withServerDbLock(authSecurityLockKey, async () => {
-      const db = await readServerDb();
-      const createdAt = new Date().toISOString();
-      const auditLog = createPasswordResetAudit(db, {
-        action: "auth.password_reset.request",
-        branchId: reserved.branchId,
-        createdAt,
-        message: "비밀번호 변경 인증번호 발송에 실패했습니다.",
-        result: "failed",
-        userId: reserved.userId,
-        after: { verificationDispatched: false },
-      });
-
-      await writeServerDb({
-        ...db,
-        passwordResetChallenges: db.passwordResetChallenges.filter(
-          (challenge) => challenge.id !== reserved.challengeId,
-        ),
-        auditLogs: [auditLog, ...db.auditLogs],
-      });
+  const deliverReservedCode = async () => {
+    const delivery = await sendPasswordResetSms(readiness, {
+      code: reserved.code,
+      phone: reserved.phone,
     });
 
-    return jsonError(
-      503,
-      "PASSWORD_RESET_SMS_DELIVERY_FAILED",
-      "인증번호를 보내지 못했습니다. 잠시 후 다시 시도해 주세요.",
-    );
+    if (!delivery.ok) {
+      await withServerDbLock(authSecurityLockKey, async () => {
+        const db = await readServerDb();
+        await writeServerDb(reconcileFailedPasswordResetDelivery(db, {
+          auditLogId: reserved.auditLogId,
+          challengeId: reserved.challengeId,
+          requestedAt: reserved.requestedAt,
+          userId: reserved.userId,
+        }));
+      });
+    }
+
+    return delivery;
+  };
+
+  if (readiness.mode === "webhook") {
+    after(async () => {
+      try {
+        await deliverReservedCode();
+      } catch {
+        // The bounded challenge expires automatically; a retry creates a new auditable reservation.
+      }
+    });
+
+    return jsonOk({ ok: true, next: "verify" as const });
+  }
+
+  const delivery = await deliverReservedCode();
+
+  if (!delivery.ok) {
+    return jsonOk({ ok: true, next: "verify" as const });
   }
 
   return jsonOk({
@@ -195,6 +209,7 @@ async function verifyCode(phone: string, code: string) {
     );
 
     if (!user) {
+      runPasswordHashTimingEqualizer(code);
       return jsonError(400, "PASSWORD_RESET_CODE_INVALID", "인증번호가 올바르지 않거나 만료되었습니다.");
     }
 
@@ -229,7 +244,7 @@ async function verifyCode(phone: string, code: string) {
 }
 
 async function completePasswordReset(resetToken: string, password: string) {
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
     const now = new Date();
     const challenge = findVerifiedPasswordResetChallenge(db, resetToken, now);
@@ -269,7 +284,7 @@ async function completePasswordReset(resetToken: string, password: string) {
       }),
     };
     const consumedDb = consumePasswordResetChallenges(
-      revokeUserAuthSessions(dbWithUpdatedUser, user.id, now),
+      revokeUserSecurityAccess(dbWithUpdatedUser, user.id, now),
       user.id,
       now,
     );

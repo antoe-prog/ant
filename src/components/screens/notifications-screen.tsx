@@ -18,6 +18,7 @@ import {
 } from "@/lib/notification-alerts";
 import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
+import { connectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
 import {
   getNativeAppPermissionStatus,
   isNativeAndroidApp,
@@ -58,14 +59,6 @@ type NotificationItem = {
   title: string;
   tone: NotificationTone;
 };
-
-function decodeVapidPublicKey(publicKey: string) {
-  const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
-  const base64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const bytes = window.atob(base64);
-
-  return Uint8Array.from(bytes, (character) => character.charCodeAt(0));
-}
 
 function audienceLabel(notice: Notice) {
   return notice.audience.map((item) => (item === "all" ? "전체" : roleLabels[item])).join(", ");
@@ -323,50 +316,7 @@ export function NotificationsScreen() {
       return "ready" as const;
     }
 
-    if (
-      !("Notification" in window) ||
-      !("serviceWorker" in navigator) ||
-      !("PushManager" in window)
-    ) {
-      return "hidden" as const;
-    }
-
-    const config = await apiClient.getPushConfig();
-
-    if (!config.configured || !config.publicKey) {
-      return "hidden" as const;
-    }
-
-    let permission = Notification.permission;
-
-    if (permission === "default" && requestPermission) {
-      permission = await Notification.requestPermission();
-    }
-
-    if (permission === "denied") {
-      return "blocked" as const;
-    }
-
-    if (permission !== "granted") {
-      return "prompt" as const;
-    }
-
-    const registration =
-      (await navigator.serviceWorker.getRegistration("/")) ??
-      (await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }));
-    const existingSubscription = await registration.pushManager.getSubscription();
-    const subscription =
-      existingSubscription ??
-      (await registration.pushManager.subscribe({
-        applicationServerKey: decodeVapidPublicKey(config.publicKey),
-        userVisibleOnly: true,
-      }));
-
-    if (!config.currentUserSubscribed || !existingSubscription) {
-      await apiClient.subscribeToPush(subscription.toJSON(), window.navigator.userAgent);
-    }
-
-    return "ready" as const;
+    return connectCurrentBrowserPushSubscription({ requestPermission });
   }, [familyNotificationsAlwaysOn]);
 
   useEffect(() => {

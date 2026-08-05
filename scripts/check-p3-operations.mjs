@@ -55,10 +55,10 @@ function assertIncludes(source, snippet, label) {
     ["P3 진행률만 갱신", "운영 확인"],
     ["P3 내부 진행이며 출시 완료 아님", "운영 확인"],
     ["출시 가능 상태", "운영 확인"],
-    ["readiness blocked 7/7", "운영 확인"],
+    ["P1 7개 중 iOS 1개 ready, 나머지 6개 blocked", "운영 확인"],
     ["iOS Simulator 성공을 IPA ready로 보지 않음", "실기기 확인 필요"],
     ["운영 웹앱 origin 보류", "운영 웹앱 주소"],
-    ["iOS 실제 iPhone provisioning 보류", "iOS 실제 iPhone 배포 프로필"],
+    ["iOS App Store Connect 업로드 준비 완료", "iOS 실제 iPhone 배포 프로필"],
     ["배포 readiness 재확인", "출시 준비 판단"],
     ["검증 명령", "운영 확인"],
     ["검증 명령", "검증 기준"],
@@ -494,7 +494,15 @@ assert.equal(
   "package.json must expose test:p3-operations",
 );
 assert.equal(p1Readiness.releaseDecision, "blocked", "P3 work must not flip P1 readiness to ready");
-assert.equal(p1Readiness.summary?.blocked, 7, "P1 readiness must keep 7 blocked external requirements");
+assert.equal(p1Readiness.summary?.total, 7, "P1 readiness must keep seven external requirements");
+assert.equal(
+  (p1Readiness.summary?.ready ?? 0) +
+    (p1Readiness.summary?.missing ?? 0) +
+    (p1Readiness.summary?.blocked ?? 0),
+  p1Readiness.summary?.total,
+  "P1 readiness summary counts must reconcile",
+);
+assert((p1Readiness.summary?.blocked ?? 0) > 0, "P3 work must keep unresolved external requirements blocked");
 
 console.log(
   JSON.stringify(
@@ -530,7 +538,7 @@ console.log(
         "admin P3 feedback SLA lanes assign owners response windows verification commands and keep external blockers separate",
         "admin P3 feedback operating metrics board maps classification metrics aging backlog signals decisions and release guardrails",
         "docs and package script include test:p3-operations",
-        "P1 readiness remains blocked with 7 external requirements",
+        "P1 readiness tracks 1 ready requirement and 6 external blockers",
       ],
     },
     null,

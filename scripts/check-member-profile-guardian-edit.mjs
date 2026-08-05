@@ -146,6 +146,18 @@ assert(
   "member invitation and registration must open independent dialogs instead of expanding list cards",
 );
 assert(
+  membersScreenSource.includes("function CounselingNoteListDialog") &&
+    membersScreenSource.includes("<MemberFormDialog") &&
+    membersScreenSource.includes("const [noteListMemberId, setNoteListMemberId]") &&
+    membersScreenSource.includes('testId={`member-note-list-dialog-${member.id}`}') &&
+    membersScreenSource.includes("const visibleMemberNotes = isCoachRole ? [] : memberNotes.slice(0, 3)") &&
+    membersScreenSource.includes("onClick={() => openNoteListDialog(member.id)}") &&
+    membersScreenSource.includes('title={`${member.name} 최근 메모`}') &&
+    !membersScreenSource.includes("expandedNoteMemberIds") &&
+    !membersScreenSource.includes("toggleNoteList"),
+  "coach recent notes must open in an independent dialog instead of expanding member cards",
+);
+assert(
   membersScreenSource.includes('data-testid={`member-delete-open-${member.id}`}') &&
     membersScreenSource.includes('data-testid="member-delete-reason"') &&
     membersScreenSource.includes('data-testid="member-delete-confirm"') &&
@@ -156,6 +168,10 @@ assert(
     memberRouteSource.includes("removedPaymentCount") &&
     memberRouteSource.includes("removedPromotionCount") &&
     memberRouteSource.includes("removedCounselingNoteCount") &&
+    memberRouteSource.includes("removeMemberFromTargetedNotices") &&
+    memberRouteSource.includes("noticeCleanup.changedNoticeIds.reduce") &&
+    memberRouteSource.includes("cancelPendingNoticePushJobs") &&
+    memberRouteSource.includes("removedNoticeCount") &&
     memberRouteSource.includes("deletedUserIds") &&
     memberRouteSource.includes("memberInputLimits.deleteReasonLength"),
   "member deletion must require a reason, use a confirmation dialog, and cascade linked operations and sole member accounts",
@@ -270,7 +286,11 @@ assert(
     guardianRouteSource.includes("export async function DELETE") &&
     guardianRouteSource.includes("canMemberHaveGuardianLink(member)") &&
     guardianRouteSource.includes("syncAffectedGuardianUsers") &&
-    guardianRouteSource.includes("syncGuardianUserLinks") &&
+    guardianRouteSource.includes("syncGuardianUserFamilyLinks") &&
+    guardianRouteSource.includes("hasReciprocalGuardianLink") &&
+    guardianRouteSource.includes("hasGuardianLink") &&
+    guardianRouteSource.includes("보호자-자녀 연결 정보를 복구했습니다.") &&
+    guardianRouteSource.includes("남아 있던 보호자-자녀 연결 정보를 정리했습니다.") &&
     guardianRouteSource.includes("parseGuardianLinkInput") &&
     guardianRouteSource.includes('createRuntimeId("audit")') &&
     guardianRouteSource.includes('const guardianLinkStateLockKey = "member-guardian-links"') &&
@@ -279,7 +299,7 @@ assert(
     (guardianRouteSource.match(/parseGuardianLinkInput\(await request\.json\(\)/g)?.length ?? 0) === 3 &&
     guardianRouteSource.includes("guardian.branchIds.includes(memberBranchId)") &&
     (guardianRouteSource.match(/!canAssignGuardian\(user, guardian, member\.branchId\)/g)?.length ?? 0) === 2 &&
-    guardianRouteSource.includes('message: "보호자-자녀 연결을 변경했습니다."'),
+    guardianRouteSource.includes('"보호자-자녀 연결을 변경했습니다."'),
   "guardian link API must keep scoped add/replace/delete handlers without disclosing inaccessible members or unavailable guardian accounts",
 );
 assert(
@@ -322,6 +342,10 @@ for (const snippet of [
   "guardian replace must update next guardian child ids",
   "guardian unlink did not update member guardian ids",
   "guardian unlink did not update guardian child ids",
+  "guardian last-child unlink must remove the member-side relationship",
+  "guardian last-child unlink must clear the user-side relationship",
+  "guardian last-child unlink must preserve the assigned branch scope",
+  "guardian must be reconnectable after unlinking the last child",
   "concurrent guardian links must both succeed",
   "concurrent guardian links must preserve both member links",
   "concurrent guardian links must preserve both guardian child links",

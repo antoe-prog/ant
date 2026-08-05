@@ -16,6 +16,7 @@ function parseArgs(argv) {
   const args = {
     allowApiOriginWebapp: process.env.FINAL_JUDO_ALLOW_API_ORIGIN_WEBAPP === "1",
     bundleId: null,
+    exportMethod: null,
     releaseConfig: process.env.IOS_RELEASE_CONFIG ?? DEFAULT_IOS_RELEASE_CONFIG_PATH,
     strict: false,
     teamId: null,
@@ -57,6 +58,8 @@ function parseArgs(argv) {
       args.teamId = value;
     } else if (key === "--bundle-id") {
       args.bundleId = value;
+    } else if (key === "--export-method" || key === "--xcode-export-method") {
+      args.exportMethod = value;
     } else if (key === "--release-config" || key === "--ios-release-config") {
       args.releaseConfig = value;
     } else if (key === "--profiles-dir" || key === "--provisioning-profiles-dir") {
@@ -152,9 +155,13 @@ function summarizeProfile({ file, plist, expectedIdentifier, wildcardIdentifier,
   const teamIdentifiers = plistArrayValues(plist, "TeamIdentifier");
   const provisionedDevices = plistArrayValues(plist, "ProvisionedDevices");
   const provisionsAllDevices = plistBooleanValue(plist, "ProvisionsAllDevices");
+  const getTaskAllow = plistBooleanValue(plist, "get-task-allow");
   const matchesTeam = teamIdentifiers.includes(teamId);
   const matchesBundle = appIdentifier === expectedIdentifier || appIdentifier === wildcardIdentifier;
   const hasRegisteredDevices = provisionedDevices.length > 0 || provisionsAllDevices === true;
+  const isAppStoreDistribution =
+    getTaskAllow === false && provisionedDevices.length === 0 && provisionsAllDevices !== true;
+  const isDistributionReady = hasRegisteredDevices || isAppStoreDistribution;
 
   return {
     fileName: path.basename(file),
@@ -167,15 +174,47 @@ function summarizeProfile({ file, plist, expectedIdentifier, wildcardIdentifier,
     matchesBundle,
     provisionedDeviceCount: provisionedDevices.length,
     hasRegisteredDevices,
+    isAppStoreDistribution,
+    isDistributionReady,
+    ...(getTaskAllow !== null ? { getTaskAllow } : {}),
     ...(provisionsAllDevices !== null ? { provisionsAllDevices } : {}),
   };
 }
 
-async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
-  const profileDirectory =
-    profilesDir ?? process.env.IOS_PROVISIONING_PROFILES_DIR ?? path.join(os.homedir(), "Library", "MobileDevice", "Provisioning Profiles");
+function profileSupportsExportMethod(profile, exportMethod) {
+  if (["app-store", "app-store-connect"].includes(exportMethod)) {
+    return profile.isAppStoreDistribution;
+  }
+
+  if (exportMethod === "enterprise") {
+    return profile.provisionsAllDevices === true;
+  }
+
+  if (["ad-hoc", "debugging", "development", "release-testing"].includes(exportMethod)) {
+    return profile.hasRegisteredDevices;
+  }
+
+  return profile.isDistributionReady;
+}
+
+function provisioningProfileDirectories(profilesDir) {
+  const explicitDirectory = profilesDir ?? process.env.IOS_PROVISIONING_PROFILES_DIR;
+
+  if (explicitDirectory) {
+    return [explicitDirectory];
+  }
+
+  return [
+    path.join(os.homedir(), "Library", "MobileDevice", "Provisioning Profiles"),
+    path.join(os.homedir(), "Library", "Developer", "Xcode", "UserData", "Provisioning Profiles"),
+  ];
+}
+
+async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, teamId }) {
+  const profileDirectories = provisioningProfileDirectories(profilesDir);
   const inventory = {
-    directory: profileDirectory,
+    directory: profileDirectories.join(", "),
+    directories: profileDirectories,
     totalProfileFiles: 0,
     readableProfileFiles: 0,
     unreadableProfileFiles: 0,
@@ -183,6 +222,9 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
     matchingBundleProfiles: 0,
     matchingProfiles: 0,
     matchingProfilesWithRegisteredDevices: 0,
+    matchingAppStoreProfiles: 0,
+    matchingDistributionReadyProfiles: 0,
+    matchingExportMethodProfiles: 0,
     profiles: [],
   };
 
@@ -190,7 +232,7 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
     return {
       ok: false,
       reason: "missing --team-id or APPLE_TEAM_ID",
-      value: profileDirectory,
+      value: inventory.directory,
       inventory,
     };
   }
@@ -199,39 +241,41 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
     return {
       ok: false,
       reason: "missing bundle identifier",
-      value: profileDirectory,
+      value: inventory.directory,
       inventory,
     };
   }
 
-  let entries = [];
-  try {
-    entries = await readdir(profileDirectory, { withFileTypes: true });
-  } catch {
-    return {
-      ok: false,
-      reason: "no local provisioning profile directory found",
-      value: profileDirectory,
-      inventory,
-    };
-  }
+  const profileFiles = [];
 
-  const profileFiles = entries
-    .filter((entry) => entry.isFile() && /\.(mobileprovision|provisionprofile)$/i.test(entry.name))
-    .map((entry) => path.join(profileDirectory, entry.name));
-  inventory.totalProfileFiles = profileFiles.length;
-  const matchingProfiles = [];
-  const expectedIdentifier = `${teamId}.${bundleId}`;
-  const wildcardIdentifier = `${teamId}.*`;
+  for (const profileDirectory of profileDirectories) {
+    let entries = [];
+    try {
+      entries = await readdir(profileDirectory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    profileFiles.push(
+      ...entries
+        .filter((entry) => entry.isFile() && /\.(mobileprovision|provisionprofile)$/i.test(entry.name))
+        .map((entry) => path.join(profileDirectory, entry.name)),
+    );
+  }
 
   if (profileFiles.length === 0) {
     return {
       ok: false,
       reason: "no local provisioning profile files found",
-      value: profileDirectory,
+      value: inventory.directory,
       inventory,
     };
   }
+
+  inventory.totalProfileFiles = profileFiles.length;
+  const matchingProfiles = [];
+  const expectedIdentifier = `${teamId}.${bundleId}`;
+  const wildcardIdentifier = `${teamId}.*`;
 
   for (const profileFile of profileFiles) {
     let plist;
@@ -261,6 +305,10 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
 
   inventory.matchingProfiles = matchingProfiles.length;
   inventory.matchingProfilesWithRegisteredDevices = matchingProfiles.filter((profile) => profile.hasRegisteredDevices).length;
+  inventory.matchingAppStoreProfiles = matchingProfiles.filter((profile) => profile.isAppStoreDistribution).length;
+  inventory.matchingDistributionReadyProfiles = matchingProfiles.filter((profile) => profile.isDistributionReady).length;
+  const exportMethodProfiles = matchingProfiles.filter((profile) => profileSupportsExportMethod(profile, exportMethod));
+  inventory.matchingExportMethodProfiles = exportMethodProfiles.length;
 
   if (inventory.readableProfileFiles === 0) {
     return {
@@ -280,12 +328,13 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
     };
   }
 
-  const profilesWithDevices = matchingProfiles.filter((profile) => profile.hasRegisteredDevices);
-
-  if (profilesWithDevices.length === 0) {
+  if (exportMethodProfiles.length === 0) {
+    const requirement = ["app-store", "app-store-connect"].includes(exportMethod)
+      ? "matching App Store Connect distribution profile"
+      : "matching provisioning profile with registered devices";
     return {
       ok: false,
-      reason: "matching provisioning profile has no registered iPhone devices",
+      reason: `no ${requirement} found for export method ${exportMethod}`,
       value: `${matchingProfiles.length} matching profiles`,
       inventory,
     };
@@ -293,7 +342,7 @@ async function provisioningProfileCheck({ bundleId, profilesDir, teamId }) {
 
   return {
     ok: true,
-    value: `${profilesWithDevices.length} matching profiles with registered devices`,
+    value: `${exportMethodProfiles.length} profiles ready for ${exportMethod}`,
     inventory,
   };
 }
@@ -407,21 +456,21 @@ function resolveOriginValue(args) {
   return args.useDeployedOrigin ? readDeployedWebAppOrigin() : null;
 }
 
-function createResolutionHints({ bundleId, teamId }) {
+function createResolutionHints({ bundleId, exportMethod, teamId }) {
   const resolvedTeamId = teamId ?? "<APPLE_TEAM_ID>";
   const resolvedBundleId = bundleId ?? "<BUNDLE_ID>";
   const productionOrigin = "https://<webapp-origin>";
 
   return {
     appleDeveloper: [
-      `Register the real iPhone UDID in Apple Developer > Certificates, Identifiers & Profiles > Devices for Team ID ${resolvedTeamId}.`,
-      `Create or refresh an iOS App Development or Ad Hoc provisioning profile for bundle id ${resolvedBundleId}.`,
+      `For App Store Connect, create or refresh an App Store distribution profile for bundle id ${resolvedBundleId}; registered device UDIDs are not required.`,
+      `For development or Ad Hoc testing, register the real iPhone UDID in Apple Developer > Certificates, Identifiers & Profiles > Devices for Team ID ${resolvedTeamId}.`,
       "Download and install the provisioning profile on this Mac so it appears in ~/Library/MobileDevice/Provisioning Profiles.",
     ],
     xcode: [
       `In Xcode Settings > Accounts, select team ${resolvedTeamId} and use Download Manual Profiles after the profile exists.`,
       `Open mobile/ios/App/App.xcodeproj and confirm Signing & Capabilities uses team ${resolvedTeamId} with bundle id ${resolvedBundleId}.`,
-      "Do not treat a Simulator launch as IPA ready; a provisioning profile with at least one registered iPhone is still required.",
+      "Do not treat a Simulator launch as IPA ready; use an App Store distribution profile for App Store Connect or a device-backed profile for development/Ad Hoc testing.",
     ],
     environment: [
       `export APPLE_TEAM_ID=${resolvedTeamId}`,
@@ -431,7 +480,7 @@ function createResolutionHints({ bundleId, teamId }) {
       "npm run ios:cap:sync",
     ],
     rerun: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_SERVER_URL=${productionOrigin} npm run ios:ipa:doctor -- --team-id=${resolvedTeamId} --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md`,
-    build: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_SERVER_URL=${productionOrigin} npm run ios:ipa:build -- --team-id=${resolvedTeamId} --xcode-export-method=release-testing --allow-provisioning-updates`,
+    build: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_SERVER_URL=${productionOrigin} npm run ios:ipa:build -- --team-id=${resolvedTeamId} --xcode-export-method=${exportMethod} --allow-provisioning-updates`,
   };
 }
 
@@ -452,6 +501,8 @@ function profileInventorySummary(report) {
     return {
       matchingProfiles: "unknown",
       matchingProfilesWithRegisteredDevices: "unknown",
+      matchingAppStoreProfiles: "unknown",
+      matchingExportMethodProfiles: "unknown",
       profileFiles: "unknown",
     };
   }
@@ -459,6 +510,8 @@ function profileInventorySummary(report) {
   return {
     matchingProfiles: String(inventory.matchingProfiles ?? 0),
     matchingProfilesWithRegisteredDevices: String(inventory.matchingProfilesWithRegisteredDevices ?? 0),
+    matchingAppStoreProfiles: String(inventory.matchingAppStoreProfiles ?? 0),
+    matchingExportMethodProfiles: String(inventory.matchingExportMethodProfiles ?? 0),
     profileFiles: String(inventory.totalProfileFiles ?? 0),
   };
 }
@@ -480,17 +533,20 @@ function createMarkdown(report) {
     `| Release decision | ${markdownCell(report.releaseDecision)} |`,
     `| Bundle ID | ${markdownCell(report.bundleId)} |`,
     `| Apple Team ID | ${markdownCell(report.checks.appleTeamId?.value ?? "missing")} |`,
+    `| Export method | ${markdownCell(report.exportMethod)} |`,
     `| Production origin | ${report.checks.origin?.ok ? markdownCell(report.checks.origin.value) : `blocked: ${markdownCell(report.checks.origin?.reason)}`} |`,
     `| Local profile files | ${markdownCell(inventory.profileFiles)} |`,
     `| Matching team/bundle profiles | ${markdownCell(inventory.matchingProfiles)} |`,
     `| Profiles with registered iPhone devices | ${markdownCell(inventory.matchingProfilesWithRegisteredDevices)} |`,
+    `| App Store distribution profiles | ${markdownCell(inventory.matchingAppStoreProfiles)} |`,
+    `| Profiles ready for export method | ${markdownCell(inventory.matchingExportMethodProfiles)} |`,
     "",
     "### IPA Ready Gate",
     "",
-    "- The IPA remains blocked until both a real HTTPS web app production origin and a local provisioning profile with a registered iPhone are present.",
+    "- The IPA remains blocked until a real HTTPS web app production origin and a provisioning profile appropriate for the selected export method are present.",
     "- API-only hosts such as `api.*` are not accepted as the app origin unless an operator explicitly verifies they also serve `/login` and `/app/dashboard`.",
     "- Keep the Simulator result as a runtime smoke signal only; do not mark IPA distribution ready from Simulator evidence.",
-    "- After registering the iPhone and downloading the profile, rerun the strict doctor before `ios:ipa:build`.",
+    "- App Store Connect profiles do not require registered devices; development and Ad Hoc profiles do. Rerun the strict doctor before `ios:ipa:build`.",
     "",
     "## Checks",
     "",
@@ -525,6 +581,8 @@ function createMarkdown(report) {
       `- Matching team profiles: \`${inventory.matchingTeamProfiles}\``,
       `- Matching bundle profiles: \`${inventory.matchingBundleProfiles}\``,
       `- Matching profiles with registered devices: \`${inventory.matchingProfilesWithRegisteredDevices}\``,
+      `- Matching App Store distribution profiles: \`${inventory.matchingAppStoreProfiles}\``,
+      `- Matching profiles ready for selected export method: \`${inventory.matchingExportMethodProfiles}\``,
       "- Device UDIDs are intentionally not written to this report.",
       "",
     );
@@ -547,7 +605,7 @@ function createMarkdown(report) {
     "## Commands",
     "",
     "- `FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:cap:sync`",
-    "- `FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:build -- --xcode-team-id=<TEAM_ID> --xcode-export-method=release-testing`",
+    "- `FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:build -- --xcode-team-id=<TEAM_ID> --xcode-export-method=app-store-connect`",
     "",
   );
 
@@ -565,6 +623,7 @@ async function packageHasCapacitorIos() {
 
 const args = parseArgs(process.argv.slice(2));
 const releaseConfig = await readIosReleaseConfig(args.releaseConfig);
+const exportMethod = text(args.exportMethod) ?? text(releaseConfig.exportMethod) ?? "app-store-connect";
 const originValue = resolveOriginValue(args);
 const origin = validateHttpsOrigin(originValue, { allowApiOriginWebapp: args.allowApiOriginWebapp });
 const codeSigningIdentity = codeSigningIdentityCheck();
@@ -600,7 +659,7 @@ const checks = {
     value: teamId ?? null,
     ...(!teamId ? { reason: "missing --team-id, APPLE_TEAM_ID, or mobile/ios/release-config.json appleTeamId" } : {}),
   },
-  provisioningProfile: await provisioningProfileCheck({ bundleId, profilesDir: args.profilesDir, teamId }),
+  provisioningProfile: await provisioningProfileCheck({ bundleId, exportMethod, profilesDir: args.profilesDir, teamId }),
 };
 
 const requiredChecks = [
@@ -621,14 +680,18 @@ const blockers = requiredChecks
     reason: checks[key].reason ?? "missing",
   }));
 
-function nextActionsForBlockers(blockers) {
+function nextActionsForBlockers(blockers, { bundleId, exportMethod }) {
   const blockerChecks = new Set(blockers.map((blocker) => blocker.check));
   const actions = [];
 
   if (blockerChecks.has("provisioningProfile")) {
-    actions.push(
-      "Register a real iPhone UDID in Apple Developer and create/download a provisioning profile for kr.co.finaljudo.multigym.",
-    );
+    if (["app-store", "app-store-connect"].includes(exportMethod)) {
+      actions.push(`Create/download an App Store distribution provisioning profile for ${bundleId}.`);
+    } else if (["ad-hoc", "debugging", "development", "release-testing"].includes(exportMethod)) {
+      actions.push(`Register the test iPhone in Apple Developer and create/download a device-backed provisioning profile for ${bundleId}.`);
+    } else {
+      actions.push(`Create/download a provisioning profile compatible with ${exportMethod} for ${bundleId}.`);
+    }
   }
 
   if (blockerChecks.has("origin")) {
@@ -660,6 +723,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   requestedArtifact: "iOS IPA",
   bundleId,
+  exportMethod,
   releaseConfig: {
     path: text(args.releaseConfig) ?? DEFAULT_IOS_RELEASE_CONFIG_PATH,
     appleTeamIdConfigured: Boolean(text(releaseConfig.appleTeamId)),
@@ -667,11 +731,11 @@ const report = {
   },
   checks,
   blockers,
-  resolutionHints: createResolutionHints({ bundleId, teamId }),
+  resolutionHints: createResolutionHints({ bundleId, exportMethod, teamId }),
   nextActions:
     blockers.length === 0
       ? ["Run Capacitor sync/build with production HTTPS origin and Apple signing options."]
-      : nextActionsForBlockers(blockers),
+      : nextActionsForBlockers(blockers, { bundleId, exportMethod }),
 };
 
 if (args.out) {

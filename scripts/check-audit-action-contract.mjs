@@ -79,7 +79,10 @@ const apiFiles = await collectFiles("src/app/api/v1", ".ts");
 const apiActionUsages = [];
 for (const file of apiFiles) {
   const source = await readFile(file, "utf8");
-  for (const match of source.matchAll(/\baction:\s*"([a-z][a-z0-9_.]+)"/g)) {
+  // API request bodies may also use an `action` discriminator such as
+  // "request" or "complete". Audit actions are namespaced with at least one
+  // dot, so only collect those literals for the cross-layer audit contract.
+  for (const match of source.matchAll(/\baction:\s*"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"/g)) {
     apiActionUsages.push({ action: match[1], file });
   }
 }

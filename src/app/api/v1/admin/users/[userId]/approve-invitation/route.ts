@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, MockDatabase, UserRole } from "@/lib/domain";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { createRandomPasswordHash, generateTemporaryPassword } from "@/server/auth-password";
-import { revokeUserAuthSessions } from "@/server/auth-session";
-import { invitationSecurityLockKey } from "@/server/invitation-token";
+import { revokeUserSecurityAccess } from "@/server/auth-session";
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function POST(
     return selectedScope.response;
   }
 
-  return withServerDbLock(invitationSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const latestDb = await readServerDb();
     const { user: latestUser, response: latestResponse } = requireSession(request, latestDb);
 
@@ -118,7 +118,7 @@ export async function POST(
       auditLogs: [auditLog, ...latestDb.auditLogs],
     };
     const nextDb = await writeServerDb(
-      temporaryPassword ? revokeUserAuthSessions(updatedDb, targetUser.id, new Date(now)) : updatedDb,
+      temporaryPassword ? revokeUserSecurityAccess(updatedDb, targetUser.id, new Date(now)) : updatedDb,
     );
     const actor = nextDb.users.find((candidate) => candidate.id === latestUser.id) ?? latestUser;
 

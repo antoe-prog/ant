@@ -55,7 +55,7 @@ export function createAttendanceQrChallenge(
   };
   const retentionThreshold = now.getTime() - attendanceQrRetentionMs;
   const attendanceQrChallenges = db.attendanceQrChallenges.filter((candidate) => {
-    if (candidate.userId === options.userId && candidate.sessionId === options.sessionId) {
+    if (candidate.sessionId === options.sessionId) {
       return false;
     }
 

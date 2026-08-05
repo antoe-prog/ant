@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, FamilyPaymentMethod } from "@/lib/domain";
-import { getFamilyPaymentRequestBodyTypeError } from "@/lib/family-payment-request-policy";
+import { createFamilySafeCollectionRequest } from "@/lib/family-payment-privacy";
+import {
+  getFamilyPaymentRequestBodyTypeError,
+  isValidFamilyPaymentMethodLabel,
+} from "@/lib/family-payment-request-policy";
 import { getFamilyPaymentCheckoutAccess } from "@/lib/payment-checkout-access";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -88,10 +92,14 @@ export async function POST(
     return initialContext.response;
   }
 
+  if (initialContext.payment.onlinePayment?.status === "pending") {
+    return jsonError(409, "BUSINESS_RULE_FAILED", "이미 대기 중인 온라인 결제 요청이 있습니다.");
+  }
+
   if (initialContext.payment.collectionRequest?.status === "pending") {
     return jsonOk({
       ...createBootstrapPayload(initialContext.db, initialContext.user, initialContext.selectedBranchId),
-      collectionRequest: initialContext.payment.collectionRequest,
+      collectionRequest: createFamilySafeCollectionRequest(initialContext.payment.collectionRequest, initialContext.user.id),
     });
   }
 
@@ -115,7 +123,14 @@ export async function POST(
   const method = candidate.method;
   const methodLabel = readText(candidate.methodLabel);
 
-  if (!payerName || !/^01\d{8,9}$/.test(payerPhone) || typeof method !== "string" || !paymentMethods.has(method as FamilyPaymentMethod) || !methodLabel) {
+  if (
+    !payerName ||
+    !/^01\d{8,9}$/.test(payerPhone) ||
+    typeof method !== "string" ||
+    !paymentMethods.has(method as FamilyPaymentMethod) ||
+    !methodLabel ||
+    !isValidFamilyPaymentMethodLabel(method as FamilyPaymentMethod, methodLabel)
+  ) {
     return jsonError(422, "VALIDATION_ERROR", "이름, 휴대전화와 희망 납부 방법을 확인해 주세요.");
   }
 
@@ -128,10 +143,14 @@ export async function POST(
 
     const { db, payment, selectedBranchId, user } = currentContext;
 
+    if (payment.onlinePayment?.status === "pending") {
+      return jsonError(409, "BUSINESS_RULE_FAILED", "이미 대기 중인 온라인 결제 요청이 있습니다.");
+    }
+
     if (payment.collectionRequest?.status === "pending") {
       return jsonOk({
         ...createBootstrapPayload(db, user, selectedBranchId),
-        collectionRequest: payment.collectionRequest,
+        collectionRequest: createFamilySafeCollectionRequest(payment.collectionRequest, user.id),
       });
     }
 
@@ -175,7 +194,7 @@ export async function POST(
 
     return jsonOk({
       ...createBootstrapPayload(nextDb, user, selectedBranchId),
-      collectionRequest,
+      collectionRequest: createFamilySafeCollectionRequest(collectionRequest, user.id),
     });
   });
 }

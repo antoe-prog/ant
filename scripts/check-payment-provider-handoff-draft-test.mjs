@@ -53,6 +53,11 @@ const pendingStrict = await expectStrictFailure(pending.out);
 assert(pendingStrict.blockers.some((blocker) => blocker.code === "PAYMENT_PROVIDER_HANDOFF_PROVIDER_NAME"));
 assert(pendingStrict.blockers.some((blocker) => blocker.code === "PAYMENT_PROVIDER_HANDOFF_WEBHOOK_SECRET_STORED"));
 
+for (const weakSecret of ["secret", "replace-with-provider-webhook-secret"]) {
+  const weakSecretDraft = await runDraft([], { FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: weakSecret });
+  assert.equal(weakSecretDraft.draft.webhook.secretStored, false, "weak webhook secrets must not satisfy handoff storage readiness");
+}
+
 const rawSecret = "sk_live_finaljudo_super_secret_value";
 const inferred = await runDraft(
   ["--provider-name=Final Pay PG", "--checkout-base-url=https://pay.finaljudo.kr", "--signature-header=x-final-pay-signature"],

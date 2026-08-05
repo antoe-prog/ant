@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
-import type { AuditLog, Member, MemberStatus } from "@/lib/domain";
+import type { AuditLog, Member, MemberStatus, MockDatabase } from "@/lib/domain";
 import { memberInputLimits } from "@/lib/member-input-policy";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
+import { removeMemberFromTargetedNotices } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { cancelPendingNoticePushJobs } from "@/server/notification-outbox-runner";
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
@@ -517,6 +519,7 @@ export async function DELETE(
     const removedNoticeTargetCount = db.notices.filter((notice) =>
       (notice.targetMemberIds ?? []).includes(member.id),
     ).length;
+    const noticeCleanup = removeMemberFromTargetedNotices(db.notices, member.id);
     const removedQrRedemptionCount = db.attendanceQrChallenges.filter((challenge) =>
       challenge.redeemedMemberIds.includes(member.id),
     ).length;
@@ -576,6 +579,7 @@ export async function DELETE(
         removedAttendanceCount,
         removedClassEnrollmentCount,
         removedCounselingNoteCount,
+        removedNoticeCount: noticeCleanup.deletedNoticeIds.length,
         removedNoticeTargetCount,
         removedPaymentCount,
         removedPromotionCount,
@@ -586,7 +590,7 @@ export async function DELETE(
       message: "회원과 연결된 운영 기록을 삭제했습니다.",
       createdAt: now,
     };
-    const nextDb = await writeServerDb({
+    const nextDbBeforeNoticeCancellation: MockDatabase = {
       ...db,
       members: db.members.filter((candidate) => candidate.id !== member.id),
       users: nextUsers,
@@ -604,12 +608,9 @@ export async function DELETE(
         ),
       })),
       payments: db.payments.filter((payment) => payment.memberId !== member.id),
-      notices: db.notices.map((notice) => ({
+      notices: noticeCleanup.notices.map((notice) => ({
         ...notice,
         readByUserIds: notice.readByUserIds.filter((readByUserId) => !deletedUserIds.has(readByUserId)),
-        ...(notice.targetMemberIds
-          ? { targetMemberIds: notice.targetMemberIds.filter((candidate) => candidate !== member.id) }
-          : {}),
       })),
       attendanceQrChallenges: db.attendanceQrChallenges.map((challenge) => ({
         ...challenge,
@@ -622,7 +623,18 @@ export async function DELETE(
         (job) => !deletedUserIds.has(job.recipientUserId) && !deletedSubscriptionIds.has(job.subscriptionId),
       ),
       auditLogs: [auditLog, ...db.auditLogs],
-    });
+    };
+    const nextDbWithCancelledNoticeJobs = noticeCleanup.changedNoticeIds.reduce<MockDatabase>(
+      (candidateDb, noticeId) =>
+        cancelPendingNoticePushJobs(
+          candidateDb,
+          noticeId,
+          "회원 삭제로 공지 대상이 변경되어 대기 중인 발송 요청을 취소했습니다.",
+          now,
+        ),
+      nextDbBeforeNoticeCancellation,
+    );
+    const nextDb = await writeServerDb(nextDbWithCancelledNoticeJobs);
 
     return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
   });

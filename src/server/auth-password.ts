@@ -10,6 +10,8 @@ const maximumSupportedIterations = 1_000_000;
 const keyLength = 32;
 const digest = "sha256";
 const encodedHashPattern = new RegExp(`^[a-f0-9]{${keyLength * 2}}$`, "i");
+const authenticationDummyPasswordHash =
+  "pbkdf2_sha256$120000$final-judo-login-timing-equalizer$9f8f2e0c8ea647717083c46801acd44cf09ba14bb12a9c2a071dfd4bef8a0a31";
 
 export const defaultPilotPassword = "FinalJudoPilot!2026";
 export { defaultPilotPasswordHash, isLegacyDefaultPilotPasswordHash };
@@ -69,4 +71,33 @@ export function verifyPassword(password: string, storedHash: string | undefined)
   }
 
   return timingSafeEqual(actual, expected);
+}
+
+export function verifyAuthenticationPassword(password: string, storedHash: string | undefined) {
+  const usesStoredHash = isSupportedPasswordHash(storedHash);
+  const matches = verifyPassword(password, usesStoredHash ? storedHash : authenticationDummyPasswordHash);
+
+  return usesStoredHash && matches;
+}
+
+export function runPasswordHashTimingEqualizer(value: string) {
+  verifyPassword(value, authenticationDummyPasswordHash);
+}
+
+function isSupportedPasswordHash(storedHash: string | undefined): storedHash is string {
+  if (!storedHash) {
+    return false;
+  }
+
+  const [storedAlgorithm, iterationsText, salt, hash] = storedHash.split("$");
+  const iterations = Number(iterationsText);
+
+  return (
+    storedAlgorithm === algorithm &&
+    Number.isInteger(iterations) &&
+    iterations > 0 &&
+    iterations <= maximumSupportedIterations &&
+    Boolean(salt) &&
+    encodedHashPattern.test(hash)
+  );
 }

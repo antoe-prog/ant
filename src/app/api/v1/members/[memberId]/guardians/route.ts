@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, Member } from "@/lib/domain";
+import { syncGuardianUserFamilyLinks } from "@/lib/family-members";
 import { parseGuardianLinkInput } from "@/lib/member-guardian-input-policy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
@@ -36,26 +37,19 @@ function replaceMemberGuardians(member: Member, guardianUserId: string): Member 
   };
 }
 
-function syncGuardianUserLinks(user: AppUser, members: Member[]): AppUser {
-  const linkedChildMembers = members.filter(
-    (member) => canMemberHaveGuardianLink(member) && member.guardianIds.includes(user.id),
-  );
-  const linkedSelfMembers = members.filter(
-    (member) => member.ageGroup === "adult" && (user.memberIds ?? []).includes(member.id),
-  );
-
-  return {
-    ...user,
-    branchIds: [...new Set([...linkedSelfMembers, ...linkedChildMembers].map((member) => member.branchId))],
-    childMemberIds: linkedChildMembers.map((member) => member.id),
-  };
-}
-
 function syncAffectedGuardianUsers(users: AppUser[], members: Member[], guardianUserIds: Iterable<string>) {
   const affectedGuardianIds = new Set(guardianUserIds);
 
   return users.map((candidate) =>
-    affectedGuardianIds.has(candidate.id) ? syncGuardianUserLinks(candidate, members) : candidate,
+    affectedGuardianIds.has(candidate.id) ? syncGuardianUserFamilyLinks(candidate, members) : candidate,
+  );
+}
+
+function hasReciprocalGuardianLink(member: Member, guardian: AppUser) {
+  return (
+    member.guardianIds.includes(guardian.id) &&
+    (guardian.childMemberIds ?? []).includes(member.id) &&
+    guardian.branchIds.includes(member.branchId)
   );
 }
 
@@ -149,10 +143,11 @@ async function createGuardianLink(
     return jsonError(422, "BUSINESS_RULE_FAILED", "활성 학부모 계정만 연결할 수 있습니다.");
   }
 
-  if (member.guardianIds.includes(guardian.id)) {
+  if (hasReciprocalGuardianLink(member, guardian)) {
     return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
 
+  const repairsExistingMemberLink = member.guardianIds.includes(guardian.id);
   const nextMember = linkMemberGuardian(member, guardian.id);
   const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
   const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [guardian.id]);
@@ -174,7 +169,9 @@ async function createGuardianLink(
       guardianChildMemberIds: nextGuardian.childMemberIds ?? [],
     },
     result: "success",
-    message: "보호자-자녀 연결을 추가했습니다.",
+    message: repairsExistingMemberLink
+      ? "보호자-자녀 연결 정보를 복구했습니다."
+      : "보호자-자녀 연결을 추가했습니다.",
     createdAt: new Date().toISOString(),
   };
   const nextDb = await writeServerDb({
@@ -211,10 +208,15 @@ async function replaceGuardianLink(
     return jsonError(422, "BUSINESS_RULE_FAILED", "활성 학부모 계정만 연결할 수 있습니다.");
   }
 
-  if (member.guardianIds.length === 1 && member.guardianIds[0] === guardian.id) {
+  if (
+    member.guardianIds.length === 1 &&
+    member.guardianIds[0] === guardian.id &&
+    hasReciprocalGuardianLink(member, guardian)
+  ) {
     return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
 
+  const repairsExistingMemberLink = member.guardianIds.length === 1 && member.guardianIds[0] === guardian.id;
   const nextMember = replaceMemberGuardians(member, guardian.id);
   const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
   const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [...member.guardianIds, guardian.id]);
@@ -240,7 +242,9 @@ async function replaceGuardianLink(
       guardianChildMemberIds: nextGuardian.childMemberIds ?? [],
     },
     result: "success",
-    message: "보호자-자녀 연결을 변경했습니다.",
+    message: repairsExistingMemberLink
+      ? "보호자-자녀 연결 정보를 복구했습니다."
+      : "보호자-자녀 연결을 변경했습니다.",
     createdAt: new Date().toISOString(),
   };
   const nextDb = await writeServerDb({
@@ -266,11 +270,14 @@ async function deleteGuardianLink(
 
   const { db, member, selectedBranchId, user } = currentContext.context;
 
-  if (!member.guardianIds.includes(guardianUserId)) {
+  const guardian = db.users.find((candidate) => candidate.id === guardianUserId);
+  const hasMemberLink = member.guardianIds.includes(guardianUserId);
+  const hasGuardianLink =
+    guardian?.role === "guardian" && (guardian.childMemberIds ?? []).includes(member.id);
+
+  if (!hasMemberLink && !hasGuardianLink) {
     return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
   }
-
-  const guardian = db.users.find((candidate) => candidate.id === guardianUserId);
 
   if (!guardian || guardian.role !== "guardian") {
     return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 계정을 확인할 수 없습니다.");
@@ -298,7 +305,9 @@ async function deleteGuardianLink(
       guardianChildMemberIds: nextGuardian.childMemberIds ?? [],
     },
     result: "success",
-    message: "보호자-자녀 연결을 해제했습니다.",
+    message: hasMemberLink
+      ? "보호자-자녀 연결을 해제했습니다."
+      : "남아 있던 보호자-자녀 연결 정보를 정리했습니다.",
     createdAt: new Date().toISOString(),
   };
   const nextDb = await writeServerDb({

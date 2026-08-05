@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     const persisted = await writeServerDb({
       ...db,
       tournaments: mergeResult.tournaments,
-      auditLogs: [...db.auditLogs, auditLog],
+      auditLogs: [auditLog, ...db.auditLogs],
     });
 
     return jsonOk({

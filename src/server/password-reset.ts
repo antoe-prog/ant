@@ -1,6 +1,10 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import type { MockDatabase, PasswordResetChallenge } from "../lib/domain.ts";
-import { createPasswordHash, verifyPassword } from "./auth-password.ts";
+import {
+  createPasswordHash,
+  runPasswordHashTimingEqualizer,
+  verifyPassword,
+} from "./auth-password.ts";
 import { createRuntimeId } from "./runtime-id.ts";
 
 export const passwordResetCodeLength = 6;
@@ -17,20 +21,29 @@ function hashResetToken(token: string) {
 export function createPasswordResetChallenge(db: MockDatabase, userId: string, now = new Date()) {
   const code = randomInt(0, 10 ** passwordResetCodeLength).toString().padStart(passwordResetCodeLength, "0");
   const createdAt = now.toISOString();
+  const inheritedFailedAttemptCount = Math.max(
+    0,
+    ...db.passwordResetChallenges
+      .filter(
+        (candidate) =>
+          candidate.userId === userId &&
+          !candidate.consumedAt &&
+          !candidate.verifiedAt &&
+          Date.parse(candidate.expiresAt) > now.getTime() &&
+          candidate.failedAttemptCount < passwordResetMaxAttempts,
+      )
+      .map((candidate) => candidate.failedAttemptCount),
+  );
   const challenge: PasswordResetChallenge = {
     id: createRuntimeId("password-reset"),
     userId,
     codeHash: createPasswordHash(code, randomBytes(16).toString("hex")),
     createdAt,
     expiresAt: new Date(now.getTime() + passwordResetCodeLifetimeMs).toISOString(),
-    failedAttemptCount: 0,
+    failedAttemptCount: inheritedFailedAttemptCount,
   };
   const retentionThreshold = now.getTime() - passwordResetRetentionMs;
   const passwordResetChallenges = db.passwordResetChallenges.filter((candidate) => {
-    if (candidate.userId === userId) {
-      return false;
-    }
-
     const referenceAt = Date.parse(candidate.consumedAt ?? candidate.expiresAt);
     return Number.isFinite(referenceAt) && referenceAt >= retentionThreshold;
   });
@@ -55,17 +68,25 @@ export function verifyPasswordResetCode(
   code: string,
   now = new Date(),
 ): PasswordResetVerificationResult {
-  const challenge = db.passwordResetChallenges.find(
+  const nowMs = now.getTime();
+  const pendingChallenges = db.passwordResetChallenges.filter(
     (candidate) => candidate.userId === userId && !candidate.consumedAt && !candidate.verifiedAt,
   );
-  const nowMs = now.getTime();
+  const activeChallenges = pendingChallenges.filter(
+    (candidate) =>
+      Date.parse(candidate.expiresAt) > nowMs &&
+      candidate.failedAttemptCount < passwordResetMaxAttempts,
+  );
 
-  if (!challenge) {
-    return { ok: false, db, reason: "expired" };
-  }
+  if (activeChallenges.length === 0) {
+    runPasswordHashTimingEqualizer(code);
 
-  if (Date.parse(challenge.expiresAt) <= nowMs || challenge.failedAttemptCount >= passwordResetMaxAttempts) {
+    if (pendingChallenges.length === 0) {
+      return { ok: false, db, reason: "expired" };
+    }
+
     const consumedAt = now.toISOString();
+    const pendingChallengeIds = new Set(pendingChallenges.map((candidate) => candidate.id));
 
     return {
       ok: false,
@@ -73,15 +94,25 @@ export function verifyPasswordResetCode(
       db: {
         ...db,
         passwordResetChallenges: db.passwordResetChallenges.map((candidate) =>
-          candidate.id === challenge.id ? { ...candidate, consumedAt } : candidate,
+          pendingChallengeIds.has(candidate.id)
+            ? { ...candidate, consumedAt }
+            : candidate,
         ),
       },
     };
   }
 
-  if (!verifyPassword(code, challenge.codeHash)) {
-    const failedAttemptCount = challenge.failedAttemptCount + 1;
+  const challenge = activeChallenges.find((candidate) => verifyPassword(code, candidate.codeHash));
+
+  if (!challenge) {
+    const failedAttemptCount = Math.max(...activeChallenges.map((candidate) => candidate.failedAttemptCount)) + 1;
     const failedAt = now.toISOString();
+    const activeChallengeIds = new Set(activeChallenges.map((candidate) => candidate.id));
+    const staleChallengeIds = new Set(
+      pendingChallenges
+        .filter((candidate) => !activeChallengeIds.has(candidate.id))
+        .map((candidate) => candidate.id),
+    );
 
     return {
       ok: false,
@@ -89,13 +120,15 @@ export function verifyPasswordResetCode(
       db: {
         ...db,
         passwordResetChallenges: db.passwordResetChallenges.map((candidate) =>
-          candidate.id === challenge.id
+          activeChallengeIds.has(candidate.id)
             ? {
                 ...candidate,
                 failedAttemptCount,
                 ...(failedAttemptCount >= passwordResetMaxAttempts ? { consumedAt: failedAt } : {}),
               }
-            : candidate,
+            : staleChallengeIds.has(candidate.id)
+              ? { ...candidate, consumedAt: failedAt }
+              : candidate,
         ),
       },
     };
@@ -117,7 +150,11 @@ export function verifyPasswordResetCode(
     db: {
       ...db,
       passwordResetChallenges: db.passwordResetChallenges.map((candidate) =>
-        candidate.id === challenge.id ? updatedChallenge : candidate,
+        candidate.id === challenge.id
+          ? updatedChallenge
+          : candidate.userId === userId && !candidate.consumedAt
+            ? { ...candidate, consumedAt: verifiedAt }
+            : candidate,
       ),
     },
   };
@@ -147,6 +184,49 @@ export function consumePasswordResetChallenges(db: MockDatabase, userId: string,
     ...db,
     passwordResetChallenges: db.passwordResetChallenges.map((challenge) =>
       challenge.userId === userId && !challenge.consumedAt ? { ...challenge, consumedAt } : challenge,
+    ),
+  };
+}
+
+export function discardPasswordResetChallenge(db: MockDatabase, challengeId: string) {
+  return {
+    ...db,
+    passwordResetChallenges: db.passwordResetChallenges.filter(
+      (challenge) => challenge.id !== challengeId,
+    ),
+  };
+}
+
+export function reconcileFailedPasswordResetDelivery(
+  db: MockDatabase,
+  input: {
+    auditLogId: string;
+    challengeId: string;
+    requestedAt: string;
+    userId: string;
+  },
+) {
+  const discardedDb = discardPasswordResetChallenge(db, input.challengeId);
+
+  return {
+    ...discardedDb,
+    users: discardedDb.users.map((user) =>
+      user.id === input.userId && user.passwordResetRequestedAt === input.requestedAt
+        ? { ...user, passwordResetRequestedAt: undefined }
+        : user,
+    ),
+    auditLogs: discardedDb.auditLogs.map((log) =>
+      log.id === input.auditLogId
+        ? {
+            ...log,
+            result: "failed" as const,
+            message: "비밀번호 변경 인증번호 발송에 실패했습니다.",
+            after: {
+              ...(log.after ?? {}),
+              verificationDispatched: false,
+            },
+          }
+        : log,
     ),
   };
 }

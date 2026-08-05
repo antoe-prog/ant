@@ -34,7 +34,9 @@ import {
   roleLabels,
 } from "@/lib/roles";
 import { formatNotificationActionableLabel, getNotificationAlertCounts } from "@/lib/notification-alerts";
+import { connectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
 import { getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
+import { isNativeAndroidApp } from "@/lib/native-app-permissions";
 import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
@@ -93,6 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const logoutDialogRef = useRef<HTMLElement | null>(null);
   const logoutDialogPrimaryRef = useRef<HTMLButtonElement | null>(null);
   const logoutSyncPendingRef = useRef(false);
+  const familyPushReconciledUserIdRef = useRef<string | null>(null);
   const [mobileAccountMenuPath, setMobileAccountMenuPath] = useState<string | null>(null);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [logoutSyncPending, setLogoutSyncPending] = useState(false);
@@ -103,6 +106,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : [];
   const guardianFamilyMemberIds = user?.role === "guardian" ? guardianFamilyMembers.map((member) => member.id) : undefined;
   const [selectedGuardianMemberId] = useFamilyMemberSelection(user?.id ?? "anonymous", guardianFamilyMemberIds);
+  const familyPushUserId = user?.id;
+  const familyPushUserRole = user?.role;
+
+  useEffect(() => {
+    if (
+      !familyPushUserId ||
+      (familyPushUserRole !== "member" && familyPushUserRole !== "guardian") ||
+      isNativeAndroidApp() ||
+      familyPushReconciledUserIdRef.current === familyPushUserId
+    ) {
+      return;
+    }
+
+    // Never open a permission prompt on app entry; only reconcile an already-approved endpoint.
+    familyPushReconciledUserIdRef.current = familyPushUserId;
+    void connectCurrentBrowserPushSubscription({ requestPermission: false }).catch(() => {
+      if (familyPushReconciledUserIdRef.current === familyPushUserId) {
+        familyPushReconciledUserIdRef.current = null;
+      }
+    });
+  }, [familyPushUserId, familyPushUserRole]);
 
   useEffect(() => {
     if (!user) {

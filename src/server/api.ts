@@ -7,8 +7,17 @@ import {
   getAccessibleMemberIds,
   getSelectedBranchIds,
 } from "@/lib/mock-api";
-import { canViewTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
+import { canViewTournament, createFamilySafeTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
+import {
+  createFamilySafeMember,
+  createFamilySafeReferencedUser,
+  createGuardianFamilyLinkProjection,
+} from "@/lib/family-members";
+import { createFamilySafePayment } from "@/lib/family-payment-privacy";
+import { createFamilySafeAttendanceRecord } from "@/lib/attendance-policy";
+import { createFamilySafeNotice } from "@/lib/notices";
+import { createFamilySafePromotion } from "@/lib/promotions";
 import {
   hasGlobalAdminDataAccess,
   isGooglePlayReviewAccount,
@@ -147,8 +156,11 @@ function createSafeUser(
   db?: MockDatabase,
   viewerRole: AppUser["role"] = user.role,
   viewerUserId: string = user.id,
+  viewerBranchIds: readonly string[] = user.branchIds,
 ) {
   const safeUser = { ...user };
+  const redactFamilyLinks =
+    (viewerRole === "member" || viewerRole === "guardian") && safeUser.id !== viewerUserId;
 
   delete safeUser.passwordHash;
   delete safeUser.invitationToken;
@@ -160,24 +172,17 @@ function createSafeUser(
     delete safeUser.passwordUpdatedAt;
   }
 
-  if ((viewerRole === "member" || viewerRole === "guardian") && safeUser.id !== viewerUserId) {
-    delete safeUser.email;
-    delete safeUser.phone;
-    delete safeUser.memberIds;
-    delete safeUser.childMemberIds;
+  if (redactFamilyLinks) {
+    return createFamilySafeReferencedUser(safeUser, viewerBranchIds);
   }
 
-  if (db && safeUser.role === "guardian") {
-    const allowedFamilyMemberIds = new Set(getAccessibleMemberIds(safeUser, db));
-    const memberById = new Map(db.members.map((member) => [member.id, member]));
-    const selfMemberIds = (safeUser.memberIds ?? []).filter((memberId) => allowedFamilyMemberIds.has(memberId));
-    const selfMemberIdSet = new Set(selfMemberIds);
+  const guardianFamilyLinks = db
+    ? createGuardianFamilyLinkProjection(safeUser, db, { redactFamilyLinks })
+    : null;
 
-    safeUser.memberIds = selfMemberIds;
-    safeUser.childMemberIds = [...allowedFamilyMemberIds].filter((memberId) => {
-      const member = memberById.get(memberId);
-      return !selfMemberIdSet.has(memberId) && Boolean(member?.guardianIds.includes(safeUser.id));
-    });
+  if (guardianFamilyLinks) {
+    safeUser.memberIds = guardianFamilyLinks.memberIds;
+    safeUser.childMemberIds = guardianFamilyLinks.childMemberIds;
   }
 
   return safeUser;
@@ -218,7 +223,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     .filter((member) => allowedMemberIds.has(member.id) && branchIds.includes(member.branchId))
     .map((member) =>
       user.role === "member" || user.role === "guardian"
-        ? { ...member, alerts: [] }
+        ? createFamilySafeMember(member, user)
         : user.role === "coach"
           ? {
               ...member,
@@ -228,30 +233,30 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
             }
           : member,
     );
-  const attendance = db.attendance.filter((record) => classIds.has(record.sessionId) && allowedMemberIds.has(record.memberId));
+  const scopedAttendance = db.attendance.filter(
+    (record) => classIds.has(record.sessionId) && allowedMemberIds.has(record.memberId),
+  );
+  const attendance = user.role === "member" || user.role === "guardian"
+    ? scopedAttendance.map(createFamilySafeAttendanceRecord)
+    : scopedAttendance;
   const counselingNotes = (db.counselingNotes ?? [])
     .filter((note) => branchIds.includes(note.branchId) && allowedMemberIds.has(note.memberId))
     .filter((note) => canReadCounselingNote(user, note));
-  const promotions = (db.promotions ?? []).filter(
+  const scopedPromotions = (db.promotions ?? []).filter(
     (promotion) => branchIds.includes(promotion.branchId) && allowedMemberIds.has(promotion.memberId),
   );
+  const promotions = user.role === "member" || user.role === "guardian"
+    ? scopedPromotions.map(createFamilySafePromotion)
+    : scopedPromotions;
   const payments = user.role === "coach"
     ? []
     : user.role === "member" || user.role === "guardian"
-      ? scopedPayments.map((payment) =>
-          payment.collectionRequest && payment.collectionRequest.requestedByUserId !== user.id
-            ? {
-                ...payment,
-                collectionRequest: {
-                  ...payment.collectionRequest,
-                  payerName: "다른 보호자",
-                  payerPhone: "",
-                },
-              }
-            : payment,
-        )
+      ? scopedPayments.map((payment) => createFamilySafePayment(payment, user.id))
       : scopedPayments;
-  const notices = db.notices.filter((notice) => canReadNotice(user, db, notice, branchIds));
+  const scopedNotices = db.notices.filter((notice) => canReadNotice(user, db, notice, branchIds));
+  const notices = user.role === "member" || user.role === "guardian"
+    ? scopedNotices.map((notice) => createFamilySafeNotice(notice, user.id, allowedMemberIds, classIds))
+    : scopedNotices;
   const globalAdminDataAccess = hasGlobalAdminDataAccess(user);
   const referencedUserIds = new Set<string>([user.id]);
 
@@ -261,6 +266,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     member.guardianIds.forEach((guardianId) => referencedUserIds.add(guardianId));
   });
   counselingNotes.forEach((note) => referencedUserIds.add(note.authorUserId));
+  scopedPromotions.forEach((promotion) => referencedUserIds.add(promotion.evaluatorUserId));
 
   const scopedUsers = globalAdminDataAccess
     ? db.users
@@ -271,7 +277,9 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
             candidate.branchIds.some((branchId) => branchIds.includes(branchId)),
         )
       : db.users.filter((candidate) => referencedUserIds.has(candidate.id));
-  const users = scopedUsers.map((candidate) => createSafeUser(candidate, db, user.role, user.id));
+  const users = scopedUsers.map((candidate) =>
+    createSafeUser(candidate, db, user.role, user.id, branchIds)
+  );
   const auditLogs = globalAdminDataAccess
     ? db.auditLogs
     : user.role === "owner" || user.role === "admin"
@@ -323,24 +331,20 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
 
         return canViewTournament(tournament, branchIds);
       })
-      .map((tournament) => ({
-        ...tournament,
-        registrations: (tournament.registrations ?? [])
-          .filter((registration) => allowedMemberIds.has(registration.memberId))
-          .map((registration) => {
-            if (user.role !== "member" && user.role !== "guardian") {
-              return registration;
-            }
-
-            const familyRegistration = { ...registration };
-            delete familyRegistration.reviewedByUserId;
-            return familyRegistration;
-          }),
-      })),
+      .map((tournament) =>
+        user.role === "member" || user.role === "guardian"
+          ? createFamilySafeTournament(tournament, allowedMemberIds)
+          : {
+              ...tournament,
+              registrations: (tournament.registrations ?? [])
+                .filter((registration) => allowedMemberIds.has(registration.memberId)),
+            },
+      ),
     payments,
     notices,
     authSessions: [],
     passwordResetChallenges: [],
+    phoneSignupChallenges: [],
     attendanceQrChallenges: [],
     pushSubscriptions,
     pushDispatchJobs: [],

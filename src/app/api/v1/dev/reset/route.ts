@@ -35,6 +35,7 @@ async function applyIsolatedSmokePasswords(db: MockDatabase) {
     ...db,
     authSessions: [],
     passwordResetChallenges: [],
+    phoneSignupChallenges: [],
     users: db.users.map((user) => ({
       ...user,
       passwordHash: createRandomPasswordHash(rolePasswords[user.role]),

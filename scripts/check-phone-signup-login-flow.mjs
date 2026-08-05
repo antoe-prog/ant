@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
@@ -32,6 +32,10 @@ const chromeCandidates = [
 let managedAppServer = null;
 let usingExistingAppServer = false;
 let activeBrowser = null;
+const managedRuntimeStamp = `${process.pid}-${Date.now()}`;
+const managedDistDir = `.next-phone-signup-login-${managedRuntimeStamp}`;
+const managedTsconfigPath = `.tsconfig.phone-signup-login-${managedRuntimeStamp}.json`;
+const managedServerOutput = [];
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
@@ -74,7 +78,7 @@ async function waitForManagedAppServer(timeoutMs = 30000) {
     }
 
     if (managedAppServer?.exitCode !== null) {
-      throw new Error(`Managed app server exited before ${baseUrl} became reachable`);
+      throw new Error(`Managed app server exited before ${baseUrl} became reachable\n${managedServerOutput.join("").slice(-4000)}`);
     }
 
     await sleep(500);
@@ -101,21 +105,48 @@ async function ensureLocalAppServer() {
     return;
   }
 
+  writeFileSync(
+    managedTsconfigPath,
+    `${JSON.stringify({
+      extends: "./tsconfig.json",
+      include: [
+        "next-env.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        `${managedDistDir}/types/**/*.ts`,
+        `${managedDistDir}/dev/types/**/*.ts`,
+      ],
+    }, null, 2)}\n`,
+  );
+
   managedAppServer = spawn(
     npmCommand,
     ["run", "dev", "--", "--webpack", "--hostname", managedHostname, "--port", managedPort],
     {
     cwd: process.cwd(),
-    env: process.env,
+    env: {
+      ...process.env,
+      FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
+      FINAL_JUDO_NEXT_TSCONFIG_PATH: managedTsconfigPath,
+      FINAL_JUDO_ROLL_DEMO_DATES: "0",
+    },
     stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  managedAppServer.stdout?.on("data", (chunk) => managedServerOutput.push(chunk.toString()));
+  managedAppServer.stderr?.on("data", (chunk) => managedServerOutput.push(chunk.toString()));
 
   await waitForManagedAppServer();
 }
 
 async function stopManagedAppServer() {
-  if (!managedAppServer || usingExistingAppServer) {
+  if (usingExistingAppServer) {
+    return;
+  }
+
+  if (!managedAppServer || managedAppServer.exitCode !== null) {
+    rmSync(managedDistDir, { force: true, recursive: true });
+    rmSync(managedTsconfigPath, { force: true });
     return;
   }
 
@@ -133,6 +164,8 @@ async function stopManagedAppServer() {
       }
     }),
   ]);
+  rmSync(managedDistDir, { force: true, recursive: true });
+  rmSync(managedTsconfigPath, { force: true });
 }
 
 async function resetDevData(label) {
@@ -152,7 +185,11 @@ function collectConsoleMessages(page) {
 
     const text = message.text();
 
-    if (message.type() === "warning" && text.includes("[Fast Refresh] performing full reload")) {
+    if (
+      message.type() === "warning" &&
+      (text.includes("[Fast Refresh] performing full reload") ||
+        text.includes("was preloaded using link preload but not used"))
+    ) {
       return;
     }
 
@@ -169,6 +206,19 @@ function generatedMobilePhone() {
   const suffix = String(Date.now()).slice(-8).padStart(8, "0");
 
   return `010${suffix}`;
+}
+
+function debugStep(label) {
+  if (process.env.PHONE_SIGNUP_LOGIN_FLOW_DEBUG === "1") {
+    console.log(`[phone-signup-login-flow] ${label}`);
+  }
+}
+
+async function closeBrowserWithDeadline(browser) {
+  await Promise.race([
+    browser.close().catch(() => {}),
+    sleep(5_000),
+  ]);
 }
 
 async function main() {
@@ -191,14 +241,19 @@ async function main() {
   const passwordResetScreenshotPath = join(outDir, "phone-password-reset-mobile.png");
 
   for (const payload of [
-    { branchId: "branch-gangnam", name: "가".repeat(31), password, phone },
-    { branchId: "branch-gangnam", name: "가입확인", password: "P".repeat(257), phone },
-    { branchId: "b".repeat(161), name: "가입확인", password, phone },
-    { branchId: "branch-gangnam", name: "가입확인", password, phone: "0".repeat(41) },
+    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가".repeat(31), password, phone },
+    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가입확인", password: "P".repeat(257), phone },
+    { action: "complete", branchId: "b".repeat(161), code: "123456", name: "가입확인", password, phone },
+    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가입확인", password, phone: "0".repeat(41) },
   ]) {
     const response = await context.request.post(`${baseUrl}/api/v1/auth/register`, { data: payload });
     assert.equal(response.status(), 400, "oversized public registration input must be rejected before account creation");
   }
+
+  const oversizedSignupRequest = await context.request.post(`${baseUrl}/api/v1/auth/register`, {
+    data: { action: "request", phone: "0".repeat(41) },
+  });
+  assert.equal(oversizedSignupRequest.status(), 400, "oversized signup phones must be rejected before challenge creation");
 
   for (const payload of [
     { password: "P".repeat(257), phone: "01050504927" },
@@ -245,11 +300,47 @@ async function main() {
 
   await page.getByTestId("signup-name-input").fill("가입확인");
   await page.getByTestId("signup-phone-input").fill(phone);
+  await page.getByTestId("signup-code-request-button").click();
+  await page.waitForSelector('[data-testid="signup-code-input"]', { timeout: 15000 });
+  const signupVerificationLayout = await page.evaluate(() => {
+    const codeInput = document.querySelector('[data-testid="signup-code-input"]');
+    const requestButton = document.querySelector('[data-testid="signup-code-request-button"]');
+
+    return {
+      codeInputHeight: Math.round(codeInput?.getBoundingClientRect().height ?? 0),
+      codeMaxLength: Number(codeInput?.getAttribute("maxlength")),
+      codeValue: codeInput instanceof HTMLInputElement ? codeInput.value : "",
+      requestButtonHeight: Math.round(requestButton?.getBoundingClientRect().height ?? 0),
+      overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    };
+  });
+  assert.match(signupVerificationLayout.codeValue, /^\d{6}$/, "isolated signup flow must receive and fill a development code");
+  assert.equal(signupVerificationLayout.codeMaxLength, 6, "signup verification input must accept six digits");
+  assert(signupVerificationLayout.codeInputHeight >= 44, "signup verification input must keep a 44px touch height");
+  assert(signupVerificationLayout.requestButtonHeight >= 44, "signup verification request must keep a 44px touch height");
+  assert.equal(signupVerificationLayout.overflowX, 0, "signup verification controls must not overflow horizontally");
   await page.getByTestId("signup-branch-input").selectOption("branch-gangnam");
   await page.getByTestId("signup-password-input").fill(password);
   await page.getByTestId("signup-password-confirm-input").fill(password);
+  const registrationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url() === `${baseUrl}/api/v1/auth/register` &&
+      response.request().method() === "POST",
+    { timeout: 30000 },
+  );
   await page.getByTestId("signup-submit-button").click();
-  await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("registered") === "1", { timeout: 15000 });
+  const registrationResponse = await registrationResponsePromise;
+  const registrationResponseBody = await registrationResponse.text();
+  assert.equal(
+    registrationResponse.status(),
+    200,
+    `phone signup completion must succeed before login navigation: ${registrationResponseBody}`,
+  );
+  await page.waitForFunction(
+    () => window.location.pathname === "/login" && new URLSearchParams(window.location.search).get("registered") === "1",
+    undefined,
+    { timeout: 30000 },
+  );
   await page.waitForSelector("text=회원가입이 완료되었습니다. 휴대폰 번호와 비밀번호로 로그인해 주세요.", { timeout: 15000 });
 
   const registeredLoginLayout = await page.evaluate(() => {
@@ -285,7 +376,18 @@ async function main() {
   await page.screenshot({ path: registeredLoginScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
 
   await page.locator("#login-password-input").fill(password);
+  const loginResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST",
+    { timeout: 15000 },
+  );
   await page.locator('button[type="submit"]').click();
+  const loginResponse = await loginResponsePromise;
+  const loginSetCookie = await loginResponse.headerValue("set-cookie");
+  assert.equal(loginResponse.status(), 200, "phone signup login API must accept the registered credentials");
+  assert.match(loginSetCookie ?? "", new RegExp(`(?:^|[,;]\\s*)${sessionCookieName}=`), "login response must issue a session cookie");
+  assert.match(loginSetCookie ?? "", /;\s*HttpOnly(?:;|$)/i, "login response session cookie must be httpOnly");
+  assert.match(loginSetCookie ?? "", /;\s*Secure(?:;|$)/i, "production login response session cookie must require HTTPS");
+  assert.match(loginSetCookie ?? "", /;\s*SameSite=Lax(?:;|$)/i, "login response session cookie must use SameSite=Lax");
   await page.waitForURL((url) => url.pathname === "/app/dashboard", { timeout: 15000 });
   await page.waitForLoadState("networkidle");
   await page.waitForFunction(() => !document.body.innerText.includes("불러오는 중"), null, { timeout: 15000 });
@@ -318,7 +420,9 @@ async function main() {
   assert.equal(dashboardLayout.hasInvalidCredentialsCopy, false, "phone signup login must not show invalid credential copy after successful login");
   assert.equal(dashboardLayout.overflowX, 0, "phone signup dashboard must not overflow horizontally");
   assert(dashboardLayout.bodyTextLength > 120, "phone signup dashboard must not be blank");
-  assert(sessionCookie, "phone signup login must set the httpOnly session cookie");
+  // A production Secure cookie is intentionally not persisted by Chromium on
+  // the local HTTP smoke origin. The response flags above are the security
+  // contract; browser storage is evidence only when the transport accepts it.
   assert.equal(consoleMessages.length, 0, `phone signup login flow must not emit console warnings/errors: ${consoleMessages.join(" | ")}`);
 
   const logoutResponse = await context.request.post(`${baseUrl}/api/v1/auth/logout`);
@@ -336,24 +440,32 @@ async function main() {
   await page.locator('[data-testid="password-reset-password-form"] button[type="submit"]').click();
   await page.waitForSelector("text=비밀번호 변경 완료", { timeout: 15000 });
   await page.screenshot({ path: passwordResetScreenshotPath, animations: "disabled", fullPage: false, caret: "initial" });
+  debugStep("password reset UI completed");
 
   const oldPasswordLogin = await context.request.post(`${baseUrl}/api/v1/auth/login`, {
     data: { phone, password },
+    timeout: 15000,
   });
   assert.equal(oldPasswordLogin.status(), 401, "the previous password must stop working after verified reset");
+  debugStep("old password rejection verified");
   const resetPasswordLogin = await context.request.post(`${baseUrl}/api/v1/auth/login`, {
     data: { phone, password: resetPassword },
+    timeout: 15000,
   });
   assert.equal(resetPasswordLogin.status(), 200, "the verified replacement password must log in");
+  debugStep("replacement password login verified");
 
   for (const screenshotPath of [signupScreenshotPath, registeredLoginScreenshotPath, dashboardScreenshotPath, passwordResetScreenshotPath]) {
     assert(statSync(screenshotPath).size > 10_000, `${screenshotPath} must be a non-empty screenshot`);
   }
 
-  await context.close();
-  await browser.close();
+  // Browser.close() owns context teardown. Closing both separately can leave
+  // the system Chrome transport waiting indefinitely after APIRequest use.
+  await closeBrowserWithDeadline(browser);
   activeBrowser = null;
+  debugStep("browser closed");
   await resetDevData("after");
+  debugStep("isolated data reset after flow");
 
   const report = {
     ok: true,
@@ -369,10 +481,11 @@ async function main() {
       "same password logs in and reaches the member dashboard",
       "registered phone OTP changes the password directly",
       "old password is rejected and the replacement password logs in",
-      "session cookie is set after login",
+      "login response emits an httpOnly Secure SameSite=Lax session cookie",
       "390px signup/login/dashboard flow stays horizontally contained",
     ],
     phoneSuffix: phone.slice(-4),
+    browserStoredSessionCookie: Boolean(sessionCookie),
     signupLayout,
     registeredLoginLayout,
     dashboardLayout,
@@ -396,7 +509,7 @@ main()
   })
   .finally(async () => {
     if (activeBrowser) {
-      await activeBrowser.close().catch(() => {});
+      await closeBrowserWithDeadline(activeBrowser);
       activeBrowser = null;
     }
     await stopManagedAppServer();

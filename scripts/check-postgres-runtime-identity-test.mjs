@@ -205,6 +205,24 @@ try {
   assert(!matchingStatus.connectionString.includes("secret-value"));
   assert(!matchingStatus.connectionString.includes("query-secret-value"));
   assert.equal(await matchingIdentityStore.withLock("unit-test", async () => "locked"), "locked");
+  const nestedLockQueryStart = activeDatabase.queryLog.length;
+  assert.equal(
+    await matchingIdentityStore.withLock("auth-security", () =>
+      matchingIdentityStore.withLock("notification-outbox", async () => "nested-locked"),
+    ),
+    "nested-locked",
+  );
+  const nestedLockQueries = activeDatabase.queryLog.slice(nestedLockQueryStart);
+  assert.deepEqual(
+    nestedLockQueries.filter((query) => /^(BEGIN|COMMIT|ROLLBACK)$/.test(query)),
+    ["BEGIN", "COMMIT"],
+    "nested PostgreSQL locks must share one transaction",
+  );
+  assert.equal(
+    nestedLockQueries.filter((query) => query.includes("pg_advisory_xact_lock")).length,
+    2,
+    "nested PostgreSQL locks must acquire both domain keys",
+  );
   assert.equal((await matchingIdentityStore.write({ value: "updated" })).value, "updated");
   assert.equal(activeDatabase.row.installation_id, expectedInstallationId, "writes must preserve the bound identity");
 
@@ -244,6 +262,7 @@ console.log(
         "production missing state does not seed or insert",
         "production rejects a different database installation identity without exposing values",
         "production accepts and preserves the matching installation identity",
+        "nested domain locks share one PostgreSQL transaction and acquire both keys",
         "production reset checks required state before createDefault",
         "local runtime retains automatic schema and default state creation",
       ],

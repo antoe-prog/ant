@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { AppUser, AuthSession, MockDatabase } from "@/lib/domain";
+import { cancelPushDispatchJobsForSubscriptions } from "./notification-outbox.ts";
 import { userAdministrationLockKey } from "./user-administration.ts";
 
 const sessionTokenBytes = 32;
@@ -226,4 +227,27 @@ export function revokeUserAuthSessions(db: MockDatabase, userId: string, now = n
       session.userId === userId && !session.revokedAt ? { ...session, revokedAt } : session,
     ),
   };
+}
+
+export function revokeUserSecurityAccess(db: MockDatabase, userId: string, now = new Date()): MockDatabase {
+  const disabledAt = now.toISOString();
+  const dbWithRevokedSessions = revokeUserAuthSessions(db, userId, now);
+  const revokedSubscriptionIds = new Set(
+    dbWithRevokedSessions.pushSubscriptions
+      .filter((subscription) => subscription.userId === userId)
+      .map((subscription) => subscription.id),
+  );
+  const nextDb: MockDatabase = {
+    ...dbWithRevokedSessions,
+    pushSubscriptions: dbWithRevokedSessions.pushSubscriptions.map((subscription) =>
+      subscription.userId === userId && !subscription.disabledAt
+        ? { ...subscription, disabledAt, updatedAt: disabledAt }
+        : subscription,
+    ),
+  };
+
+  return cancelPushDispatchJobsForSubscriptions(nextDb, revokedSubscriptionIds, {
+    now: disabledAt,
+    reason: "계정 보안 정보가 변경되어 이전 기기 발송을 취소했습니다.",
+  });
 }

@@ -42,6 +42,23 @@ const matchingProfile = `<?xml version="1.0" encoding="UTF-8"?>
   </array>
 </dict>
 </plist>`;
+const appStoreProfile = `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>Name</key><string>Final Judo App Store Connect</string>
+  <key>UUID</key><string>11111111-1111-1111-1111-111111111111</string>
+  <key>TeamIdentifier</key>
+  <array>
+    <string>5GWZ792DWH</string>
+  </array>
+  <key>ExpirationDate</key><date>2027-08-05T00:00:00Z</date>
+  <key>Entitlements</key>
+  <dict>
+    <key>application-identifier</key><string>5GWZ792DWH.kr.co.finaljudo.multigym</string>
+    <key>get-task-allow</key><false/>
+  </dict>
+</dict>
+</plist>`;
 const mismatchedProfile = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
@@ -58,6 +75,7 @@ const mismatchedProfile = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>`;
 
 await writeFile(path.join(profilesDir, "matching.mobileprovision"), matchingProfile);
+await writeFile(path.join(profilesDir, "app-store.mobileprovision"), appStoreProfile);
 await writeFile(path.join(profilesDir, "mismatched.mobileprovision"), mismatchedProfile);
 
 await execFile(
@@ -87,8 +105,18 @@ assert.equal(report.checks.appleTeamId.ok, true, "doctor must accept the supplie
 assert.equal(report.checks.provisioningProfile.ok, true, "matching test provisioning profile must satisfy profile check");
 assert.equal(
   report.checks.provisioningProfile.inventory.totalProfileFiles,
-  2,
+  3,
   "doctor must count scanned local provisioning profile files",
+);
+assert.equal(
+  report.checks.provisioningProfile.inventory.matchingAppStoreProfiles,
+  1,
+  "doctor must recognize App Store distribution profiles without registered devices",
+);
+assert.equal(
+  report.checks.provisioningProfile.inventory.matchingExportMethodProfiles,
+  1,
+  "doctor must select a profile compatible with the configured App Store export method",
 );
 assert.equal(
   report.checks.provisioningProfile.inventory.matchingProfilesWithRegisteredDevices,
@@ -140,18 +168,22 @@ assert(
   "doctor Markdown must explicitly separate Simulator success from IPA readiness",
 );
 assert(markdown.includes("| Apple Team ID | 5GWZ792DWH |"), "doctor Markdown must summarize the Apple Team ID");
-assert(markdown.includes("| Local profile files | 2 |"), "doctor Markdown must summarize local profile inventory");
+assert(markdown.includes("| Local profile files | 3 |"), "doctor Markdown must summarize local profile inventory");
 assert(
   markdown.includes("| Profiles with registered iPhone devices | 1 |"),
   "doctor Markdown must summarize registered-device profile count",
 );
 assert(
-  markdown.includes("The IPA remains blocked until both a real HTTPS web app production origin and a local provisioning profile"),
-  "doctor Markdown must describe the two required external blockers",
+  markdown.includes("a provisioning profile appropriate for the selected export method"),
+  "doctor Markdown must describe export-method-specific provisioning",
+);
+assert(
+  markdown.includes("| App Store distribution profiles | 1 |"),
+  "doctor Markdown must report App Store distribution profile count",
 );
 assert(markdown.includes("## Provisioning Hints"), "doctor Markdown must include provisioning hints");
 assert(markdown.includes("### Local Profile Inventory"), "doctor Markdown must include profile inventory");
-assert(markdown.includes("Profile files: `2`"), "doctor Markdown must include scanned profile count");
+assert(markdown.includes("Profile files: `3`"), "doctor Markdown must include scanned profile count");
 assert(
   markdown.includes("Device UDIDs are intentionally not written to this report."),
   "doctor Markdown must explain that UDIDs are redacted",
@@ -202,7 +234,7 @@ await execFile(
 const defaultConfigReport = JSON.parse(await readFile(defaultConfigReportPath, "utf8"));
 assert.equal(
   defaultConfigReport.checks.appleTeamId.value,
-  "5GWZ792DWH",
+  "CA7A5SP5G5",
   "doctor must fall back to non-secret mobile/ios/release-config.json Apple Team ID",
 );
 assert.equal(
@@ -238,8 +270,13 @@ const buildReport = JSON.parse(await readFile(buildReportPath, "utf8"));
 assert.equal(buildReport.releaseDecision, "blocked", "build report must stay blocked without production origin");
 assert.equal(
   buildReport.checks.provisioningProfile.inventory.totalProfileFiles,
-  2,
+  3,
   "build report must include local provisioning profile inventory",
+);
+assert.equal(
+  buildReport.checks.provisioningProfile.inventory.matchingAppStoreProfiles,
+  1,
+  "build report must recognize App Store distribution profiles without device UDIDs",
 );
 assert.equal(
   buildReport.checks.provisioningProfile.inventory.matchingProfilesWithRegisteredDevices,
@@ -298,7 +335,7 @@ assert.equal(buildDefaultConfigExitCode, 1, "build doctor-only default-config re
 const buildDefaultConfigReport = JSON.parse(await readFile(buildDefaultConfigReportPath, "utf8"));
 assert.equal(
   buildDefaultConfigReport.checks.appleTeamId.value,
-  "5GWZ792DWH",
+  "CA7A5SP5G5",
   "build doctor-only report must fall back to the non-secret iOS release config Apple Team ID",
 );
 assert(

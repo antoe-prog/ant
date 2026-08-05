@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { OnlinePaymentProvider, Payment, PaymentReceipt } from "@/lib/domain";
 import { formatDateKey } from "../lib/format.ts";
 import { getPaymentRemainingRefundableAmount } from "../lib/payment-amounts.ts";
@@ -17,9 +18,11 @@ export type PaymentWebhookBody = {
 
 export type OnlinePaymentRuntimeBlocker =
   | "PAYMENT_PROVIDER_NOT_CONFIGURED"
+  | "PAYMENT_PROVIDER_INVALID"
   | "PAYMENT_CHECKOUT_BASE_URL_MISSING"
   | "PAYMENT_CHECKOUT_BASE_URL_INVALID"
-  | "PAYMENT_WEBHOOK_SECRET_MISSING";
+  | "PAYMENT_WEBHOOK_SECRET_MISSING"
+  | "PAYMENT_WEBHOOK_SECRET_WEAK";
 
 export type OnlinePaymentRuntimeReadiness = {
   blockers: OnlinePaymentRuntimeBlocker[];
@@ -28,6 +31,33 @@ export type OnlinePaymentRuntimeReadiness = {
 };
 
 export const paymentReceiptUrlMaxLength = 2048;
+export const paymentWebhookSecretMinBytes = 32;
+
+export function isPaymentWebhookSecretSecure(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const secret = value.trim();
+  const looksLikePlaceholder = /(?:TODO|TBD|REPLACE-WITH|PLACEHOLDER|EXAMPLE|SAMPLE)/i.test(secret);
+
+  return (
+    !looksLikePlaceholder &&
+    Buffer.byteLength(secret, "utf8") >= paymentWebhookSecretMinBytes &&
+    new Set(secret).size >= 8
+  );
+}
+
+export function matchesPaymentWebhookSecret(provided: string | null, expected: string) {
+  if (typeof provided !== "string" || !provided || !expected) {
+    return false;
+  }
+
+  const providedDigest = createHash("sha256").update(provided).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
 
 export function isValidPaymentReceiptUrl(value: unknown): value is string {
   if (typeof value !== "string") {
@@ -75,11 +105,16 @@ export function normalizePaymentCheckoutBaseUrl(value: unknown) {
 
 export function getOnlinePaymentRuntimeReadiness(env: NodeJS.ProcessEnv = process.env): OnlinePaymentRuntimeReadiness {
   const isProduction = env.NODE_ENV === "production";
-  const hasExternalProvider = Boolean(env.FINAL_JUDO_PAYMENT_PROVIDER?.trim());
+  const configuredProvider = env.FINAL_JUDO_PAYMENT_PROVIDER?.trim() ?? "";
+  const hasExternalProvider = configuredProvider === "external";
+  const hasInvalidProvider = Boolean(configuredProvider) && !hasExternalProvider;
   const checkoutBaseUrl = env.FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL?.trim();
+  const webhookSecret = env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET?.trim();
   const blockers: OnlinePaymentRuntimeBlocker[] = [];
 
-  if (isProduction && !hasExternalProvider) {
+  if (hasInvalidProvider) {
+    blockers.push("PAYMENT_PROVIDER_INVALID");
+  } else if (isProduction && !hasExternalProvider) {
     blockers.push("PAYMENT_PROVIDER_NOT_CONFIGURED");
   }
 
@@ -89,8 +124,12 @@ export function getOnlinePaymentRuntimeReadiness(env: NodeJS.ProcessEnv = proces
     blockers.push("PAYMENT_CHECKOUT_BASE_URL_INVALID");
   }
 
-  if (isProduction && hasExternalProvider && !env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET?.trim()) {
-    blockers.push("PAYMENT_WEBHOOK_SECRET_MISSING");
+  if (isProduction && hasExternalProvider) {
+    if (!webhookSecret) {
+      blockers.push("PAYMENT_WEBHOOK_SECRET_MISSING");
+    } else if (!isPaymentWebhookSecretSecure(webhookSecret)) {
+      blockers.push("PAYMENT_WEBHOOK_SECRET_WEAK");
+    }
   }
 
   return {
@@ -159,14 +198,14 @@ export function createCheckoutUrl(providerPaymentId: string) {
   return `${checkoutBaseUrl}/checkout/${encodeURIComponent(providerPaymentId)}`;
 }
 
-export function getWebhookSecret() {
-  const configuredSecret = process.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET?.trim();
+export function getWebhookSecret(env: NodeJS.ProcessEnv = process.env) {
+  const configuredSecret = env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET?.trim();
 
-  if (configuredSecret) {
+  if (configuredSecret && (env.NODE_ENV !== "production" || isPaymentWebhookSecretSecure(configuredSecret))) {
     return configuredSecret;
   }
 
-  return process.env.NODE_ENV === "production" ? null : "final-judo-dev-webhook-secret";
+  return env.NODE_ENV === "production" ? null : "final-judo-dev-webhook-secret";
 }
 
 export function createPaymentReceipt(

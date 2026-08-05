@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { rm } from "node:fs/promises";
 import net from "node:net";
 
 import { assertFreshNextBuild } from "./lib/next-build-readiness.mjs";
+import { prepareStandaloneSmokeEnvironment } from "./lib/release-smoke-environment.mjs";
 
 const nextBin = "node_modules/next/dist/bin/next";
 const defaultPilotPassword = "FinalJudoPilot!2026";
@@ -121,6 +120,19 @@ function assertCookieMaxAge(result, expectedMaxAge, label) {
     setCookie.includes(`Max-Age=${expectedMaxAge}`),
     `${label} must set session cookie Max-Age=${expectedMaxAge}; received ${setCookie}`,
   );
+}
+
+async function requestSignupCode(client, phone, label) {
+  const result = await client.request("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ action: "request", phone }),
+  });
+
+  assert.equal(result.response.status, 200, `${label} verification request must succeed`);
+  assert.equal(result.payload.data?.next, "verify", `${label} verification request must advance to code entry`);
+  assert.match(result.payload.data?.developmentCode ?? "", /^\d{6}$/, `${label} must receive an isolated development code`);
+
+  return result.payload.data.developmentCode;
 }
 
 async function loginRole(client, role) {
@@ -340,6 +352,7 @@ async function runAssertions(baseUrl) {
 
   const publicSignupClient = createClient(baseUrl);
   const publicRegisterPhone = `010${stampPhoneSuffix}`;
+  const publicRegisterCode = await requestSignupCode(publicSignupClient, publicRegisterPhone, "public signup");
   const publicSignupBranches = await publicSignupClient.request("/api/v1/auth/register");
   assert.deepEqual(
     publicSignupBranches.payload.data?.branches?.map((branch) => branch.id),
@@ -357,6 +370,9 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
+        action: "complete",
+        branchId: "",
+        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -372,7 +388,9 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
+        action: "complete",
         branchId: "branch-inactive-or-forged",
+        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -388,7 +406,9 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
+        action: "complete",
         branchId: "branch-songpa",
+        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -417,10 +437,21 @@ async function runAssertions(baseUrl) {
   assert.equal(publicRegisterLogin.response.status, 200, "phone signup user must be able to log in with the same password");
   assertCookieMaxAge(publicRegisterLogin, 60 * 60 * 24 * 30, "phone signup remembered login");
 
+  const existingPhoneRequest = await publicSignupClient.request("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ action: "request", phone: publicRegisterPhone }),
+  });
+  assert.equal(existingPhoneRequest.response.status, 200, "existing phone requests must keep a neutral success response");
+  assert.equal(existingPhoneRequest.payload.data?.next, "verify", "existing phone requests must use the same next step");
+  assert.equal(existingPhoneRequest.payload.data?.developmentCode, undefined, "existing phones must never receive a signup code");
+
   const concurrentPhoneSuffix = String((Number(stampPhoneSuffix) + 3) % 100000000).padStart(8, "0");
   const concurrentRegisterPhone = `010${concurrentPhoneSuffix}`;
+  const concurrentRegisterCode = await requestSignupCode(publicSignupClient, concurrentRegisterPhone, "concurrent signup");
   const concurrentRegisterBody = JSON.stringify({
+    action: "complete",
     branchId: "branch-gangnam",
+    code: concurrentRegisterCode,
     name: "동시 가입 확인",
     password: `FJ-Concurrent-${stamp}!`,
     phone: concurrentRegisterPhone,
@@ -437,13 +468,13 @@ async function runAssertions(baseUrl) {
   );
   assert.deepEqual(
     concurrentRegisterResults.map((result) => result.response.status).sort((left, right) => left - right),
-    [200, 409],
-    "concurrent registration for one phone must create exactly one account and reject the duplicate",
+    [200, 400],
+    "concurrent registration for one verified phone must create exactly one account and consume the code",
   );
   assert.equal(
-    concurrentRegisterResults.find((result) => result.response.status === 409)?.payload.error?.code,
-    "CONFLICT",
-    "concurrent duplicate registration must return the stable conflict code",
+    concurrentRegisterResults.find((result) => result.response.status === 400)?.payload.error?.code,
+    "SIGNUP_CODE_INVALID",
+    "concurrent duplicate registration must not reveal whether the phone now exists",
   );
   const concurrentRegisterBootstrap = await admin.request("/api/v1/me/bootstrap");
   const concurrentPhoneUsers = concurrentRegisterBootstrap.payload.data.db.users.filter(
@@ -736,11 +767,11 @@ async function runAssertions(baseUrl) {
   assert(inviteToken, "admin invitation must return an invitation token");
 
   const pendingInviteeLogin = await inviteeLoginBeforeAccept(baseUrl, invitePhone, `FJ-Pending-${stamp}!`);
-  assert.equal(pendingInviteeLogin.response.status, 403, "pending invited user login must not look like a password failure");
+  assert.equal(pendingInviteeLogin.response.status, 401, "pending invited user login must not disclose account state");
   assert.equal(
     pendingInviteeLogin.payload.error?.code,
-    "ACCOUNT_PENDING",
-    "pending invited user login must return account-pending status",
+    "UNAUTHENTICATED",
+    "pending invited user login must use the generic credential response",
   );
 
   const acceptedPassword = `FJ-Accept-${stamp}!`;
@@ -766,8 +797,12 @@ async function runAssertions(baseUrl) {
   const approvalUserId = result.payload.data.invitation.userId;
   const approvalPendingLogin = await inviteeLoginBeforeAccept(baseUrl, approvalPhone, `FJ-Approve-Pending-${stamp}!`);
 
-  assert.equal(approvalPendingLogin.response.status, 403, "pending approval user login must be blocked before admin approval");
-  assert.equal(approvalPendingLogin.payload.error?.code, "ACCOUNT_PENDING", "pending approval user login must return ACCOUNT_PENDING");
+  assert.equal(approvalPendingLogin.response.status, 401, "pending approval user login must not disclose account state");
+  assert.equal(
+    approvalPendingLogin.payload.error?.code,
+    "UNAUTHENTICATED",
+    "pending approval login must use the generic credential response",
+  );
 
   const memberApproval = await member.request(
     `/api/v1/admin/users/${approvalUserId}/approve-invitation?selectedBranchId=branch-gangnam`,
@@ -1087,6 +1122,22 @@ async function runAssertions(baseUrl) {
     "linked member data must be included in member app bootstrap with synced profile",
   );
 
+  const securitySubscriptionEndpoint = `https://push.example.test/security-context-${stamp}`;
+  await updatedLogin.request("/api/v1/notifications/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      subscription: {
+        endpoint: securitySubscriptionEndpoint,
+        expirationTime: null,
+        keys: {
+          auth: "security_context_auth",
+          p256dh: "security_context_p256dh",
+        },
+      },
+      userAgent: "admin-user-security-context-check",
+    }),
+  });
+
   const ownerPasswordIssue = await owner.request(
     `/api/v1/admin/users/${invitedUserId}/password`,
     {
@@ -1185,10 +1236,92 @@ async function runAssertions(baseUrl) {
   assert.equal(passwordIssueAudit?.after?.mode, "manual", "admin password issue audit must record manual mode");
   assert(!("temporaryPassword" in passwordIssueAudit.after), "admin password issue audit must not expose temporary password");
   assert(!("passwordHash" in passwordIssueAudit.after), "admin password issue audit must not expose password hash");
+  assert(
+    !result.payload.data.db.pushSubscriptions.some(
+      (subscription) => subscription.endpoint === securitySubscriptionEndpoint && !subscription.disabledAt,
+    ),
+    "admin password issue must remove earlier device credentials from the active push projection",
+  );
 
   const reissuedLogin = createClient(baseUrl);
   const reissuedBootstrap = await loginCredentials(reissuedLogin, updatedPhone, reissuedPassword);
   assert.equal(reissuedBootstrap.user.id, invitedUserId, "admin-reissued password must allow login");
+  const pushConfigAfterReissue = await reissuedLogin.request("/api/v1/notifications/push-config");
+  assert.equal(
+    pushConfigAfterReissue.payload.data.currentUserSubscribed,
+    false,
+    "a new login must not silently trust a push subscription disabled by a security-context change",
+  );
+  const passiveReconnect = await reissuedLogin.request("/api/v1/notifications/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      allowReactivation: false,
+      subscription: {
+        endpoint: securitySubscriptionEndpoint,
+        expirationTime: null,
+        keys: {
+          auth: "security_context_auth",
+          p256dh: "security_context_p256dh",
+        },
+      },
+      userAgent: "admin-user-security-context-check",
+    }),
+  });
+  assert(
+    passiveReconnect.payload.data.subscription.disabledAt,
+    "passive app entry must preserve the security-disabled push credential",
+  );
+  assert.equal(
+    passiveReconnect.payload.data.reactivationRequired,
+    true,
+    "passive app entry must require an explicit push reconnection",
+  );
+  const pushConfigAfterPassiveReconnect = await reissuedLogin.request("/api/v1/notifications/push-config");
+  assert.equal(
+    pushConfigAfterPassiveReconnect.payload.data.currentUserSubscribed,
+    false,
+    "passive app entry must not reactivate a push subscription disabled by a security-context change",
+  );
+  const disabledFamilyUnsubscribe = await reissuedLogin.request("/api/v1/notifications/subscriptions", {
+    method: "DELETE",
+    body: JSON.stringify({ endpoint: securitySubscriptionEndpoint }),
+  });
+  assert(
+    disabledFamilyUnsubscribe.payload.data.subscription.disabledAt,
+    "family always-on unsubscribe must preserve a security-disabled push credential",
+  );
+  assert.equal(
+    disabledFamilyUnsubscribe.payload.data.reactivationRequired,
+    true,
+    "family always-on unsubscribe must require explicit reactivation after a security change",
+  );
+  const pushConfigAfterDisabledUnsubscribe = await reissuedLogin.request("/api/v1/notifications/push-config");
+  assert.equal(
+    pushConfigAfterDisabledUnsubscribe.payload.data.currentUserSubscribed,
+    false,
+    "family always-on policy must not override security-context push revocation",
+  );
+  await reissuedLogin.request("/api/v1/notifications/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      allowReactivation: true,
+      subscription: {
+        endpoint: securitySubscriptionEndpoint,
+        expirationTime: null,
+        keys: {
+          auth: "security_context_auth",
+          p256dh: "security_context_p256dh",
+        },
+      },
+      userAgent: "admin-user-security-context-check",
+    }),
+  });
+  const pushConfigAfterReconnect = await reissuedLogin.request("/api/v1/notifications/push-config");
+  assert.equal(
+    pushConfigAfterReconnect.payload.data.currentUserSubscribed,
+    true,
+    "an authenticated device must be able to reconnect its push subscription after reauthentication",
+  );
 
   const malformedRoleUpdate = await admin.request(
     `/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`,
@@ -1254,6 +1387,88 @@ async function runAssertions(baseUrl) {
     body: JSON.stringify({ role: "coach", reason: `missing branch assignment ${stamp}` }),
   }, { allowError: true });
   assert.equal(missingRoleBranchScope.response.status, 422, "non-admin role updates must require an explicit branch assignment");
+
+  const guardianBeforeOutOfScopeRoleUpdate = await admin.request("/api/v1/me/bootstrap");
+  const guardianRoleTargetBefore = guardianBeforeOutOfScopeRoleUpdate.payload.data.db.users.find(
+    (candidate) => candidate.id === "user-guardian",
+  );
+  const guardianLinksBefore = guardianBeforeOutOfScopeRoleUpdate.payload.data.db.members
+    .filter((member) => member.guardianIds.includes("user-guardian"))
+    .map((member) => member.id)
+    .sort();
+  const guardianRoleAuditCountBefore = guardianBeforeOutOfScopeRoleUpdate.payload.data.db.auditLogs.filter(
+    (log) => log.action === "user.role.update" && log.targetId === "user-guardian",
+  ).length;
+  const outOfScopeGuardianRoleUpdate = await admin.request(
+    "/api/v1/admin/users/user-guardian/roles",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        role: "guardian",
+        branchIds: ["branch-songpa"],
+        reason: `out-of-scope guardian family ${stamp}`,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    outOfScopeGuardianRoleUpdate.response.status,
+    422,
+    "guardian role updates must reject branch scopes that exclude linked self or child members",
+  );
+  assert.match(
+    outOfScopeGuardianRoleUpdate.payload.error?.message ?? "",
+    /회원 연결을 먼저 변경/,
+    "out-of-scope guardian role rejection must explain the required corrective action",
+  );
+
+  const memberRoleTargetBefore = guardianBeforeOutOfScopeRoleUpdate.payload.data.db.users.find(
+    (candidate) => candidate.id === "user-member",
+  );
+  const outOfScopeMemberRoleUpdate = await admin.request(
+    "/api/v1/admin/users/user-member/roles",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        role: "member",
+        branchIds: ["branch-songpa"],
+        reason: `out-of-scope member profile ${stamp}`,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    outOfScopeMemberRoleUpdate.response.status,
+    422,
+    "member role updates must reject branch scopes that exclude the linked self member",
+  );
+
+  const familyRolesAfterOutOfScopeRejections = await admin.request("/api/v1/me/bootstrap");
+  assert.deepEqual(
+    familyRolesAfterOutOfScopeRejections.payload.data.db.users.find((candidate) => candidate.id === "user-guardian"),
+    guardianRoleTargetBefore,
+    "blocked guardian role updates must preserve the account and family links",
+  );
+  assert.deepEqual(
+    familyRolesAfterOutOfScopeRejections.payload.data.db.users.find((candidate) => candidate.id === "user-member"),
+    memberRoleTargetBefore,
+    "blocked member role updates must preserve the account and self-member link",
+  );
+  assert.deepEqual(
+    familyRolesAfterOutOfScopeRejections.payload.data.db.members
+      .filter((member) => member.guardianIds.includes("user-guardian"))
+      .map((member) => member.id)
+      .sort(),
+    guardianLinksBefore,
+    "blocked guardian role updates must preserve reciprocal member links",
+  );
+  assert.equal(
+    familyRolesAfterOutOfScopeRejections.payload.data.db.auditLogs.filter(
+      (log) => log.action === "user.role.update" && log.targetId === "user-guardian",
+    ).length,
+    guardianRoleAuditCountBefore,
+    "blocked guardian role updates must not create success audit logs",
+  );
 
   result = await admin.request(`/api/v1/admin/users/${invitedUserId}/roles?selectedBranchId=branch-songpa`, {
     method: "PUT",
@@ -1747,14 +1962,35 @@ async function runAssertions(baseUrl) {
     },
     { allowError: true },
   );
-  assert.equal(blockedLogin.response.status, 429, "an additional invalid password must remain account-throttled");
-  assert(Number(blockedLogin.response.headers.get("retry-after")) > 0, "throttled login must include Retry-After");
+  const unknownLogin = await throttledAdminLoginClient.request(
+    "/api/v1/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ phone: "01000000000", password: "wrong-password-unknown" }),
+    },
+    { allowError: true },
+  );
+  assert.equal(blockedLogin.response.status, 401, "account throttling must use the generic invalid-credential status");
+  assert.equal(blockedLogin.payload.error?.code, unknownLogin.payload.error?.code);
+  assert.equal(blockedLogin.payload.error?.message, unknownLogin.payload.error?.message);
+  assert.equal(blockedLogin.response.headers.get("retry-after"), null);
+  assert.equal(unknownLogin.response.headers.get("retry-after"), null);
   const recoveredLogin = await throttledAdminLoginClient.request("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ phone: secondAdminPhone, password: secondAdminPassword }),
   });
   assert.equal(recoveredLogin.response.status, 200, "verified credentials must recover an account from identifier-only failures");
   assert.equal(recoveredLogin.payload.data.user.id, secondAdmin.userId, "throttle recovery must authenticate the intended account");
+  assert(
+    recoveredLogin.payload.data.db.auditLogs.some(
+      (log) =>
+        log.action === "auth.login" &&
+        log.targetId === secondAdmin.userId &&
+        log.result === "blocked" &&
+        log.after?.reason === "login_rate_limited",
+    ),
+    "generic throttled response must retain an internal blocked audit",
+  );
   const [roleDemotion, originalAdminDelete] = await Promise.all([
     admin.request(
       `/api/v1/admin/users/${secondAdmin.userId}/roles`,
@@ -1865,6 +2101,7 @@ async function runAssertions(baseUrl) {
     "guardian adult self link and family profile validation",
     "optional password update login",
     "dedicated password issue login and audit redaction",
+    "security-context push credential revocation and trusted reconnect",
     "password issue and role update input safety without mutation",
     "password hash and raw password redaction",
     "audit phone and email masking",
@@ -1873,12 +2110,13 @@ async function runAssertions(baseUrl) {
     "same-branch admin operational reassignment",
     "member creation requires an accepted same-branch operator",
     "cross-branch actor fallback rejection and atomic 422 blocking",
+    "family role branch-scope rejection without partial mutation",
     "role change operational reassignment and sole owner protection",
     "linked coach delete protection",
     "user.update and user.delete audit logs",
     "shared-lock active admin protection across profile, role, and delete mutations",
     "shared-lock accepted branch owner protection",
-    "verified credentials recover from account-only login throttling",
+    "account-only throttling remains audited without exposing account existence and verified credentials recover",
   ];
 }
 
@@ -1897,10 +2135,14 @@ async function inviteeLoginBeforeAccept(baseUrl, phone, password) {
 
 async function main() {
   const initialBuild = await assertFreshNextBuild();
-  const tempDir = await mkdtemp(path.join(tmpdir(), "final-judo-admin-user-api-"));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const dbFile = path.join(tempDir, "runtime-db.json");
+  const { dataDir: tempDir } = await prepareStandaloneSmokeEnvironment({
+    baseUrl,
+    env: process.env,
+    label: "admin user API check",
+  });
+  const dbFile = process.env.PILOT_DB_FILE;
   const child = spawn(process.execPath, [nextBin, "start", "--port", String(port), "--hostname", "127.0.0.1"], {
     env: {
       ...process.env,

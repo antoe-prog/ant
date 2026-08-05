@@ -42,6 +42,7 @@ const requiredCollections = [
   "notices",
   "authSessions",
   "passwordResetChallenges",
+  "phoneSignupChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
@@ -168,6 +169,7 @@ function validateMockDatabase(value: unknown) {
     tournaments: Array.isArray(db.tournaments) ? db.tournaments : [],
     authSessions: Array.isArray(db.authSessions) ? db.authSessions : [],
     passwordResetChallenges: Array.isArray(db.passwordResetChallenges) ? db.passwordResetChallenges : [],
+    phoneSignupChallenges: Array.isArray(db.phoneSignupChallenges) ? db.phoneSignupChallenges : [],
     attendanceQrChallenges: Array.isArray(db.attendanceQrChallenges)
       ? db.attendanceQrChallenges
           .filter(

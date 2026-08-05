@@ -216,12 +216,12 @@ npm run android:release-handoff -- \
 
 Play Console 업로드용 최신 로컬 산출물:
 
-- `.data/mobile-builds/android-play-release-20260723180145/final-judo-play-release.aab`
-- `.data/mobile-builds/android-play-release-20260723180145/final-judo-release.apk`
-- `.data/mobile-builds/android-play-release-20260723180145/google-play-release-report.json`
+- `.data/mobile-builds/android-play-release-20260804061141/final-judo-play-release.aab`
+- `.data/mobile-builds/android-play-release-20260804061141/final-judo-release.apk`
+- `.data/mobile-builds/android-play-release-20260804061141/google-play-release-report.json`
 - `~/Desktop/final-judo-play-release.aab`
 - `~/Desktop/final-judo-release.apk`
-- `versionCode 43`, `versionName 1.0.42`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
+- `versionCode 44`, `versionName 1.0.43`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
 - AAB SHA-256 `397eb654947e01e2bf8886d31b14b4aa973023d9ed8846cc82a499927499e999`, APK SHA-256 `0df37504a2013e5be51226a27ced577aabf0100964159bb21e1a26a590e3b86b`
 - 배포 대상 alias: `https://final-judo.vercel.app`
 

@@ -4,7 +4,7 @@ import { userRoles, type AppUser, type AuditLog, type MockDatabase, type UserRol
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, sessionCookieName } from "@/server/api";
 import { canUseDemoRoleLogin, createSessionCookieOptions } from "@/server/auth-policy";
-import { defaultPilotPassword, verifyPassword } from "@/server/auth-password";
+import { defaultPilotPassword, verifyAuthenticationPassword } from "@/server/auth-password";
 import {
   authSecurityLockKey,
   createAuthSession,
@@ -79,10 +79,11 @@ export async function POST(request: NextRequest) {
 
       const now = new Date();
       const throttle = user ? getAccountLoginThrottle(db, user.id, now) : null;
+      const verifiedPassword = verifyAuthenticationPassword(password, user?.passwordHash);
       const passwordMatches = Boolean(
         user &&
         user.invitationStatus !== "pending" &&
-        verifyPassword(password, user.passwordHash),
+        verifiedPassword,
       );
       const usesBlockedSharedPassword = Boolean(
         user &&
@@ -114,37 +115,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const rateLimitedResponse = jsonError(
-          429,
-          "TOO_MANY_REQUESTS",
-          "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
-        );
-
-        rateLimitedResponse.headers.set("Retry-After", String(throttle.retryAfterSeconds));
-        return rateLimitedResponse;
-      }
-
-      if (user?.invitationStatus === "pending") {
-        const failedAuditLog: AuditLog = {
-          id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
-          branchId: user.branchIds[0] ?? null,
-          actorUserId: user.id,
-          action: "auth.login",
-          targetType: "auth",
-          targetId: user.id,
-          before: null,
-          after: { reason: "pending_invitation" },
-          result: "failed",
-          message: "로그인에 실패했습니다.",
-          createdAt: now.toISOString(),
-        };
-
-        await writeServerDb({
-          ...db,
-          auditLogs: [failedAuditLog, ...db.auditLogs],
-        });
-
-        return jsonError(403, "ACCOUNT_PENDING", "초대 가입이 완료되지 않았습니다. 받은 초대 링크에서 비밀번호 설정을 마쳐 주세요.");
+        return createInvalidCredentialResponse();
       }
 
       if (!user || !passwordMatches || usesBlockedSharedPassword) {
@@ -173,7 +144,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        return jsonError(401, "UNAUTHENTICATED", "휴대폰 번호 또는 비밀번호가 올바르지 않습니다.");
+        return createInvalidCredentialResponse();
       }
 
       return createLoginResponse(db, user, body?.keepSignedIn === true);
@@ -200,6 +171,10 @@ export async function POST(request: NextRequest) {
 
     return createLoginResponse(db, user);
   });
+}
+
+function createInvalidCredentialResponse() {
+  return jsonError(401, "UNAUTHENTICATED", "휴대폰 번호 또는 비밀번호가 올바르지 않습니다.");
 }
 
 async function createLoginResponse(db: MockDatabase, user: AppUser, keepSignedIn = false) {

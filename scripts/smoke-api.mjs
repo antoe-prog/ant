@@ -3,6 +3,7 @@ import { resetOwnedSmokeServer } from "./lib/release-smoke-environment.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const skipDevReset = process.env.SMOKE_SKIP_DEV_RESET === "1";
+const paymentWebhookSecret = process.env.FINAL_JUDO_PAYMENT_WEBHOOK_SECRET ?? "final-judo-dev-webhook-secret";
 const stamp = Date.now();
 let paymentCreateRequestSequence = 0;
 
@@ -204,6 +205,22 @@ async function assertFamilyPushSubscriptionAlwaysOn(client, role, offset) {
     {
       method: "POST",
       body: JSON.stringify({
+        allowReactivation: "yes",
+        subscription: {
+          endpoint: `https://push.example.test/${role}-invalid-reactivation-${stamp}`,
+          keys: { auth: "valid-auth", p256dh: "valid-p256dh" },
+        },
+      }),
+    },
+    { allowError: true },
+  );
+  assert(result.response.status === 400, `${role} malformed push reactivation intent must be rejected`);
+
+  result = await client.request(
+    "/api/v1/notifications/subscriptions",
+    {
+      method: "POST",
+      body: JSON.stringify({
         subscription: {
           endpoint: `http://push.example.test/${role}-insecure-${stamp}`,
           keys: { auth: "valid-auth", p256dh: "valid-p256dh" },
@@ -318,7 +335,7 @@ async function assertFamilyPushSubscriptionOwnershipTransfer({
       userAgent: "family-transfer-previous",
     }),
   });
-  await nextClient.request("/api/v1/notifications/subscriptions", {
+  const transferredSubscription = await nextClient.request("/api/v1/notifications/subscriptions", {
     method: "POST",
     body: JSON.stringify({
       subscription: {
@@ -326,6 +343,7 @@ async function assertFamilyPushSubscriptionOwnershipTransfer({
         keys: { auth: "transfer-next-auth", p256dh: "transfer-next-p256dh" },
       },
       userAgent: "family-transfer-next",
+      allowReactivation: false,
     }),
   });
 
@@ -345,6 +363,39 @@ async function assertFamilyPushSubscriptionOwnershipTransfer({
     ),
     "push subscription account transfer must retain an ownership audit trail",
   );
+
+  const transferAuditCount = snapshot.payload.data.db.auditLogs.filter(
+    (log) => log.action === "notification.subscribe" && log.targetId === transferredSubscriptions[0].id,
+  ).length;
+  const transferredUpdatedAt = transferredSubscriptions[0].updatedAt;
+  const repeatedSubscription = await nextClient.request("/api/v1/notifications/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      subscription: {
+        endpoint,
+        keys: { auth: "transfer-next-auth", p256dh: "transfer-next-p256dh" },
+      },
+      userAgent: "family-transfer-next",
+      allowReactivation: false,
+    }),
+  });
+  assert.equal(
+    repeatedSubscription.payload.data.activeSubscriptionCount,
+    transferredSubscription.payload.data.activeSubscriptionCount,
+    "same-account browser reconnect must preserve the account active subscription count",
+  );
+
+  const idempotentSnapshot = await adminClient.request("/api/v1/me/bootstrap");
+  const idempotentSubscriptions = idempotentSnapshot.payload.data.db.pushSubscriptions.filter(
+    (subscription) => subscription.endpoint === endpointHint,
+  );
+  const idempotentAuditCount = idempotentSnapshot.payload.data.db.auditLogs.filter(
+    (log) => log.action === "notification.subscribe" && log.targetId === transferredSubscriptions[0].id,
+  ).length;
+  assert.equal(idempotentSubscriptions.length, 1, "same-account browser reconnect must not duplicate the endpoint");
+  assert.equal(idempotentSubscriptions[0].userId, nextUserId, "same-account browser reconnect must preserve endpoint ownership");
+  assert.equal(idempotentSubscriptions[0].updatedAt, transferredUpdatedAt, "same-account browser reconnect must avoid a redundant write");
+  assert.equal(idempotentAuditCount, transferAuditCount, "same-account browser reconnect must avoid duplicate subscribe audits");
 }
 
 async function assertCsvExportRejectsInvalidBranch(client, role) {
@@ -629,7 +680,7 @@ async function run() {
     "/api/v1/auth/register",
     {
       method: "POST",
-      body: JSON.stringify({ name: {}, phone: "01012345678", password: "SafePassword!2026" }),
+      body: JSON.stringify({ action: "complete", branchId: "branch-gangnam", code: "123456", name: {}, phone: "01012345678", password: "SafePassword!2026" }),
     },
     { allowError: true },
   );
@@ -1905,6 +1956,46 @@ async function run() {
         !log.after.guardianIds.includes("user-guardian"),
     ),
     "guardian unlink audit log missing",
+  );
+
+  const unlinkLastGuardian = await owner.request(
+    "/api/v1/members/member-harin/guardians?selectedBranchId=branch-songpa",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ guardianUserId: "user-songpa-guardian" }),
+    },
+  );
+  const unlinkedLastGuardian = unlinkLastGuardian.payload.data.db.users.find(
+    (candidate) => candidate.id === "user-songpa-guardian",
+  );
+  assert(
+    !unlinkLastGuardian.payload.data.db.members
+      .find((member) => member.id === "member-harin")
+      ?.guardianIds.includes("user-songpa-guardian"),
+    "guardian last-child unlink must remove the member-side relationship",
+  );
+  assert.deepEqual(
+    unlinkedLastGuardian?.childMemberIds,
+    [],
+    "guardian last-child unlink must clear the user-side relationship",
+  );
+  assert(
+    unlinkedLastGuardian?.branchIds.includes("branch-songpa"),
+    "guardian last-child unlink must preserve the assigned branch scope",
+  );
+
+  const relinkLastGuardian = await owner.request(
+    "/api/v1/members/member-harin/guardians?selectedBranchId=branch-songpa",
+    {
+      method: "POST",
+      body: JSON.stringify({ guardianUserId: "user-songpa-guardian" }),
+    },
+  );
+  assert(
+    relinkLastGuardian.payload.data.db.members
+      .find((member) => member.id === "member-harin")
+      ?.guardianIds.includes("user-songpa-guardian"),
+    "guardian must be reconnectable after unlinking the last child",
   );
 
   result = await owner.request(`/api/v1/members/${guardianLinkTargetMemberId}/guardians?selectedBranchId=branch-gangnam`, {
@@ -3207,7 +3298,7 @@ async function run() {
       method: "POST",
       body: JSON.stringify({
         method: "bankTransfer",
-        methodLabel: "무통장입금",
+        methodLabel: "우리은행",
         payerName: "이하린",
         payerPhone: "01072483619",
       }),
@@ -3220,7 +3311,7 @@ async function run() {
       method: "POST",
       body: JSON.stringify({
         method: "bankTransfer",
-        methodLabel: "무통장입금",
+        methodLabel: "우리은행",
         payerName: "이하린",
         payerPhone: "01072483619",
       }),
@@ -3247,7 +3338,7 @@ async function run() {
       method: "POST",
       body: JSON.stringify({
         method: "bankTransfer",
-        methodLabel: "무통장입금",
+        methodLabel: "우리은행",
         payerName: "x".repeat(51),
         payerPhone: "01072483619",
       }),
@@ -3274,7 +3365,7 @@ async function run() {
         method: "POST",
         body: JSON.stringify({
           method: "bankTransfer",
-          methodLabel: "무통장입금",
+          methodLabel: "우리은행",
           payerName: "이하린",
           payerPhone: "01072483619",
         }),
@@ -3319,6 +3410,22 @@ async function run() {
     concurrentPaymentAudits.some((log) => log.message === "회원 납부 요청을 접수했습니다.") &&
       concurrentPaymentAudits.some((log) => log.after?.reason === `Smoke concurrent collection update ${stamp}`),
     "concurrent family and operator payment updates must retain distinct audit evidence",
+  );
+
+  const onlineCheckoutDuringCollection = await owner.request(
+    `/api/v1/payments/${familyCollectionPayment.id}/online-checkout?selectedBranchId=branch-gangnam`,
+    { method: "POST", body: JSON.stringify({}) },
+    { allowError: true },
+  );
+  assert.equal(
+    onlineCheckoutDuringCollection.response.status,
+    409,
+    "online checkout must not open while a family collection request is pending",
+  );
+  result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    !result.payload.data.db.payments.find((payment) => payment.id === familyCollectionPayment.id)?.onlinePayment,
+    "a rejected online checkout must not add a second pending collection channel",
   );
 
   const smokeDiscountReason = `Smoke operator discount evidence ${stamp}`;
@@ -4048,6 +4155,29 @@ async function run() {
     result.payload.data.db.auditLogs.some((log) => log.action === "payment.online_checkout.create" && log.targetId === onlinePaymentSeed.id),
     "online checkout audit log missing",
   );
+  const collectionRequestDuringOnlineCheckout = await guardianAfterLink.request(
+    `/api/v1/payments/${onlinePaymentSeed.id}/collection-request?selectedBranchId=branch-gangnam`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        method: "bankTransfer",
+        methodLabel: "우리은행",
+        payerName: "이하린",
+        payerPhone: "01072483619",
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    collectionRequestDuringOnlineCheckout.response.status,
+    409,
+    "family collection request must not open while an online checkout is pending",
+  );
+  result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
+  assert(
+    !result.payload.data.db.payments.find((payment) => payment.id === onlinePaymentSeed.id)?.collectionRequest,
+    "a rejected family collection request must not add a second pending collection channel",
+  );
   result = await owner.request(
     `/api/v1/payments/${onlinePaymentSeed.id}?selectedBranchId=branch-gangnam`,
     {
@@ -4062,7 +4192,7 @@ async function run() {
   result = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 150000,
@@ -4075,7 +4205,7 @@ async function run() {
   result = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 150000,
@@ -4089,7 +4219,7 @@ async function run() {
   result = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 150000,
@@ -4104,7 +4234,7 @@ async function run() {
   result = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 150000,
@@ -4116,6 +4246,51 @@ async function run() {
     }),
   }, { allowError: true });
   assert(result.response.status === 400, "payment webhook must reject non-HTTPS receipt URLs");
+
+  result = await owner.request("/api/v1/payments/webhook", {
+    method: "POST",
+    headers: {
+      "x-final-judo-payment-event-id": `evt-header-${stamp}`,
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
+    },
+    body: JSON.stringify({
+      amount: 150000,
+      event: "paid",
+      providerEventId: `evt-body-${stamp}`,
+      providerPaymentId,
+    }),
+  }, { allowError: true });
+  assert(result.response.status === 400, "payment webhook must reject conflicting body and header event ids");
+
+  result = await owner.request("/api/v1/payments/webhook", {
+    method: "POST",
+    headers: {
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
+    },
+    body: JSON.stringify({
+      amount: 150000,
+      event: "paid",
+      occurredAt: "not-a-provider-timestamp",
+      providerEventId: `evt-invalid-time-${stamp}`,
+      providerPaymentId,
+    }),
+  }, { allowError: true });
+  assert(result.response.status === 400, "payment webhook must reject an explicitly invalid occurrence time");
+
+  result = await owner.request("/api/v1/payments/webhook", {
+    method: "POST",
+    headers: {
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
+    },
+    body: JSON.stringify({
+      amount: 150000,
+      event: "paid",
+      occurredAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+      providerEventId: `evt-future-${stamp}`,
+      providerPaymentId,
+    }),
+  }, { allowError: true });
+  assert(result.response.status === 400, "payment webhook must reject an occurrence time too far in the future");
 
   result = await owner.request("/api/v1/me/bootstrap?selectedBranchId=branch-gangnam");
   const paymentAfterInvalidReceiptMetadata = result.payload.data.db.payments.find(
@@ -4136,7 +4311,7 @@ async function run() {
   result = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 149999,
@@ -4150,7 +4325,7 @@ async function run() {
   const webhookResult = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
     },
     body: JSON.stringify({
       amount: 150000,
@@ -4191,7 +4366,7 @@ async function run() {
     {
       method: "POST",
       headers: {
-        "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+        "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
       },
       body: JSON.stringify({
         event: "refunded",
@@ -4227,7 +4402,7 @@ async function run() {
   const duplicateWebhookResult = await owner.request("/api/v1/payments/webhook", {
     method: "POST",
     headers: {
-      "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+      "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
       "x-final-judo-payment-event-id": providerEventId,
     },
     body: JSON.stringify({
@@ -4287,7 +4462,7 @@ async function run() {
     {
       method: "POST",
       headers: {
-        "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+        "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
       },
       body: JSON.stringify({
         amount: 150000,
@@ -4352,7 +4527,7 @@ async function run() {
     {
       method: "POST",
       headers: {
-        "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+        "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
       },
       body: JSON.stringify({
         amount: 150000,
@@ -4410,7 +4585,7 @@ async function run() {
     owner.request("/api/v1/payments/webhook", {
       method: "POST",
       headers: {
-        "x-final-judo-payment-webhook-secret": "final-judo-dev-webhook-secret",
+        "x-final-judo-payment-webhook-secret": paymentWebhookSecret,
       },
       body: JSON.stringify({
         amount: crossMutationPayment.onlinePayment.amount,

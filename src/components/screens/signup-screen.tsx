@@ -17,6 +17,9 @@ export function SignupScreen() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [requestedPhone, setRequestedPhone] = useState("");
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [branches, setBranches] = useState<PublicSignupBranch[]>([]);
@@ -25,7 +28,7 @@ export function SignupScreen() {
   const [branchLoadError, setBranchLoadError] = useState<string | null>(null);
   const [branchReloadKey, setBranchReloadKey] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"request" | "complete" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,6 +64,32 @@ export function SignupScreen() {
     };
   }, [branchReloadKey]);
 
+  async function handleVerificationRequest() {
+    setError(null);
+    setVerificationNotice(null);
+    const cleanPhone = normalizePhoneInput(phone);
+
+    if (!/^01\d{8,9}$/.test(cleanPhone)) {
+      setError("휴대폰 번호를 확인해 주세요.");
+      return;
+    }
+
+    setPendingAction("request");
+
+    try {
+      const response = await apiClient.requestSignupVerificationCode(cleanPhone);
+      setRequestedPhone(cleanPhone);
+      setVerificationCode(response.developmentCode ?? "");
+      setVerificationNotice("인증번호를 보냈습니다. 10분 안에 입력해 주세요.");
+    } catch (caught) {
+      setRequestedPhone("");
+      setVerificationCode("");
+      setError(caught instanceof ApiClientError ? caught.message : "인증번호를 보내지 못했습니다.");
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -75,6 +104,11 @@ export function SignupScreen() {
 
     if (!/^01\d{8,9}$/.test(cleanPhone)) {
       setError("휴대폰 번호를 확인해 주세요.");
+      return;
+    }
+
+    if (requestedPhone !== cleanPhone || !/^\d{6}$/.test(verificationCode)) {
+      setError("휴대폰 번호 인증을 완료해 주세요.");
       return;
     }
 
@@ -93,14 +127,20 @@ export function SignupScreen() {
       return;
     }
 
-    setPending(true);
+    setPendingAction("complete");
 
     try {
-      await apiClient.registerWithPhone({ branchId: selectedBranchId, name: cleanName, password, phone: cleanPhone });
+      await apiClient.registerWithPhone({
+        branchId: selectedBranchId,
+        code: verificationCode,
+        name: cleanName,
+        password,
+        phone: cleanPhone,
+      });
       router.replace(`/login?registered=1&phone=${encodeURIComponent(cleanPhone)}`);
     } catch (caught) {
       setError(caught instanceof ApiClientError ? caught.message : "회원가입을 완료하지 못했습니다.");
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
@@ -190,21 +230,65 @@ export function SignupScreen() {
               ) : null}
             </div>
 
-            <label>
-              <span className="text-sm font-semibold text-zinc-700">휴대폰 번호</span>
-              <input
-                autoComplete="tel"
-                className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
-                data-testid="signup-phone-input"
-                inputMode="tel"
-                maxLength={11}
-                placeholder="휴대폰 번호 입력"
-                type="tel"
-                value={phone}
-                onChange={(event) => setPhone(normalizePhoneInput(event.target.value))}
-                required
-              />
-            </label>
+            <div>
+              <label className="text-sm font-semibold text-zinc-700" htmlFor="signup-phone-input">
+                휴대폰 번호
+              </label>
+              <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <input
+                  autoComplete="tel"
+                  className="h-11 min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="signup-phone-input"
+                  id="signup-phone-input"
+                  inputMode="tel"
+                  maxLength={11}
+                  placeholder="휴대폰 번호 입력"
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => {
+                    setPhone(normalizePhoneInput(event.target.value));
+                    setRequestedPhone("");
+                    setVerificationCode("");
+                    setVerificationNotice(null);
+                  }}
+                  required
+                />
+                <Button
+                  data-testid="signup-code-request-button"
+                  disabled={pendingAction !== null}
+                  size="lg"
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleVerificationRequest()}
+                >
+                  {pendingAction === "request" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {requestedPhone ? "다시 받기" : "인증번호 받기"}
+                </Button>
+              </div>
+            </div>
+
+            {requestedPhone ? (
+              <label>
+                <span className="text-sm font-semibold text-zinc-700">인증번호</span>
+                <input
+                  autoComplete="one-time-code"
+                  className="mt-2 h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"
+                  data-testid="signup-code-input"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="6자리 인증번호"
+                  value={verificationCode}
+                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  required
+                />
+              </label>
+            ) : null}
+
+            {verificationNotice ? (
+              <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800" role="status">
+                {verificationNotice}
+              </p>
+            ) : null}
 
             <div>
               <label className="text-sm font-semibold text-zinc-700" htmlFor="signup-password-input">
@@ -273,13 +357,13 @@ export function SignupScreen() {
             <Button
               data-testid="signup-submit-button"
               className="w-full"
-              disabled={pending || branchesPending || branches.length === 0}
+              disabled={pendingAction !== null || branchesPending || branches.length === 0}
               size="lg"
               type="submit"
               variant="primary"
             >
-              {pending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              회원가입
+              {pendingAction === "complete" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : null}
+              인증 후 회원가입
             </Button>
           </form>
 

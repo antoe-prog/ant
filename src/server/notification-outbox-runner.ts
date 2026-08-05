@@ -3,6 +3,7 @@ import type { AuditLog, MockDatabase, Notice, PushDispatchJob } from "@/lib/doma
 import { getGuardianFamilyMemberIds } from "@/lib/family-members";
 import { isNoticeRecipient } from "@/lib/mock-api";
 import { isNoticeRelevantToMember } from "@/lib/notices";
+import { isPushSubscriptionOwnedByRecipient } from "@/lib/push-subscription-scope";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import {
   beginPushDispatchProviderCall,
@@ -23,10 +24,22 @@ import {
   type PushDeliveryResult,
 } from "@/server/push-notifications";
 import { createRuntimeId } from "@/server/runtime-id";
+import { runNotificationOutboxWorkerPool } from "@/server/notification-outbox-workers";
 
 const defaultLeaseDurationMs = 5 * 60_000;
 const defaultMaxAttempts = 5;
 const manualPushCompatibilityWindowMs = 5 * 60_000;
+
+export const notificationOutboxExecutionPolicy = {
+  interactive: {
+    concurrency: 10,
+    limit: 20,
+  },
+  scheduled: {
+    concurrency: 10,
+    limit: 50,
+  },
+} as const;
 
 export type ManualPushIdempotency = {
   ok: true;
@@ -191,8 +204,8 @@ export function validateLeasedPushDispatchJob(db: MockDatabase, job: PushDispatc
   if (!subscription || subscription.disabledAt) {
     return { ok: false as const, reason: "알림 수신 등록이 없거나 비활성화됐습니다." };
   }
-  if (subscription.userId !== job.recipientUserId || !subscription.branchIds.includes(job.branchId)) {
-    return { ok: false as const, reason: "알림 수신 등록의 사용자 또는 지점 범위가 변경됐습니다." };
+  if (!isPushSubscriptionOwnedByRecipient(subscription, job.recipientUserId)) {
+    return { ok: false as const, reason: "알림 수신 등록의 사용자가 변경됐습니다." };
   }
   if (!notice || !recipient || !isNoticeRecipient(recipient, db, notice)) {
     return { ok: false as const, reason: "공지 또는 수신 대상이 변경됐습니다." };
@@ -253,8 +266,12 @@ function createRejectedSettlementAuditLog(
 ): AuditLog {
   const currentJob = db.pushDispatchJobs.find((candidate) => candidate.id === claimedJob.id);
   const requestAudit = db.auditLogs.find((candidate) => candidate.id === claimedJob.auditLogId);
-  const deliveryMayHaveOccurred =
-    result.outcome === "sent" || (result.outcome === "failed" && result.deliveryUncertain === true);
+  const deliveryMayHaveOccurred = Boolean(
+    claimedJob.deliveryMayHaveOccurred ||
+    currentJob?.deliveryMayHaveOccurred ||
+    result.outcome === "sent" ||
+    (result.outcome === "failed" && result.deliveryUncertain === true),
+  );
 
   return {
     id: createRuntimeId("audit-push-stale-settlement"),
@@ -437,55 +454,57 @@ async function beginClaimedProviderCall(claimed: Extract<Awaited<ReturnType<type
 
 export async function processNotificationOutbox({
   auditLogId,
+  concurrency = 1,
   limit = 20,
   send = sendPushPayloadToSubscription,
 }: {
   auditLogId?: string;
+  concurrency?: number;
   limit?: number;
   send?: typeof sendPushPayloadToSubscription;
 } = {}) {
-  let processed = 0;
-
-  while (processed < Math.max(1, Math.min(limit, 100))) {
-    const claimed = await claimNextJob(auditLogId);
-    if (!claimed) {
-      break;
-    }
-    if (claimed.cancelled) {
-      processed += 1;
-      continue;
-    }
-
-    const begun = await beginClaimedProviderCall(claimed);
-
-    if (!begun) {
-      processed += 1;
-      continue;
-    }
-
-    const deliveryResult = await runPushDeliveryWithTimeout(() => send(begun.subscription, begun.job.payloadSnapshot));
-    await withServerDbLock(notificationOutboxLockKey, async () => {
-      const db = await readServerDb();
-      const now = new Date().toISOString();
-      const settled = settlePushDispatchJob(db, {
-        jobId: begun.job.id,
-        leaseToken: begun.job.leaseToken!,
-        expectedRevision: begun.job.revision,
-        now,
-        result: deliveryResult,
-      });
-
-      if (!settled.ok) {
-        const rejectedAudit = createRejectedSettlementAuditLog(db, begun.job, deliveryResult, settled.reason, now);
-        await writeServerDb({ ...db, auditLogs: [rejectedAudit, ...db.auditLogs] });
-        return;
+  const processed = await runNotificationOutboxWorkerPool({
+    concurrency,
+    limit,
+    processNext: async () => {
+      const claimed = await claimNextJob(auditLogId);
+      if (!claimed) {
+        return false;
+      }
+      if (claimed.cancelled) {
+        return true;
       }
 
-      const attemptAudit = createAttemptAuditLog(settled.db, settled.job, deliveryResult, now);
-      await writeServerDb({ ...settled.db, auditLogs: [attemptAudit, ...settled.db.auditLogs] });
-    });
-    processed += 1;
-  }
+      const begun = await beginClaimedProviderCall(claimed);
+
+      if (!begun) {
+        return true;
+      }
+
+      const deliveryResult = await runPushDeliveryWithTimeout(() => send(begun.subscription, begun.job.payloadSnapshot));
+      await withServerDbLock(notificationOutboxLockKey, async () => {
+        const db = await readServerDb();
+        const now = new Date().toISOString();
+        const settled = settlePushDispatchJob(db, {
+          jobId: begun.job.id,
+          leaseToken: begun.job.leaseToken!,
+          expectedRevision: begun.job.revision,
+          now,
+          result: deliveryResult,
+        });
+
+        if (!settled.ok) {
+          const rejectedAudit = createRejectedSettlementAuditLog(db, begun.job, deliveryResult, settled.reason, now);
+          await writeServerDb({ ...db, auditLogs: [rejectedAudit, ...db.auditLogs] });
+          return;
+        }
+
+        const attemptAudit = createAttemptAuditLog(settled.db, settled.job, deliveryResult, now);
+        await writeServerDb({ ...settled.db, auditLogs: [attemptAudit, ...settled.db.auditLogs] });
+      });
+      return true;
+    },
+  });
 
   const db = await readServerDb();
   return {

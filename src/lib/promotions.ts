@@ -80,3 +80,10 @@ export function getPromotionEligibility(
     requiredCount,
   };
 }
+
+export function createFamilySafePromotion(promotion: BeltPromotion): BeltPromotion {
+  return {
+    ...promotion,
+    createdByUserId: "",
+  };
+}

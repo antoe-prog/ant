@@ -7,8 +7,14 @@ import type {
   PushDispatchPayloadSnapshot,
   PushSubscriptionRecord,
 } from "@/lib/domain";
-import { isNoticeRecipient } from "@/lib/mock-api";
+import { getNoticeRecipients } from "@/lib/push-subscription-scope";
 import { createRuntimeId } from "@/server/runtime-id";
+
+export {
+  getNoticePushSubscriptions,
+  getNoticeRecipients,
+  getVisibleActivePushSubscriptionCount,
+} from "@/lib/push-subscription-scope";
 
 type WebPushSubscriptionInput = {
   endpoint?: unknown;
@@ -231,37 +237,8 @@ export async function sendPushPayloadToSubscription(
   }
 }
 
-export function getNoticeRecipients(db: MockDatabase, notice: Notice) {
-  return db.users.filter((user) => isNoticeRecipient(user, db, notice));
-}
-
 export function getNoticeFamilyRecipientCount(db: MockDatabase, notice: Notice) {
   return getNoticeRecipients(db, notice).filter((recipient) => recipient.role === "member" || recipient.role === "guardian").length;
-}
-
-export function getNoticePushSubscriptions(db: MockDatabase, notice: Notice) {
-  const recipientIds = new Set(getNoticeRecipients(db, notice).map((user) => user.id));
-
-  return db.pushSubscriptions.filter(
-    (subscription) =>
-      !subscription.disabledAt &&
-      recipientIds.has(subscription.userId) &&
-      subscription.branchIds.includes(notice.branchId),
-  );
-}
-
-export function getVisibleActivePushSubscriptionCount(db: MockDatabase, user: AppUser) {
-  const activeSubscriptions = db.pushSubscriptions.filter((subscription) => !subscription.disabledAt);
-
-  if (user.role === "owner" || user.role === "admin") {
-    const branchIds = new Set(user.branchIds);
-
-    return activeSubscriptions.filter((subscription) =>
-      subscription.branchIds.some((branchId) => branchIds.has(branchId)),
-    ).length;
-  }
-
-  return activeSubscriptions.filter((subscription) => subscription.userId === user.id).length;
 }
 
 export function createNoticePushDispatchMessage({
@@ -370,6 +347,31 @@ export function upsertPushSubscription(
     },
     record: nextRecord,
   };
+}
+
+export function isPushSubscriptionCurrentForUser(
+  existing: PushSubscriptionRecord | undefined,
+  user: AppUser,
+  subscription: NonNullable<ReturnType<typeof normalizePushSubscription>>,
+  userAgent?: string,
+) {
+  if (!existing || existing.disabledAt) {
+    return false;
+  }
+
+  const existingBranchIds = [...new Set(existing.branchIds)].sort();
+  const currentBranchIds = [...new Set(user.branchIds)].sort();
+  const normalizedUserAgent = typeof userAgent === "string" ? userAgent.trim() || existing.userAgent : existing.userAgent;
+
+  return (
+    existing.userId === user.id &&
+    existing.endpoint === subscription.endpoint &&
+    existing.keys.auth === subscription.keys.auth &&
+    existing.keys.p256dh === subscription.keys.p256dh &&
+    existing.userAgent === normalizedUserAgent &&
+    existingBranchIds.length === currentBranchIds.length &&
+    existingBranchIds.every((branchId, index) => branchId === currentBranchIds[index])
+  );
 }
 
 export function disablePushSubscription(db: MockDatabase, endpoint: string, user: AppUser) {

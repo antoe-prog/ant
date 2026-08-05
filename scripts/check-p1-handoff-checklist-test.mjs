@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-p1-handoff-checklist-"));
+const emptyProfilesDirectory = path.join(directory, "empty-provisioning-profiles");
 const rawPaymentSecret = "sk_live_finaljudo_payment_secret_that_must_not_be_written";
 const rawVapidPrivateKey = "-----BEGIN PRIVATE KEY-----\nfinal-judo-vapid-private-key\n-----END PRIVATE KEY-----";
+
+await mkdir(emptyProfilesDirectory, { recursive: true });
 
 await execFile(
   process.execPath,
@@ -17,6 +20,7 @@ await execFile(
     `--out-dir=${directory}`,
     "--production-origin=https://app.finaljudo.kr",
     "--payment-checkout-base-url=https://pay.finaljudo.kr",
+    `--profiles-dir=${emptyProfilesDirectory}`,
   ],
   {
     cwd: process.cwd(),

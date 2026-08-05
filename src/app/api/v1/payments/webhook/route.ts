@@ -10,6 +10,7 @@ import {
   createPaymentReceipt,
   getWebhookSecret,
   isValidPaymentReceiptUrl,
+  matchesPaymentWebhookSecret,
   paymentReceiptUrlMaxLength,
   type PaymentWebhookBody,
   type PaymentWebhookEvent,
@@ -19,6 +20,7 @@ import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import {
   isPositiveSafeIntegerPaymentAmount,
   paymentWebhookStateLockKey,
+  validatePaymentWebhookOccurredAt,
   validatePaymentWebhookTransition,
 } from "@/server/payment-mutation-policy";
 import { createRuntimeId } from "@/server/runtime-id";
@@ -174,7 +176,7 @@ export async function POST(request: NextRequest) {
     return jsonError(503, "PAYMENT_WEBHOOK_NOT_CONFIGURED", "운영 결제 연동 인증 정보가 설정되지 않았습니다.");
   }
 
-  if (request.headers.get("x-final-judo-payment-webhook-secret") !== webhookSecret) {
+  if (!matchesPaymentWebhookSecret(request.headers.get("x-final-judo-payment-webhook-secret"), webhookSecret)) {
     return jsonError(401, "UNAUTHENTICATED", "결제 연동 인증에 실패했습니다.");
   }
 
@@ -184,8 +186,13 @@ export async function POST(request: NextRequest) {
     : null;
   const providerPaymentId = typeof body?.providerPaymentId === "string" ? body.providerPaymentId.trim() : "";
   const bodyProviderEventId = typeof body?.providerEventId === "string" ? body.providerEventId.trim() : "";
-  const providerEventId =
-    bodyProviderEventId || request.headers.get("x-final-judo-payment-event-id")?.trim() || undefined;
+  const headerProviderEventId = request.headers.get("x-final-judo-payment-event-id")?.trim() || "";
+
+  if (bodyProviderEventId && headerProviderEventId && bodyProviderEventId !== headerProviderEventId) {
+    return jsonError(400, "VALIDATION_ERROR", "본문과 헤더의 결제 이벤트 식별자가 일치하지 않습니다.");
+  }
+
+  const providerEventId = bodyProviderEventId || headerProviderEventId || undefined;
   const event = body?.event;
 
   if (!body || !providerPaymentId || !providerEventId || !event || !webhookEvents.includes(event)) {
@@ -194,6 +201,14 @@ export async function POST(request: NextRequest) {
 
   if (providerPaymentId.length > providerPaymentIdMaxLength || providerEventId.length > providerEventIdMaxLength) {
     return jsonError(400, "VALIDATION_ERROR", "결제 또는 이벤트 식별자가 너무 깁니다.");
+  }
+
+  const occurredAtInput = body.occurredAt;
+  const hasOccurredAt = occurredAtInput !== undefined;
+  const hasValidOccurredAt = isIsoDate(occurredAtInput);
+
+  if (hasOccurredAt && !hasValidOccurredAt) {
+    return jsonError(400, "VALIDATION_ERROR", "결제 이벤트 발생 시각이 올바르지 않습니다.");
   }
 
   if (body.receiptId !== undefined && typeof body.receiptId !== "string") {
@@ -246,9 +261,8 @@ export async function POST(request: NextRequest) {
     receiptId,
     receiptUrl,
   };
-  const occurredAtInput = webhookBody.occurredAt;
-  const hasValidOccurredAt = isIsoDate(occurredAtInput);
-  const occurredAt = hasValidOccurredAt ? new Date(occurredAtInput as string).toISOString() : new Date().toISOString();
+  const receivedAt = new Date();
+  const occurredAt = hasValidOccurredAt ? new Date(occurredAtInput as string).toISOString() : receivedAt.toISOString();
 
   try {
     return await withServerDbLock(paymentWebhookStateLockKey, () =>
@@ -288,6 +302,12 @@ export async function POST(request: NextRequest) {
 
       if (!hasValidOccurredAt && payment.statusHistory?.some((entry) => entry.event === "webhook")) {
         return jsonError(400, "VALIDATION_ERROR", "후속 결제 연동 이벤트에는 유효한 발생 시각이 필요합니다.");
+      }
+
+      const occurrence = validatePaymentWebhookOccurredAt(payment, occurredAt, receivedAt);
+
+      if (!occurrence.ok) {
+        return jsonError(400, occurrence.code, occurrence.message);
       }
 
       if (event === "refunded") {

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { createHash } from "node:crypto";
 import type { AuditLog, Notice, NoticeAudience } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
@@ -19,6 +19,7 @@ import {
 } from "@/server/push-notifications";
 import {
   prepareNoticePushDispatchJobs,
+  notificationOutboxExecutionPolicy,
   processNotificationOutbox,
 } from "@/server/notification-outbox-runner";
 import { getNotificationOutboxDispatchSummary } from "@/server/notification-outbox";
@@ -395,11 +396,20 @@ export async function POST(
   }
 
   if (!creation.replayed) {
-    try {
-      await processNotificationOutbox({ auditLogId: creation.auditLogId, limit: Math.max(creation.candidateCount, 1) });
-    } catch {
-      // The durable jobs remain pending or leased for the scheduled worker.
-    }
+    after(async () => {
+      try {
+        await processNotificationOutbox({
+          auditLogId: creation.auditLogId,
+          concurrency: notificationOutboxExecutionPolicy.interactive.concurrency,
+          limit: Math.min(
+            Math.max(creation.candidateCount, 1),
+            notificationOutboxExecutionPolicy.interactive.limit,
+          ),
+        });
+      } catch {
+        // The durable jobs remain pending or leased for the scheduled worker.
+      }
+    });
   }
 
   const responseDb = await readServerDb();

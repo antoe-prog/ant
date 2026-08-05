@@ -17,6 +17,7 @@ const runtimeCollectionKeys = [
   "notices",
   "authSessions",
   "passwordResetChallenges",
+  "phoneSignupChallenges",
   "attendanceQrChallenges",
   "pushSubscriptions",
   "pushDispatchJobs",
@@ -194,6 +195,22 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
       (challenge.consumedAt !== undefined && !Number.isFinite(Date.parse(challenge.consumedAt)))
     ) {
       throw new RuntimeStateIntegrityError("passwordResetChallenges.format", challenge.id);
+    }
+  }
+
+  for (const challenge of db.phoneSignupChallenges ?? []) {
+    if (
+      !/^[a-f0-9]{64}$/.test(challenge.phoneHash) ||
+      !/^pbkdf2_sha256\$\d+\$[a-f0-9]{32}\$[a-f0-9]{64}$/i.test(challenge.codeHash) ||
+      !Number.isInteger(challenge.failedAttemptCount) ||
+      challenge.failedAttemptCount < 0 ||
+      challenge.failedAttemptCount > 5 ||
+      !Number.isFinite(Date.parse(challenge.createdAt)) ||
+      !Number.isFinite(Date.parse(challenge.expiresAt)) ||
+      Date.parse(challenge.expiresAt) <= Date.parse(challenge.createdAt) ||
+      (challenge.consumedAt !== undefined && !Number.isFinite(Date.parse(challenge.consumedAt)))
+    ) {
+      throw new RuntimeStateIntegrityError("phoneSignupChallenges.format", challenge.id);
     }
   }
 

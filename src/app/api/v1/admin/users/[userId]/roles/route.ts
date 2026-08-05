@@ -1,10 +1,16 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import {
+  findAdultGuardianChildMemberIds,
+  findInvalidFamilyMemberLinkIds,
+  findNonAdultGuardianSelfMemberIds,
+} from "@/lib/family-members";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { createRuntimeId } from "@/server/runtime-id";
-import { authSecurityLockKey, revokeUserAuthSessions } from "@/server/auth-session";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
+import { revokeUserSecurityAccess } from "@/server/auth-session";
 import { isActiveAdmin } from "@/server/user-administration";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import {
@@ -96,7 +102,7 @@ export async function PUT(
     return jsonError(400, "VALIDATION_ERROR", "권한 변경 사유가 필요합니다.");
   }
 
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
     const { user, response: freshSessionResponse } = requireSession(request, db);
 
@@ -143,16 +149,37 @@ export async function PUT(
     });
   }
 
-  if (nextRole === "guardian") {
-    const invalidSelfMemberIds = (targetUser.memberIds ?? []).filter((memberId) => {
-      const member = db.members.find((candidate) => candidate.id === memberId);
+  const nextMemberIds = nextRole === "member" || nextRole === "guardian" ? targetUser.memberIds ?? [] : [];
+  const nextChildMemberIds = nextRole === "guardian" ? targetUser.childMemberIds ?? [] : [];
+  const invalidFamilyMemberIds = findInvalidFamilyMemberLinkIds(
+    db.members,
+    [...nextMemberIds, ...nextChildMemberIds],
+    nextBranchIds,
+  );
 
-      return !member || member.ageGroup !== "adult" || !nextBranchIds.includes(member.branchId);
-    });
+  if (invalidFamilyMemberIds.length > 0) {
+    return jsonError(
+      422,
+      "BUSINESS_RULE_FAILED",
+      "연결된 본인 또는 자녀 회원이 변경할 담당 지점에 포함되어 있지 않습니다. 사용자 정보에서 회원 연결을 먼저 변경해 주세요.",
+      { memberIds: invalidFamilyMemberIds },
+    );
+  }
+
+  if (nextRole === "guardian") {
+    const invalidSelfMemberIds = findNonAdultGuardianSelfMemberIds(db.members, nextMemberIds);
 
     if (invalidSelfMemberIds.length > 0) {
       return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 본인 수련에는 담당 지점의 성인 회원만 연결할 수 있습니다.", {
         memberIds: invalidSelfMemberIds,
+      });
+    }
+
+    const adultChildMemberIds = findAdultGuardianChildMemberIds(db.members, nextChildMemberIds);
+
+    if (adultChildMemberIds.length > 0) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "성인 회원은 학부모 자녀로 연결할 수 없습니다.", {
+        memberIds: adultChildMemberIds,
       });
     }
   }
@@ -219,7 +246,7 @@ export async function PUT(
     message: "사용자 역할을 변경했습니다.",
     createdAt: new Date().toISOString(),
   };
-  const nextDb = await writeServerDb(revokeUserAuthSessions({
+  const nextDb = await writeServerDb(revokeUserSecurityAccess({
     ...db,
     classes: operationalLinks.classes,
     members: operationalLinks.members,

@@ -79,7 +79,7 @@
 - 역할별 로그인, 회원/학부모/코치/대표/총괄 어드민 주요 화면, 출석 체크, 결제 상태, 지점/권한/감사 로그, 모바일 반응형, PWA 설치 메타, 주요 QA는 이미 구현되어 있다.
 - P1은 P0를 다시 만드는 작업이 아니다. 기존 MVP를 유지하면서 실제 파일럿/운영 사용성과 모바일 앱 배포 가능성을 높이는 단계다.
 - P0 회귀 조건은 항상 유지한다. 특히 코치 결제 금액 비노출, 권한별 접근 제한, 지점 스코프, 감사 로그, 회원/학부모 CSV 내보내기 비노출을 깨지 않는다.
-- iOS Simulator 실행 성공과 IPA 배포 가능 상태는 별도다. 실제 iPhone 등록 및 provisioning profile 확인 전까지 iOS IPA를 ready로 판단하지 않는다.
+- iOS Simulator 실행 성공과 IPA 배포 가능 상태는 별도다. IPA ready는 export method 호환 provisioning profile과 archive/export 또는 App Store Connect 업로드 성공 증빙으로만 판단한다.
 
 ## 현재 배포 상태 기준
 
@@ -89,16 +89,17 @@
 - Android TWA 릴리즈는 운영 HTTPS 웹앱 origin, release SHA-256, JDK/Android SDK/ADB 준비 전까지 blocked다.
 - iOS Capacitor 프로젝트와 Simulator 연결은 성공했다.
   - 서비스 route: `/app/dashboard`
-  - 상태: simulator connected, IPA release blocked
-- iOS IPA는 아직 blocked다.
+  - 상태: simulator connected, App Store Connect upload complete
+- iOS IPA는 ready다.
   - Apple 계정: `roehf45@naver.com`
-  - Team ID: `5GWZ792DWH`
+  - Team ID: `CA7A5SP5G5`
   - bundle id: `kr.co.finaljudo.multigym`
-  - 차단: 운영 HTTPS 웹앱 origin, 실제 iPhone UDID 등록, matching provisioning profile, archive/export report
+  - export method: `app-store-connect`
+  - 증빙: `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`
 - P1 ready는 다음 외부 증빙 없이는 선언하지 않는다.
   - 운영 배포 URL/배포 handoff
   - Android 릴리즈 handoff
-  - iOS 실제 기기 등록 및 provisioning profile
+  - iOS IPA/App Store Connect 업로드 증빙(현재 ready)
   - 결제 PG/상점 ID handoff
   - 푸시 알림 provider handoff
   - 이슈 등록 접수/ack 증빙
@@ -234,7 +235,7 @@ P1 완료는 다음이 모두 현재 증거로 확인될 때만 선언한다.
 - 회원/학부모에게 CSV export 액션이 노출되지 않게 한다.
 - 코치에게 결제 금액이 노출되지 않게 한다.
 - /app/admin/settings에서 P1 operator status, external blockers, Owner Decision Register, Release Custody, Android/iOS doctor support artifact를 계속 노출한다.
-- iOS IPA는 provisioning profile 전까지 ready UI로 표시하지 않는다.
+- iOS IPA는 export method 호환 profile과 archive/export 또는 업로드 증빙 전까지 ready UI로 표시하지 않는다.
 ```
 
 ## A4 Backend/Data 프롬프트
@@ -263,7 +264,7 @@ P1 완료는 다음이 모두 현재 증거로 확인될 때만 선언한다.
 - lint/build/unit/store/e2e/mobile-install/release docs를 유지한다.
 - Android doctor, role APK report, Android release handoff를 구분한다.
 - iOS Capacitor connection, iOS IPA doctor, IPA build report를 구분한다.
-- [docs/IOS_IPA_PROVISIONING_RUNBOOK.md](docs/IOS_IPA_PROVISIONING_RUNBOOK.md)와 `npm run test:ios-provisioning-runbook`으로 `FINAL_JUDO_IOS_SERVER_URL`, Team ID `5GWZ792DWH`, bundle id `kr.co.finaljudo.multigym`, 실제 iPhone UDID 등록, matching provisioning profile, UDID 원문 미기록 규칙을 검증한다.
+- [docs/IOS_IPA_PROVISIONING_RUNBOOK.md](docs/IOS_IPA_PROVISIONING_RUNBOOK.md)와 `npm run test:ios-provisioning-runbook`으로 `FINAL_JUDO_IOS_SERVER_URL`, Team ID `CA7A5SP5G5`, bundle id `kr.co.finaljudo.multigym`, export method별 matching provisioning profile, App Store Connect 업로드 증빙, UDID·비밀정보 미기록 규칙을 검증한다.
 - p1:operator-status, p1:completion-evidence, p1:readiness, evidence intake, release package/archive/storage receipt 체인을 검증한다.
 - 문서의 npm run 명령이 package.json과 release runner에서 drift 나지 않게 한다.
 ```
@@ -313,15 +314,17 @@ P1 우선순위:
 - P0 기능을 깨지 않는다.
 - 회원과 학부모에게 CSV 내보내기 기능을 노출하지 않는다.
 - 코치에게 결제 금액을 노출하지 않는다.
-- 관리자 화면에서는 모바일 앱 배포 상태, Android APK 상태, iOS Simulator 상태, iOS IPA 차단 사유가 명확히 보여야 한다.
+- 관리자 자료에서는 Android APK 상태, iOS Simulator 상태, iOS IPA/App Store Connect 업로드 상태가 명확히 구분되어야 한다.
 - iOS IPA는 Simulator 성공만으로 ready 처리하지 않는다.
-- 실제 iPhone 등록 및 provisioning profile 확인 전까지 iOS IPA 배포 ready로 판단하지 않는다.
+- 선택한 export method에 맞는 provisioning profile과 archive/export 또는 업로드 성공 증빙 전까지 iOS IPA를 ready로 판단하지 않는다.
 
 iOS 현재 기준:
 - Apple 계정: roehf45@naver.com
-- Apple Team ID: 5GWZ792DWH
+- Apple Team ID: CA7A5SP5G5
 - iOS bundle id: kr.co.finaljudo.multigym
-- Xcode와 Apple Development certificate가 있어도 `/login`과 `/app/dashboard`를 서빙하는 운영 HTTPS 웹앱 origin과 provisioning profile이 없으면 IPA ready가 아니다.
+- export method: app-store-connect
+- App Store Connect 업로드 성공 증빙: `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`
+- App Store Connect 배포 profile에는 테스트 기기 UDID가 필요하지 않지만 Development/Ad Hoc profile에는 등록 기기가 필요하다.
 - `https://api.finaljudo.co.kr` 같은 API-only `api.*` origin은 Android TWA/iOS IPA 앱 화면 origin으로 인정하지 않는다. 실제 웹앱도 함께 서빙한다는 운영자 확인이 있을 때만 `--allow-api-origin-webapp` 예외를 사용한다.
 
 P1 완료 기준:

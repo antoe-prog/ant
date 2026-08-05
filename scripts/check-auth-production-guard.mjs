@@ -101,6 +101,8 @@ const { localAutoLoginFallbackPath, localAutoLoginNextMaxLength, normalizeLocalA
 
 assert(signupScreenSource.includes("휴대폰 번호로 회원가입"), "signup must render the phone signup heading");
 assert(signupScreenSource.includes('data-testid="signup-phone-input"'), "signup must collect a phone number");
+assert(signupScreenSource.includes('data-testid="signup-code-request-button"'), "signup must request phone verification");
+assert(signupScreenSource.includes('data-testid="signup-code-input"'), "signup must collect the phone verification code");
 assert(signupScreenSource.includes('data-testid="signup-branch-input"'), "multi-branch signup must collect a branch selection");
 assert(signupScreenSource.includes('data-testid="signup-password-input"'), "signup must collect a password");
 assert(signupScreenSource.includes('data-testid="signup-password-confirm-input"'), "signup must confirm the password");
@@ -111,6 +113,7 @@ assert.equal(
   "signup password and confirmation inputs must share the server password limit",
 );
 assert(signupScreenSource.includes("apiClient.registerWithPhone"), "signup must submit through the phone registration API");
+assert(signupScreenSource.includes("apiClient.requestSignupVerificationCode"), "signup must request a code before registration");
 assert(signupScreenSource.includes(".getPublicSignupBranches()"), "signup must load server-validated public branches");
 assert(!signupScreenSource.includes("초대 링크로 회원가입"), "signup must not regress to invitation-link entry");
 assert(!signupScreenSource.includes("signup-invitation-input"), "signup must not render the invitation input");
@@ -119,12 +122,18 @@ assert(!signupScreenSource.includes("010-0000-0000"), "signup must not expose du
 assert(publicRegisterRouteSource.includes("request.json()"), "public register route must parse phone signup payloads");
 assert(publicRegisterRouteSource.includes("writeServerDb"), "public register route must persist the phone signup account");
 assert(publicRegisterRouteSource.includes("isValidKoreanMobileNumber"), "public register route must validate Korean mobile numbers");
-assert(publicRegisterRouteSource.includes("samePhoneNumber"), "public register route must block duplicate phone numbers");
+assert(publicRegisterRouteSource.includes("samePhoneNumber"), "public register route must protect existing phone accounts");
 assert(publicRegisterRouteSource.includes("getAvailableSignupBranches"), "public register route must derive eligible branches on the server");
 assert(
-  publicRegisterRouteSource.includes("availableBranches.length > 1") && publicRegisterRouteSource.includes("가입 지점을 선택해 주세요."),
+  publicRegisterRouteSource.includes("availableBranches.find") && publicRegisterRouteSource.includes("requestedBranchId"),
   "public register route must not assign an arbitrary first branch in multi-branch environments",
 );
+assert(publicRegisterRouteSource.includes("createPhoneSignupChallenge"), "public register route must reserve a hashed phone challenge");
+assert(publicRegisterRouteSource.includes("verifyPhoneSignupCode"), "public register route must verify phone ownership before creation");
+assert(publicRegisterRouteSource.includes("hasReachedPhoneSignupRequestLimit"), "public register route must throttle verification requests");
+assert(publicRegisterRouteSource.includes("after(async ()"), "production signup SMS delivery must not affect response timing");
+assert(!publicRegisterRouteSource.includes("이미 등록된 휴대폰 번호입니다."), "public signup must not enumerate registered phones");
+assert(!publicRegisterRouteSource.includes("after: { phone"), "public signup audits must not retain raw phones");
 assert(publicRegisterRouteSource.includes("createRandomPasswordHash"), "public register route must store a password hash");
 assert(publicRegisterRouteSource.includes("getAuthInputLimitError"), "public register must reject oversized inputs before hashing");
 assert(publicRegisterRouteSource.includes('role: "member"'), "public register route must create member accounts only");
@@ -198,8 +207,11 @@ assert(
 assert(
   !passwordResetScreenSource.includes("사용자 이름") &&
     passwordResetRouteSource.includes("sendPasswordResetSms") &&
-    passwordResetRouteSource.includes("revokeUserAuthSessions"),
-  "password reset must use registered-phone verification and revoke existing sessions after completion",
+    passwordResetRouteSource.includes("after(async () =>") &&
+    passwordResetRouteSource.includes("runPasswordHashTimingEqualizer(phone)") &&
+    passwordResetRouteSource.includes("withAuthAndNotificationStateLock") &&
+    passwordResetRouteSource.includes("revokeUserSecurityAccess"),
+  "password reset must hide request timing, use registered-phone verification, and revoke existing sessions and earlier-device push access after completion",
 );
 assert(authInputPolicySource.includes("passwordLength: 256"), "public authentication passwords must be capped at 256 characters");
 assert(

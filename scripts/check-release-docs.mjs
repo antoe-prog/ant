@@ -31,6 +31,7 @@ const directReleaseEntrypoints = [
 const serverManagedCommands = [
   "npm run test:routes",
   "npm run test:e2e",
+  "npm run test:phone-signup-login-flow",
   "npm run test:smoke",
   "npm run test:attendance-speed",
 ];

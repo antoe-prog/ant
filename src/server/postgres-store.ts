@@ -274,13 +274,9 @@ export function createPostgresJsonStore<T>(options: PostgresJsonStoreOptions<T>)
 
   async function withLock<Result>(key: string, operation: () => Promise<Result>) {
     await ensureStorage();
-
-    if (transactionClient.getStore()) {
-      throw new Error("Nested PostgreSQL runtime locks are not supported.");
-    }
-
     const scopedKey = `${tableName}:${options.key}:${key}`;
 
+    // Nested domain locks share one transaction; callers must keep a stable lock order.
     return inTransaction(async () => {
       await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [scopedKey]);
       const result = await query<{ installation_id: string | null }>(

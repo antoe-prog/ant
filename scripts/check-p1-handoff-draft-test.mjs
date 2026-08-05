@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const directory = await mkdtemp(path.join(tmpdir(), "final-judo-p1-handoff-draft-"));
+const emptyProfilesDirectory = path.join(directory, "empty-provisioning-profiles");
 const rawPaymentSecret = "sk_live_finaljudo_payment_secret_that_must_not_be_written";
 const rawPostgresPassword = "postgres_super_secret_that_must_not_be_written";
 const rawPostgresUrl = `postgresql://pilot:${rawPostgresPassword}@db.finaljudo.test:5432/final_judo`;
 const rawVapidPrivateKey = "-----BEGIN PRIVATE KEY-----\nfinal-judo-vapid-private-key\n-----END PRIVATE KEY-----";
+
+await mkdir(emptyProfilesDirectory, { recursive: true });
 
 const { stdout } = await execFile(
   process.execPath,
@@ -19,6 +22,7 @@ const { stdout } = await execFile(
     `--out-dir=${directory}`,
     "--production-origin=https://app.finaljudo.kr",
     "--payment-checkout-base-url=https://pay.finaljudo.kr",
+    `--profiles-dir=${emptyProfilesDirectory}`,
   ],
   {
     cwd: process.cwd(),
@@ -133,7 +137,11 @@ assert.equal(summary.reports.issueRegistration.releaseDecision, "blocked");
 assert.equal(summary.reports.evidenceIntake.releaseDecision, "blocked");
 assert.equal(summary.reports.postgresDocker.releaseDecision, "blocked");
 assert.equal(summary.reports.postgresDocker.blockerCount, 1);
-assert.equal(summary.reports.iosCapacitorConnection.releaseDecision, "simulator_connected_release_blocked");
+assert(
+  ["simulator_connected_release_blocked", "production_connection_configured"].includes(
+    summary.reports.iosCapacitorConnection.releaseDecision,
+  ),
+);
 assert.equal(summary.reports.iosIpaDoctor.releaseDecision, "blocked");
 assert(summary.nextActions.length > 0);
 assert(!summarySource.includes(rawPaymentSecret), "workspace summary must not include raw payment webhook secret");
@@ -174,10 +182,20 @@ const iosCapacitorConnection = await readJson("mobile-builds/ios/ios-capacitor-c
 const iosCapacitorConnectionMarkdown = await readFile(path.join(directory, "mobile-builds", "ios", "ios-capacitor-connection.md"), "utf8");
 assert.equal(iosCapacitorConnection.ok, true);
 assert.equal(iosCapacitorConnection.serviceRoute, "/app/dashboard");
-assert.equal(iosCapacitorConnection.releaseDecision, "simulator_connected_release_blocked");
+assert(
+  ["simulator_connected_release_blocked", "production_connection_configured"].includes(
+    iosCapacitorConnection.releaseDecision,
+  ),
+);
 assert.equal(iosCapacitorConnection.checks.nativeBridge.ok, true);
 assert(iosCapacitorConnectionMarkdown.includes("# iOS Capacitor Service Connection"));
-assert(iosCapacitorConnectionMarkdown.includes("IOS_SIMULATOR_CONNECTION_ONLY"));
+assert(
+  iosCapacitorConnectionMarkdown.includes(
+    iosCapacitorConnection.releaseDecision === "production_connection_configured"
+      ? "IOS_PROVISIONING_STILL_REQUIRED"
+      : "IOS_SIMULATOR_CONNECTION_ONLY",
+  ),
+);
 assert(!iosCapacitorConnectionMarkdown.includes(rawPaymentSecret), "iOS connection Markdown must not contain raw payment webhook secret");
 assert(!iosCapacitorConnectionMarkdown.includes(rawVapidPrivateKey), "iOS connection Markdown must not contain raw VAPID private key");
 

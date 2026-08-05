@@ -7,11 +7,19 @@ const {
   getOnlinePaymentProvider,
   getOnlinePaymentRuntimeReadiness,
   getWebhookSecret,
+  isPaymentWebhookSecretSecure,
   isValidPaymentReceiptUrl,
+  matchesPaymentWebhookSecret,
   normalizePaymentCheckoutBaseUrl,
+  paymentWebhookSecretMinBytes,
 } =
   await import("../src/server/online-payments.ts");
-const { isPositiveSafeIntegerPaymentAmount, validatePaymentWebhookTransition } =
+const {
+  isPositiveSafeIntegerPaymentAmount,
+  paymentWebhookClockSkewMs,
+  validatePaymentWebhookOccurredAt,
+  validatePaymentWebhookTransition,
+} =
   await import("../src/server/payment-mutation-policy.ts");
 
 const files = {
@@ -76,12 +84,22 @@ assert.equal(getOnlinePaymentAmount(samplePayment), 130000, "online payment amou
 assert(createCheckoutUrl("provider-123").includes("provider-123"), "checkout URL must include provider payment id");
 assert.equal(getWebhookSecret(), "final-judo-dev-webhook-secret", "development webhook secret fallback must be available");
 assert.equal(getOnlinePaymentProvider({ NODE_ENV: "development" }), "mock", "development online payment provider may use mock mode");
+assert.deepEqual(
+  getOnlinePaymentRuntimeReadiness({
+    NODE_ENV: "development",
+    FINAL_JUDO_PAYMENT_PROVIDER: "externla",
+  }).blockers,
+  ["PAYMENT_PROVIDER_INVALID"],
+  "an unsupported configured provider must not be treated as external mode",
+);
+const strongWebhookSecret = "final-judo-webhook-0123456789-ABCDEF";
+assert(Buffer.byteLength(strongWebhookSecret, "utf8") >= paymentWebhookSecretMinBytes);
 assert.equal(
   getOnlinePaymentProvider({
     NODE_ENV: "production",
     FINAL_JUDO_PAYMENT_PROVIDER: "external",
     FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
-    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "secret",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: strongWebhookSecret,
   }),
   "external",
   "production online payment provider must use external mode when configured",
@@ -101,7 +119,7 @@ assert.deepEqual(
     NODE_ENV: "production",
     FINAL_JUDO_PAYMENT_PROVIDER: "external",
     FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "http://payments.finaljudo.kr/path?token=secret",
-    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "secret",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: strongWebhookSecret,
   }).blockers,
   ["PAYMENT_CHECKOUT_BASE_URL_INVALID"],
   "production online payment runtime must reject an insecure or non-origin checkout base URL",
@@ -114,10 +132,55 @@ assert.deepEqual(
   ["PAYMENT_CHECKOUT_BASE_URL_INVALID"],
   "mock runtime must not create an executable checkout link from a configured base URL",
 );
+assert.deepEqual(
+  getOnlinePaymentRuntimeReadiness({
+    NODE_ENV: "production",
+    FINAL_JUDO_PAYMENT_PROVIDER: "external",
+    FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "secret",
+  }).blockers,
+  ["PAYMENT_WEBHOOK_SECRET_WEAK"],
+  "production online payment runtime must reject short webhook secrets",
+);
+assert.deepEqual(
+  getOnlinePaymentRuntimeReadiness({
+    NODE_ENV: "production",
+    FINAL_JUDO_PAYMENT_PROVIDER: "external",
+    FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "replace-with-provider-webhook-secret",
+  }).blockers,
+  ["PAYMENT_WEBHOOK_SECRET_WEAK"],
+  "production online payment runtime must reject the documented placeholder webhook secret",
+);
+assert.equal(isPaymentWebhookSecretSecure(strongWebhookSecret), true, "32-byte webhook secrets must be accepted");
+assert.equal(isPaymentWebhookSecretSecure("secret"), false, "short webhook secrets must be rejected");
+assert.equal(
+  isPaymentWebhookSecretSecure("replace-with-provider-webhook-secret"),
+  false,
+  "placeholder webhook secrets must be rejected",
+);
+assert.equal(
+  getWebhookSecret({ NODE_ENV: "production", FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "secret" }),
+  null,
+  "the production webhook route must fail closed for weak configured secrets",
+);
+assert.equal(
+  getWebhookSecret({ NODE_ENV: "production", FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: strongWebhookSecret }),
+  strongWebhookSecret,
+  "the production webhook route must accept policy-compliant secrets",
+);
+assert.equal(matchesPaymentWebhookSecret(strongWebhookSecret, strongWebhookSecret), true, "matching webhook secrets must pass");
+assert.equal(matchesPaymentWebhookSecret(`${strongWebhookSecret}x`, strongWebhookSecret), false, "different-length webhook secrets must fail");
+assert.equal(matchesPaymentWebhookSecret(`x${strongWebhookSecret.slice(1)}`, strongWebhookSecret), false, "same-length webhook secrets must fail when content differs");
 assert.throws(
   () => getOnlinePaymentProvider({ NODE_ENV: "production" }),
   /PAYMENT_PROVIDER_NOT_CONFIGURED/,
   "production online payment provider must not silently fall back to mock mode",
+);
+assert.throws(
+  () => getOnlinePaymentProvider({ NODE_ENV: "development", FINAL_JUDO_PAYMENT_PROVIDER: "externla" }),
+  /PAYMENT_PROVIDER_INVALID/,
+  "an invalid configured provider must fail closed instead of enabling external mode",
 );
 assert.equal(isPositiveSafeIntegerPaymentAmount(1), true, "one KRW must be a valid payment mutation amount");
 assert.equal(isPositiveSafeIntegerPaymentAmount(0.4), false, "fractional KRW must be rejected");
@@ -208,6 +271,33 @@ assert.deepEqual(
   { ok: true },
   "a newer paid event must remain valid after an earlier failed attempt",
 );
+assert.deepEqual(
+  validatePaymentWebhookOccurredAt(
+    { ...samplePayment, onlinePayment },
+    "2026-06-15T08:00:00.000Z",
+    new Date("2026-06-15T08:01:00.000Z"),
+  ),
+  { ok: true },
+  "a webhook occurrence at checkout time must be accepted",
+);
+assert.equal(
+  validatePaymentWebhookOccurredAt(
+    { ...samplePayment, onlinePayment },
+    new Date(Date.parse(onlinePayment.requestedAt) - paymentWebhookClockSkewMs - 1).toISOString(),
+    new Date("2026-06-15T08:01:00.000Z"),
+  ).code,
+  "EVENT_TIME_OUT_OF_RANGE",
+  "a webhook occurrence before checkout beyond clock skew must be rejected",
+);
+assert.equal(
+  validatePaymentWebhookOccurredAt(
+    { ...samplePayment, onlinePayment },
+    new Date(Date.parse("2026-06-15T08:01:00.000Z") + paymentWebhookClockSkewMs + 1).toISOString(),
+    new Date("2026-06-15T08:01:00.000Z"),
+  ).code,
+  "EVENT_TIME_OUT_OF_RANGE",
+  "a webhook occurrence in the future beyond clock skew must be rejected",
+);
 
 assert(sources.domain.includes("OnlinePaymentRequest"), "domain must define online payment request metadata");
 assert(sources.domain.includes("PaymentReceipt"), "domain must define payment receipt metadata");
@@ -222,7 +312,23 @@ assert(sources.onlineCheckoutRoute.includes("온라인 결제 설정 확인이 �
 assert(sources.recurringAgreementRoute.includes("getOnlinePaymentRuntimeReadiness"), "recurring agreement route must check runtime readiness");
 assert(sources.recurringAgreementRoute.includes("온라인 결제 설정 확인이 필요합니다."), "recurring agreement route must return app-safe setup copy");
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-webhook-secret"), "webhook route must verify secret header");
+assert(
+  sources.paymentWebhookRoute.includes("matchesPaymentWebhookSecret"),
+  "webhook route must compare authentication secrets with the constant-time helper",
+);
 assert(sources.paymentWebhookRoute.includes("x-final-judo-payment-event-id"), "webhook route must accept provider event id header");
+assert(
+  sources.paymentWebhookRoute.includes("bodyProviderEventId !== headerProviderEventId"),
+  "webhook route must reject conflicting body and header event IDs",
+);
+assert(
+  sources.paymentWebhookRoute.includes("validatePaymentWebhookOccurredAt"),
+  "webhook route must reject provider timestamps outside the checkout and receive-time window",
+);
+assert(
+  sources.paymentWebhookRoute.includes("hasOccurredAt && !hasValidOccurredAt"),
+  "webhook route must reject malformed provider timestamps instead of replacing them with receive time",
+);
 assert(
   sources.paymentWebhookRoute.includes("findPaymentByProcessedWebhookEventId") &&
     sources.paymentWebhookRoute.includes('entry.event === "webhook"') &&

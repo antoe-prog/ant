@@ -183,7 +183,7 @@ async function runPreflight(filePath, extraArgs = [], extraEnv = {}) {
     ENABLE_DEV_RESET: "0",
     FINAL_JUDO_PAYMENT_PROVIDER: "external",
     FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
-    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "test-webhook-secret",
+    FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "final-judo-preflight-0123456789-ABCDEF",
     FINAL_JUDO_PUSH_ENABLED: "0",
     FINAL_JUDO_VAPID_PUBLIC_KEY: "",
     FINAL_JUDO_VAPID_PRIVATE_KEY: "",
@@ -439,6 +439,15 @@ try {
     "preflight must catch missing production payment provider",
   );
 
+  const invalidPaymentProviderRun = await runPreflight(validFile, [], {
+    FINAL_JUDO_PAYMENT_PROVIDER: "externla",
+  });
+  assert.notEqual(invalidPaymentProviderRun.code, 0, "production invalid payment provider must fail strict preflight");
+  assert(
+    blockerCodes(parseReport(invalidPaymentProviderRun.stdout)).has("PAYMENT_PROVIDER_INVALID"),
+    "preflight must catch unsupported production payment provider values",
+  );
+
   const missingPaymentCheckoutRun = await runPreflight(validFile, [], { FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "" });
   assert.notEqual(missingPaymentCheckoutRun.code, 0, "production missing payment checkout base URL must fail strict preflight");
   assert(
@@ -461,6 +470,17 @@ try {
     blockerCodes(parseReport(missingPaymentWebhookRun.stdout)).has("PAYMENT_WEBHOOK_SECRET_MISSING"),
     "preflight must catch missing production payment webhook secret",
   );
+
+  for (const weakWebhookSecret of ["secret", "replace-with-provider-webhook-secret"]) {
+    const weakPaymentWebhookRun = await runPreflight(validFile, [], {
+      FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: weakWebhookSecret,
+    });
+    assert.notEqual(weakPaymentWebhookRun.code, 0, "production weak payment webhook secrets must fail strict preflight");
+    assert(
+      blockerCodes(parseReport(weakPaymentWebhookRun.stdout)).has("PAYMENT_WEBHOOK_SECRET_WEAK"),
+      "preflight must catch short and placeholder production payment webhook secrets",
+    );
+  }
 
   const missingPushSecretsRun = await runPreflight(validFile, [], { FINAL_JUDO_PUSH_ENABLED: "1" });
   assert.notEqual(missingPushSecretsRun.code, 0, "enabled production push without VAPID/cron secrets must fail");

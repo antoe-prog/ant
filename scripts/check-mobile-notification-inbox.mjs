@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
 import {
   cleanupReleaseSmokeEnvironment,
+  getFreePort,
   prepareStandaloneSmokeEnvironment,
   resetOwnedSmokeServer,
 } from "./lib/release-smoke-environment.mjs";
 
-const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+let baseUrl = process.env.SMOKE_BASE_URL?.trim() || null;
 const outDir = process.env.MOBILE_NOTIFICATION_INBOX_OUT_DIR ?? ".data/mobile-builds/ios/mobile-notification-inbox-20260701";
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
@@ -22,15 +23,52 @@ const chromeCandidates = [
   "/usr/bin/chromium-browser",
 ].filter(Boolean);
 const familyCases = [
-  { id: "member", role: "member" },
-  { id: "guardian", role: "guardian" },
+  {
+    id: "member",
+    role: "member",
+    currentUserSubscribed: true,
+    hasExistingBrowserSubscription: true,
+  },
+  {
+    id: "guardian",
+    role: "guardian",
+    currentUserSubscribed: false,
+    hasExistingBrowserSubscription: false,
+  },
 ];
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 let managedAppServer = null;
+const managedAppServerLogs = [];
+let managedDistDir = null;
+let managedTsconfigPath = null;
 let smokeEnvironmentPlan = null;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
+}
+
+function cleanupOrphanedManagedArtifacts() {
+  for (const entry of readdirSync(".")) {
+    const match = entry.match(/^\.(?:next-mobile-notification|tmp-mobile-notification-tsconfig)-(\d+)-\d+(?:\.json)?$/);
+
+    if (!match) {
+      continue;
+    }
+
+    const ownerPid = Number.parseInt(match[1], 10);
+    let ownerIsRunning = false;
+
+    try {
+      process.kill(ownerPid, 0);
+      ownerIsRunning = true;
+    } catch (error) {
+      ownerIsRunning = error?.code === "EPERM";
+    }
+
+    if (!ownerIsRunning) {
+      rmSync(entry, { force: true, recursive: true });
+    }
+  }
 }
 
 function canResetDevData() {
@@ -54,6 +92,7 @@ async function canReachAppServer() {
 }
 
 async function ensureLocalAppServer() {
+  assert(baseUrl, "mobile notification inbox check requires a resolved local base URL");
   smokeEnvironmentPlan = await prepareStandaloneSmokeEnvironment({
     baseUrl,
     env: process.env,
@@ -67,16 +106,47 @@ async function ensureLocalAppServer() {
   const target = new URL(baseUrl);
   const hostname = target.hostname.replace(/^\[(.*)\]$/, "$1");
   const port = target.port || "3000";
+  cleanupOrphanedManagedArtifacts();
+  const runId = `${process.pid}-${Date.now()}`;
+  managedDistDir = `.next-mobile-notification-${runId}`;
+  managedTsconfigPath = `.tmp-mobile-notification-tsconfig-${runId}.json`;
+  writeFileSync(
+    managedTsconfigPath,
+    `${JSON.stringify({
+      extends: "./tsconfig.json",
+      include: [
+        "next-env.d.ts",
+        "next.config.ts",
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        `${managedDistDir}/types/**/*.ts`,
+        `${managedDistDir}/dev/types/**/*.ts`,
+      ],
+    }, null, 2)}\n`,
+  );
 
   managedAppServer = spawn(
     npmCommand,
     ["run", "dev", "--", "--webpack", "--hostname", hostname, "--port", port],
     {
       cwd: process.cwd(),
-      env: process.env,
+      env: {
+        ...process.env,
+        FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
+        FINAL_JUDO_NEXT_TSCONFIG_PATH: managedTsconfigPath,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  const captureServerLog = (chunk) => {
+    managedAppServerLogs.push(...String(chunk).split("\n").filter(Boolean));
+    if (managedAppServerLogs.length > 120) {
+      managedAppServerLogs.splice(0, managedAppServerLogs.length - 120);
+    }
+  };
+
+  managedAppServer.stdout.on("data", captureServerLog);
+  managedAppServer.stderr.on("data", captureServerLog);
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < 30_000) {
@@ -84,12 +154,16 @@ async function ensureLocalAppServer() {
       return "managed-next-dev-webpack";
     }
     if (managedAppServer.exitCode !== null) {
-      throw new Error(`Mobile notification inbox server exited before ${baseUrl} became reachable.`);
+      throw new Error(
+        `Mobile notification inbox server exited before ${baseUrl} became reachable.\n${managedAppServerLogs.slice(-40).join("\n")}`,
+      );
     }
     await sleep(500);
   }
 
-  throw new Error(`Timed out waiting for mobile notification inbox server at ${baseUrl}.`);
+  throw new Error(
+    `Timed out waiting for mobile notification inbox server at ${baseUrl}.\n${managedAppServerLogs.slice(-40).join("\n")}`,
+  );
 }
 
 async function cleanupLocalAppServer() {
@@ -108,6 +182,13 @@ async function cleanupLocalAppServer() {
 
   if (smokeEnvironmentPlan?.created) {
     await cleanupReleaseSmokeEnvironment({ dataDir: smokeEnvironmentPlan.dataDir });
+  }
+
+  if (managedDistDir) {
+    rmSync(managedDistDir, { force: true, recursive: true });
+  }
+  if (managedTsconfigPath) {
+    rmSync(managedTsconfigPath, { force: true });
   }
 }
 
@@ -198,6 +279,7 @@ async function collectInboxState(page) {
     const lastActionRect = rectFor(lastAction);
     const safeAreaRect = rectFor(document.querySelector('[data-testid="notification-bottom-safe-area"]'));
     const viewportHeight = window.innerHeight;
+    const contentBottomBoundary = bottomNavRect?.top ?? viewportHeight;
     const intersectsViewport = (rect) => Boolean(rect && rect.bottom > 0 && rect.top < viewportHeight);
 
     return {
@@ -244,8 +326,8 @@ async function collectInboxState(page) {
       scrollHeight: document.documentElement.scrollHeight,
       clientWidth: document.documentElement.clientWidth,
       viewportHeight,
-      bottomCardClearance: bottomNavRect && lastCardRect ? bottomNavRect.top - lastCardRect.bottom : null,
-      bottomActionClearance: bottomNavRect && lastActionRect ? bottomNavRect.top - lastActionRect.bottom : null,
+      bottomCardClearance: lastCardRect ? contentBottomBoundary - lastCardRect.bottom : null,
+      bottomActionClearance: lastActionRect ? contentBottomBoundary - lastActionRect.bottom : null,
       lastActionIntersectsViewport: intersectsViewport(lastActionRect),
       lastCardIntersectsViewport: intersectsViewport(lastCardRect),
       undersizedVisibleTargets,
@@ -291,13 +373,210 @@ async function seedGuardianPendingOnlinePayment(page) {
   return result;
 }
 
-async function verifyFamilyCase(browser, testCase) {
+async function verifyFamilyPushOwnershipAtAppEntry(browser) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
     isMobile: true,
   });
   await context.addInitScript(() => {
+    const testState = {
+      permissionRequestCount: 0,
+      serviceWorkerRegisterCount: 0,
+      subscriptionCreateCount: 0,
+    };
+    const subscription = {
+      endpoint: "https://push.example.test/shared-family-device",
+      expirationTime: null,
+      keys: {
+        auth: "shared-auth-key",
+        p256dh: "shared-p256dh-key",
+      },
+    };
+    const browserSubscription = {
+      endpoint: subscription.endpoint,
+      expirationTime: subscription.expirationTime,
+      toJSON: () => subscription,
+    };
+    const pushManager = {
+      getSubscription: async () => browserSubscription,
+      subscribe: async () => {
+        testState.subscriptionCreateCount += 1;
+        return browserSubscription;
+      },
+    };
+    const registration = {
+      installing: null,
+      pushManager,
+      unregister: async () => true,
+      update: async () => {},
+      waiting: null,
+    };
+
+    Object.defineProperty(window, "__finalPushAppEntryTestState", {
+      configurable: true,
+      value: testState,
+    });
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: {
+        permission: "granted",
+        requestPermission: async () => {
+          testState.permissionRequestCount += 1;
+          return "granted";
+        },
+      },
+    });
+    Object.defineProperty(window, "PushManager", {
+      configurable: true,
+      value: class PushManager {},
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        addEventListener: () => {},
+        getRegistration: async () => registration,
+        getRegistrations: async () => [registration],
+        register: async () => {
+          testState.serviceWorkerRegisterCount += 1;
+          return registration;
+        },
+        removeEventListener: () => {},
+      },
+    });
+  });
+  const page = await context.newPage();
+  const messages = [];
+  const pushSubscriptionRequests = [];
+  let pushConfigRequestCount = 0;
+  const screenshotPath = join(outDir, "member-app-entry-push-ownership.png");
+
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      messages.push(`console: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => {
+    messages.push(`pageerror: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  await page.route("**/api/v1/notifications/push-config", async (route) => {
+    pushConfigRequestCount += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          activeSubscriptionCount: 1,
+          configured: true,
+          currentUserSubscribed: true,
+          publicKey: "AQIDBA",
+          subject: "mailto:qa@example.test",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/v1/notifications/subscriptions", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    pushSubscriptionRequests.push(route.request().postDataJSON());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          activeSubscriptionCount: 1,
+          subscription: {
+            disabledAt: null,
+            endpointHint: "...device",
+            id: "push-member-app-entry",
+          },
+        },
+      }),
+    });
+  });
+
+  try {
+    const loginUrl = new URL("/login", baseUrl);
+    loginUrl.searchParams.set("autoLogin", "1");
+    loginUrl.searchParams.set("role", "member");
+    loginUrl.searchParams.set("next", "/app/dashboard");
+
+    try {
+      await page.goto(loginUrl.toString(), { timeout: 60_000, waitUntil: "domcontentloaded" });
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nManaged app server log:\n${managedAppServerLogs.slice(-60).join("\n")}`,
+      );
+    }
+    await page.waitForURL("**/app/dashboard", { timeout: 30_000 });
+    const requestDeadline = Date.now() + 20_000;
+
+    while (pushSubscriptionRequests.length === 0 && Date.now() < requestDeadline) {
+      await sleep(250);
+    }
+
+    if (pushSubscriptionRequests.length === 0) {
+      const diagnosticState = await page.evaluate(() => ({
+        bodyText: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 500) ?? "",
+        testState: window.__finalPushAppEntryTestState,
+        url: window.location.href,
+      }));
+
+      assert.fail(
+        `family app entry did not reconcile the existing browser endpoint: ${JSON.stringify({
+          diagnosticState,
+          messages,
+          pushConfigRequestCount,
+        })}`,
+      );
+    }
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const state = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      testState: window.__finalPushAppEntryTestState,
+      url: window.location.href,
+    }));
+
+    assert.equal(messages.length, 0, `family app entry must not log console/page errors: ${messages.join(" | ")}`);
+    assert.equal(pushSubscriptionRequests.length, 1, "family app entry must reconcile exactly one existing browser endpoint");
+    assert.equal(
+      pushSubscriptionRequests[0]?.subscription?.endpoint,
+      "https://push.example.test/shared-family-device",
+      "family app entry must persist the existing shared-browser endpoint for the signed-in member",
+    );
+    assert.equal(
+      pushSubscriptionRequests[0]?.allowReactivation,
+      false,
+      "family app entry must not reactivate a push credential disabled by a security-context change",
+    );
+    assert.equal(state.testState.permissionRequestCount, 0, "family app entry must not request notification permission");
+    assert.equal(state.testState.subscriptionCreateCount, 0, "family app entry must reuse an existing browser subscription");
+    assert.equal(state.testState.serviceWorkerRegisterCount, 0, "family app entry must reuse an existing service worker registration");
+    assert.equal(state.scrollWidth, state.clientWidth, "family app entry dashboard must not overflow horizontally");
+    assert(statSync(screenshotPath).size > 10_000, "family app entry screenshot must be non-empty");
+
+    return {
+      allowReactivation: pushSubscriptionRequests[0]?.allowReactivation,
+      messages,
+      pushSubscriptionRequestCount: pushSubscriptionRequests.length,
+      screenshotPath,
+      screenshotSizeBytes: statSync(screenshotPath).size,
+      state,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyFamilyCase(browser, testCase) {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+  });
+  await context.addInitScript(({ hasExistingBrowserSubscription }) => {
     let permission = "default";
     const subscription = {
       endpoint: "https://push.example.test/final-judo-device",
@@ -307,13 +586,14 @@ async function verifyFamilyCase(browser, testCase) {
         p256dh: "test-p256dh-key",
       },
     };
+    const browserSubscription = {
+      endpoint: subscription.endpoint,
+      expirationTime: subscription.expirationTime,
+      toJSON: () => subscription,
+    };
     const pushManager = {
-      getSubscription: async () => null,
-      subscribe: async () => ({
-        endpoint: subscription.endpoint,
-        expirationTime: subscription.expirationTime,
-        toJSON: () => subscription,
-      }),
+      getSubscription: async () => (hasExistingBrowserSubscription ? browserSubscription : null),
+      subscribe: async () => browserSubscription,
     };
 
     Object.defineProperty(window, "Notification", {
@@ -342,7 +622,7 @@ async function verifyFamilyCase(browser, testCase) {
         removeEventListener: () => {},
       },
     });
-  });
+  }, { hasExistingBrowserSubscription: testCase.hasExistingBrowserSubscription });
   const page = await context.newPage();
   const messages = [];
   const pushSubscriptionRequests = [];
@@ -365,9 +645,9 @@ async function verifyFamilyCase(browser, testCase) {
       contentType: "application/json",
       body: JSON.stringify({
         data: {
-          activeSubscriptionCount: 0,
+          activeSubscriptionCount: testCase.currentUserSubscribed ? 1 : 0,
           configured: true,
-          currentUserSubscribed: false,
+          currentUserSubscribed: testCase.currentUserSubscribed,
           publicKey: "AQIDBA",
           subject: "mailto:qa@example.test",
         },
@@ -529,6 +809,11 @@ async function verifyFamilyCase(browser, testCase) {
       "https://push.example.test/final-judo-device",
       `${testCase.id} notifications must persist the subscription returned by PushManager`,
     );
+    assert.equal(
+      pushSubscriptionRequests[0]?.allowReactivation,
+      true,
+      `${testCase.id} explicit notification activation must allow a security-disabled push credential to reconnect`,
+    );
     assert.equal(afterPushState.scrollWidth, afterPushState.clientWidth, `${testCase.id} notifications must not overflow after push activation`);
 
     await page.locator('[data-testid="notification-read-action"]').first().click();
@@ -603,6 +888,7 @@ async function verifyFamilyCase(browser, testCase) {
       beforeState,
       afterPushState,
       afterReadState,
+      allowReactivation: pushSubscriptionRequests[0]?.allowReactivation,
       pushSubscriptionRequestCount: pushSubscriptionRequests.length,
       pendingPaymentSeed,
       scrollEndState,
@@ -614,21 +900,25 @@ async function verifyFamilyCase(browser, testCase) {
 
 async function main() {
   const executablePath = findChromeExecutable();
+  const summaryPath = join(outDir, "summary.json");
+  let appServer = null;
+  let browser = null;
+  let resetAfter = null;
+  let resetBefore = null;
 
   assert(executablePath, "Chrome or Chromium is required for mobile notification inbox proof");
+  baseUrl ||= `http://127.0.0.1:${await getFreePort()}`;
   mkdirSync(outDir, { recursive: true });
-  const appServer = await ensureLocalAppServer();
-  const resetBefore = await resetDevData("before");
-  const browser = await chromium.launch({
-    executablePath,
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  });
-  const summaryPath = join(outDir, "summary.json");
-
-  let resetAfter = null;
 
   try {
+    appServer = await ensureLocalAppServer();
+    resetBefore = await resetDevData("before");
+    browser = await chromium.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    const appEntryPushOwnership = await verifyFamilyPushOwnershipAtAppEntry(browser);
     const cases = [];
 
     for (const testCase of familyCases) {
@@ -643,16 +933,17 @@ async function main() {
       browserPath: "repository-managed Playwright mobile regression",
       resetBefore,
       resetAfter,
+      appEntryPushOwnership,
       cases,
     };
 
     writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
     console.log(JSON.stringify(summary, null, 2));
   } finally {
-    if (!resetAfter) {
+    if (!resetAfter && appServer) {
       await resetDevData("after-failure").catch(() => null);
     }
-    await browser.close();
+    await browser?.close();
     await cleanupLocalAppServer();
   }
 }

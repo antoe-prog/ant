@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { createRandomPasswordHash, defaultPilotPassword, generateTemporaryPassword } from "@/server/auth-password";
-import { authSecurityLockKey, readUnmodifiedPassword, revokeUserAuthSessions } from "@/server/auth-session";
+import { readUnmodifiedPassword, revokeUserSecurityAccess } from "@/server/auth-session";
 import { consumePasswordResetChallenges } from "@/server/password-reset";
 import { createRuntimeId } from "@/server/runtime-id";
 
@@ -85,7 +86,7 @@ export async function POST(
     return jsonError(400, "VALIDATION_ERROR", "새 비밀번호는 12자 이상이어야 합니다.");
   }
 
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const freshDb = await readServerDb();
     const { user: freshUser, response: freshSessionResponse } = requireSession(request, freshDb);
 
@@ -136,7 +137,7 @@ export async function POST(
     };
     const nextDb = await writeServerDb(
       consumePasswordResetChallenges(
-        revokeUserAuthSessions({
+        revokeUserSecurityAccess({
           ...freshDb,
           users: freshDb.users.map((candidate) =>
             candidate.id === targetUser.id

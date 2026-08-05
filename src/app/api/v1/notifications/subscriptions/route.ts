@@ -1,15 +1,17 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { jsonError, jsonOk, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import {
+  cancelPushDispatchJobsForSubscriptions,
   hasInFlightPushDispatchForSubscription,
-  notificationOutboxLockKey,
 } from "@/server/notification-outbox";
 import {
   createEndpointHint,
   disablePushSubscription,
   getVisibleActivePushSubscriptionCount,
+  isPushSubscriptionCurrentForUser,
   normalizePushEndpoint,
   normalizePushSubscription,
   upsertPushSubscription,
@@ -22,6 +24,7 @@ const familyNotificationAlwaysOnRoles = new Set(["member", "guardian"]);
 const pushUserAgentMaxLength = 512;
 
 type SubscribeBody = {
+  allowReactivation?: boolean;
   subscription?: unknown;
   userAgent?: string;
 };
@@ -47,14 +50,15 @@ export async function POST(request: NextRequest) {
   }
 
   if (
+    (body?.allowReactivation !== undefined && typeof body.allowReactivation !== "boolean") ||
     (body?.userAgent !== undefined && typeof body.userAgent !== "string") ||
     (userAgent?.length ?? 0) > pushUserAgentMaxLength
   ) {
     return jsonError(400, "VALIDATION_ERROR", "공지 알림 기기 정보가 올바르지 않습니다.");
   }
 
-  return withServerDbLock(notificationOutboxLockKey, () =>
-    persistPushSubscription(request, subscription, userAgent),
+  return withAuthAndNotificationStateLock(() =>
+    persistPushSubscription(request, subscription, userAgent, body?.allowReactivation === true),
   );
 }
 
@@ -62,6 +66,7 @@ async function persistPushSubscription(
   request: NextRequest,
   subscription: NonNullable<ReturnType<typeof normalizePushSubscription>>,
   userAgent?: string,
+  allowReactivation = false,
 ) {
   const db = await readServerDb();
   const { user, response } = requireSession(request, db);
@@ -72,15 +77,34 @@ async function persistPushSubscription(
 
   const existing = db.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
 
-  if (
-    existing &&
-    existing.userId !== user.id &&
-    hasInFlightPushDispatchForSubscription(db, existing.id)
-  ) {
+  if (existing && isPushSubscriptionCurrentForUser(existing, user, subscription, userAgent)) {
+    return jsonOk({
+      subscription: {
+        id: existing.id,
+        endpointHint: createEndpointHint(existing.endpoint),
+        disabledAt: null,
+      },
+      activeSubscriptionCount: getVisibleActivePushSubscriptionCount(db, user),
+    });
+  }
+
+  if (existing?.disabledAt && !allowReactivation) {
+    return jsonOk({
+      subscription: {
+        id: existing.id,
+        endpointHint: createEndpointHint(existing.endpoint),
+        disabledAt: existing.disabledAt,
+      },
+      activeSubscriptionCount: getVisibleActivePushSubscriptionCount(db, user),
+      reactivationRequired: true,
+    });
+  }
+
+  if (existing && hasInFlightPushDispatchForSubscription(db, existing.id)) {
     return jsonError(
       409,
-      "PUSH_SUBSCRIPTION_TRANSFER_PENDING",
-      "이전 계정의 알림 발송을 마무리하고 있습니다. 잠시 후 다시 연결해 주세요.",
+      "PUSH_SUBSCRIPTION_UPDATE_PENDING",
+      "기기의 알림 발송을 마무리하고 있습니다. 잠시 후 다시 연결해 주세요.",
     );
   }
 
@@ -151,7 +175,7 @@ export async function DELETE(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "해지할 공지 알림 정보가 올바르지 않습니다.");
   }
 
-  return withServerDbLock(notificationOutboxLockKey, () =>
+  return withAuthAndNotificationStateLock(() =>
     persistPushUnsubscribe(request, endpoint),
   );
 }
@@ -171,6 +195,19 @@ async function persistPushUnsubscribe(request: NextRequest, endpoint: string) {
   }
 
   if (familyNotificationAlwaysOnRoles.has(user.role)) {
+    if (existing.disabledAt) {
+      return jsonOk({
+        subscription: {
+          id: existing.id,
+          endpointHint: createEndpointHint(existing.endpoint),
+          disabledAt: existing.disabledAt,
+        },
+        activeSubscriptionCount: getVisibleActivePushSubscriptionCount(db, user),
+        enforcedAlwaysOn: true,
+        reactivationRequired: true,
+      });
+    }
+
     const now = new Date().toISOString();
     const record = {
       ...existing,
@@ -223,6 +260,15 @@ async function persistPushUnsubscribe(request: NextRequest, endpoint: string) {
     return jsonError(404, "NOT_FOUND", "해지할 푸시 구독을 찾을 수 없습니다.");
   }
 
+  const now = record.disabledAt ?? new Date().toISOString();
+  const dbWithCancelledJobs = cancelPushDispatchJobsForSubscriptions(
+    dbWithDisabledSubscription,
+    new Set([record.id]),
+    {
+      now,
+      reason: "푸시 알림 구독이 해지되어 대기 발송을 취소했습니다.",
+    },
+  );
   const auditLog: AuditLog = {
     id: createRuntimeId("audit"),
     branchId: user.branchIds[0] ?? null,
@@ -240,11 +286,11 @@ async function persistPushUnsubscribe(request: NextRequest, endpoint: string) {
     },
     result: "success",
     message: "푸시 알림 구독을 해지했습니다.",
-    createdAt: new Date().toISOString(),
+    createdAt: now,
   };
   const nextDb = await writeServerDb({
-    ...dbWithDisabledSubscription,
-    auditLogs: [auditLog, ...dbWithDisabledSubscription.auditLogs],
+    ...dbWithCancelledJobs,
+    auditLogs: [auditLog, ...dbWithCancelledJobs.auditLogs],
   });
 
   return jsonOk({

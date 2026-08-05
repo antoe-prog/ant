@@ -7,6 +7,7 @@ const requestsScreenPath = "src/components/screens/requests-screen.tsx";
 const requestsScreen = existsSync(requestsScreenPath) ? readFileSync(requestsScreenPath, "utf8") : "";
 const appShell = readFileSync("src/components/shell/app-shell.tsx", "utf8");
 const appStore = readFileSync("src/store/app-store.tsx", "utf8");
+const browserPushSubscription = readFileSync("src/lib/browser-push-subscription.ts", "utf8");
 const notificationAlerts = readFileSync("src/lib/notification-alerts.ts", "utf8");
 const nativeAppPermissions = readFileSync("src/lib/native-app-permissions.ts", "utf8");
 const roles = readFileSync("src/lib/roles.ts", "utf8");
@@ -19,8 +20,10 @@ const noticeHelpers = readFileSync("src/lib/notices.ts", "utf8");
 const noticePermissions = readFileSync("src/lib/notice-permissions.ts", "utf8");
 const noticeMemberSearch = readFileSync("src/lib/notice-member-search.ts", "utf8");
 const noticeInputPolicy = readFileSync("src/lib/notice-input-policy.ts", "utf8");
+const pushSubscriptionScope = readFileSync("src/lib/push-subscription-scope.ts", "utf8");
 const paymentCheckoutAccess = readFileSync("src/lib/payment-checkout-access.ts", "utf8");
 const serverDb = readFileSync("src/server/db.ts", "utf8");
+const authNotificationStateLock = readFileSync("src/server/auth-notification-state-lock.ts", "utf8");
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
 const notificationOutbox = readFileSync("src/server/notification-outbox.ts", "utf8");
 const notificationOutboxRunner = readFileSync("src/server/notification-outbox-runner.ts", "utf8");
@@ -201,12 +204,41 @@ for (const removedNoticeSettingsContract of [
   assertExcludes(noticesScreen, removedNoticeSettingsContract, "notices screen removed notification settings card contract");
 }
 assert(apiClient.includes("getPushConfig()"), "api client must keep push config API access for platform handoff");
-assert(apiClient.includes("subscribeToPush(subscription: PushSubscriptionJSON"), "api client must keep push subscription API access");
+assert(
+  apiClient.includes("subscribeToPush(subscription: PushSubscriptionJSON, userAgent: string, allowReactivation: boolean)") &&
+    apiClient.includes("JSON.stringify({ allowReactivation, subscription, userAgent })"),
+  "api client must keep explicit push reactivation intent in its subscription API",
+);
 assert(apiClient.includes("unsubscribeFromPush(endpoint: string)"), "api client must keep push unsubscribe API access");
 assert(apiClient.includes("dispatchNoticePush(branchId: string"), "api client must keep notice push dispatch API access");
-assert(notificationsScreen.includes("Notification.requestPermission()"), "family notification inbox must request device permission from an explicit action");
-assert(notificationsScreen.includes("registration.pushManager.subscribe"), "family notification inbox must create a browser push subscription");
-assert(notificationsScreen.includes("apiClient.subscribeToPush"), "family notification inbox must persist the device subscription");
+assert(
+  notificationsScreen.includes("connectCurrentBrowserPushSubscription({ requestPermission })") &&
+    notificationsScreen.includes("connectFamilyPush({ requestPermission: true })"),
+  "family notification inbox must request browser push permission only from its explicit action",
+);
+assert(
+  browserPushSubscription.includes('permission === "default" && requestPermission') &&
+    browserPushSubscription.includes("Notification.requestPermission()"),
+  "shared browser push connection must gate the permission prompt behind an explicit request",
+);
+assert(
+  browserPushSubscription.includes("registration.pushManager.subscribe") &&
+    browserPushSubscription.includes("apiClient.subscribeToPush") &&
+    browserPushSubscription.includes("requestPermission,") &&
+    browserPushSubscription.includes("result.reactivationRequired || result.subscription.disabledAt"),
+  "shared browser push connection must create and persist the current browser subscription",
+);
+assert(
+  !browserPushSubscription.includes("!config.currentUserSubscribed || !existingSubscription"),
+  "family notification inbox must verify the current browser endpoint even when the account has another active device",
+);
+assert(
+  appShell.includes('familyPushUserRole !== "member" && familyPushUserRole !== "guardian"') &&
+    appShell.includes("connectCurrentBrowserPushSubscription({ requestPermission: false })") &&
+    appShell.includes("familyPushReconciledUserIdRef.current === familyPushUserId") &&
+    !appShell.includes("Notification.requestPermission()"),
+  "family app entry must reconcile an approved browser endpoint once per account without opening a permission prompt",
+);
 assert(notificationsScreen.includes('data-testid="family-push-enable-action"'), "family push opt-in must keep an explicit mobile action");
 assert(
   notificationsScreen.includes('requestNativeAppPermission("notifications")'),
@@ -544,16 +576,40 @@ assert(!pushHelper.includes("ops@finaljudo.test"), "push helper must not use a s
 assert(pushHelper.includes("webPush.sendNotification"), "push helper must send web push notifications");
 assert(pushHelper.includes("statusCode === 404 || statusCode === 410"), "push helper must disable expired subscriptions");
 assert(notificationOutbox.includes("[중요]"), "outbox payload snapshot must mark important notice push titles");
-assert(pushHelper.includes("export function getNoticeRecipients"), "push helper must expose notice recipients for dispatch feedback");
+assert(
+  pushHelper.includes("getNoticeRecipients") &&
+    pushSubscriptionScope.includes("export function getNoticeRecipients") &&
+    pushSubscriptionScope.includes("isNoticeRecipient(user, db, notice)"),
+  "push helper must expose current-account notice recipients for dispatch feedback",
+);
 assert(pushHelper.includes("export function getNoticeFamilyRecipientCount"), "push helper must expose member and guardian recipient counts");
 assert(pushHelper.includes("export function createNoticePushDispatchMessage"), "push helper must centralize user-facing dispatch result copy");
-assert(pushHelper.includes("getVisibleActivePushSubscriptionCount"), "push helper must scope visible active subscription counts by role");
+assert(
+  pushHelper.includes("getVisibleActivePushSubscriptionCount") &&
+    pushSubscriptionScope.includes("subscriber.branchIds.some"),
+  "push helper must scope visible active subscription counts by each subscriber's current account scope",
+);
+assert(
+  pushSubscriptionScope.includes("recipientIds.has(subscription.userId)") &&
+    !pushSubscriptionScope.includes("subscription.branchIds.includes(notice.branchId)"),
+  "push delivery must not use cached subscription branch metadata as an authorization boundary",
+);
+assert(
+  notificationOutboxRunner.includes("isPushSubscriptionOwnedByRecipient") &&
+    notificationOutboxRunner.includes("isNoticeRecipient(recipient, db, notice)"),
+  "outbox delivery must revalidate subscription ownership and current recipient authorization",
+);
 assert(pushConfigRoute.includes("currentUserSubscribed"), "push config route must expose current user subscription state");
 assert(
   pushConfigRoute.includes("getVisibleActivePushSubscriptionCount(db, user)"),
   "push config route must not expose global active subscription counts",
 );
 assert(pushSubscriptionRoute.includes("normalizePushSubscription"), "push subscription route must validate subscription shape");
+assert(
+  pushSubscriptionRoute.includes("isPushSubscriptionCurrentForUser") &&
+    pushHelper.includes("export function isPushSubscriptionCurrentForUser"),
+  "push subscription persistence must make an already-current browser endpoint idempotent",
+);
 assert(
   pushHelper.includes('endpointUrl.protocol === "https:"') &&
     pushHelper.includes("normalizePushEndpoint") &&
@@ -568,7 +624,19 @@ assert(
   "push subscription route must reject malformed or oversized user-agent metadata",
 );
 assert(pushSubscriptionRoute.includes("notification.subscribe"), "push subscription route must audit subscribe");
+assert(
+  pushSubscriptionRoute.includes("existing?.disabledAt && !allowReactivation") &&
+    pushSubscriptionRoute.includes("reactivationRequired: true") &&
+    pushSubscriptionRoute.includes("body?.allowReactivation === true") &&
+    /familyNotificationAlwaysOnRoles\.has\(user\.role\)[\s\S]*?if \(existing\.disabledAt\)/.test(pushSubscriptionRoute),
+  "passive app entry must preserve security-disabled push credentials until explicit reactivation",
+);
 assert(pushSubscriptionRoute.includes("notification.unsubscribe"), "push subscription route must audit unsubscribe");
+assert(
+  pushSubscriptionRoute.includes("cancelPushDispatchJobsForSubscriptions") &&
+    pushSubscriptionRoute.includes('reason: "푸시 알림 구독이 해지되어 대기 발송을 취소했습니다."'),
+  "push unsubscribe must cancel queued dispatches and record cancellation intent for leased work",
+);
 assert(
   pushSubscriptionRoute.includes('typeof body.endpoint !== "string"') &&
     pushSubscriptionRoute.includes("normalizePushEndpoint(body.endpoint)"),
@@ -582,13 +650,16 @@ assert(
 );
 assert(pushSubscriptionRoute.includes("familyNotificationAlwaysOnRoles"), "push subscription route must keep family notifications always on");
 assert(
-  (pushSubscriptionRoute.match(/withServerDbLock\(notificationOutboxLockKey/g) ?? []).length === 2,
-  "push subscription ownership and disable mutations must share the notification outbox lock",
+  (pushSubscriptionRoute.match(/withAuthAndNotificationStateLock\(/g) ?? []).length === 2 &&
+    authNotificationStateLock.indexOf("withServerDbLock(authSecurityLockKey") <
+      authNotificationStateLock.indexOf("withServerDbLock(notificationOutboxLockKey"),
+  "push subscription ownership and disable mutations must share ordered auth and notification locks",
 );
 assert(
   pushSubscriptionRoute.includes("hasInFlightPushDispatchForSubscription") &&
-    pushSubscriptionRoute.includes('"PUSH_SUBSCRIPTION_TRANSFER_PENDING"'),
-  "push subscription ownership transfer must wait while an old-account provider call is in flight",
+    pushSubscriptionRoute.includes("if (existing && hasInFlightPushDispatchForSubscription(db, existing.id))") &&
+    pushSubscriptionRoute.includes('"PUSH_SUBSCRIPTION_UPDATE_PENDING"'),
+  "every push subscription mutation must wait while a provider call still uses the previous record",
 );
 assert(pushSubscriptionRoute.includes("family_notification_always_on"), "push subscription route must audit family notification always-on policy");
 assert(pushSubscriptionRoute.includes("enforcedAlwaysOn: true"), "push subscription route must tell clients family notifications stayed on");

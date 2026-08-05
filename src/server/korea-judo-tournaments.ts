@@ -5,8 +5,23 @@ export const koreaJudoAssociationScheduleUrl =
   "http://judo.sports.or.kr/Match/Country/schedule.asp";
 const defaultTournamentListUrl =
   "http://judo.sports.or.kr/Match/Country/ajax/MatchList.asp";
+const officialTournamentHost = "judo.sports.or.kr";
+const officialTournamentPath = "/Match/Country/ajax/MatchList.asp";
 const fetchTimeoutMs = 12_000;
 const maximumSourceLength = 2_000_000;
+
+function isAllowedTournamentSourceUrl(sourceUrl: URL) {
+  const isOfficialSource =
+    sourceUrl.hostname === officialTournamentHost &&
+    sourceUrl.pathname === officialTournamentPath &&
+    (sourceUrl.protocol === "http:" || sourceUrl.protocol === "https:");
+  const isLocalDevelopmentSource =
+    process.env.NODE_ENV !== "production" &&
+    (sourceUrl.hostname === "127.0.0.1" || sourceUrl.hostname === "localhost") &&
+    (sourceUrl.protocol === "http:" || sourceUrl.protocol === "https:");
+
+  return isOfficialSource || isLocalDevelopmentSource;
+}
 
 export type KoreaJudoTournamentRecord = {
   externalId: string;
@@ -262,7 +277,7 @@ export async function fetchKoreaJudoTournaments(year: number) {
   const sourceUrl = process.env.FINAL_JUDO_KJA_TOURNAMENT_SOURCE_URL?.trim() || defaultTournamentListUrl;
   const parsedSourceUrl = new URL(sourceUrl);
 
-  if (parsedSourceUrl.protocol !== "http:" && parsedSourceUrl.protocol !== "https:") {
+  if (!isAllowedTournamentSourceUrl(parsedSourceUrl)) {
     throw new Error("대한유도회 일정 원본 주소가 올바르지 않습니다.");
   }
 
@@ -285,7 +300,7 @@ export async function fetchKoreaJudoTournaments(year: number) {
         "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
         "user-agent": "FinalJudo/1.0 (+https://final-judo.vercel.app/privacy)",
       },
-      redirect: "follow",
+      redirect: "error",
       signal: controller.signal,
     });
 

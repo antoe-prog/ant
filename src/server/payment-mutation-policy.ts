@@ -2,11 +2,20 @@ import type { Payment } from "@/lib/domain";
 import type { PaymentWebhookEvent } from "@/server/online-payments";
 
 export const paymentWebhookStateLockKey = "payment-webhook-state";
+export const paymentWebhookClockSkewMs = 5 * 60_000;
 
 export type PaymentWebhookTransitionResult =
   | { ok: true }
   | {
       code: "INVALID_TRANSITION" | "OUT_OF_ORDER";
+      message: string;
+      ok: false;
+    };
+
+export type PaymentWebhookOccurredAtResult =
+  | { ok: true }
+  | {
+      code: "EVENT_TIME_OUT_OF_RANGE";
       message: string;
       ok: false;
     };
@@ -17,6 +26,31 @@ export function isPositiveSafeIntegerPaymentAmount(value: unknown): value is num
 
 export function isNonNegativeSafeIntegerPaymentAmount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function validatePaymentWebhookOccurredAt(
+  payment: Payment,
+  occurredAt: string,
+  receivedAt = new Date(),
+): PaymentWebhookOccurredAtResult {
+  const incomingTime = Date.parse(occurredAt);
+  const receivedTime = receivedAt.getTime();
+  const requestedTime = Date.parse(payment.onlinePayment?.requestedAt ?? "");
+
+  if (
+    !Number.isFinite(incomingTime) ||
+    !Number.isFinite(receivedTime) ||
+    incomingTime > receivedTime + paymentWebhookClockSkewMs ||
+    (Number.isFinite(requestedTime) && incomingTime < requestedTime - paymentWebhookClockSkewMs)
+  ) {
+    return {
+      code: "EVENT_TIME_OUT_OF_RANGE",
+      message: "결제 이벤트 발생 시각이 결제 요청 또는 수신 시각 범위를 벗어났습니다.",
+      ok: false,
+    };
+  }
+
+  return { ok: true };
 }
 
 function getLatestWebhookOccurredAt(payment: Payment) {

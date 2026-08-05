@@ -69,8 +69,9 @@ const currentImplementationBacklogSource = implementationBacklogSource.includes(
   : implementationBacklogSource;
 
 assert(
-  visibleCopyTestSource.includes("family bottom navigation must remove deleted request actions"),
-  "visible copy stability test must keep bottom navigation request-removal coverage",
+  visibleCopyTestSource.includes("must not duplicate family routes below the page") &&
+    visibleCopyTestSource.includes("coach bottom navigation must remove deleted request actions"),
+  "visible copy stability test must keep family and coach bottom-navigation request-removal coverage",
 );
 assert(
   visibleCopyTestSource.includes("notificationRequestDetailLinkCount"),

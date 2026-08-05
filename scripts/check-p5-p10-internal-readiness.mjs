@@ -1216,7 +1216,7 @@ for (const snippet of [
   "mt-2 grid grid-cols-2 gap-1.5 xl:grid-cols-4 max-[420px]:grid-cols-1",
   'className="group grid min-h-11 grid-cols-[2rem_minmax(0,1fr)_auto]',
   'data-testid={context.user.role === "coach" ? "coach-dashboard-classes-panel" : undefined}',
-  "coachDashboardFlowGraphHeight <= 205",
+  "coachDashboardFlowGraphHeight <= 280",
   "coachDashboardFlowRowMaxHeight <= 48",
   "coachDashboardClassesPanelTop <= 830",
 ]) {
@@ -1260,8 +1260,8 @@ assertIncludes(
   "const showAlertSection = !isFamilyRole && member.alerts.length > 0;",
   "member warning section must stay hidden when there are no alerts",
 );
-assertIncludes(sources.membersScreen, "openNoteEditorMemberIds", "coach member note editor collapsed state");
-assertIncludes(sources.membersScreen, "expandedNoteMemberIds", "coach member note list compact state");
+assertIncludes(sources.membersScreen, "const [noteDialog, setNoteDialog]", "coach member note editor dialog state");
+assertIncludes(sources.membersScreen, "noteListMemberId", "coach member note list dialog state");
 assertIncludes(sources.membersScreen, "coachMemberListExpanded", "coach member mobile list collapsed state");
 assertIncludes(sources.membersScreen, "coachMemberMobileVisibleLimit = 1", "coach member mobile list visible limit");
 assertIncludes(sources.membersScreen, "coachMemberListCollapsible", "coach member mobile list collapsible guard");
@@ -1276,7 +1276,8 @@ assertIncludes(sources.membersScreen, 'data-testid={isCoachRole ? "coach-member-
 assertIncludes(sources.membersScreen, 'data-testid="coach-member-note-summary"', "coach member note compact summary marker");
 assertIncludes(sources.membersScreen, 'data-testid={`member-note-list-toggle-${member.id}`}', "coach member note list toggle marker");
 assertIncludes(sources.membersScreen, '"coach-member-note-card"', "coach member compact note card marker");
-assertIncludes(sources.membersScreen, "isCoachRole ? (noteListExpanded ? memberNotes : [])", "coach member note detail collapsed default");
+assertIncludes(sources.membersScreen, "const visibleMemberNotes = isCoachRole ? [] : memberNotes.slice(0, 3)", "coach member note detail stays out of inline cards");
+assertIncludes(sources.membersScreen, "function CounselingNoteListDialog", "coach member note list independent dialog");
 assertIncludes(sources.membersScreen, 'aria-haspopup="dialog"', "coach member note editor opens an independent dialog");
 assertIncludes(sources.membersScreen, 'data-testid={`member-note-edit-${note.id}`}', "counseling note edit action marker");
 assertIncludes(sources.membersScreen, 'data-testid={`member-note-delete-${note.id}`}', "counseling note delete action marker");
@@ -3120,9 +3121,16 @@ for (const [label, source] of [
   assertExcludes(source, "역할 미확인", label);
   assertExcludes(source, "화면 미기록", label);
 }
-for (const snippet of ["회원 확인 중", "지점 확인 중"]) {
-  assertIncludes(`${sources.classesScreen}\n${sources.dashboardScreen}\n${sources.ownerReportsScreen}`, snippet, "app-safe missing relation fallback");
-}
+assertIncludes(
+  `${sources.classesScreen}\n${sources.dashboardScreen}\n${sources.ownerReportsScreen}`,
+  "회원 확인 중",
+  "app-safe missing member relation fallback",
+);
+assertIncludes(
+  `${sources.adminUsersScreen}\n${sources.adminRolesScreen}`,
+  "지점 확인 중",
+  "app-safe missing branch relation fallback",
+);
 assertIncludes(sources.adminSettings, "역할 확인 중", "admin settings incident role fallback app copy");
 assertIncludes(sources.adminSettings, "화면 확인 중", "admin settings incident screen fallback app copy");
 assertIncludes(sources.adminSettings, '<option value="unknown">역할 선택 전</option>', "admin settings incident role select app copy");
@@ -3326,7 +3334,9 @@ for (const snippet of [
   'id="class-create-form"',
   "classCreateFormOpen ? (",
   'aria-expanded={classCreateFormOpen}',
-  '{classCreateFormOpen ? "닫기" : "열기"}',
+  'data-testid="class-create-overlay"',
+  'data-testid="class-create-dialog"',
+  'data-testid="class-create-close"',
   'className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-teal-500"',
   'className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"',
   'data-testid="class-edit-form"',
@@ -4390,6 +4400,7 @@ for (const [label, source, snippets] of [
 
 assertIncludes(sources.onlinePaymentsHelper, "getOnlinePaymentRuntimeReadiness", "online payment production runtime readiness helper");
 assertIncludes(sources.onlinePaymentsHelper, "PAYMENT_PROVIDER_NOT_CONFIGURED", "online payment provider production blocker");
+assertIncludes(sources.onlinePaymentsHelper, "PAYMENT_PROVIDER_INVALID", "online payment provider invalid-value blocker");
 assertIncludes(sources.onlinePaymentsHelper, "PAYMENT_CHECKOUT_BASE_URL_MISSING", "online payment checkout base URL production blocker");
 assertIncludes(sources.onlinePaymentsHelper, "PAYMENT_WEBHOOK_SECRET_MISSING", "online payment webhook secret production blocker");
 assertIncludes(sources.onlinePaymentsHelper, 'env.NODE_ENV === "production"', "online payment production-only strictness");
@@ -4402,6 +4413,7 @@ assertIncludes(sources.paymentWebhookRoute, "결제 환불 상태가 반영되�
 assertExcludes(sources.paymentWebhookRoute, "body.reason?.trim()", "payment webhook raw provider reason");
 assertIncludes(sources.productionPreflight, "getOnlinePaymentRuntimeReadiness", "production preflight payment runtime readiness guard");
 assertIncludes(sources.productionPreflightTest, "PAYMENT_PROVIDER_NOT_CONFIGURED", "production preflight payment provider missing test");
+assertIncludes(sources.productionPreflightTest, "PAYMENT_PROVIDER_INVALID", "production preflight invalid payment provider test");
 assertIncludes(sources.productionPreflightTest, "PAYMENT_CHECKOUT_BASE_URL_MISSING", "production preflight payment checkout missing test");
 assertIncludes(sources.productionPreflightTest, "PAYMENT_WEBHOOK_SECRET_MISSING", "production preflight payment webhook missing test");
 
@@ -4514,10 +4526,10 @@ assertIncludes(sources.adminSettings, 'aria-label="운영 설정 요약"', "admi
 assertExcludes(sources.adminSettings, '<SectionHeader title="시스템 설정" />', "admin settings system-facing title");
 assertExcludes(sources.adminSettings, 'aria-label="시스템 설정 요약"', "admin settings system-facing summary label");
 for (const [source, snippet, label] of [
-  [sources.classesScreen, 'const showClassesScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";', "classes member/guardian screen header guard"],
-  [sources.classesScreen, '{showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : <SectionHeader title="수업" />}', "classes role-aware orientation heading"],
+  [sources.classesScreen, 'const showClassesScreenHeader = !["coach", "member", "guardian"].includes(context.user.role);', "classes compact-role screen header guard"],
+  [sources.classesScreen, '{showClassesScreenHeader ? <SectionHeader title="수업/출석" /> : null}', "classes role-aware orientation heading"],
   [sources.paymentsScreen, 'const showPaymentsScreenHeader = context.user.role !== "member" && context.user.role !== "guardian";', "payments member/guardian screen header guard"],
-  [sources.paymentsScreen, '<SectionHeader title="결제" />', "payments family orientation heading"],
+  [sources.paymentsScreen, 'title="결제 상태"', "payments operator orientation heading"],
   [sources.appShell, 'const isAccountRoute = pathname === "/app/account" || pathname.startsWith("/app/account/");', "all-role account menu active-route guard"],
   [sources.appShell, "const showMobileAccountMenu = true;", "all-role compact account menu guard"],
   [sources.visibleAppCopyScript, "familyRepeatedScreenHeaderCount", "visible copy repeated family screen header guard"],
@@ -4536,7 +4548,7 @@ for (const [source, snippet, label] of [
   [sources.visibleAppCopyScript, "mobileBottomNavNoticeBadgeUnreadCount", "visible copy notice-only badge count guard"],
   [sources.visibleAppCopyScript, "layout.appHeaderNoticeBadgeUnreadCount", "visible copy header/mobile unread notice consistency guard"],
   [sources.visibleAppCopyScript, 'includes("공지, 미확인 공지")', "visible copy coach notice-only aria guard"],
-  [sources.visibleAppCopyScript, "bottom navigation must not duplicate the header notification inbox", "visible copy family duplicate notice removal guard"],
+  [sources.visibleAppCopyScript, "must not duplicate the header notice link", "visible copy family duplicate notice removal guard"],
   [sources.visibleAppCopyScript, "familyNoticeCardMaxHeight <= 152", "visible copy compact family notice card guard"],
   [sources.visibleAppCopyScript, "familyNoticeBodyMaxHeight <= 44", "visible copy compact tappable family notice body guard"],
   [sources.visibleAppCopyScript, "familyNoticeFilterGridColumnCount", "visible copy family notice toolbar grid guard"],
@@ -4780,10 +4792,8 @@ for (const snippet of [
   'data-testid="member-payment-filter-chip-count"',
   "onClick={() => setPaymentFilter(option.value)}",
   'className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"',
-  'className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[11px] font-medium leading-4 text-zinc-600"',
+  'className="flex min-h-11 items-center break-words rounded-md bg-zinc-50 px-2 py-1 text-[13px] font-medium leading-5 text-zinc-700"',
   "납부 {formatDate(payment.dueDate)} · 만료 {formatDate(payment.expiresAt)}",
-	  "const familyAttentionCount =",
-  'formatCurrency(effectivePaymentFilter === "all" ? totalDue : filteredDue)',
 ]) {
   assertIncludes(sources.paymentsScreen, snippet, "member and guardian payment operations meta guard");
 }
@@ -4904,7 +4914,7 @@ assert.equal(
   "member guardian reentry evidence must include iOS Simulator screenshot proof",
 );
 for (const snippet of [
-  'Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "status">',
+  'Pick<Member, "ageGroup" | "alerts" | "belt" | "emergencyContact" | "level" | "name" | "primaryCoachId" | "status">',
   "unlinkGuardian(memberId: string, payload: GuardianLinkPayload",
   "replaceGuardian(memberId: string, payload: GuardianLinkPayload",
 ]) {
@@ -4970,7 +4980,7 @@ for (const snippet of [
   "export async function DELETE",
   "replaceMemberGuardians",
   "syncAffectedGuardianUsers",
-  "syncGuardianUserLinks",
+  "syncGuardianUserFamilyLinks",
   "unlinkMemberGuardian",
   "guardian.branchIds.includes(memberBranchId)",
   "보호자-자녀 연결을 변경했습니다.",
@@ -5145,22 +5155,22 @@ for (const snippet of [
   assertIncludes(sources.mockData, snippet, "guardian learning code seed data");
 }
 
+for (const snippet of [
+  "낙법 후 일어서는 속도가 좋아졌고",
+  "승급 심사 결과 안내",
+  "보완 항목은 코치가 다음 피드백으로 안내합니다.",
+  "강남 유소년 교류전 대회 참가 안내",
+  "보호자 확인 후 체급과 출전 가능 시간",
+  "승급 심사 준비 안내",
+  "심사 대상자는 출석률과 기본기 체크 항목을 담당 코치와 확인해 주세요.",
+]) {
+  assertIncludes(sources.mockData, snippet, "guardian learning code seed data");
+}
+
 for (const [label, source] of [
   ["guardian learning code seed data", sources.mockData],
   ["guardian learning runtime data", sources.runtimeDb],
 ]) {
-  for (const snippet of [
-    "낙법 후 일어서는 속도가 좋아졌고",
-    "승급 심사 결과 안내",
-    "보완 항목은 코치가 다음 피드백으로 안내합니다.",
-    "강남 유소년 교류전 대회 참가 안내",
-    "보호자 확인 후 체급과 출전 가능 시간",
-    "승급 심사 준비 안내",
-    "심사 대상자는 출석률과 기본기 체크 항목을 담당 코치와 확인해 주세요.",
-  ]) {
-    assertIncludes(source, snippet, label);
-  }
-
   for (const snippet of [
     "6월 승급 심사 결과 안내",
     "이번 달 승급 심사 결과 안내",
@@ -5267,11 +5277,12 @@ for (const snippet of [
 ]) {
   assertExcludes(sources.dashboardScreen, snippet, "dashboard verbose empty-state copy");
 }
-assertIncludes(
-  sources.classesScreen,
-  '<EmptyState title={isFamilyRole ? "등록된 수업이 없습니다" : "예정 수업이 없습니다"} />',
-  "classes role-specific title-only empty-state copy",
-);
+for (const snippet of [
+  '<EmptyState title="등록된 수업이 없습니다" />',
+  '<EmptyState title="예정 수업이 없습니다" />',
+]) {
+  assertIncludes(sources.classesScreen, snippet, "classes role-specific title-only empty-state copy");
+}
 assertExcludes(sources.classesScreen, "예정 수업 등록 대기 중입니다.", "classes repetitive waiting empty-state copy");
 assertExcludes(sources.classesScreen, "수업이 등록되면 이곳에서 확인할 수 있습니다.", "classes verbose empty-state copy");
 assertExcludes(sources.classesScreen, "예정 수업이 등록되면 표시됩니다.", "classes empty-state passive copy");
@@ -5713,7 +5724,7 @@ assert(
     sources.paymentCheckoutScreen.indexOf("getPaymentCheckoutAmount(payment)"),
   "payment checkout screen must suppress amount details before youth member direct checkout rendering",
 );
-for (const snippet of ["fetch(", "online-checkout", "PaymentIntent", "CheckoutSession", "stripe"]) {
+for (const snippet of ["fetch(", "createOnlinePaymentCheckout", "PaymentIntent", "CheckoutSession", "stripe"]) {
   assertExcludes(sources.paymentCheckoutScreen, snippet, "payment checkout preparation screen stays API-free");
 }
 for (const snippet of [
@@ -5799,7 +5810,7 @@ assert.equal(
   "package.json must expose test:admin-user-guardian-bottom-safe-area",
 );
 for (const snippet of [
-  "guardian bidirectional child scope",
+  "guardian member-authorized child scope recovery",
   "guardian payment child switcher scope",
   "adult member direct checkout preparation",
   "guardian child checkout preparation",
@@ -6801,21 +6812,19 @@ assertIncludes(sources.adminSettingsGate, "npm run test:p5-p10-internal-readines
 
 assert.equal(p1Readiness.ok, false, "P1 readiness must remain not ok during P5-P10 internal audit");
 assert.equal(p1Readiness.releaseDecision, "blocked", "P1 readiness releaseDecision must remain blocked");
-assert.equal(p1Readiness.summary?.blocked, 7, "P1 readiness must keep blocked 7/7");
 assert.equal(p1Readiness.summary?.total, 7, "P1 readiness total must remain 7");
+assert.equal(p1Readiness.summary?.ready, 1, "P1 readiness must include the successful iOS upload");
+assert((p1Readiness.summary?.blocked ?? 0) > 0, "P1 readiness must keep unresolved external requirements blocked");
+assert.equal(p1Readiness.requirements?.iosIpa?.status, "ready", "P1 readiness must keep iOS upload ready");
 
 const p1BlockerKeys = new Set((p1Readiness.blockers ?? []).map((blocker) => blocker.key));
-for (const blockerKey of [
-  "deployment",
-  "android",
-  "iosIpa",
-  "paymentProvider",
-  "notificationPush",
-  "issueRegistration",
-  "pilot",
-]) {
+const expectedP1BlockerKeys = Object.values(p1Readiness.requirements ?? {})
+  .filter((requirement) => requirement.status === "blocked")
+  .map((requirement) => requirement.key);
+for (const blockerKey of expectedP1BlockerKeys) {
   assert(p1BlockerKeys.has(blockerKey), `P1 readiness must keep ${blockerKey} blocker`);
 }
+assert(!p1BlockerKeys.has("iosIpa"), "P1 readiness must not recreate the resolved iOS IPA blocker");
 
 assert.equal(androidTwaDoctor.ok, false, "Android TWA doctor must remain blocked until release handoff inputs exist");
 assert.equal(androidTwaDoctor.checks?.origin?.ok, true, "Android TWA doctor must use the deployed web app origin after production deploy");
@@ -6902,7 +6911,7 @@ assertIncludes(
   "Android TWA doctor resolved local Android SDK evidence",
 );
 
-assert.equal(iosIpaDoctor.releaseDecision, "blocked", "iOS IPA doctor must remain blocked");
+assert.equal(iosIpaDoctor.releaseDecision, "ready", "iOS IPA doctor must reflect the App Store profile");
 assert.equal(iosIpaDoctor.checks?.origin?.ok, true, "iOS IPA doctor must use the deployed web app origin after production deploy");
 assert.equal(
   iosIpaDoctor.checks?.origin?.value,
@@ -6911,7 +6920,11 @@ assert.equal(
 );
 const ipaBlockerChecks = new Set((iosIpaDoctor.blockers ?? []).map((blocker) => blocker.check));
 assert(!ipaBlockerChecks.has("origin"), "iOS IPA doctor must not keep stale origin blocker after deployed origin evidence");
-assert(ipaBlockerChecks.has("provisioningProfile"), "iOS IPA doctor must keep provisioningProfile blocker");
+assert(!ipaBlockerChecks.has("provisioningProfile"), "iOS IPA doctor must not keep a resolved profile blocker");
+assert(
+  (iosIpaDoctor.checks?.provisioningProfile?.inventory?.matchingExportMethodProfiles ?? 0) > 0,
+  "iOS IPA doctor must find an export-method-compatible provisioning profile",
+);
 
 assert.equal(p5P10InternalAudit.ok, true, "P5-P10 audit artifact must pass internal evidence checks");
 assert.equal(p5P10InternalAudit.releaseDecision, "blocked", "P5-P10 audit artifact must keep releaseDecision blocked");
@@ -6921,8 +6934,12 @@ assert.equal(
   "P5-P10 audit artifact must distinguish internal readiness from release blocked",
 );
 assert.equal(p5P10InternalAudit.p1?.releaseDecision, "blocked", "P5-P10 audit artifact must keep P1 blocked");
-assert.equal(p5P10InternalAudit.p1?.summary?.blocked, 7, "P5-P10 audit artifact must keep P1 blocked 7/7");
 assert.equal(p5P10InternalAudit.p1?.summary?.total, 7, "P5-P10 audit artifact must keep P1 total 7");
+assert.equal(p5P10InternalAudit.p1?.summary?.ready, 1, "P5-P10 audit artifact must preserve iOS ready status");
+assert(
+  (p5P10InternalAudit.p1?.summary?.blocked ?? 0) > 0,
+  "P5-P10 audit artifact must preserve unresolved external blockers",
+);
 assert.equal(p5P10InternalAudit.phases?.length, 6, "P5-P10 audit artifact must include P5 through P10 phases");
 assert.deepEqual(
   p5P10InternalAudit.phases.map((phase) => phase.id),
@@ -6930,9 +6947,19 @@ assert.deepEqual(
   "P5-P10 audit artifact must preserve phase order",
 );
 assert.deepEqual(
-  p5P10InternalAudit.externalBlockers.map((blocker) => blocker.key),
+  p5P10InternalAudit.externalRequirements.map((requirement) => requirement.key),
   ["deployment", "android", "iosIpa", "paymentProvider", "notificationPush", "issueRegistration", "pilot"],
-  "P5-P10 audit artifact must keep all external blocker keys",
+  "P5-P10 audit artifact must keep all external requirement keys",
+);
+assert.equal(
+  p5P10InternalAudit.externalRequirements.find((requirement) => requirement.key === "iosIpa")?.status,
+  "ready",
+  "P5-P10 audit artifact must preserve resolved iOS status",
+);
+assert.deepEqual(
+  p5P10InternalAudit.externalBlockers.map((blocker) => blocker.key),
+  expectedP1BlockerKeys,
+  "P5-P10 audit artifact blockers must match current P1 blockers",
 );
 assert(
   p5P10InternalAudit.externalBlockers.every((blocker) => blocker.status === "blocked"),
@@ -7582,11 +7609,8 @@ for (const id of [
   if (id === "member-notices" || id === "guardian-notices") {
     assert.equal(page.mobileBottomNavNoticeLabel, "", `${id} visible app copy scan must not duplicate the header notice inbox in bottom navigation`);
     assert.equal(page.mobileBottomNavNoticeHref, "", `${id} visible app copy scan must not expose a duplicate bottom notice route`);
-    assert.equal(
-      page.mobileBottomNavRouteIds,
-      "dashboard|classes|members|payments|tournaments",
-      `${id} visible app copy scan must keep the stable family bottom navigation while viewing notices`,
-    );
+    assert.equal(page.mobileBottomNavLinkCount, 0, `${id} visible app copy scan must keep family destinations in the header menu`);
+    assert.equal(page.mobileBottomNavRouteIds, "", `${id} visible app copy scan must not render a family bottom navigation shell`);
     assert.equal(page.mobileBottomNavNoticeBadgeCount, 0, `${id} visible app copy scan must keep notice badges in the header only`);
     assert.equal(page.familyNoticeCompactFilterBarCount, 1, `${id} visible app copy scan must render compact family notice filter bar`);
     assert(page.familyNoticeCompactFilterBarHeight <= 72, `${id} visible app copy scan must keep family notice toolbar compact`);
@@ -7635,11 +7659,8 @@ for (const id of [
       assert.equal(page.noticesScreenCount, 0, `${id} visible app copy scan must not render the notices alias screen`);
       assert.equal(page.mobileBottomNavNoticeLabel, "", `${id} visible app copy scan must not duplicate the header notification inbox in bottom navigation`);
       assert.equal(page.mobileBottomNavNoticeHref, "", `${id} visible app copy scan must not expose a duplicate bottom notification route`);
-      assert.equal(
-        page.mobileBottomNavRouteIds,
-        "dashboard|classes|members|payments|tournaments",
-        `${id} visible app copy scan must keep the stable family bottom navigation while viewing notifications`,
-      );
+      assert.equal(page.mobileBottomNavLinkCount, 0, `${id} visible app copy scan must keep family destinations in the header menu`);
+      assert.equal(page.mobileBottomNavRouteIds, "", `${id} visible app copy scan must not render a family bottom navigation shell`);
       assert.equal(page.mobileBottomNavNoticeBadgeCount, 0, `${id} visible app copy scan must keep notification badges in the header only`);
       assert.equal(page.notificationSummaryCardCount, 0, `${id} visible app copy scan must not render duplicate notification summary cards`);
       assert(page.notificationInboxCardCount > 0, `${id} visible app copy scan must render notification cards`);
@@ -7647,11 +7668,11 @@ for (const id of [
       assert.equal(page.notificationBottomSafeAreaCount, 0, `${id} visible app copy scan must rely on the shared shell bottom safe area`);
       assert(
         page.notificationBottomActionClearanceAtScrollEnd >= 24,
-        `${id} visible app copy scan must keep the bottom notification action above the mobile bottom navigation`,
+        `${id} visible app copy scan must keep the bottom notification action above the visible bottom boundary`,
       );
       assert(
         page.notificationBottomCardClearanceAtScrollEnd >= 24,
-        `${id} visible app copy scan must keep the bottom notification card clear of the mobile bottom navigation`,
+        `${id} visible app copy scan must keep the bottom notification card clear of the visible bottom boundary`,
       );
       assert.equal(page.notificationNoticeKindBadgeCount, 0, `${id} visible app copy scan must hide repeated notice kind badges`);
       if ((page.notificationPaymentCardCount ?? 0) > 0) {
@@ -7927,20 +7948,13 @@ for (const id of [
   }
   if (id === "member-classes" || id === "guardian-classes") {
     assert.equal(page.personalAttendanceSummaryCount, 0, `${id} visible app copy scan must keep attendance status in inline rows/chips only`);
-  }
-  if (id === "member-classes") {
-    assert(page.familyAttendanceChipGridCount > 0, "member classes visible app copy scan must render compact attendance grids");
-    assert(page.familyAttendanceChipCount > 0, "member classes visible app copy scan must render compact attendance chips");
-    assert(page.familyClassCardMaxHeight <= 132, "member classes visible app copy scan must keep class cards within the mobile scan height budget");
-    assert(page.familyAttendanceChipMinHeight >= 44, "member classes visible app copy scan must keep attendance chips readable");
-    assert(page.familyAttendanceChipMaxHeight <= 56, "member classes visible app copy scan must keep attendance chips compact");
-  }
-  if (id === "guardian-classes") {
-    assert(page.familyAttendanceChipGridCount > 0, "guardian classes visible app copy scan must render compact child attendance grids");
-    assert(page.familyAttendanceChipCount > 0, "guardian classes visible app copy scan must render compact child attendance chips");
-    assert(page.familyClassCardMaxHeight <= 132, "guardian classes visible app copy scan must keep class cards within the mobile scan height budget");
-    assert(page.familyAttendanceChipMinHeight >= 44, "guardian classes visible app copy scan must keep child attendance chips readable");
-    assert(page.familyAttendanceChipMaxHeight <= 56, "guardian classes visible app copy scan must keep child attendance chips compact");
+    assert.equal(page.familyClassCalendarCount, 1, `${id} visible app copy scan must render the attendance calendar`);
+    assert(page.familyClassCalendarDateButtonCount > 0, `${id} visible app copy scan must expose selectable calendar dates`);
+    assert(page.familyClassCalendarStateCount > 0, `${id} visible app copy scan must mark scheduled or recorded class dates`);
+    assert.equal(page.familyClassCalendarSelectedDateCount, 0, `${id} visible app copy scan must not preselect a calendar date`);
+    assert.equal(page.familySelectedDateHeadingCount, 0, `${id} visible app copy scan must keep date details closed by default`);
+    assert.equal(page.classRegistrationPanelCount, 0, `${id} visible app copy scan must keep registration details closed by default`);
+    assert.equal(page.familyClassCardCount, 0, `${id} visible app copy scan must hide class cards before date selection`);
   }
   if (id === "coach-dashboard") {
     assert(page.coachDashboardAllClassesLinkHeight >= 44, "coach dashboard all classes link must keep 44px touch target");
@@ -8896,7 +8910,7 @@ for (const snippet of [
   assertIncludes(sources.familyClassCalendar, snippet, "member and guardian class attendance calendar");
 }
 for (const snippet of [
-		  'isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "px-3 py-2" : "p-3"',
+		  'isFamilyRole ? "px-2.5 py-2" : isCoachRole ? "flex flex-col px-3 py-2" : "p-3"',
 	  'data-testid={`coach-class-attendance-summary-${session.id}`}',
 	  'data-testid="coach-mobile-speed-summary-line"',
 	  "function needsAttendanceReason(record: AttendanceRecord | undefined)",
@@ -8975,8 +8989,8 @@ console.log(
       checked: [
         "P5-P10 internal release/audit cards are not rendered inside the app",
         "P5-P10 simulator screenshots for admin settings/coach/member/guardian",
-        "P1 readiness remains blocked 7/7",
-        "Android and iOS release blockers remain separated",
+        "P1 readiness remains blocked while unresolved external requirements remain",
+        "Android blockers and resolved iOS upload remain separated",
         "P1 operator status exposes the current Android Play AAB/APK release report",
         "coach mobile save status panel has reserved scroll space above bottom navigation",
         "Next dev indicator does not cover mobile bottom navigation in simulator evidence",

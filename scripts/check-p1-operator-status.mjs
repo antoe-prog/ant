@@ -221,6 +221,7 @@ function requirementRows(readiness) {
       nextAction: text(requirement?.nextAction),
       path: text(requirement?.path),
       command: text(requirement?.command),
+      partial: requirement?.partial ?? null,
     }));
   }
 
@@ -233,6 +234,7 @@ function requirementRows(readiness) {
       nextAction: text(requirement?.nextAction),
       path: text(requirement?.path),
       command: text(requirement?.command),
+      partial: requirement?.partial ?? null,
     }));
   }
 
@@ -505,10 +507,14 @@ function summarizeIosIpaDoctor(readResult) {
     blockerCount: Array.isArray(document?.blockers) ? document.blockers.length : ready ? 0 : 1,
     blockerChecks,
     bundleId: text(document?.bundleId) || null,
+    exportMethod: text(document?.exportMethod) || null,
+    originReady: document?.checks?.origin?.ok === true,
     profileInventory,
-    nextAction: nextActions.length > 0
+    nextAction: ready
+      ? ""
+      : nextActions.length > 0
       ? nextActions.join(" ")
-      : rerun || (ready ? "" : "운영 HTTPS 웹앱 origin과 실제 iPhone provisioning profile을 준비한 뒤 ios:ipa:doctor를 다시 실행합니다."),
+      : rerun || "운영 HTTPS 웹앱 origin과 export method에 맞는 provisioning profile을 준비한 뒤 ios:ipa:doctor를 다시 실행합니다.",
   };
 }
 
@@ -524,6 +530,9 @@ function summarizeIosProvisioningProfileInventory(document) {
     matchingBundleProfiles: Number(inventory?.matchingBundleProfiles ?? 0),
     matchingProfiles: Number(inventory?.matchingProfiles ?? 0),
     matchingProfilesWithRegisteredDevices: Number(inventory?.matchingProfilesWithRegisteredDevices ?? 0),
+    matchingAppStoreProfiles: Number(inventory?.matchingAppStoreProfiles ?? 0),
+    matchingDistributionReadyProfiles: Number(inventory?.matchingDistributionReadyProfiles ?? 0),
+    matchingExportMethodProfiles: Number(inventory?.matchingExportMethodProfiles ?? 0),
     rawUdidWritten: false,
   };
 }
@@ -818,7 +827,7 @@ const externalRequirementProfiles = {
   iosIpa: {
     ownerLane: "iOS/Release",
     evidenceType: "iOS IPA/provisioning",
-    requiredEvidence: ["운영 HTTPS 웹앱 origin", "Apple Team ID", "등록된 iPhone UDID", "matching provisioning profile", "IPA archive/export report"],
+    requiredEvidence: ["운영 HTTPS 웹앱 origin", "Apple Team ID", "export method 호환 provisioning profile", "IPA archive/export 또는 App Store Connect upload report"],
   },
   paymentProvider: {
     ownerLane: "Backend/Data",
@@ -870,18 +879,28 @@ const evidenceFormatGuardrails = [
   },
 ];
 
-function deferredExternalPrepRows(requirements, iosProvisioningProfileInventory) {
+function deferredExternalPrepRows(requirements, iosIpaDoctorSummary) {
   const blockedRequirementKeys = new Set(requirements.filter((requirement) => requirement.status !== "ready").map((requirement) => requirement.key));
   const rows = [];
+  const requirementByKey = new Map(requirements.map((requirement) => [requirement.key, requirement]));
+  const originAffectedRequirements = [
+    blockedRequirementKeys.has("deployment") && requirementByKey.get("deployment")?.partial?.webDeployment?.ready !== true
+      ? "deployment"
+      : null,
+    blockedRequirementKeys.has("android") && requirementByKey.get("android")?.partial?.webAppOrigin?.ready !== true
+      ? "android"
+      : null,
+    blockedRequirementKeys.has("iosIpa") && iosIpaDoctorSummary?.originReady !== true ? "iosIpa" : null,
+  ].filter(Boolean);
 
-  if (["deployment", "android", "iosIpa"].some((key) => blockedRequirementKeys.has(key))) {
+  if (originAffectedRequirements.length > 0) {
     rows.push({
       key: "webappOrigin",
       label: "운영 웹앱 origin 확정",
       status: "사용자 보류",
       ownerLane: "DevOps/총괄 PM · Android/iOS Release",
       blockedScope: "Android TWA origin, iOS IPA origin, 운영 배포 URL handoff",
-      affectedRequirements: ["deployment", "android", "iosIpa"].filter((key) => blockedRequirementKeys.has(key)),
+      affectedRequirements: originAffectedRequirements,
       reason:
         "`https://api.finaljudo.co.kr`처럼 API-only origin으로 보이는 host는 앱 화면 origin으로 ready 처리하지 않습니다. `/login`과 `/app/dashboard`가 직접 열리는 HTTPS 웹앱 origin이 필요합니다.",
       resumeCondition:
@@ -891,19 +910,21 @@ function deferredExternalPrepRows(requirements, iosProvisioningProfileInventory)
   }
 
   if (blockedRequirementKeys.has("iosIpa")) {
-    const registeredProfileCount = Number(iosProvisioningProfileInventory?.matchingProfilesWithRegisteredDevices ?? 0);
+    const inventory = iosIpaDoctorSummary?.profileInventory;
+    const exportMethod = iosIpaDoctorSummary?.exportMethod || "configured export method";
+    const readyProfileCount = Number(inventory?.matchingExportMethodProfiles ?? 0);
 
     rows.push({
       key: "iosProvisioningProfile",
-      label: "iOS 실제 iPhone/provisioning profile",
+      label: "iOS export-method provisioning profile",
       status: "사용자 보류",
       ownerLane: "iOS/Release",
       blockedScope: "iOS IPA archive/export, TestFlight/App Store 배포 handoff",
       affectedRequirements: ["iosIpa"],
       reason:
-        `Simulator 성공은 앱 실행 증빙일 뿐 IPA ready가 아닙니다. 현재 등록 기기 포함 profile inventory ${registeredProfileCount} 상태에서는 실제 iPhone/provisioning profile 확인 전 ready 처리하지 않습니다.`,
+        `Simulator 성공은 앱 실행 증빙일 뿐 IPA ready가 아닙니다. 현재 ${exportMethod} 호환 profile inventory ${readyProfileCount} 상태에서는 archive/export 또는 업로드 성공 증빙 전 ready 처리하지 않습니다.`,
       resumeCondition:
-        "사용자 보류가 해제되면 Apple Developer에서 실제 iPhone UDID를 등록하고 Team ID 5GWZ792DWH/bundle id kr.co.finaljudo.multigym matching provisioning profile을 Xcode Download Manual Profiles로 내려받은 뒤 doctor/build를 재실행합니다.",
+        "사용자 보류가 해제되면 Team ID CA7A5SP5G5/bundle id kr.co.finaljudo.multigym과 export method에 맞는 profile을 Xcode Download Manual Profiles로 내려받은 뒤 doctor/build를 재실행합니다. Development/Ad Hoc 배포일 때만 테스트 iPhone을 등록합니다.",
       readinessTreatment: "readiness에서는 blocked 유지",
     });
   }
@@ -1075,6 +1096,7 @@ function createMarkdown(report) {
       `- Readable profiles: ${inventory.readableProfileFiles}`,
       `- Matching Team ID profiles: ${inventory.matchingTeamProfiles}`,
       `- Matching bundle id profiles: ${inventory.matchingBundleProfiles}`,
+      `- Matching selected export method profiles: ${inventory.matchingExportMethodProfiles}`,
       `- Matching profiles with registered devices: ${inventory.matchingProfilesWithRegisteredDevices}`,
       "- Raw iPhone UDIDs are not written to this status board.",
     );
@@ -1336,7 +1358,7 @@ const supportArtifacts = [
 
 const externalBlockers = externalBlockerRows(requirements);
 const iosProvisioningProfileInventory = iosIpaDoctorSummary.profileInventory ?? null;
-const deferredExternalPrep = deferredExternalPrepRows(requirements, iosProvisioningProfileInventory);
+const deferredExternalPrep = deferredExternalPrepRows(requirements, iosIpaDoctorSummary);
 
 const nextActions = unique([
   ...requirements.map((requirement) => requirement.nextAction),

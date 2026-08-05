@@ -466,7 +466,12 @@ async function run() {
     assert(!noticeFilterVerification.noticeAriaLabel.includes("미확인 공지"), "global notification badge must not describe request follow-ups as unread notices");
 
     await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
-    await mainContent.getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.getByTestId("coach-attendance-control-panel").waitFor({ timeout: 10000 });
+    assert.equal(
+      await mainContent.getByRole("heading", { name: "수업/출석", exact: true }).count(),
+      0,
+      "coach classes screen must not restore the redundant role/page heading",
+    );
     await mainContent.getByRole("heading", { name: "출석 처리" }).waitFor({ timeout: 10000 });
     await page.getByTestId("mobile-account-menu-toggle").waitFor({ timeout: 10000 });
 
@@ -1208,7 +1213,7 @@ async function run() {
       { timeout: 10000 },
     );
     await page.reload({ waitUntil: "load" });
-    await mainContent.getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.getByTestId("coach-attendance-control-panel").waitFor({ timeout: 10000 });
     await page.waitForFunction(
       () => document.body.innerText.includes("저장 대기") && document.body.innerText.includes("대기 1건"),
       null,
@@ -1273,7 +1278,7 @@ async function run() {
 
     await loginWithCredentials(page, coachPhone);
     await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
-    await page.getByRole("main").getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.getByTestId("coach-attendance-control-panel").waitFor({ timeout: 10000 });
     await page.waitForFunction(
       () => document.body.innerText.includes("저장되지 않은 출석 1건을 복구했습니다.") && document.body.innerText.includes("대기 1건"),
       null,
@@ -1311,7 +1316,7 @@ async function run() {
 
     await loginWithCredentials(page, coachPhone);
     await page.goto(`${baseUrl}/app/classes`, { waitUntil: "load" });
-    await page.getByRole("main").getByRole("heading", { name: "수업/출석" }).waitFor({ timeout: 10000 });
+    await page.getByTestId("coach-attendance-control-panel").waitFor({ timeout: 10000 });
     await page.waitForFunction(
       () => document.body.innerText.includes("저장되지 않은 출석 1건을 복구했습니다.") && document.body.innerText.includes("대기 1건"),
       null,

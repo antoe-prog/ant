@@ -5,9 +5,23 @@ const { getFamilyPaymentCheckoutAccess, getFamilyPaymentPlanLine, getPaymentChec
   "../src/lib/payment-checkout-access.ts"
 );
 const { getAccessibleMemberIds } = await import("../src/lib/mock-api.ts");
-const { familyPaymentRequestInputLimits, getFamilyPaymentRequestBodyTypeError } = await import(
-  "../src/lib/family-payment-request-policy.ts"
-);
+const {
+  createFamilySafeCollectionRequest,
+  createFamilySafeOnlinePayment,
+  createFamilySafePayment,
+  createFamilySafeRecurringAgreement,
+} = await import("../src/lib/family-payment-privacy.ts");
+const {
+  familyPaymentMethodLabels,
+  familyPaymentRequestInputLimits,
+  getFamilyPaymentRequestBodyTypeError,
+  isValidFamilyPaymentMethodLabel,
+} = await import("../src/lib/family-payment-request-policy.ts");
+
+assert.equal(isValidFamilyPaymentMethodLabel("card", "우리카드"), true);
+assert.equal(isValidFamilyPaymentMethodLabel("card", "카드 결제 완료"), false);
+assert(familyPaymentMethodLabels.card.includes("KB국민카드"));
+assert(familyPaymentMethodLabels.card.includes("KDB산업체크카드"));
 
 const validCollectionRequestBody = {
   method: "card",
@@ -226,6 +240,120 @@ const pendingCollectionAccess = getFamilyPaymentCheckoutAccess(adultUser, {
 assert.equal(pendingCollectionAccess.state, "pending", "persisted family payment requests must reopen as pending");
 assert.equal(pendingCollectionAccess.label, "납부 확인 중", "persisted family payment requests must use staff follow-up copy");
 
+const otherGuardianPayment = {
+  ...adultPayment,
+  collectionRequest: {
+    id: "payment-request-other",
+    method: "card",
+    methodLabel: "우리카드",
+    payerName: "다른 보호자 실명",
+    payerPhone: "01099998888",
+    requestedAt: "2026-07-16T10:00:00+09:00",
+    requestedByUserId: "user-other-guardian",
+    status: "pending",
+  },
+  onlinePayment: {
+    amount: 170000,
+    checkoutUrl: "https://payments.finaljudo.test/other",
+    processedWebhookEventIds: ["provider-event-private"],
+    provider: "external",
+    providerPaymentId: "provider-payment-other",
+    receipt: {
+      id: "receipt-other",
+      issuedAt: "2026-07-16T10:05:00+09:00",
+      providerPaymentId: "provider-payment-other",
+      receiptUrl: "https://payments.finaljudo.test/receipts/other",
+    },
+    requestedAt: "2026-07-16T10:00:00+09:00",
+    requestedByUserId: "user-other-guardian",
+    status: "pending",
+  },
+  recurringAgreement: {
+    billingDayOfMonth: 25,
+    interval: "monthly",
+    nextBillingDate: "2026-08-25",
+    provider: "external",
+    providerAgreementId: "provider-agreement-other",
+    requestedAt: "2026-07-16T10:00:00+09:00",
+    requestedByUserId: "user-other-guardian",
+    status: "pending",
+  },
+  statusHistory: [
+    {
+      actorUserId: "user-owner",
+      changedAt: "2026-07-16T10:00:00+09:00",
+      event: "online_checkout",
+      id: "history-private",
+      providerEventId: "provider-event-private",
+      reason: "내부 운영 확인 메모",
+      status: "overdue",
+    },
+  ],
+};
+const familySafePayment = createFamilySafePayment(otherGuardianPayment, guardianUser.id);
+
+assert.deepEqual(
+  {
+    payerName: familySafePayment.collectionRequest?.payerName,
+    payerPhone: familySafePayment.collectionRequest?.payerPhone,
+    collectionRequester: familySafePayment.collectionRequest?.requestedByUserId,
+    onlineRequester: familySafePayment.onlinePayment?.requestedByUserId,
+    recurringRequester: familySafePayment.recurringAgreement?.requestedByUserId,
+    onlineProviderPaymentId: familySafePayment.onlinePayment?.providerPaymentId,
+    onlineWebhookEvents: familySafePayment.onlinePayment?.processedWebhookEventIds,
+    receiptProviderPaymentId: familySafePayment.onlinePayment?.receipt?.providerPaymentId,
+    recurringProviderAgreementId: familySafePayment.recurringAgreement?.providerAgreementId,
+    statusHistory: familySafePayment.statusHistory,
+  },
+  {
+    payerName: "다른 보호자",
+    payerPhone: "",
+    collectionRequester: "",
+    onlineRequester: "",
+    recurringRequester: "",
+    onlineProviderPaymentId: "",
+    onlineWebhookEvents: [],
+    receiptProviderPaymentId: "",
+    recurringProviderAgreementId: "",
+    statusHistory: [],
+  },
+  "family payment bootstrap must not expose another guardian's identity through nested requester ids",
+);
+assert.equal(
+  createFamilySafePayment(otherGuardianPayment, "user-other-guardian").collectionRequest?.payerName,
+  "다른 보호자 실명",
+  "the requesting guardian must retain their own pending payment details",
+);
+assert.deepEqual(
+  createFamilySafeCollectionRequest(otherGuardianPayment.collectionRequest, guardianUser.id),
+  {
+    ...otherGuardianPayment.collectionRequest,
+    id: "",
+    payerName: "다른 보호자",
+    payerPhone: "",
+    requestedByUserId: "",
+  },
+  "collection request responses must hide another guardian and internal identifiers",
+);
+assert.deepEqual(
+  {
+    providerPaymentId: createFamilySafeOnlinePayment(otherGuardianPayment.onlinePayment).providerPaymentId,
+    receiptId: createFamilySafeOnlinePayment(otherGuardianPayment.onlinePayment).receipt?.id,
+    receiptProviderPaymentId: createFamilySafeOnlinePayment(otherGuardianPayment.onlinePayment).receipt?.providerPaymentId,
+    requestedByUserId: createFamilySafeOnlinePayment(otherGuardianPayment.onlinePayment).requestedByUserId,
+  },
+  { providerPaymentId: "", receiptId: "", receiptProviderPaymentId: "", requestedByUserId: "" },
+  "online checkout responses must hide provider and requester identifiers",
+);
+assert.deepEqual(
+  {
+    providerAgreementId: createFamilySafeRecurringAgreement(otherGuardianPayment.recurringAgreement).providerAgreementId,
+    requestedByUserId: createFamilySafeRecurringAgreement(otherGuardianPayment.recurringAgreement).requestedByUserId,
+  },
+  { providerAgreementId: "", requestedByUserId: "" },
+  "recurring agreement responses must hide provider and requester identifiers",
+);
+
 const [
   paymentCheckoutAccessSource,
   familyMembersSource,
@@ -236,6 +364,8 @@ const [
   checkoutScreenSource,
   checkoutPageSource,
   collectionRequestRouteSource,
+  onlineCheckoutRouteSource,
+  recurringAgreementRouteSource,
   serverApiSource,
 ] = await Promise.all([
   readFile("src/lib/payment-checkout-access.ts", "utf8"),
@@ -247,6 +377,8 @@ const [
   readFile("src/components/screens/payment-checkout-screen.tsx", "utf8"),
   readFile("src/app/(app)/app/payments/checkout/page.tsx", "utf8"),
   readFile("src/app/api/v1/payments/[paymentId]/collection-request/route.ts", "utf8"),
+  readFile("src/app/api/v1/payments/[paymentId]/online-checkout/route.ts", "utf8"),
+  readFile("src/app/api/v1/payments/[paymentId]/recurring-agreement/route.ts", "utf8"),
   readFile("src/server/api.ts", "utf8"),
 ]);
 const paymentNotificationTargetSource = notificationsScreenSource.slice(
@@ -277,10 +409,23 @@ assert(
   "guardian data scope must allow explicit adult self profiles and recover member-authorized child links",
 );
 assert(
-  serverApiSource.includes("safeUser.memberIds = selfMemberIds") &&
-    serverApiSource.includes("safeUser.childMemberIds = [...allowedFamilyMemberIds].filter") &&
-    serverApiSource.includes("member?.guardianIds.includes(safeUser.id)"),
+  serverApiSource.includes("createGuardianFamilyLinkProjection(safeUser, db, { redactFamilyLinks })") &&
+    serverApiSource.includes("safeUser.memberIds = guardianFamilyLinks.memberIds") &&
+    serverApiSource.includes("safeUser.childMemberIds = guardianFamilyLinks.childMemberIds") &&
+    familyMembersSource.includes("getGuardianFamilyMemberIds(user, db)"),
   "guardian bootstrap must expose recovered child links while preserving explicit self links",
+);
+assert(
+  serverApiSource.includes("createFamilySafePayment(payment, user.id)"),
+  "member and guardian bootstrap payments must use the family privacy projection",
+);
+assert(
+  collectionRequestRouteSource.includes("createFamilySafeCollectionRequest(initialContext.payment.collectionRequest, initialContext.user.id)") &&
+    collectionRequestRouteSource.includes("createFamilySafeCollectionRequest(payment.collectionRequest, user.id)") &&
+    collectionRequestRouteSource.includes("createFamilySafeCollectionRequest(collectionRequest, user.id)") &&
+    onlineCheckoutRouteSource.includes("checkout: createFamilySafeOnlinePayment(onlinePayment)") &&
+    recurringAgreementRouteSource.includes("recurringAgreement: createFamilySafeRecurringAgreement(recurringAgreement)"),
+  "family payment mutation responses must use the same privacy projection as bootstrap snapshots",
 );
 assert(
     guardianPaymentChildrenSource.includes("getGuardianFamilyMembers(context.user, context.db)") &&
@@ -474,9 +619,7 @@ assert(
 );
 assert(
   checkoutScreenSource.includes('data-testid="payment-card-issuer-grid"') &&
-    checkoutScreenSource.includes("우리카드") &&
-    checkoutScreenSource.includes("KB국민카드") &&
-    checkoutScreenSource.includes("KDB산업체크카드") &&
+    checkoutScreenSource.includes("familyPaymentMethodLabels.card") &&
     checkoutScreenSource.includes('data-testid="payment-card-installment-select"') &&
     checkoutScreenSource.includes('data-testid="payment-wooriwonpay-modal"'),
   "checkout screen must include card issuer selection, installment controls, and Woori app handoff modal",
@@ -521,6 +664,12 @@ assert(
   "family checkout must persist the reviewed request and render its pending state",
 );
 assert(
+  checkoutScreenSource.includes('data-testid="payment-online-checkout-pending"') &&
+    checkoutScreenSource.includes('payment.onlinePayment?.status === "pending"') &&
+    checkoutScreenSource.includes("href={payment.onlinePayment.checkoutUrl}"),
+  "family checkout must render an existing online checkout instead of offering a second collection channel",
+);
+assert(
     collectionRequestRouteSource.includes('user.role !== "member" && user.role !== "guardian"') &&
     collectionRequestRouteSource.includes("getFamilyPaymentCheckoutAccess") &&
     collectionRequestRouteSource.includes("getFamilyPaymentRequestBodyTypeError") &&
@@ -530,8 +679,14 @@ assert(
     collectionRequestRouteSource.match(/await requireCollectionRequestContext\(request, paymentId\)/g)?.length === 2 &&
     collectionRequestRouteSource.includes('access.state === "forbidden"') &&
     collectionRequestRouteSource.includes("payment.collectionRequest?.status === \"pending\"") &&
+    collectionRequestRouteSource.includes("payment.onlinePayment?.status === \"pending\"") &&
     collectionRequestRouteSource.includes('action: "payment.update"'),
-  "family payment request API must hide unrelated targets, validate object bodies, share the payment mutation lock, and audit the request",
+  "family payment request API must hide unrelated targets, validate object bodies, share the payment mutation lock, reject a pending online checkout, and audit the request",
+);
+assert(
+  onlineCheckoutRouteSource.includes("payment.collectionRequest?.status === \"pending\"") &&
+    onlineCheckoutRouteSource.includes("withServerDbLock(`payment-mutation:${paymentId}`"),
+  "online checkout API must reject a pending family collection request inside the shared payment mutation lock",
 );
 assert(
   checkoutScreenSource.includes("maxLength={familyPaymentRequestInputLimits.payerNameLength}") &&
