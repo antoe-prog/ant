@@ -268,6 +268,22 @@ try {
 assert.equal(buildDoctorExitCode, 1, "build doctor-only report must exit nonzero while production origin is missing");
 const buildReport = JSON.parse(await readFile(buildReportPath, "utf8"));
 assert.equal(buildReport.releaseDecision, "blocked", "build report must stay blocked without production origin");
+assert.equal(buildReport.signingStyle, "manual", "App Store build must use the configured manual signing style");
+assert.equal(
+  buildReport.signingCertificate,
+  "Apple Distribution",
+  "App Store build must use the configured distribution certificate",
+);
+assert.equal(
+  buildReport.provisioningProfile,
+  "Final Judo App Store Connect",
+  "App Store build must use the configured distribution profile",
+);
+assert.equal(
+  buildReport.checks.signingConfiguration.ok,
+  true,
+  "manual signing must be ready when the matching profile and certificate configuration exist",
+);
 assert.equal(
   buildReport.checks.provisioningProfile.inventory.totalProfileFiles,
   3,
@@ -353,6 +369,7 @@ console.log(
         "local provisioning profile inventory and matching profile counts",
         "raw device UDID redaction",
         "iOS IPA build report profile inventory and UDID redaction",
+        "manual App Store signing configuration",
         "default iOS release config Apple Team ID fallback",
         "default iOS release config build doctor fallback",
         "API-only-looking origin guard",

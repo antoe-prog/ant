@@ -3,8 +3,8 @@
 - 기준일: 2026-08-05 (KST)
 - 작업 루트: `/Users/sny0219/Desktop/파이널유도멀티짐`
 - 브랜치: `codex/mvp1`
-- 검토 기준 HEAD: `89edbde` (`feat: harden tournament and member workflows`)
-- 원격 기준: `origin/codex/mvp1`보다 로컬 HEAD가 1커밋 앞섬
+- 웹 배포 기준 커밋: `79f8d89` (`feat: harden service workflows and release readiness`)
+- 원격 기준: 웹 배포 커밋을 `origin/codex/mvp1`에 푸시했으며, 이 문서와 모바일 릴리스 메타데이터는 후속 커밋에 포함한다.
 - 검토 방법: 위협 모델, RBAC/테넌트 경계, 동시성, 실패 경로, 릴리스 게이트 및 실제 산출물 교차 검증
 
 ## 결론
@@ -46,10 +46,15 @@
 ### 모바일·릴리스
 
 - Android package와 iOS bundle: `kr.co.finaljudo.multigym`.
-- iOS 버전 `1.0`, 빌드 `1`, iOS 15+, Team `CA7A5SP5G5`.
-- App Store Connect archive/IPA codesign 검증 및 업로드 성공.
-- 업로드 증빙: `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`.
-- IPA: `/Users/sny0219/Desktop/Final-Judo-AppStore-1.0-build-1.ipa`.
+- 운영 웹 배포: Vercel deployment `dpl_CrEpveoR5MNDtPnqstLYMpu2oaa7`, alias `https://final-judo.vercel.app`; 로그인 200, 오입력 401, 비로그인 보호 API 401 확인.
+- Android `versionCode 45`, `versionName 1.0.44`; Play AAB/APK 생성 및 서명·해시 검증 완료. Play Console 업로드는 미실행.
+- Android 산출물: `/Users/sny0219/Desktop/final-judo-play-release.aab`, `/Users/sny0219/Desktop/final-judo-release.apk`.
+- Android 보고서: `.data/mobile-builds/android-play-release-20260805092723/google-play-release-report.json`.
+- iOS 버전 `1.0`, 빌드 `2`, iOS 15+, Team `CA7A5SP5G5`.
+- iOS App Store Connect archive/IPA는 `Apple Distribution`과 `Final Judo App Store Connect` 프로파일로 수동 서명했으며 Xcode archive/export 및 `codesign --verify --deep --strict`를 통과했다. App Store Connect 업로드는 미실행.
+- iOS 산출물: `/Users/sny0219/Desktop/Final-Judo-AppStore-1.0-build-2.ipa`.
+- iOS 보고서: `.data/mobile-builds/ios/ios-app-store-20260805-build2-manual/ios-ipa-build-report.json`.
+- 이전 iOS 빌드 `1` 업로드 증빙은 `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`에 유지한다.
 
 ## 후속 통합 개선
 
@@ -514,6 +519,8 @@
 - 후속 인증 점검에서 운영 SMS webhook 지연, 휴대폰 소유 확인 없는 공개 회원가입, 인증 보안 게이트의 전체 릴리스 누락 3건을 추가 확정·수정해 최신 누적 결함은 60건이다.
 - 실제 Docker 통합 게이트 `npm run test:db`와 `npm run test:postgres-store`를 실행해 마이그레이션·시드, runtime 저장소 읽기/쓰기, advisory lock, stale snapshot merge, 휴대폰 가입 유일성, 결제 멱등성, 교차 도메인 동시성까지 통과했다.
 - 현재 작업 트리의 최종 연속 릴리스 로그: `/tmp/final-judo-test-release-20260805-green.log`.
+- 웹 릴리스 커밋 `79f8d89`를 원격에 푸시하고 Vercel 운영 alias에 배포했다. 배포 후 `/login` 200, 잘못된 로그인 401, 비로그인 `/api/v1/me/bootstrap` 401을 확인했다.
+- Android Play 산출물 `1.0.44 (45)`와 iOS App Store Connect 산출물 `1.0 (2)`을 생성했다. Android AAB/APK와 iOS IPA는 모두 바탕화면에 복사했으며 iOS 앱 번들 서명 검증을 통과했다.
 
 ### 갱신한 화면 증빙
 
@@ -534,7 +541,7 @@
 1. 운영 DB 복제본을 이용한 production preflight가 없어 실제 데이터 분포·고아 레코드 회귀는 미검증이다.
 2. 실 PG/VAN checkout, webhook 서명·멱등성, billing key 보관 증빙이 없다.
 3. 운영 VAPID 키와 실제 iOS/Android 기기 푸시 증빙이 없다.
-4. Android AAB/APK release fingerprint와 브라우저 UI 없는 실기기 smoke 증빙이 미완료다.
+4. Android AAB/APK 생성·로컬 서명 검증은 완료했지만 Play Console 업로드와 브라우저 UI 없는 실기기 smoke 증빙이 미완료다.
 5. P1 외부 이슈 담당자 전달·acknowledgement와 파일럿 현장 증빙이 미완료다.
 6. 대한유도회 공식 피드는 정상 HTTPS 또는 서명된 API가 없어 allowlist된 HTTP transport 위험을 수용 중이다.
 7. QR은 상시 발급되고 토큰 유효시간이 5분이므로 스크린샷 공유에 의한 원격 대리 출석을 완전히 막지는 못한다.
@@ -546,8 +553,9 @@
 
 - 이번 내부 개선 사이클: 가족 개인정보·가족 계정 역할/지점 범위·회원 삭제·계정 복구·출석 QR·결제 웹훅 상태 전이 묶음 완료 (지속 적대적 검토는 진행 중)
 - 관련 코드 회귀 검증: 완료
-- iOS archive/IPA/upload: 증빙상 완료
-- 운영 배포 준비: 차단
-- Android 배포 준비: 차단
+- 웹 운영 배포와 비인증 smoke: 완료
+- iOS archive/IPA 빌드 2: 완료, App Store Connect 업로드 미실행
+- Android AAB/APK 1.0.44 (45): 완료, Play Console 업로드·실기기 smoke 미실행
+- 전체 운영 준비: 외부 DB·실결제·실푸시·파일럿 증빙으로 차단
 - 실결제·실푸시 준비: 차단
 - 파일럿/운영 ready/출시 완료: 아님

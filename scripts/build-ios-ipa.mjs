@@ -22,8 +22,11 @@ function parseArgs(argv) {
     exportMethod: process.env.IOS_EXPORT_METHOD ?? null,
     outDir: ".data/mobile-builds/ios",
     project: null,
+    provisioningProfile: process.env.IOS_PROVISIONING_PROFILE ?? null,
     releaseConfig: process.env.IOS_RELEASE_CONFIG ?? DEFAULT_IOS_RELEASE_CONFIG_PATH,
     scheme: null,
+    signingCertificate: process.env.IOS_SIGNING_CERTIFICATE ?? null,
+    signingStyle: process.env.IOS_SIGNING_STYLE ?? null,
     skipSync: false,
     teamId: null,
   };
@@ -72,8 +75,14 @@ function parseArgs(argv) {
       args.outDir = value;
     } else if (key === "--project") {
       args.project = value;
+    } else if (key === "--provisioning-profile") {
+      args.provisioningProfile = value;
     } else if (key === "--scheme") {
       args.scheme = value;
+    } else if (key === "--signing-certificate") {
+      args.signingCertificate = value;
+    } else if (key === "--signing-style") {
+      args.signingStyle = value;
     } else if (key === "--team-id" || key === "--xcode-team-id") {
       args.teamId = value;
     } else if (key === "--release-config" || key === "--ios-release-config") {
@@ -508,6 +517,23 @@ async function codeSigningIdentityCheck() {
 
 async function createChecks(args, origin, bundleId) {
   const xcodebuild = await commandCheck("xcodebuild", ["-version"]);
+  const provisioningProfile = await provisioningProfileCheck({
+    bundleId,
+    exportMethod: args.exportMethod,
+    profilesDir: args.profilesDir,
+    teamId: args.teamId,
+  });
+  const manualProfile = provisioningProfile.inventory?.profiles?.find(
+    (profile) =>
+      profile.name === args.provisioningProfile &&
+      profile.matchesBundle &&
+      profile.matchesTeam &&
+      profileSupportsExportMethod(profile, args.exportMethod),
+  );
+  const validSigningStyle = ["automatic", "manual"].includes(args.signingStyle);
+  const manualSigningReady =
+    args.signingStyle !== "manual" ||
+    (Boolean(args.provisioningProfile) && Boolean(args.signingCertificate) && Boolean(manualProfile));
 
   return {
     origin,
@@ -533,12 +559,16 @@ async function createChecks(args, origin, bundleId) {
       value: args.teamId ?? null,
       ...(!args.teamId ? { reason: "missing --team-id or APPLE_TEAM_ID" } : {}),
     },
-    provisioningProfile: await provisioningProfileCheck({
-      bundleId,
-      exportMethod: args.exportMethod,
-      profilesDir: args.profilesDir,
-      teamId: args.teamId,
-    }),
+    provisioningProfile,
+    signingConfiguration: {
+      ok: validSigningStyle && manualSigningReady,
+      value: args.signingStyle,
+      ...(!validSigningStyle
+        ? { reason: "signing style must be automatic or manual" }
+        : !manualSigningReady
+          ? { reason: "manual signing requires a matching provisioning profile and signing certificate" }
+          : {}),
+    },
   };
 }
 
@@ -589,8 +619,22 @@ function nextActionsForBlockers(blockers, { bundleId, exportMethod }) {
   return [...new Set(actions)];
 }
 
-function exportOptionsPlist({ exportMethod, teamId }) {
+function exportOptionsPlist({ bundleId, exportMethod, provisioningProfile, signingCertificate, signingStyle, teamId }) {
   const teamEntry = teamId ? `\n  <key>teamID</key>\n  <string>${teamId}</string>` : "";
+  const signingEntries = signingStyle === "manual"
+    ? `
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>signingCertificate</key>
+  <string>${signingCertificate}</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>${bundleId}</key>
+    <string>${provisioningProfile}</string>
+  </dict>`
+    : `
+  <key>signingStyle</key>
+  <string>automatic</string>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -598,12 +642,13 @@ function exportOptionsPlist({ exportMethod, teamId }) {
 <dict>
   <key>method</key>
   <string>${exportMethod}</string>
-  <key>signingStyle</key>
-  <string>automatic</string>${teamEntry}
+  ${signingEntries}${teamEntry}
+  <key>manageAppVersionAndBuildNumber</key>
+  <false/>
   <key>stripSwiftSymbols</key>
   <true/>
-  <key>compileBitcode</key>
-  <false/>
+  <key>uploadSymbols</key>
+  <true/>
   <key>destination</key>
   <string>export</string>
 </dict>
@@ -633,6 +678,9 @@ args.teamId = resolveIosTeamId({ cliTeamId: args.teamId, config: releaseConfig }
 args.exportMethod = text(args.exportMethod) ?? text(releaseConfig.exportMethod) ?? "app-store-connect";
 args.project = text(args.project) ?? text(releaseConfig.project) ?? "mobile/ios/App/App.xcodeproj";
 args.scheme = text(args.scheme) ?? text(releaseConfig.scheme) ?? "App";
+args.signingStyle = (text(args.signingStyle) ?? text(releaseConfig.signingStyle) ?? "automatic").toLowerCase();
+args.signingCertificate = text(args.signingCertificate) ?? text(releaseConfig.signingCertificate);
+args.provisioningProfile = text(args.provisioningProfile) ?? text(releaseConfig.provisioningProfile);
 const origin = validateHttpsOrigin(args.origin, { allowApiOriginWebapp: args.allowApiOriginWebapp });
 const outDir = path.resolve(args.outDir);
 const archivePath = path.resolve(args.archivePath ?? path.join(args.outDir, "final-judo.xcarchive"));
@@ -666,6 +714,9 @@ const baseReport = {
   scheme: args.scheme,
   configuration: args.configuration,
   exportMethod: args.exportMethod,
+  signingCertificate: args.signingCertificate,
+  signingStyle: args.signingStyle,
+  provisioningProfile: args.provisioningProfile,
   allowProvisioningUpdates: args.allowProvisioningUpdates,
   checks,
   blockers,
@@ -700,7 +751,17 @@ try {
     });
   }
 
-  await writeFile(exportOptionsPath, exportOptionsPlist({ exportMethod: args.exportMethod, teamId: args.teamId }));
+  await writeFile(
+    exportOptionsPath,
+    exportOptionsPlist({
+      bundleId,
+      exportMethod: args.exportMethod,
+      provisioningProfile: args.provisioningProfile,
+      signingCertificate: args.signingCertificate,
+      signingStyle: args.signingStyle,
+      teamId: args.teamId,
+    }),
+  );
 
   const archiveArgs = [
     "-project",
@@ -712,9 +773,16 @@ try {
     "-archivePath",
     archivePath,
     "archive",
-    "CODE_SIGN_STYLE=Automatic",
+    `CODE_SIGN_STYLE=${args.signingStyle === "manual" ? "Manual" : "Automatic"}`,
     `DEVELOPMENT_TEAM=${args.teamId}`,
   ];
+
+  if (args.signingStyle === "manual") {
+    archiveArgs.push(
+      `CODE_SIGN_IDENTITY=${args.signingCertificate}`,
+      `PROVISIONING_PROFILE_SPECIFIER=${args.provisioningProfile}`,
+    );
+  }
 
   if (args.allowProvisioningUpdates) {
     archiveArgs.push("-allowProvisioningUpdates");

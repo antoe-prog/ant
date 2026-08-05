@@ -214,15 +214,15 @@ npm run android:release-handoff -- \
 - `~/Desktop/INSTALL_ONLY_final-judo-native-webview-debug.apk`
 - `~/Desktop/final-judo-native-webview-debug.apk`
 
-Play Console 업로드용 최신 로컬 산출물:
+Play Console 업로드용 최신 로컬 산출물(2026-08-05):
 
-- `.data/mobile-builds/android-play-release-20260804061141/final-judo-play-release.aab`
-- `.data/mobile-builds/android-play-release-20260804061141/final-judo-release.apk`
-- `.data/mobile-builds/android-play-release-20260804061141/google-play-release-report.json`
+- `.data/mobile-builds/android-play-release-20260805092723/final-judo-play-release.aab`
+- `.data/mobile-builds/android-play-release-20260805092723/final-judo-release.apk`
+- `.data/mobile-builds/android-play-release-20260805092723/google-play-release-report.json`
 - `~/Desktop/final-judo-play-release.aab`
 - `~/Desktop/final-judo-release.apk`
-- `versionCode 44`, `versionName 1.0.43`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
-- AAB SHA-256 `397eb654947e01e2bf8886d31b14b4aa973023d9ed8846cc82a499927499e999`, APK SHA-256 `0df37504a2013e5be51226a27ced577aabf0100964159bb21e1a26a590e3b86b`
+- `versionCode 45`, `versionName 1.0.44`, package `kr.co.finaljudo.multigym`, launch URL `https://final-judo.vercel.app/login`
+- AAB SHA-256 `d87bf1347d03c7790d36a9db778c02bd79aaa2d873794588040d1834f7615e7f`, APK SHA-256 `eb9535af795a7045dbc083e0533dc23742aeec0c712a18df528ee24864c018a3`
 - 배포 대상 alias: `https://final-judo.vercel.app`
 
 이 APK는 `capacitor-native-webview` 패키징 리포트에서 `kr.co.finaljudo.multigym.MainActivity` 실행, 요청한 `server.url`, TWA/Custom Tabs 런타임 미포함, debug signing 검증을 통과했다. Android 상단에 `final-judo.vercel.app` URL 바, 공유 버튼, 더보기 버튼이 보이면 이 WebView APK가 아니라 TWA/Custom Tab 또는 브라우저 경로 산출물이 설치된 것이다.
