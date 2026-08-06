@@ -64,6 +64,16 @@ class Settings(BaseSettings):
     max_holding_days: int = 0
     stop_cooldown_days: int = 3
 
+    # --- 알림 (비우면 비활성) ---
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    slack_webhook_url: str = ""
+    # 같은 사유의 알림을 다시 보내기까지의 최소 간격. 사이클 오류가 매 분
+    # 반복될 때 알림 폭탄을 막는다.
+    notify_throttle_seconds: int = 300
+    notify_fills: bool = True
+    notify_daily_summary: bool = True
+
     @field_validator("symbols", mode="before")
     @classmethod
     def _split_symbols(cls, v: object) -> object:

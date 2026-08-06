@@ -56,6 +56,8 @@ $EDITOR .env
 | `TOSSQUANT_SYMBOLS` | 대상 종목, 쉼표 구분 |
 | `TOSSQUANT_MAX_POSITION_PCT` | 종목당 평가액 비중 상한 |
 | `TOSSQUANT_MAX_DAILY_LOSS_PCT` | 일일 손실 한도 |
+| `TOSSQUANT_STOP_LOSS_PCT` | 손절 비율 (기본 0.08) |
+| `TOSSQUANT_TELEGRAM_*` | 알림 채널 (선택) |
 
 ## 사용법
 
@@ -63,13 +65,16 @@ $EDITOR .env
 # 1. 연결 확인 — 반드시 여기서 시작
 tossquant verify
 
-# 2. 과거 데이터로 전략 검증
+# 2. 알림 설정 확인
+tossquant notify-test
+
+# 3. 과거 데이터로 전략 검증
 tossquant backtest --source csv --csv-dir data --symbols AAPL,MSFT
 
-# 3. 한 사이클만 돌려보기
+# 4. 한 사이클만 돌려보기
 tossquant run --once -v
 
-# 4. 상시 실행 (페이퍼)
+# 5. 상시 실행 (페이퍼)
 tossquant run
 
 # 상태 확인
@@ -99,6 +104,7 @@ tossquant reset
 | `strategy/sma_cross.py` | 샘플 전략 (SMA 골든/데드크로스) |
 | `risk.py` | 사이징과 모든 한도 검사 |
 | `stops.py` | 손절·트레일링·익절·최대보유 (전략과 무관하게 동작) |
+| `notify.py` | 텔레그램·Slack 알림 (실패해도 매매를 막지 않음) |
 | `engine.py` | 매매 루프 |
 | `store.py` | SQLite 영속화 (재시작해도 상태 유지) |
 | `backtest/replay.py` | 과거 캔들을 시세 소스로 재생 (미래 정보 차단) |
@@ -177,6 +183,46 @@ tossquant backtest --stop-loss 0 --trailing 0.12
 따라잡지 못하는 단일 종목 급락(실적 쇼크 등)에서 나오는데, 그건 합성 데이터로는
 재현되지 않는다.
 
+## 알림 (`notify.py`)
+
+밤 11시 반에 도는 봇이라 로그를 실시간으로 볼 수 없다. 손절이 발동했는지, 주문이
+거부됐는지, 봇이 죽었는지를 손에 들고 있는 기기로 받아야 한다.
+
+텔레그램과 Slack을 지원하고, 둘 다 설정하면 양쪽으로 간다. 설정이 없으면 조용히
+비활성 상태로 동작한다(`NullNotifier`).
+
+```bash
+# 설정 후 반드시 확인 — 알림이 안 오는 걸 사고 난 뒤에 알면 늦는다
+tossquant notify-test
+```
+
+**텔레그램 설정:** `@BotFather`로 봇을 만들어 토큰을 받고, 그 봇에게 아무 메시지나
+보낸 뒤 `curl https://api.telegram.org/bot<TOKEN>/getUpdates`로 chat_id를 확인해
+`.env`에 넣는다.
+
+### 무엇을 알리나
+
+| 이벤트 | 레벨 | 빈도 제어 |
+| --- | --- | --- |
+| 체결 (매수/매도) | INFO | 매번 (`notify_fills=false`로 끔) |
+| 보호 청산 체결 | WARN | 매번 |
+| 주문 거부·실패 | ERROR | 종목·사유별 스로틀 |
+| 일일 손실 한도 도달 | WARN | **하루 한 번** (SQLite 기록) |
+| 장 마감 요약 | INFO | **하루 한 번** (폐장 5분 전) |
+| 사이클 실패 | ERROR | 스로틀 (연속 실패 횟수 포함) |
+| 봇 시작·종료 | INFO / WARN | 매번 |
+
+### 설계 원칙 세 가지
+
+1. **알림 실패는 절대 매매를 막지 않는다.** `notify()`는 어떤 경우에도 예외를 던지지
+   않는다. 텔레그램이 죽어도 봇은 계속 돈다. 이게 이 계층의 존재 조건이라
+   `test_notifier_failure_does_not_break_trading`으로 못 박아 두었다.
+2. **스팸 방지.** 사이클 오류는 매 분 반복될 수 있으므로 `dedup_key`가 같은 알림은
+   throttle 구간(기본 5분) 안에서 한 번만 나간다. 반면 하루 종일 지속되는 조건
+   (일일 손실 한도)은 스로틀로는 부족해서 날짜를 SQLite에 기록해 하루 한 번을
+   보장한다.
+3. **짧은 타임아웃.** 전송은 동기 호출이라 매매 루프를 붙잡는다. 5초로 끊는다.
+
 ## 백테스트
 
 ```bash
@@ -248,7 +294,7 @@ class MyStrategy(Strategy):
 ## 테스트
 
 ```bash
-pytest        # 165개
+pytest        # 201개
 ```
 
 토스 클라이언트 테스트는 `respx`로 HTTP를 모킹한다. 응답 스키마가 확정되지 않았으므로
@@ -263,6 +309,7 @@ pytest        # 165개
 - [ ] `tossquant verify`가 5단계 모두 통과
 - [ ] 페이퍼로 최소 몇 주간 운용해 체결·손익 기록 확인
 - [ ] `stop_loss_pct`가 0이 아닌지 확인 — 끄고 실주문을 돌리지 말 것
+- [ ] `tossquant notify-test` 통과 — 알림 없이 실주문을 돌리지 말 것
 - [ ] `max_daily_loss_pct`, `max_order_notional`을 감당 가능한 수준으로 설정
 - [ ] 첫 실주문은 `max_order_notional`을 아주 작게(예: 100 USD) 잡고 시작
 - [ ] `.env`가 git에 올라가지 않는지 확인 (`.gitignore`에 포함되어 있음)

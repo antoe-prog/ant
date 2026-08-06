@@ -20,7 +20,9 @@ from .broker.paper import PaperBroker
 from .broker.toss import TossClient
 from .calendar_us import describe
 from .config import Mode, Settings
+from . import notify
 from .engine import TradingEngine
+from .notify import Notification, Notifier, NullNotifier
 from .risk import RiskManager
 from .store import Store
 from .strategy.sma_cross import SmaCrossStrategy
@@ -46,7 +48,7 @@ def _client(settings: Settings) -> TossClient:
         raise typer.Exit(1) from None
 
 
-def _build(settings: Settings) -> tuple[TradingEngine, Store]:
+def _build(settings: Settings) -> tuple[TradingEngine, Store, Notifier]:
     store = Store(settings.db_path)
     toss = _client(settings)
     broker = toss if settings.mode is Mode.LIVE else PaperBroker(toss, store, settings)
@@ -58,7 +60,9 @@ def _build(settings: Settings) -> tuple[TradingEngine, Store]:
         max_daily_loss_pct=settings.max_daily_loss_pct,
         max_order_notional=settings.max_order_notional,
     )
-    return TradingEngine(broker, strategy, risk, store, settings), store
+    notifier = notify.build(settings)
+    engine = TradingEngine(broker, strategy, risk, store, settings, notifier=notifier)
+    return engine, store, notifier
 
 
 @app.command()
@@ -138,7 +142,13 @@ def run(
         )
         typer.confirm("계속할까요?", abort=True)
 
-    engine, store = _build(settings)
+    engine, store, notifier = _build(settings)
+    if isinstance(notifier, NullNotifier):
+        console.print(
+            "[yellow]알림이 설정되지 않았습니다. 체결·손절·오류를 로그로만 확인하게 됩니다.\n"
+            "  → .env에 TOSSQUANT_TELEGRAM_* 또는 TOSSQUANT_SLACK_WEBHOOK_URL 설정 후 "
+            "`tossquant notify-test`로 확인하세요.[/yellow]\n"
+        )
     try:
         if once:
             orders = engine.run_once()
@@ -148,6 +158,7 @@ def run(
     except KeyboardInterrupt:
         console.print("\n중단됨")
     finally:
+        notifier.close()
         store.close()
 
 
@@ -195,6 +206,60 @@ def status(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         console.print(f"\n[bold]최근 평가액[/bold] {latest:.2f} USD ({history[0]['ts'][:19]})")
 
     store.close()
+
+
+@app.command("notify-test")
+def notify_test(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
+    """설정된 알림 채널로 테스트 메시지를 실제로 보낸다.
+
+    봇을 밤새 돌리기 전에 이게 통과하는지 반드시 확인할 것. 알림이 안 오는 걸
+    사고가 난 뒤에 알면 늦는다.
+    """
+    _setup_logging(verbose)
+    settings = Settings()
+    notifier = notify.build(settings)
+
+    channels = []
+    if settings.telegram_bot_token and settings.telegram_chat_id:
+        channels.append(f"텔레그램 (chat_id {settings.telegram_chat_id})")
+    if settings.slack_webhook_url:
+        channels.append("Slack webhook")
+
+    if isinstance(notifier, NullNotifier):
+        console.print("[red]설정된 알림 채널이 없습니다.[/red]\n")
+        console.print("텔레그램: @BotFather로 봇을 만들고 토큰을 받은 뒤,")
+        console.print("봇에게 아무 메시지나 보내고 아래로 chat_id를 확인하세요:")
+        console.print(
+            "  [dim]curl https://api.telegram.org/bot<TOKEN>/getUpdates[/dim]\n"
+        )
+        console.print("그다음 .env에:")
+        console.print("  [dim]TOSSQUANT_TELEGRAM_BOT_TOKEN=...[/dim]")
+        console.print("  [dim]TOSSQUANT_TELEGRAM_CHAT_ID=...[/dim]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]채널[/bold] {', '.join(channels)}")
+
+    sent = notifier.notify(
+        Notification(
+            title="tossquant 알림 테스트",
+            lines=[
+                f"모드 {settings.mode.value}",
+                f"종목 {', '.join(settings.symbols)}",
+                f"시장 {describe(datetime.now(timezone.utc))}",
+                "이 메시지가 보이면 알림 설정이 정상입니다.",
+            ],
+        )
+    )
+    notifier.close()
+
+    if sent:
+        console.print("[green]전송 성공[/green] — 기기에서 메시지를 확인하세요.")
+    else:
+        console.print(
+            "[red]전송 실패[/red] — 토큰/chat_id/webhook URL을 확인하세요. "
+            "자세한 원인은 -v로 다시 실행하면 보입니다."
+        )
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -13,10 +13,19 @@ from decimal import Decimal
 
 from .broker.base import Broker, BrokerError, OrderRejected
 from .broker.paper import PaperBroker
-from .calendar_us import describe, is_market_open
+from .calendar_us import describe, is_market_open, minutes_to_close, to_ny
 from .config import Settings
-from .models import Candle, Order, OrderRequest, OrderType, Side, Signal, SignalAction
-from .models import Position
+from .models import (
+    Candle,
+    Order,
+    OrderRequest,
+    OrderType,
+    Position,
+    Side,
+    Signal,
+    SignalAction,
+)
+from .notify import Level, Notification, Notifier, NullNotifier
 from .risk import RiskManager
 from .stops import StopManager
 from .store import Store
@@ -75,12 +84,14 @@ class TradingEngine:
         store: Store,
         settings: Settings,
         stops: StopManager | None = None,
+        notifier: Notifier | None = None,
     ) -> None:
         self.broker = broker
         self.strategy = strategy
         self.risk = risk
         self.store = store
         self.settings = settings
+        self.notifier = notifier or NullNotifier()
         self.stops = stops or StopManager(
             store,
             stop_loss_pct=settings.stop_loss_pct,
@@ -118,7 +129,9 @@ class TradingEngine:
         # 신호가 없는 날에도 매 사이클 호출해야 당일 기준선이 장 시작 시점
         # 평가액으로 잡힌다. 첫 신호가 뜰 때까지 미루면 기준선이 그날 중간
         # 어딘가로 잡혀 일일 손실 한도가 헐거워진다.
-        self.risk.day_baseline(equity, moment)
+        baseline = self.risk.day_baseline(equity, moment)
+        self._notify_daily_loss(equity, baseline, moment)
+        self._notify_daily_summary(equity, baseline, moment)
 
         signals = collect_signals(
             list(candles),
@@ -207,14 +220,118 @@ class TradingEngine:
             order = self.broker.place_order(request)
         except OrderRejected as exc:
             log.error("주문 거부: %s", exc)
+            self._notify_order_problem("주문 거부", signal, exc)
             return None
         except BrokerError as exc:
             log.error("주문 실패: %s", exc)
+            self._notify_order_problem("주문 실패", signal, exc)
             return None
 
         if signal.action is SignalAction.EXIT:
             self.stops.on_exit(signal.symbol, moment, protective=signal.protective)
+        self._notify_fill(order, signal)
         return order
+
+    # --- 알림 ---------------------------------------------------------------
+
+    def _notify_fill(self, order: Order, signal: Signal) -> None:
+        if not self.settings.notify_fills:
+            return
+        kind = "보호 청산" if signal.protective else signal.action.value
+        notional = order.avg_fill_price * order.filled_quantity
+        self.notifier.notify(
+            Notification(
+                title=f"{order.symbol} {order.side.value} {order.filled_quantity}주 체결",
+                lines=[
+                    f"체결가 {order.avg_fill_price:,.2f} USD (총 {notional:,.2f})",
+                    f"사유 [{kind}] {signal.reason}",
+                    f"모드 {'실주문' if self.broker.is_live else '페이퍼'}",
+                ],
+                level=Level.WARN if signal.protective else Level.INFO,
+            )
+        )
+
+    def _notify_order_problem(self, title: str, signal: Signal, exc: Exception) -> None:
+        self.notifier.notify(
+            Notification(
+                title=f"{title}: {signal.symbol}",
+                lines=[str(exc)],
+                level=Level.ERROR,
+                # 같은 종목의 같은 문제가 매 사이클 반복되는 걸 막는다.
+                dedup_key=f"order-problem:{signal.symbol}:{title}",
+            )
+        )
+
+    def _notify_daily_loss(
+        self, equity: Decimal, baseline: Decimal, moment: datetime
+    ) -> None:
+        """일일 손실 한도 도달을 하루 한 번만 알린다.
+
+        한도는 한번 걸리면 그날 내내 유지되는 조건이라 스로틀(기본 5분)로는
+        온종일 알림이 반복된다. 전송 여부를 날짜와 함께 SQLite에 남겨서 하루
+        한 번을 보장하고, 재시작해도 중복되지 않게 한다.
+        """
+        if baseline <= 0 or equity >= baseline:
+            return
+        drawdown = (baseline - equity) / baseline
+        if drawdown < self.settings.max_daily_loss_pct:
+            return
+
+        today = to_ny(moment).date().isoformat()
+        if self.store.get_state("notify.daily_loss_date") == today:
+            return
+        self.store.set_state("notify.daily_loss_date", today)
+
+        self.notifier.notify(
+            Notification(
+                title="일일 손실 한도 도달 — 신규 진입 차단",
+                lines=[
+                    f"평가액 {equity:,.2f} / 기준 {baseline:,.2f} ({-drawdown * 100:.2f}%)",
+                    f"한도 {self.settings.max_daily_loss_pct * 100:.2f}%",
+                    "보유 포지션 청산은 계속 허용됩니다.",
+                ],
+                level=Level.WARN,
+            )
+        )
+
+    def _notify_daily_summary(
+        self, equity: Decimal, baseline: Decimal, moment: datetime
+    ) -> None:
+        """폐장 직전에 하루를 정리해 보낸다.
+
+        시세가 있어야 하므로 장중(폐장 5분 전)에 보낸다. 폴링 주기가 1분이면
+        기회가 다섯 번 있으므로 한 사이클을 놓쳐도 괜찮다. 전송 여부를 날짜와
+        함께 SQLite에 남겨 하루 한 번을 보장한다 — 재시작해도 중복되지 않는다.
+        """
+        if not self.settings.notify_daily_summary:
+            return
+        remaining = minutes_to_close(moment)
+        if remaining is None or remaining > 5:
+            return
+
+        today = to_ny(moment).date().isoformat()
+        if self.store.get_state("notify.summary_date") == today:
+            return
+
+        change = (equity - baseline) / baseline * 100 if baseline > 0 else Decimal("0")
+        positions = self.broker.get_positions()
+        holdings = (
+            [f"{p.symbol} {p.quantity}주 @ {p.avg_price:,.2f}" for p in positions.values()]
+            if positions
+            else ["보유 없음"]
+        )
+
+        self.store.set_state("notify.summary_date", today)
+        self.notifier.notify(
+            Notification(
+                title=f"{today} 장 마감 요약",
+                lines=[
+                    f"평가액 {equity:,.2f} USD ({change:+.2f}%)",
+                    *holdings,
+                ],
+                level=Level.INFO,
+            )
+        )
 
     # --- 상시 루프 ----------------------------------------------------------
 
@@ -228,13 +345,46 @@ class TradingEngine:
             mode, self.strategy.name, ",".join(self.settings.symbols),
             self.settings.poll_seconds,
         )
+        self.notifier.notify(
+            Notification(
+                title=f"봇 시작 [{mode}]",
+                lines=[
+                    f"전략 {self.strategy.name} (SMA {self.settings.sma_fast}/{self.settings.sma_slow})",
+                    f"종목 {', '.join(self.settings.symbols)}",
+                    f"손절 {self._protection_line()}",
+                ],
+            )
+        )
+
+        failures = 0
         while not self._stopped:
             try:
                 self.run_once()
+                failures = 0
             except KeyboardInterrupt:
                 raise
-            except Exception:
+            except Exception as exc:
                 # 한 사이클 실패로 봇이 죽으면 안 된다. 다음 주기에 재시도.
+                failures += 1
                 log.exception("사이클 실패 — 다음 주기에 재시도합니다")
+                self.notifier.notify(
+                    Notification(
+                        title=f"사이클 실패 ({failures}회 연속)",
+                        lines=[f"{type(exc).__name__}: {exc}", "다음 주기에 재시도합니다."],
+                        level=Level.ERROR,
+                        dedup_key="cycle-failure",
+                    )
+                )
             sleep(self.settings.poll_seconds)
+
         log.info("엔진 종료")
+        self.notifier.notify(Notification(title="봇 종료", level=Level.WARN))
+
+    def _protection_line(self) -> str:
+        s = self.settings
+        if s.stop_loss_pct <= 0:
+            return "없음 (!)"
+        parts = [f"{float(s.stop_loss_pct) * 100:g}%"]
+        if s.trailing_stop_pct > 0:
+            parts.append(f"트레일링 {float(s.trailing_stop_pct) * 100:g}%")
+        return " / ".join(parts)
