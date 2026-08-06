@@ -248,6 +248,19 @@ async function main() {
     assert.equal(oversized.skippedCount, 1, `oversized source ${field} must be reported as skipped`);
   }
 
+  const unsafeSourceCases = [
+    ["NUL title", createSourcePanel({ title: "안전&#0;대회" })],
+    ["bidirectional title", createSourcePanel({ title: "안전&#x202e;대회" })],
+    ["NUL organizer", createSourcePanel({ organizer: "대한&#0;유도회" })],
+    ["bidirectional location", createSourcePanel({ location: "체육관&#x2067;A" })],
+  ];
+
+  for (const [field, source] of unsafeSourceCases) {
+    const unsafe = parseKoreaJudoTournamentList(source, 2026);
+    assert.equal(unsafe.records.length, 0, `unsafe source ${field} must not be imported`);
+    assert.equal(unsafe.skippedCount, 1, `unsafe source ${field} must be reported as skipped`);
+  }
+
   const manualTournament = {
     id: "tournament-manual",
     scope: "branch",
@@ -614,6 +627,7 @@ async function main() {
           missingOfficialEventBlocked: true,
           missingOfficialEventManagementBlocked: true,
           oversizedSourceFieldsRejected: true,
+          unsafeSourceCharactersRejected: true,
           registrationsPreserved: true,
           sourceFetchesSerialized: true,
           staleRegistrationCancellationPreserved: true,

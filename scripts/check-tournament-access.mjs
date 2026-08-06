@@ -324,10 +324,30 @@ async function main() {
       body: { ...payload, eventDate: "2026-02-30" },
     });
     assert.equal(result.response.status, 400, "impossible tournament calendar dates must be rejected");
+
+    for (const [field, body] of [
+      ["NUL title", { ...payload, title: "안전\u0000대회" }],
+      ["bidirectional title", { ...payload, title: "안전\u202e대회" }],
+      ["NUL organizer", { ...payload, organizer: "대한\u0000유도회" }],
+      ["bidirectional location", { ...payload, location: "체육관\u2067A" }],
+      ["NUL description", { ...payload, description: "안내\u0000문구" }],
+    ]) {
+      result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
+        userId: "user-coach",
+        body,
+      });
+      assert.equal(result.response.status, 400, `tournament create must reject ${field}`);
+    }
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      body: { ...payload, title: "줄바꿈 설명 대회", description: "첫 줄\n둘째 줄" },
+    });
+    assert.equal(result.response.status, 200, "tournament descriptions must continue to allow normal line breaks");
     assert.equal(
       (await readDb(dbFile)).tournaments.length,
-      tournamentCountBeforeInvalidCreate,
-      "invalid tournament creates must not mutate persisted state",
+      tournamentCountBeforeInvalidCreate + 1,
+      "invalid tournament creates must not mutate state while the valid multiline description persists once",
     );
 
     result = await apiRequest(baseUrl, "/api/v1/tournaments?selectedBranchId=branch-gangnam", {
@@ -487,6 +507,12 @@ async function main() {
     assert.equal(result.response.status, 400, "registration must require a weight class");
 
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-member",
+      body: { memberId: "member-minjae", division: "일반부", weightClass: "-73kg\u202eABC" },
+    });
+    assert.equal(result.response.status, 400, "registration weight classes must reject bidirectional controls");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
       userId: "user-guardian",
       body: { memberId: "member-jun", division: "중등부", weightClass: "-55kg" },
     });
@@ -532,6 +558,21 @@ async function main() {
       body: { memberId: "member-jun", status: "rejected" },
     });
     assert.equal(result.response.status, 400, "registration rejection must require an operator reason");
+
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { memberId: "member-jun", status: "rejected", note: "체급 확인\u2067필요" },
+    });
+    assert.equal(result.response.status, 400, "registration review notes must reject bidirectional controls");
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "pending",
+      "unsafe review notes must not mutate the registration status",
+    );
 
     result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
       userId: "user-coach",

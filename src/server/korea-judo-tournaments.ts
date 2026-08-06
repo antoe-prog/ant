@@ -1,5 +1,5 @@
 import type { Tournament } from "@/lib/domain";
-import { tournamentFieldLimits } from "./tournaments.ts";
+import { containsUnsafeTournamentText, tournamentFieldLimits } from "./tournaments.ts";
 
 export const koreaJudoAssociationTournamentSource = "korea_judo_association" as const;
 export const koreaJudoAssociationScheduleUrl =
@@ -230,9 +230,13 @@ export function parseKoreaJudoTournamentList(html: string, year: number) {
       !sourceIdPattern.test(externalId) ||
       !title ||
       title.length > tournamentFieldLimits.title ||
+      containsUnsafeTournamentText(title) ||
       organizer.length > tournamentFieldLimits.organizer ||
+      containsUnsafeTournamentText(organizer) ||
       (location?.length ?? 0) > tournamentFieldLimits.location ||
+      (location !== undefined && containsUnsafeTournamentText(location)) ||
       sourceUrl.length > tournamentFieldLimits.sourceUrl ||
+      containsUnsafeTournamentText(sourceUrl) ||
       !period ||
       Number(period.eventDate.slice(0, 4)) !== year
     ) {

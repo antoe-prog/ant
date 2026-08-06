@@ -32,6 +32,18 @@ export const tournamentFieldLimits = {
   title: 80,
 } as const;
 
+const unsafeSingleLineTournamentTextPattern =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+const unsafeMultilineTournamentTextPattern =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+export function containsUnsafeTournamentText(value: string, allowLineBreaks = false) {
+  return (allowLineBreaks
+    ? unsafeMultilineTournamentTextPattern
+    : unsafeSingleLineTournamentTextPattern
+  ).test(value);
+}
+
 const tournamentBodyFields = [
   "title",
   "organizer",
@@ -97,12 +109,20 @@ export function validateTournamentBody(value: unknown): TournamentValidation {
   const sourceUrl = body.sourceUrl?.trim() || undefined;
   const description = body.description?.trim() || undefined;
 
-  if (!title || title.length > tournamentFieldLimits.title) {
-    return { ok: false, error: `대회명을 ${tournamentFieldLimits.title}자 이내로 입력해 주세요.` };
+  if (
+    !title ||
+    title.length > tournamentFieldLimits.title ||
+    containsUnsafeTournamentText(title)
+  ) {
+    return { ok: false, error: `대회명은 제어문자 없이 ${tournamentFieldLimits.title}자 이내로 입력해 주세요.` };
   }
 
-  if (!organizer || organizer.length > tournamentFieldLimits.organizer) {
-    return { ok: false, error: `주최 단체를 ${tournamentFieldLimits.organizer}자 이내로 입력해 주세요.` };
+  if (
+    !organizer ||
+    organizer.length > tournamentFieldLimits.organizer ||
+    containsUnsafeTournamentText(organizer)
+  ) {
+    return { ok: false, error: `주최 단체는 제어문자 없이 ${tournamentFieldLimits.organizer}자 이내로 입력해 주세요.` };
   }
 
   if (!isDateOnly(eventDate)) {
@@ -119,19 +139,27 @@ export function validateTournamentBody(value: unknown): TournamentValidation {
     }
   }
 
-  if (location !== undefined && location.length > tournamentFieldLimits.location) {
-    return { ok: false, error: `장소는 ${tournamentFieldLimits.location}자 이내로 입력해 주세요.` };
+  if (
+    location !== undefined &&
+    (location.length > tournamentFieldLimits.location || containsUnsafeTournamentText(location))
+  ) {
+    return { ok: false, error: `장소는 제어문자 없이 ${tournamentFieldLimits.location}자 이내로 입력해 주세요.` };
   }
 
   if (
     sourceUrl !== undefined &&
-    (!/^https?:\/\//.test(sourceUrl) || sourceUrl.length > tournamentFieldLimits.sourceUrl)
+    (!/^https?:\/\//.test(sourceUrl) ||
+      sourceUrl.length > tournamentFieldLimits.sourceUrl ||
+      containsUnsafeTournamentText(sourceUrl))
   ) {
     return { ok: false, error: `공지 링크는 http(s) 주소로 ${tournamentFieldLimits.sourceUrl}자 이내여야 합니다.` };
   }
 
-  if (description !== undefined && description.length > tournamentFieldLimits.description) {
-    return { ok: false, error: `설명은 ${tournamentFieldLimits.description}자 이내로 입력해 주세요.` };
+  if (
+    description !== undefined &&
+    (description.length > tournamentFieldLimits.description || containsUnsafeTournamentText(description, true))
+  ) {
+    return { ok: false, error: `설명은 허용된 줄바꿈만 사용해 ${tournamentFieldLimits.description}자 이내로 입력해 주세요.` };
   }
 
   return {

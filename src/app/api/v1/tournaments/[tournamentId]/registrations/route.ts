@@ -25,7 +25,7 @@ import {
   getNoticePushSubscriptions,
 } from "@/server/push-notifications";
 import { createRuntimeId } from "@/server/runtime-id";
-import { tournamentStateLockKey } from "@/server/tournaments";
+import { containsUnsafeTournamentText, tournamentStateLockKey } from "@/server/tournaments";
 
 export const runtime = "nodejs";
 
@@ -74,7 +74,7 @@ function parseRegistrationApplyBody(value: unknown): RegistrationApplyBody | nul
     !division ||
     !weightClass ||
     weightClass.length > 30 ||
-    /[\u0000-\u001f\u007f]/.test(weightClass)
+    containsUnsafeTournamentText(weightClass)
   ) {
     return null;
   }
@@ -120,7 +120,7 @@ function parseRegistrationReviewBody(value: unknown): RegistrationReviewBody | n
     memberIds.some((memberId) => memberId === null) ||
     Object.keys(body).some((key) => !allowedKeys.has(key)) ||
     note.length > 300 ||
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note) ||
+    containsUnsafeTournamentText(note, true) ||
     (status === "rejected" && !note)
   ) {
     return null;
