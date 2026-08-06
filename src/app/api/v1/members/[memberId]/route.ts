@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, Member, MemberStatus, MockDatabase } from "@/lib/domain";
 import { memberInputLimits } from "@/lib/member-input-policy";
+import {
+  getMemberDeletionPendingOnlinePaymentBlockers,
+  getMemberDeletionRecurringAgreementBlockers,
+} from "@/lib/member-deletion-policy";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { removeMemberFromTargetedNotices } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
@@ -509,6 +513,17 @@ export async function DELETE(
 
     if (selectedScope.selectedBranchId && selectedScope.selectedBranchId !== member.branchId) {
       return jsonError(403, "FORBIDDEN", "선택한 회원의 지점에 접근할 수 없습니다.");
+    }
+
+    const recurringAgreementBlockers = getMemberDeletionRecurringAgreementBlockers(db.payments, member.id);
+    const pendingOnlinePaymentBlockers = getMemberDeletionPendingOnlinePaymentBlockers(db.payments, member.id);
+
+    if (recurringAgreementBlockers.length > 0 || pendingOnlinePaymentBlockers.length > 0) {
+      return jsonError(
+        409,
+        "BUSINESS_RULE_FAILED",
+        "진행 중인 온라인 결제 요청과 정기결제 약정을 먼저 정리해 주세요.",
+      );
     }
 
     const removedClassEnrollmentCount = db.classes.filter((session) =>

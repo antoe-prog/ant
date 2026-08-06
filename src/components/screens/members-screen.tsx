@@ -18,6 +18,10 @@ import { formatCurrency, formatDate, formatDateKey, formatDateTime, formatPhoneN
 import { getFamilyMemberRelationLabel, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { invitationLinkCopyFallbackMessage, invitationLinkCopySuccessMessage } from "@/lib/invitation-link-copy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
+import {
+  getMemberDeletionPendingOnlinePaymentBlockers,
+  getMemberDeletionRecurringAgreementBlockers,
+} from "@/lib/member-deletion-policy";
 import { memberInputLimits } from "@/lib/member-input-policy";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { matchesMemberSearch, normalizeMemberSearchText } from "@/lib/notice-member-search";
@@ -1445,6 +1449,18 @@ export function MembersScreen() {
   const memberDeleteTarget = memberDeleteId
     ? data.find((member) => member.id === memberDeleteId) ?? null
     : null;
+  const memberDeleteRecurringAgreementBlockers = memberDeleteTarget
+    ? getMemberDeletionRecurringAgreementBlockers(context.db.payments, memberDeleteTarget.id)
+    : [];
+  const memberDeleteRecurringAgreementCount = memberDeleteRecurringAgreementBlockers.length;
+  const memberDeletePendingOnlinePaymentBlockers = memberDeleteTarget
+    ? getMemberDeletionPendingOnlinePaymentBlockers(context.db.payments, memberDeleteTarget.id)
+    : [];
+  const memberDeletePendingOnlinePaymentCount = memberDeletePendingOnlinePaymentBlockers.length;
+  const memberDeletePaymentBlockerCount =
+    memberDeleteRecurringAgreementCount + memberDeletePendingOnlinePaymentCount;
+  const memberDeletePaymentBlockerId =
+    memberDeletePendingOnlinePaymentBlockers[0]?.id ?? memberDeleteRecurringAgreementBlockers[0]?.id;
   const coachMemberMobileVisibleLimit = 1;
   const coachMemberListCollapsible = isCoachRole && !query.trim() && filteredMembers.length > coachMemberMobileVisibleLimit;
   const hiddenCoachMemberCount = coachMemberListCollapsible ? filteredMembers.length - coachMemberMobileVisibleLimit : 0;
@@ -2782,6 +2798,24 @@ export function MembersScreen() {
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
                 출석·결제·승급·상담 기록과 수업 배정이 함께 삭제됩니다. 해당 회원만 연결된 일반 회원 로그인 계정도 삭제됩니다.
               </div>
+              {memberDeletePaymentBlockerCount > 0 && memberDeletePaymentBlockerId ? (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-900">
+                  <p className="font-semibold">결제 처리를 먼저 완료해 주세요.</p>
+                  {memberDeletePendingOnlinePaymentCount > 0 ? (
+                    <p className="mt-1 text-red-700">진행 중인 온라인 결제 {memberDeletePendingOnlinePaymentCount}건</p>
+                  ) : null}
+                  {memberDeleteRecurringAgreementCount > 0 ? (
+                    <p className="mt-1 text-red-700">정기결제 약정 {memberDeleteRecurringAgreementCount}건</p>
+                  ) : null}
+                  <p className="mt-1 text-red-700">외부 청구가 남지 않도록 결제 상태 확인과 약정 해지 후 회원을 삭제할 수 있습니다.</p>
+                  <Link
+                    className="mt-2 inline-flex min-h-11 items-center font-semibold text-red-800 underline underline-offset-4"
+                    href={`/app/payments?q=${encodeURIComponent(memberDeleteTarget.name)}&focusPayment=${encodeURIComponent(memberDeletePaymentBlockerId)}`}
+                  >
+                    결제 화면에서 확인
+                  </Link>
+                </div>
+              ) : null}
               <label className="mt-4 block">
                 <span className="mb-1 block text-xs font-semibold text-zinc-600">삭제 사유</span>
                 <textarea
@@ -2808,7 +2842,11 @@ export function MembersScreen() {
                 <button
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
                   data-testid="member-delete-confirm"
-                  disabled={memberDeletePending || !memberDeleteReason.trim()}
+                  disabled={
+                    memberDeletePending ||
+                    memberDeletePaymentBlockerCount > 0 ||
+                    !memberDeleteReason.trim()
+                  }
                   type="submit"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />
