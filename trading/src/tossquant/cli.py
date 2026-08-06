@@ -209,6 +209,50 @@ def status(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     store.close()
 
 
+def _shell(command: str) -> None:
+    """복사해서 쓸 명령/설정 줄.
+
+    마크업을 끄지 않으면 `[-1]` 같은 대괄호가 rich 태그로 먹힌다. 또 rich가 줄을
+    접으면 붙여넣은 명령이 깨지므로, 각 줄은 80칼럼 안에 들어가게 짧게 유지한다.
+    """
+    console.print(f"   {command}", markup=False, highlight=False, style="dim")
+
+
+def _print_setup_guide(settings: Settings) -> None:
+    """알림 채널이 하나도 없을 때의 설정 안내.
+
+    막히는 지점이 정해져 있다: 봇에게 먼저 말을 걸지 않으면 getUpdates가 빈
+    배열을 돌려주고, 응답 JSON에서 chat_id가 어디 박혀 있는지도 안 보인다.
+    그 두 가지를 짚어준다.
+    """
+    console.print("[red]설정된 알림 채널이 없습니다.[/red]")
+    console.print("둘 중 하나만 설정하면 됩니다.\n")
+
+    console.rule("[bold]텔레그램[/bold]", align="left")
+    console.print("1. 텔레그램에서 [bold]@BotFather[/bold] 를 찾아 [dim]/newbot[/dim] 으로 봇을 만듭니다.")
+    console.print("   → 발급된 토큰을 복사해 둡니다.\n")
+    console.print("2. [yellow]만든 봇과의 대화방을 열고 아무 메시지나 보냅니다.[/yellow]")
+    console.print("   [dim]이걸 건너뛰면 다음 단계가 빈 배열만 돌려줍니다.[/dim]\n")
+    console.print("3. chat_id 를 확인합니다:")
+    _shell("curl -s https://api.telegram.org/bot<토큰>/getUpdates")
+    console.print("   [dim]응답 JSON의 result → message → chat → id 가 chat_id 입니다.[/dim]")
+    console.print("   [dim]jq를 쓴다면 뒤에 이어서:[/dim]")
+    _shell("| jq .result[-1].message.chat.id")
+    console.print()
+    console.print(f"4. [bold]{settings.model_config['env_file']}[/bold] 에 넣습니다:")
+    _shell("TOSSQUANT_TELEGRAM_BOT_TOKEN=발급받은토큰")
+    _shell("TOSSQUANT_TELEGRAM_CHAT_ID=확인한숫자")
+    console.print()
+
+    console.rule("[bold]Slack[/bold]", align="left")
+    console.print("워크스페이스 설정에서 Incoming Webhook을 만들고 URL을 넣습니다:")
+    _shell("TOSSQUANT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...")
+    console.print()
+
+    console.rule()
+    console.print("설정한 뒤 [bold]tossquant notify-test[/bold] 를 다시 실행하세요.")
+
+
 @app.command("notify-test")
 def notify_test(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     """설정된 알림 채널로 테스트 메시지를 실제로 보낸다.
@@ -227,15 +271,7 @@ def notify_test(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         channels.append("Slack webhook")
 
     if isinstance(notifier, NullNotifier):
-        console.print("[red]설정된 알림 채널이 없습니다.[/red]\n")
-        console.print("텔레그램: @BotFather로 봇을 만들고 토큰을 받은 뒤,")
-        console.print("봇에게 아무 메시지나 보내고 아래로 chat_id를 확인하세요:")
-        console.print(
-            "  [dim]curl https://api.telegram.org/bot<TOKEN>/getUpdates[/dim]\n"
-        )
-        console.print("그다음 .env에:")
-        console.print("  [dim]TOSSQUANT_TELEGRAM_BOT_TOKEN=...[/dim]")
-        console.print("  [dim]TOSSQUANT_TELEGRAM_CHAT_ID=...[/dim]")
+        _print_setup_guide(settings)
         raise typer.Exit(1)
 
     console.print(f"[bold]채널[/bold] {', '.join(channels)}")
