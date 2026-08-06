@@ -63,10 +63,13 @@ $EDITOR .env
 # 1. 연결 확인 — 반드시 여기서 시작
 tossquant verify
 
-# 2. 한 사이클만 돌려보기
+# 2. 과거 데이터로 전략 검증
+tossquant backtest --source csv --csv-dir data --symbols AAPL,MSFT
+
+# 3. 한 사이클만 돌려보기
 tossquant run --once -v
 
-# 3. 상시 실행 (페이퍼)
+# 4. 상시 실행 (페이퍼)
 tossquant run
 
 # 상태 확인
@@ -97,6 +100,10 @@ tossquant reset
 | `risk.py` | 사이징과 모든 한도 검사 |
 | `engine.py` | 매매 루프 |
 | `store.py` | SQLite 영속화 (재시작해도 상태 유지) |
+| `backtest/replay.py` | 과거 캔들을 시세 소스로 재생 (미래 정보 차단) |
+| `backtest/simulator.py` | 백테스트 루프 + 라운드트립 장부 |
+| `backtest/metrics.py` | CAGR·MDD·Sharpe·승률·손익비 |
+| `backtest/data.py` | CSV / 토스 API 소스 + 캔들 캐시 |
 
 **설계상 중요한 분리 두 가지:**
 
@@ -119,6 +126,58 @@ tossquant reset
 일일 기준선은 SQLite에 거래일과 함께 저장되므로, 봇을 재시작해도 손실 한도가
 리셋되지 않는다.
 
+## 백테스트
+
+```bash
+# CSV 데이터로 (기본). data/AAPL.csv, data/MSFT.csv 형태
+tossquant backtest --source csv --csv-dir data --symbols AAPL,MSFT
+
+# 토스 API에서 캔들을 받아서 (첫 실행 후 candles.db에 캐시된다)
+tossquant backtest --source toss --symbols AAPL --count 500
+
+# 파라미터 바꿔가며 비교
+tossquant backtest --fast 10 --slow 40 --from 2024-01-01 --to 2026-01-01
+
+# 결과를 CSV로
+tossquant backtest --export ./out
+```
+
+CSV는 `<폴더>/<종목>.csv` 형태로 두면 되고, 헤더는 `date,open,high,low,close,volume`
+(및 `timestamp` / `Adj Close` / `일자,시가,…` 같은 흔한 별칭)을 인식한다.
+
+### 미래 정보 누출을 막는 방식
+
+백테스트가 미래를 조금이라도 보면 결과는 전부 거짓말이 되고, 그 거짓말은 실계좌
+에서만 드러난다. 그래서 구조적으로 불가능하게 만들었다:
+
+- `ReplayMarket.get_candles()`는 **커서까지의 봉만** 돌려준다. 전략에 아직 오지
+  않은 봉을 넘길 방법 자체가 없다.
+- 신호는 봉 종가에서 나오고 **체결은 다음 봉 시가**에서 일어난다. 같은 봉 종가에
+  체결하는 흔한 실수를 막는다.
+- 마지막 봉에서는 체결할 다음 봉이 없으므로 주문을 내지 않는다.
+
+`tests/test_backtest.py`가 이 세 가지를 각각 테스트로 못 박아 두고 있다.
+
+또한 백테스트는 **실시간과 같은 전략·리스크·체결 코드**를 탄다. 바뀌는 건 시세
+소스뿐이라(`ReplayMarket`), 백테스트 결과와 라이브 동작이 어긋날 여지가 줄어든다.
+
+### 결과 읽기
+
+수익률만 보면 안 된다. 출력에 항상 **동일가중 바이앤홀드 벤치마크**를 나란히
+찍는데, 여기서 초과수익이 안 나오면 그 전략은 수수료와 복잡성만 더한 셈이다.
+
+| 지표 | 의미 |
+| --- | --- |
+| MDD | 최대 낙폭. 실제로 버틸 수 있는 수준인지가 수익률보다 중요하다 |
+| Sharpe / Sortino | 변동성 대비 수익. 무위험수익률은 0으로 둔다 |
+| 시장 노출 | 포지션을 들고 있던 시간 비율. 낮은데 수익이 비슷하면 좋은 신호 |
+| 손익비 (PF) | 총이익 / 총손실. 1 미만이면 손해 |
+| 신호 기각 사유 | 거래가 안 나올 때 어느 리스크 한도가 막았는지 |
+
+비용은 세 겹으로 붙는다: 호가 스프레드(`backtest_spread_bps`), 시장충격
+(`paper_slippage_bps`), 수수료(`paper_commission_bps`). 그래도 호가 잔량은
+무시하므로 결과는 **상단 추정치**다.
+
 ## 전략 교체
 
 `strategy/base.py`의 `Strategy`를 상속하고 `cli.py:_build()`에서 갈아끼운다.
@@ -138,7 +197,7 @@ class MyStrategy(Strategy):
 ## 테스트
 
 ```bash
-pytest        # 74개
+pytest        # 121개
 ```
 
 토스 클라이언트 테스트는 `respx`로 HTTP를 모킹한다. 응답 스키마가 확정되지 않았으므로
@@ -160,7 +219,9 @@ pytest        # 74개
 
 ## 알려진 한계
 
-- 페이퍼 체결은 호가 잔량과 거래량을 무시한다. 성과는 **상단 추정치**로 볼 것.
-- 백테스트 엔진은 아직 없다. 현재는 실시간 페이퍼 운용만 가능하다.
+- 페이퍼·백테스트 체결 모두 호가 잔량과 거래량을 무시한다. 대량 주문일수록 낙관적
+  이므로 성과는 **상단 추정치**로 볼 것.
+- 파라미터 최적화 도구는 없다. `--fast`/`--slow`를 바꿔가며 직접 비교해야 한다.
+  (과최적화를 부추기지 않으려는 의도이기도 하다.)
 - 환전을 다루지 않는다. 계좌에 USD가 있다고 가정한다.
 - 휴장일 목록(`calendar_us.py`)은 2027년까지만 들어 있다. 매년 갱신 필요.

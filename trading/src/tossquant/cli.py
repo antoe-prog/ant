@@ -6,11 +6,15 @@ import json
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from .backtest.data import CandleCache, CsvSource, TossSource, load_history
+from .backtest.report import export, render
+from .backtest.simulator import Backtester
 from .broker.base import BrokerError
 from .broker.paper import PaperBroker
 from .broker.toss import TossClient
@@ -25,9 +29,9 @@ app = typer.Typer(help="토스증권 Open API 기반 미국주식 자동매매",
 console = Console()
 
 
-def _setup_logging(verbose: bool) -> None:
+def _setup_logging(verbose: bool, quiet_level: int = logging.INFO) -> None:
     logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
+        level=logging.DEBUG if verbose else quiet_level,
         format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -191,6 +195,89 @@ def status(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         console.print(f"\n[bold]최근 평가액[/bold] {latest:.2f} USD ({history[0]['ts'][:19]})")
 
     store.close()
+
+
+@app.command()
+def backtest(
+    source: str = typer.Option("csv", "--source", help="csv | toss"),
+    csv_dir: Path = typer.Option(Path("data"), "--csv-dir", help="source=csv일 때 CSV 폴더"),
+    symbols: str = typer.Option("", "--symbols", help="쉼표 구분. 비우면 .env 설정 사용"),
+    interval: str = typer.Option("", "--interval", help="비우면 .env 설정 사용"),
+    start: str = typer.Option("", "--from", help="시작일 YYYY-MM-DD"),
+    end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
+    count: int = typer.Option(500, "--count", help="source=toss일 때 요청할 봉 개수"),
+    fast: int = typer.Option(0, "--fast", help="SMA 단기 (0이면 .env 설정)"),
+    slow: int = typer.Option(0, "--slow", help="SMA 장기 (0이면 .env 설정)"),
+    cash: float = typer.Option(0.0, "--cash", help="시작 자본 (0이면 .env 설정)"),
+    cache_path: Path = typer.Option(Path("candles.db"), "--cache", help="캔들 캐시 파일"),
+    refresh: bool = typer.Option(False, "--refresh", help="캐시를 무시하고 다시 받는다"),
+    export_dir: Path = typer.Option(None, "--export", help="결과 CSV를 쓸 폴더"),
+    trades: int = typer.Option(10, "--trades", help="출력할 최근 거래 건수"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """과거 캔들로 전략을 검증한다.
+
+    신호는 봉 종가에서 나오고 체결은 다음 봉 시가에 일어난다 — 실시간 운용과
+    같은 전략·리스크·체결 코드를 그대로 탄다.
+    """
+    _setup_logging(verbose, quiet_level=logging.WARNING)
+    settings = Settings()
+
+    if symbols:
+        settings.symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if interval:
+        settings.candle_interval = interval
+    if fast:
+        settings.sma_fast = fast
+    if slow:
+        settings.sma_slow = slow
+    if cash:
+        settings.paper_cash = Decimal(str(cash))
+    if settings.sma_fast >= settings.sma_slow:
+        console.print("[red]--fast 는 --slow 보다 작아야 합니다[/red]")
+        raise typer.Exit(1)
+
+    if source == "csv":
+        history_source = CsvSource(csv_dir)
+        cache = None
+    elif source == "toss":
+        history_source = TossSource(_client(settings))
+        cache = CandleCache(cache_path)
+    else:
+        console.print(f"[red]알 수 없는 소스: {source} (csv | toss)[/red]")
+        raise typer.Exit(1)
+
+    def parse_day(text: str) -> datetime | None:
+        if not text:
+            return None
+        return datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+    try:
+        history = load_history(
+            settings.symbols,
+            settings.candle_interval,
+            history_source,
+            count=count,
+            start=parse_day(start),
+            end=parse_day(end),
+            cache=cache,
+            refresh=refresh,
+        )
+        result = Backtester(
+            history, SmaCrossStrategy(settings.sma_fast, settings.sma_slow), settings
+        ).run()
+    except (ValueError, FileNotFoundError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    finally:
+        if cache is not None:
+            cache.close()
+
+    render(result, console, show_trades=trades)
+
+    if export_dir is not None:
+        written = export(result, export_dir)
+        console.print("\n" + "\n".join(f"기록: {path}" for path in written))
 
 
 @app.command()

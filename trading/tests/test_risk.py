@@ -69,7 +69,28 @@ def test_capped_by_available_cash(risk):
     )
     decision = risk.evaluate(enter(), account, {"AAPL": Decimal("100"), "MSFT": Decimal("100")}, NOW)
     assert decision.approved
-    assert decision.quantity == 3
+    # 현금 300에 CASH_BUFFER(0.99)가 걸려 예산은 297 → 2주.
+    assert decision.quantity == 2
+
+
+def test_cash_buffer_leaves_headroom_for_fees_and_slippage(risk):
+    # 현금을 딱 맞게 쓰면 수수료나 갭 상승 한 번에 주문이 거부된다.
+    account = Account(cash=Decimal("1000"), positions={})
+    decision = risk.evaluate(enter(), account, {"AAPL": Decimal("1")}, NOW)
+    assert decision.quantity < 1000
+
+
+def test_exec_price_overrides_mark_for_sizing(risk):
+    """사이징은 체결가 기준. 종가로 계산하면 갭 상승 시 잔고를 넘긴다."""
+    account = Account(cash=Decimal("10000"), positions={})
+
+    on_close = risk.evaluate(enter(), account, {"AAPL": Decimal("100")}, NOW)
+    on_gap_up = risk.evaluate(
+        enter(), account, {"AAPL": Decimal("100")}, NOW, exec_price=Decimal("200")
+    )
+
+    assert on_close.quantity == 25
+    assert on_gap_up.quantity == 12  # 2500 예산 / 200
 
 
 def test_rejects_when_budget_below_one_share(risk):

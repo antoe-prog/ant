@@ -157,6 +157,14 @@ class Store:
         )
         self._conn.commit()
 
+    def order_commission(self, order_id: str) -> Decimal:
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(CAST(commission AS REAL)), 0) AS total "
+            "FROM fills WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+        return Decimal(str(row["total"]))
+
     def recent_orders(self, limit: int = 20) -> list[sqlite3.Row]:
         return self._conn.execute(
             "SELECT * FROM orders ORDER BY ts DESC LIMIT ?", (limit,)

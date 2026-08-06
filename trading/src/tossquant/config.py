@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     paper_slippage_bps: Decimal = Decimal("5")
     paper_commission_bps: Decimal = Decimal("7")
 
+    # --- 백테스트 ---
+    # 호가 스프레드. paper_slippage_bps(시장충격)와는 별개 비용이므로 둘 다 붙는다.
+    backtest_spread_bps: Decimal = Decimal("2")
+
     # --- 전략 (SMA 크로스) ---
     sma_fast: int = 20
     sma_slow: int = 60

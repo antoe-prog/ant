@@ -26,16 +26,23 @@ log = logging.getLogger(__name__)
 
 DAY_BASELINE_KEY = "risk.day_baseline"
 
+# 주문 가능 현금을 전부 쓰지 않고 남겨두는 비율. 신호 시점 가격과 실제 체결가
+# 사이에는 항상 간극이 있고(시장가 주문, 갭 상승, 수수료), 이 여유분이 없으면
+# 체결 직전에 잔고 부족으로 주문이 통째로 거부된다.
+CASH_BUFFER = Decimal("0.99")
+
 
 @dataclass(frozen=True)
 class Decision:
     approved: bool
     quantity: int
     reason: str
+    code: str = "approved"
 
     @classmethod
-    def reject(cls, reason: str) -> Decision:
-        return cls(approved=False, quantity=0, reason=reason)
+    def reject(cls, code: str, reason: str) -> Decision:
+        """code는 집계용 안정 키, reason은 사람이 읽는 설명."""
+        return cls(approved=False, quantity=0, reason=reason, code=code)
 
 
 class RiskManager:
@@ -63,7 +70,7 @@ class RiskManager:
         if saved and saved.get("date") == today:
             return Decimal(saved["equity"])
         self._store.set_state(DAY_BASELINE_KEY, {"date": today, "equity": str(equity)})
-        log.info("당일 기준 평가액 설정: %s (%s)", equity, today)
+        log.debug("당일 기준 평가액 설정: %s (%s)", equity, today)
         return equity
 
     def daily_loss_breached(self, equity: Decimal, now: datetime) -> bool:
@@ -87,43 +94,51 @@ class RiskManager:
         account: Account,
         marks: dict[str, Decimal],
         now: datetime,
+        exec_price: Decimal | None = None,
     ) -> Decision:
+        """신호를 주문 수량으로 바꾼다.
+
+        marks는 평가액 계산용(종가 기준), exec_price는 사이징용(실제 체결이
+        일어날 가격)이다. 둘을 구분하지 않으면 종가로 계산한 수량이 다음 날
+        시가에서 잔고를 초과하는 사고가 난다.
+        """
         position = account.positions.get(signal.symbol)
 
         if signal.action is SignalAction.EXIT:
             if position is None or position.quantity <= 0:
-                return Decision.reject("보유 수량 없음")
+                return Decision.reject("no_position", "보유 수량 없음")
             return Decision(True, position.quantity, "전량 청산")
 
         # --- 이하 신규 진입 ---
         equity = account.equity(marks)
         if equity <= 0:
-            return Decision.reject("평가액이 0 이하")
+            return Decision.reject("equity_depleted", "평가액이 0 이하")
 
         if self.daily_loss_breached(equity, now):
-            return Decision.reject("일일 손실 한도 초과")
+            return Decision.reject("daily_loss_limit", "일일 손실 한도 초과")
 
         if position is not None and position.quantity > 0:
-            return Decision.reject("이미 보유 중")
+            return Decision.reject("already_held", "이미 보유 중")
 
         if len(account.positions) >= self.max_positions:
             return Decision.reject(
-                f"동시 보유 한도 {self.max_positions}종목 도달"
+                "max_positions", f"동시 보유 한도 {self.max_positions}종목 도달"
             )
 
-        price = marks.get(signal.symbol, signal.ref_price)
+        price = exec_price or marks.get(signal.symbol) or signal.ref_price
         if price <= 0:
-            return Decision.reject("유효한 가격 없음")
+            return Decision.reject("no_price", "유효한 가격 없음")
 
         budget = min(
             equity * self.max_position_pct,
             self.max_order_notional,
-            account.cash,
+            account.cash * CASH_BUFFER,
         )
         quantity = int(budget / price)
         if quantity < 1:
             return Decision.reject(
-                f"주문 가능 예산 {budget:.2f} USD < 1주 가격 {price:.2f} USD"
+                "budget_below_one_share",
+                f"주문 가능 예산 {budget:.2f} USD < 1주 가격 {price:.2f} USD",
             )
 
         return Decision(

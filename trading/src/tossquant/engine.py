@@ -66,6 +66,10 @@ class TradingEngine:
         account = self.broker.get_account()
         equity = account.equity(marks)
         self.store.record_equity(equity, account.cash, moment)
+        # 신호가 없는 날에도 매 사이클 호출해야 당일 기준선이 장 시작 시점
+        # 평가액으로 잡힌다. 첫 신호가 뜰 때까지 미루면 기준선이 그날 중간
+        # 어딘가로 잡혀 일일 손실 한도가 헐거워진다.
+        self.risk.day_baseline(equity, moment)
 
         executed: list[Order] = []
         for symbol, rows in candles.items():
@@ -105,6 +109,20 @@ class TradingEngine:
             log.exception("%s 전략 평가 중 오류", symbol)
             return None
 
+    def _exec_price(self, signal: Signal) -> Decimal | None:
+        """주문이 실제로 체결될 가격. 사이징 기준을 종가가 아닌 현재 호가로 잡는다.
+
+        신호가 났을 때만 호출되므로 시세 한도를 크게 먹지 않는다. 조회에 실패하면
+        None을 돌려 리스크 계층이 종가로 폴백하게 둔다 — 사이징이 조금 어긋나는
+        편이 매매를 통째로 거르는 것보다 낫다.
+        """
+        try:
+            quote = self.broker.get_quote(signal.symbol)
+        except BrokerError as exc:
+            log.warning("%s 호가 조회 실패, 종가로 사이징합니다: %s", signal.symbol, exc)
+            return None
+        return quote.ask if signal.action is SignalAction.ENTER_LONG else quote.bid
+
     def _act(
         self,
         signal: Signal,
@@ -112,7 +130,9 @@ class TradingEngine:
         marks: dict[str, Decimal],
         moment: datetime,
     ) -> Order | None:
-        decision = self.risk.evaluate(signal, account, marks, moment)
+        decision = self.risk.evaluate(
+            signal, account, marks, moment, exec_price=self._exec_price(signal)
+        )
         if not decision.approved:
             log.info("신호 기각 %s %s — %s", signal.symbol, signal.action.value, decision.reason)
             return None

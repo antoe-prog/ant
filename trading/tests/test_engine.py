@@ -9,7 +9,7 @@ from tossquant.broker.base import BrokerError
 from tossquant.broker.paper import PaperBroker
 from tossquant.calendar_us import NY
 from tossquant.engine import TradingEngine
-from tossquant.models import Side
+from tossquant.models import Side, Signal, SignalAction
 from tossquant.risk import RiskManager
 from tossquant.strategy.sma_cross import SmaCrossStrategy
 
@@ -128,6 +128,42 @@ def test_strategy_exception_is_contained(settings, store):
     engine.strategy.on_bar = explode
 
     assert engine.run_once(OPEN) == []  # 예외가 밖으로 새지 않는다
+
+
+def test_sizing_uses_live_quote_not_candle_close(settings, store):
+    """호가가 종가보다 높으면 그만큼 적게 사야 한다."""
+    engine, broker, market = build(GOLDEN, settings, store)
+    # 마지막 종가는 60이지만 호가는 그 두 배로 벌어져 있다.
+    market.spread = Decimal("60")
+
+    orders = engine.run_once(OPEN)
+
+    assert len(orders) == 1
+    # 종가 60 기준이면 5000/60 = 83주, 호가 90 기준이면 55주.
+    assert orders[0].filled_quantity == 55
+
+
+def test_exec_price_is_none_when_quote_lookup_fails(settings, store):
+    engine, broker, _ = build(GOLDEN, settings, store)
+
+    def broken_quote(symbol):
+        raise BrokerError("quote endpoint down")
+
+    broker.get_quote = broken_quote
+    signal = Signal("AAPL", SignalAction.ENTER_LONG, "test", Decimal("60"))
+
+    assert engine._exec_price(signal) is None
+
+
+def test_trading_continues_when_quote_lookup_fails(settings, store):
+    """호가를 못 받아도 종가로 사이징해서 매매는 계속되어야 한다."""
+    engine, broker, _ = build(GOLDEN, settings, store)
+    engine._exec_price = lambda signal: None
+
+    orders = engine.run_once(OPEN)
+
+    assert len(orders) == 1
+    assert orders[0].filled_quantity == 83  # 종가 60 기준 5000/60
 
 
 def test_run_forever_survives_a_failing_cycle(settings, store):
