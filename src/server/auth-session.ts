@@ -8,9 +8,15 @@ const loginFailureLimit = 5;
 const loginFailureWindowMs = 15 * 60 * 1000;
 const passwordResetRequestLimit = 3;
 const passwordResetRequestWindowMs = 60 * 60 * 1000;
+const publicSignupWindows = [
+  { limit: 12, windowMs: 60 * 1000 },
+  { limit: 60, windowMs: 60 * 60 * 1000 },
+  { limit: 150, windowMs: 24 * 60 * 60 * 1000 },
+] as const;
 
 // Authentication and user security mutations must share one serialized state transition.
 export const authSecurityLockKey = userAdministrationLockKey;
+export const publicSignupStateLockKey = "public-signup";
 
 export function readUnmodifiedPassword(value: unknown) {
   return typeof value === "string" ? value : "";
@@ -123,6 +129,43 @@ export function hasReachedPasswordResetRequestLimit(
   }).length;
 
   return requestCount >= passwordResetRequestLimit;
+}
+
+export function getPublicSignupThrottle(
+  db: MockDatabase,
+  branchId: string,
+  now = new Date(),
+) {
+  const nowMs = now.getTime();
+  const signupTimes = db.auditLogs
+    .filter(
+      (log) =>
+        log.action === "member.create" &&
+        log.branchId === branchId &&
+        log.result === "success" &&
+        log.after?.accountCreated === true,
+    )
+    .map((log) => auditCreatedAtMs(log.createdAt))
+    .filter((createdAt): createdAt is number => createdAt !== null && createdAt <= nowMs)
+    .sort((left, right) => left - right);
+
+  for (const policy of publicSignupWindows) {
+    const windowStartedAt = nowMs - policy.windowMs;
+    const recentSignups = signupTimes.filter((createdAt) => createdAt > windowStartedAt);
+
+    if (recentSignups.length >= policy.limit) {
+      return {
+        limit: policy.limit,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil((recentSignups[recentSignups.length - policy.limit] + policy.windowMs - nowMs) / 1000),
+        ),
+        windowSeconds: policy.windowMs / 1000,
+      };
+    }
+  }
+
+  return null;
 }
 
 function hashSessionToken(token: string) {

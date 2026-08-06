@@ -12,6 +12,7 @@ import {
   findAuthSession,
   findAuthSessionUser,
   getAccountLoginThrottle,
+  getPublicSignupThrottle,
   hasReachedPasswordResetRequestLimit,
   readUnmodifiedPassword,
   revokeAuthSession,
@@ -84,6 +85,22 @@ function authAudit({ id, result, action = "auth.login", targetId = user.id, crea
     after: { reason: result === "success" ? "authenticated" : "invalid_credentials" },
     result,
     message: "auth event",
+    createdAt,
+  };
+}
+
+function publicSignupAudit({ id, branchId = "branch-gangnam", createdAt, accountCreated = true }) {
+  return {
+    id,
+    branchId,
+    actorUserId: `user-${id}`,
+    action: "member.create",
+    targetType: "member",
+    targetId: `member-${id}`,
+    before: null,
+    after: { accountCreated },
+    result: "success",
+    message: "public signup",
     createdAt,
   };
 }
@@ -171,6 +188,62 @@ assert.equal(
   hasReachedPasswordResetRequestLimit({ ...db, auditLogs: resetAudits }, user.id, new Date("2026-07-14T02:00:00.000Z")),
   false,
   "expired reset requests must not suppress a later request",
+);
+
+const signupBurstNow = new Date("2026-07-14T00:14:30.000Z");
+const signupBurstAudits = Array.from({ length: 12 }, (_, index) =>
+  publicSignupAudit({
+    id: `signup-burst-${index}`,
+    createdAt: new Date(signupBurstNow.getTime() - (30 - index) * 1_000).toISOString(),
+  }),
+);
+assert.deepEqual(
+  getPublicSignupThrottle({ ...db, auditLogs: signupBurstAudits }, "branch-gangnam", signupBurstNow),
+  { limit: 12, retryAfterSeconds: 30, windowSeconds: 60 },
+  "twelve successful public signups in one minute must activate the branch burst limit",
+);
+assert.equal(
+  getPublicSignupThrottle({ ...db, auditLogs: signupBurstAudits }, "branch-songpa", signupBurstNow),
+  null,
+  "public signup limits must remain isolated by branch",
+);
+assert.equal(
+  getPublicSignupThrottle(
+    {
+      ...db,
+      auditLogs: signupBurstAudits.map((log) => ({ ...log, after: { accountUserId: log.actorUserId } })),
+    },
+    "branch-gangnam",
+    signupBurstNow,
+  ),
+  null,
+  "operator-created member records must not consume the public signup quota",
+);
+
+const signupHourlyNow = new Date("2026-07-14T01:00:00.000Z");
+const signupHourlyAudits = Array.from({ length: 60 }, (_, index) =>
+  publicSignupAudit({
+    id: `signup-hour-${index}`,
+    createdAt: new Date(Date.parse("2026-07-14T00:00:30.000Z") + index * 60_000).toISOString(),
+  }),
+);
+assert.deepEqual(
+  getPublicSignupThrottle({ ...db, auditLogs: signupHourlyAudits }, "branch-gangnam", signupHourlyNow),
+  { limit: 60, retryAfterSeconds: 30, windowSeconds: 3600 },
+  "sustained public signup activity must activate the hourly branch limit",
+);
+
+const signupDailyNow = new Date("2026-07-15T00:00:00.000Z");
+const signupDailyAudits = Array.from({ length: 150 }, (_, index) =>
+  publicSignupAudit({
+    id: `signup-day-${index}`,
+    createdAt: new Date(Date.parse("2026-07-14T00:30:00.000Z") + index * 9 * 60_000).toISOString(),
+  }),
+);
+assert.deepEqual(
+  getPublicSignupThrottle({ ...db, auditLogs: signupDailyAudits }, "branch-gangnam", signupDailyNow),
+  { limit: 150, retryAfterSeconds: 1800, windowSeconds: 86400 },
+  "slow automated public signups must activate the daily branch limit",
 );
 
 class SecurityTransitionLock {
@@ -344,6 +417,7 @@ console.log(JSON.stringify({
     "valid active-account credentials recover from account-only throttling while the production shared password stays blocked",
     "successful login resets the failure window",
     "password reset writes stop after three account requests per hour",
+    "public signup burst, hourly, and daily quotas remain branch-scoped and exclude operator-created members",
     "barrier transition rejects stale password and session state",
     "post-transition login observes the latest role",
     "login/logout use the auth lock and account security changes share ordered auth/push locks without raw identifier audit data",

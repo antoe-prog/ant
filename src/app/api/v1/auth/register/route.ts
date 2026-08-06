@@ -7,6 +7,7 @@ import {
   createRandomPasswordHash,
   defaultPilotPassword,
 } from "@/server/auth-password";
+import { getPublicSignupThrottle, publicSignupStateLockKey } from "@/server/auth-session";
 import { createBootstrapPayload, jsonError, jsonOk } from "@/server/api";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createRuntimeId } from "@/server/runtime-id";
@@ -60,88 +61,102 @@ async function completeRegistration(body: RegisterBody) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "다른 비밀번호를 입력해 주세요.");
   }
 
-  return withServerDbLock(`auth-register-phone:${phone}`, async () => {
-    const db = await readServerDb();
-    const availableBranches = getAvailableSignupBranches(db);
+  return withServerDbLock(publicSignupStateLockKey, () =>
+    withServerDbLock(`auth-register-phone:${phone}`, async () => {
+      const db = await readServerDb();
+      const availableBranches = getAvailableSignupBranches(db);
 
-    if (availableBranches.length === 0) {
-      return jsonError(503, "SERVICE_UNAVAILABLE", "현재 가입 가능한 지점이 없습니다.");
-    }
+      if (availableBranches.length === 0) {
+        return jsonError(503, "SERVICE_UNAVAILABLE", "현재 가입 가능한 지점이 없습니다.");
+      }
 
-    const selectedBranch = availableBranches.find(({ branch: candidate }) => candidate.id === requestedBranchId);
+      const selectedBranch = availableBranches.find(({ branch: candidate }) => candidate.id === requestedBranchId);
 
-    if (!selectedBranch) {
-      return jsonError(400, "VALIDATION_ERROR", "선택한 지점에서는 현재 가입할 수 없습니다.");
-    }
+      if (!selectedBranch) {
+        return jsonError(400, "VALIDATION_ERROR", "선택한 지점에서는 현재 가입할 수 없습니다.");
+      }
 
-    const phoneAlreadyRegistered = db.users.some((candidate) => samePhoneNumber(candidate.phone, phone));
+      const phoneAlreadyRegistered = db.users.some((candidate) => samePhoneNumber(candidate.phone, phone));
 
-    if (phoneAlreadyRegistered) {
-      return jsonError(409, "REGISTRATION_NOT_AVAILABLE", "회원가입을 완료할 수 없습니다. 입력 정보를 확인하거나 로그인해 주세요.");
-    }
+      if (phoneAlreadyRegistered) {
+        return jsonError(409, "REGISTRATION_NOT_AVAILABLE", "회원가입을 완료할 수 없습니다. 입력 정보를 확인하거나 로그인해 주세요.");
+      }
 
-    const { branch, operatorId: branchOperatorId } = selectedBranch;
-    const now = new Date().toISOString();
-    const userId = createRuntimeId("user-member");
-    const memberId = createRuntimeId("member");
-    const user: AppUser = {
-      id: userId,
-      name,
-      passwordHash: createRandomPasswordHash(password),
-      passwordUpdatedAt: now,
-      phone,
-      role: "member",
-      title: "성인 회원",
-      branchIds: [branch.id],
-      memberIds: [memberId],
-    };
-    const member: Member = {
-      id: memberId,
-      alerts: [],
-      ageGroup: "adult",
-      belt: "흰띠",
-      branchId: branch.id,
-      createdAt: now,
-      emergencyContact: phone,
-      guardianIds: [],
-      level: "입문",
-      primaryCoachId: branchOperatorId,
-      status: "trial",
-      statusChangedAt: now,
-      name,
-    };
-    const auditLog: AuditLog = {
-      id: createRuntimeId("audit"),
-      branchId: branch.id,
-      actorUserId: user.id,
-      action: "member.create",
-      targetType: "member",
-      targetId: member.id,
-      before: null,
-      after: {
-        accountCreated: true,
-        ageGroup: member.ageGroup,
+      const { branch, operatorId: branchOperatorId } = selectedBranch;
+      const now = new Date().toISOString();
+      const signupThrottle = getPublicSignupThrottle(db, branch.id, new Date(now));
+
+      if (signupThrottle) {
+        const response = jsonError(
+          429,
+          "RATE_LIMITED",
+          "회원가입 요청이 많습니다. 잠시 후 다시 시도하거나 도장에 문의해 주세요.",
+        );
+        response.headers.set("Retry-After", String(signupThrottle.retryAfterSeconds));
+        return response;
+      }
+
+      const userId = createRuntimeId("user-member");
+      const memberId = createRuntimeId("member");
+      const user: AppUser = {
+        id: userId,
+        name,
+        passwordHash: createRandomPasswordHash(password),
+        passwordUpdatedAt: now,
+        phone,
+        role: "member",
+        title: "성인 회원",
+        branchIds: [branch.id],
+        memberIds: [memberId],
+      };
+      const member: Member = {
+        id: memberId,
+        alerts: [],
+        ageGroup: "adult",
+        belt: "흰띠",
         branchId: branch.id,
-        role: user.role,
-        status: member.status,
-      },
-      result: "success",
-      message: "휴대폰 번호로 회원가입을 완료했습니다.",
-      createdAt: now,
-    };
-    const nextDb = await writeServerDb({
-      ...db,
-      users: [user, ...db.users],
-      members: [member, ...db.members],
-      auditLogs: [auditLog, ...db.auditLogs],
-    });
-    return jsonOk({
-      ...createBootstrapPayload(nextDb, user, branch.id),
-      ok: true,
-      userId,
-      memberId,
-    });
-  });
+        createdAt: now,
+        emergencyContact: phone,
+        guardianIds: [],
+        level: "입문",
+        primaryCoachId: branchOperatorId,
+        status: "trial",
+        statusChangedAt: now,
+        name,
+      };
+      const auditLog: AuditLog = {
+        id: createRuntimeId("audit"),
+        branchId: branch.id,
+        actorUserId: user.id,
+        action: "member.create",
+        targetType: "member",
+        targetId: member.id,
+        before: null,
+        after: {
+          accountCreated: true,
+          ageGroup: member.ageGroup,
+          branchId: branch.id,
+          role: user.role,
+          status: member.status,
+        },
+        result: "success",
+        message: "휴대폰 번호로 회원가입을 완료했습니다.",
+        createdAt: now,
+      };
+      const nextDb = await writeServerDb({
+        ...db,
+        users: [user, ...db.users],
+        members: [member, ...db.members],
+        auditLogs: [auditLog, ...db.auditLogs],
+      });
+      return jsonOk({
+        ...createBootstrapPayload(nextDb, user, branch.id),
+        ok: true,
+        userId,
+        memberId,
+      });
+    }),
+  );
 }
 
 export async function GET() {

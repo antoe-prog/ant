@@ -109,6 +109,23 @@ try {
     eventDate: "2026-12-01",
     createdAt: "2026-07-01T00:00:00.000Z",
   }];
+  const signupBurstCreatedAt = new Date();
+  sourceDb.auditLogs = [
+    ...Array.from({ length: 60 }, (_, index) => ({
+      id: `audit-public-signup-burst-${index}`,
+      branchId: "branch-gangnam",
+      actorUserId: `user-public-signup-burst-${index}`,
+      action: "member.create",
+      targetType: "member",
+      targetId: `member-public-signup-burst-${index}`,
+      before: null,
+      after: { accountCreated: true },
+      result: "success",
+      message: "public signup fixture",
+      createdAt: new Date(signupBurstCreatedAt.getTime() - index * 30_000).toISOString(),
+    })),
+    ...sourceDb.auditLogs,
+  ];
   const db = provisionGooglePlayReviewAccess(sourceDb, passwords, new Date("2026-07-22T03:00:00.000Z"));
   await writeFile(path.join(dataDirectory, "final-judo-db.json"), `${JSON.stringify(db, null, 2)}\n`, "utf8");
   await writeFile(
@@ -184,6 +201,21 @@ try {
     "VALIDATION_ERROR",
     "review branch signup rejection must use the public validation contract",
   );
+
+  const throttledPublicSignup = await fetch(`${baseUrl}/api/v1/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      branchId: "branch-gangnam",
+      name: "Public signup burst probe",
+      password: "FJ-Public-burst-blocked-2026",
+      phone: "01012345678",
+    }),
+  });
+  const throttledPublicSignupPayload = await throttledPublicSignup.json();
+  assert.equal(throttledPublicSignup.status, 429, "public signup bursts must be bounded per branch");
+  assert.equal(throttledPublicSignupPayload.error?.code, "RATE_LIMITED");
+  assert.match(throttledPublicSignup.headers.get("retry-after") ?? "", /^\d+$/);
 
   const sessions = {};
   for (const role of Object.keys(googlePlayReviewUserIds)) {

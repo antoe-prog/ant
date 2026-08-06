@@ -11,7 +11,10 @@ assert(registerRouteSource.includes("getAuthInputLimitError"), "signup must reje
 assert(registerRouteSource.includes("isValidKoreanMobileNumber"), "signup must validate Korean mobile numbers");
 assert(registerRouteSource.includes("getAvailableSignupBranches"), "signup must derive eligible branches on the server");
 assert(registerRouteSource.includes("availableBranches.find"), "signup must validate the selected branch");
+assert(registerRouteSource.includes("publicSignupStateLockKey"), "signup must serialize branch quota checks across different phone numbers");
 assert(registerRouteSource.includes("withServerDbLock(`auth-register-phone:${phone}`"), "signup must serialize writes per normalized phone");
+assert(registerRouteSource.includes("getPublicSignupThrottle"), "signup must bound unauthenticated account creation without storing request-origin data");
+assert(registerRouteSource.includes('"Retry-After"'), "signup throttling must provide a bounded retry path");
 assert(registerRouteSource.includes("phoneAlreadyRegistered"), "signup must recheck phone uniqueness inside the lock");
 assert(registerRouteSource.includes('"REGISTRATION_NOT_AVAILABLE"'), "duplicate signup must use a stable neutral error");
 assert(!registerRouteSource.includes("이미 등록된 휴대폰 번호입니다."), "signup must not enumerate existing phone numbers");
@@ -39,6 +42,7 @@ console.log(JSON.stringify({
   checked: [
     "direct signup validates bounded typed inputs and eligible branches",
     "per-phone locking and in-lock uniqueness prevent duplicate accounts",
+    "branch-scoped multi-window throttling bounds unauthenticated account creation",
     "duplicate responses do not disclose registered phone numbers",
     "signup audit metadata omits raw phone numbers",
     "signup UI and API do not expose deferred phone verification",
