@@ -137,6 +137,23 @@ async function registrationRequest(baseUrl, tournamentId, method, body) {
   return { response, payload: await response.json() };
 }
 
+async function registrationReviewRequest(baseUrl, tournamentId, status, note) {
+  const response = await fetch(`${baseUrl}/api/v1/tournaments/${tournamentId}/registrations`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      "x-user-id": "user-admin",
+    },
+    body: JSON.stringify({
+      memberId: "member-minjae",
+      status,
+      ...(note ? { note } : {}),
+    }),
+  });
+
+  return { response, payload: await response.json() };
+}
+
 async function main() {
   await assert.rejects(
     readBoundedTournamentSource(
@@ -378,6 +395,18 @@ async function main() {
       "repeat sync must preserve a persisted family registration",
     );
 
+    const activeEventConfirmation = await registrationReviewRequest(
+      baseUrl,
+      registrationTournament.id,
+      "confirmed",
+      "공식 일정 확인 완료",
+    );
+    assert.equal(
+      activeEventConfirmation.response.status,
+      200,
+      JSON.stringify(activeEventConfirmation.payload),
+    );
+
     sourceResponseBody = sourceFixture.replace('value="600"', 'value="missing-600"');
     const missingSourceSync = await apiRequest(baseUrl, "user-admin");
     assert.equal(missingSourceSync.response.status, 200, JSON.stringify(missingSourceSync.payload));
@@ -392,9 +421,44 @@ async function main() {
     );
     assert.equal(
       unavailableTournament?.registrations?.[0]?.status,
-      "pending",
+      "confirmed",
       "marking an imported event unavailable must preserve its registration history",
     );
+
+    const unavailableSubmission = await registrationReviewRequest(
+      baseUrl,
+      registrationTournament.id,
+      "submitted",
+    );
+    assert.equal(
+      unavailableSubmission.response.status,
+      422,
+      "a missing official event must not be submitted to the association",
+    );
+    assert.match(unavailableSubmission.payload.error.message, /공식 일정에서 현재 확인되지 않는/);
+
+    const unavailableRecovery = await registrationReviewRequest(
+      baseUrl,
+      registrationTournament.id,
+      "pending",
+    );
+    assert.equal(
+      unavailableRecovery.response.status,
+      200,
+      "a missing official event must allow a confirmed registration to return to pending",
+    );
+
+    const unavailableReconfirmation = await registrationReviewRequest(
+      baseUrl,
+      registrationTournament.id,
+      "confirmed",
+    );
+    assert.equal(
+      unavailableReconfirmation.response.status,
+      422,
+      "a missing official event must not be confirmed again",
+    );
+    assert.match(unavailableReconfirmation.payload.error.message, /공식 일정에서 현재 확인되지 않는/);
 
     const unavailableUpdate = await registrationRequest(baseUrl, registrationTournament.id, "POST", {
       memberId: "member-minjae",
@@ -457,6 +521,14 @@ async function main() {
       "the family registration dialog must disable new or updated applications for missing official events",
     );
     assert(
+      screenSource.includes("managementSourceUnavailable"),
+      "the management dialog must disable confirmation and submission for missing official events",
+    );
+    assert(
+      screenSource.includes('data-testid="tournament-registration-management-source-warning"'),
+      "the management dialog must explain why confirmation and submission are unavailable",
+    );
+    assert(
       calendarSource.includes("getCalendarTournamentLabel(dayTournaments[0].title)"),
       "calendar dates must show a readable tournament title",
     );
@@ -496,6 +568,7 @@ async function main() {
           idempotent: true,
           manualTournamentPreserved: true,
           missingOfficialEventBlocked: true,
+          missingOfficialEventManagementBlocked: true,
           registrationsPreserved: true,
           sourceFetchesSerialized: true,
           staleRegistrationCancellationPreserved: true,

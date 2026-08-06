@@ -134,10 +134,20 @@ function parseRegistrationReviewBody(value: unknown): RegistrationReviewBody | n
 }
 
 function getRegistrationReviewBlockReason(
+  tournament: Tournament,
   registrations: readonly { status?: TournamentRegistrationStatus }[],
   nextStatus: TournamentRegistrationStatus,
 ) {
   const currentStatuses = registrations.map((registration) => registration.status ?? "pending");
+
+  if (
+    tournament.source === "korea_judo_association" &&
+    tournament.sourceAvailability === "missing" &&
+    (nextStatus === "confirmed" || nextStatus === "submitted") &&
+    currentStatuses.some((status) => status !== nextStatus)
+  ) {
+    return "대한유도회 공식 일정에서 현재 확인되지 않는 대회는 참가 확정하거나 협회 제출할 수 없습니다.";
+  }
 
   if (nextStatus !== "submitted" && currentStatuses.some((status) => status === "submitted")) {
     return "협회에 제출된 참가 신청은 일반 상태 변경으로 되돌릴 수 없습니다.";
@@ -528,6 +538,7 @@ async function reviewRegistration(
   }
 
   const initialBlockReason = getRegistrationReviewBlockReason(
+    initialContext.tournament,
     initialContext.contexts.map((context) => context.registration),
     body.status,
   );
@@ -545,6 +556,7 @@ async function reviewRegistration(
     }
 
     const blockReason = getRegistrationReviewBlockReason(
+      context.tournament,
       context.contexts.map((item) => item.registration),
       body.status,
     );
