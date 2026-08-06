@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
   return jsonOk({
     ok: true,
     processed: result.processed,
+    prunedAuditLogCount: retention.prunedAuditLogCount,
     prunedPaymentTransactionCount: retention.prunedPaymentTransactionCount,
   });
 }

@@ -424,7 +424,7 @@ provider webhook은 전역 event ID 공유 잠금을 먼저 얻고 그 안에서
 | `POST` | `/notifications/subscriptions` | 인증 | 예 | 현재 브라우저 PushSubscription 저장. HTTPS endpoint(2,048자 이하), key(512자 이하·Base64URL), 만료값, userAgent 타입·길이와 `allowReactivation` boolean을 검증한다. 자동 앱 진입은 `false`로 보내 보안 변경으로 비활성화된 기기를 보존하고, 사용자 명시 동작만 `true`로 재활성화한다. 같은 endpoint의 계정 이전·구독 키 교체·명시적 재활성화는 이전 레코드를 사용하는 provider 호출이 진행 중이면 `409 PUSH_SUBSCRIPTION_UPDATE_PENDING`으로 거절하고 호출 종료 후 재시도한다. 응답의 활성 구독 수는 역할별 스코프만 반환 |
 | `DELETE` | `/notifications/subscriptions` | 인증 | 예 | 현재 사용자 PushSubscription 비활성화. 등록과 동일하게 HTTPS endpoint 2,048자 상한을 검증한다. 코치·대표·총괄의 해지는 해당 구독의 pending·retry 발송을 즉시 취소하고 leased 발송에 취소 의도와 전달 불확실성을 남긴다. 회원/학부모의 활성 구독은 항상 켜짐 정책으로 비활성화하지 않지만, 보안 변경으로 이미 비활성화된 구독은 그대로 유지하고 `reactivationRequired: true`를 반환한다. 활성 구독 수는 본인 범위만 반환 |
 | `POST` | `/branches/:branchId/notices/:noticeId/push` | `notices.publish` (owner/admin/coach 담당 범위) | 예 | 공지 대상자 구독에 서버 푸시 발송 |
-| `GET` | `/internal/notification-outbox` | `Authorization: Bearer CRON_SECRET` | 아니오 | 만료된 법정 거래 보존기록 정리, 만료 lease 복구와 대기/재시도 푸시 작업 처리. 일반 사용자 세션으로 호출 불가 |
+| `GET` | `/internal/notification-outbox` | `Authorization: Bearer CRON_SECRET` | 아니오 | 2년이 지난 회원 삭제 감사 기록과 5년이 지난 분리 법정 거래기록 정리, 만료 lease 복구와 대기/재시도 푸시 작업 처리. 일반 사용자 세션으로 호출 불가 |
 
 공지 대상:
 

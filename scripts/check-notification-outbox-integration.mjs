@@ -75,6 +75,7 @@ assert(files.tournamentRegistrations.includes("notificationOutboxExecutionPolicy
 assert(files.tournamentRegistrations.includes("after(async () =>"));
 assert(files.cron.includes("notificationOutboxExecutionPolicy.scheduled"));
 assert(files.cron.includes("pruneExpiredRuntimeRetentionRecords"));
+assert(files.cron.includes("prunedAuditLogCount"));
 assert(files.cron.includes("prunedPaymentTransactionCount"));
 assert(files.runner.includes("runNotificationOutboxWorkerPool"));
 
@@ -151,7 +152,7 @@ console.log(JSON.stringify({
     "cancelled settlement preserves truthful pre-provider and in-flight provider state",
     "timing-safe cron authorization",
     "Vercel cron route registration",
-    "daily persisted payment retention cleanup",
+    "daily persisted deletion-audit and payment retention cleanup",
     "bounded concurrent delivery with batch and worker caps",
     "request-triggered delivery deferred until after the response",
     "scheduled delivery uses the larger worker policy",

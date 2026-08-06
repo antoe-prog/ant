@@ -1,4 +1,5 @@
 import path from "node:path";
+import { pruneExpiredMemberDeletionAuditLogs } from "@/lib/audit-log-retention";
 import type { MockDatabase, PilotOperationLog, PilotReadinessStatus } from "@/lib/domain";
 import { sanitizeAuditLog } from "@/lib/audit-log-security";
 import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-data";
@@ -270,12 +271,14 @@ export async function readServerDb() {
 }
 
 export async function writeServerDb(db: MockDatabase) {
+  const auditLogs = pruneExpiredMemberDeletionAuditLogs(db.auditLogs);
   const retainedPaymentTransactions = pruneExpiredRetainedPaymentTransactions(
     db.retainedPaymentTransactions ?? [],
   );
 
   return serverDbStore.write(sanitizeDatabaseAuditLogs({
     ...db,
+    auditLogs,
     retainedPaymentTransactions,
   }));
 }
