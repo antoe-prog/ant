@@ -278,6 +278,51 @@ export type PaymentStatusHistoryEntry = {
   providerEventId?: string;
 };
 
+export type RetainedPaymentTransaction = {
+  id: string;
+  branchId: string;
+  memberReference: string;
+  sourcePaymentId: string;
+  deletionAuditLogId: string;
+  planName: string;
+  status: PaymentStatus;
+  amount: number;
+  discountAmount?: number;
+  dueDate: string;
+  expiresAt: string;
+  refundedAmount?: number;
+  refundedAt?: string;
+  onlinePayment?: {
+    provider: OnlinePaymentProvider;
+    providerPaymentId: string;
+    status: OnlinePaymentStatus;
+    amount: number;
+    requestedAt: string;
+    paidAt?: string;
+    failedAt?: string;
+    receiptId?: string;
+    receiptIssuedAt?: string;
+  };
+  recurringAgreement?: {
+    provider: OnlinePaymentProvider;
+    providerAgreementId: string;
+    status: RecurringBillingStatus;
+    requestedAt: string;
+    activatedAt?: string;
+    cancelledAt?: string;
+  };
+  statusHistory: Array<{
+    status: PaymentStatus;
+    changedAt: string;
+    actorUserId: string;
+    event: PaymentStatusHistoryEntry["event"];
+    providerEventId?: string;
+  }>;
+  retainedAt: string;
+  retentionExpiresAt: string;
+  legalBasis: "ecommerce_transaction_record_5y";
+};
+
 export type NoticeAudience = UserRole | "all";
 export type NoticeTargetType = "branch" | "class" | "member";
 
@@ -603,6 +648,7 @@ export type MockDatabase = {
   promotions: BeltPromotion[];
   tournaments: Tournament[];
   payments: Payment[];
+  retainedPaymentTransactions?: RetainedPaymentTransaction[];
   notices: Notice[];
   authSessions: AuthSession[];
   passwordResetChallenges: PasswordResetChallenge[];

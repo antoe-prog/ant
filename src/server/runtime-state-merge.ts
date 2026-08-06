@@ -11,6 +11,7 @@ const runtimeCollectionKeys = [
   "promotions",
   "tournaments",
   "payments",
+  "retainedPaymentTransactions",
   "notices",
   "authSessions",
   "passwordResetChallenges",

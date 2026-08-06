@@ -476,6 +476,7 @@ export function createMockData(): MockDatabase {
         statusHistory: paymentHistory("paid", "user-owner", -8, "송파 지점 수기 결제 등록"),
       },
     ],
+    retainedPaymentTransactions: [],
     notices: [
       {
         id: "notice-promotion-result-jun",

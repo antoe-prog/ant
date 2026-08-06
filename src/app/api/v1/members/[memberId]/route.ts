@@ -7,6 +7,7 @@ import {
 } from "@/lib/member-deletion-policy";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { removeMemberFromTargetedNotices } from "@/lib/notices";
+import { createRetainedPaymentTransactions } from "@/lib/payment-transaction-retention";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -526,6 +527,15 @@ export async function DELETE(
       );
     }
 
+    const now = new Date().toISOString();
+    const deletionAuditLogId = createRuntimeId("audit");
+    const retainedPaymentTransactions = createRetainedPaymentTransactions({
+      payments: db.payments,
+      memberId: member.id,
+      branchId: member.branchId,
+      deletionAuditLogId,
+      retainedAt: now,
+    });
     const removedClassEnrollmentCount = db.classes.filter((session) =>
       session.enrolledMemberIds.includes(member.id),
     ).length;
@@ -591,9 +601,8 @@ export async function DELETE(
           ? { childMemberIds: candidate.childMemberIds.filter((candidateMemberId) => candidateMemberId !== member.id) }
           : {}),
       }));
-    const now = new Date().toISOString();
     const auditLog: AuditLog = {
-      id: createRuntimeId("audit"),
+      id: deletionAuditLogId,
       branchId: member.branchId,
       actorUserId: user.id,
       action: "member.delete",
@@ -618,6 +627,8 @@ export async function DELETE(
         removedPromotionCount,
         removedQrRedemptionCount,
         removedTournamentRegistrationCount,
+        retainedPaymentTransactionCount: retainedPaymentTransactions.length,
+        transactionRetentionExpiresAt: retainedPaymentTransactions[0]?.retentionExpiresAt ?? null,
       },
       result: "success",
       message: "회원과 연결된 운영 기록을 삭제했습니다.",
@@ -641,6 +652,10 @@ export async function DELETE(
         ),
       })),
       payments: db.payments.filter((payment) => payment.memberId !== member.id),
+      retainedPaymentTransactions: [
+        ...retainedPaymentTransactions,
+        ...(db.retainedPaymentTransactions ?? []),
+      ],
       notices: noticeCleanup.notices.map((notice) => ({
         ...notice,
         readByUserIds: notice.readByUserIds.filter((readByUserId) => !deletedUserIds.has(readByUserId)),

@@ -9,6 +9,7 @@ import { rollGooglePlayReviewDates } from "@/lib/google-play-review-access";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
 import { mergeRuntimeState } from "@/server/runtime-state-merge";
+import { pruneExpiredRetainedPaymentTransactions } from "@/lib/payment-transaction-retention";
 import {
   assertNoNewRuntimeStateIntegrityIssues,
   validateRuntimeStateIntegrity,
@@ -39,6 +40,7 @@ const requiredCollections = [
   "promotions",
   "tournaments",
   "payments",
+  "retainedPaymentTransactions",
   "notices",
   "authSessions",
   "passwordResetChallenges",
@@ -188,6 +190,9 @@ function validateMockDatabase(value: unknown) {
               : challenge,
           )
       : [],
+    retainedPaymentTransactions: pruneExpiredRetainedPaymentTransactions(
+      Array.isArray(db.retainedPaymentTransactions) ? db.retainedPaymentTransactions : [],
+    ),
     pushSubscriptions: Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : [],
     pushDispatchJobs: Array.isArray(db.pushDispatchJobs) ? db.pushDispatchJobs : [],
     pilotIncidents: Array.isArray(db.pilotIncidents) ? db.pilotIncidents : [],

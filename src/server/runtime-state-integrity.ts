@@ -14,6 +14,7 @@ const runtimeCollectionKeys = [
   "promotions",
   "tournaments",
   "payments",
+  "retainedPaymentTransactions",
   "notices",
   "authSessions",
   "passwordResetChallenges",
@@ -159,6 +160,24 @@ export function validateRuntimeStateIntegrity(db: MockDatabase): MockDatabase {
     db.authSessions.map((session) => ({ targetId: session.id, value: session.tokenHash })),
     "authSessions.tokenHash",
   );
+
+  for (const record of db.retainedPaymentTransactions ?? []) {
+    if (
+      !record.branchId ||
+      !record.memberReference ||
+      !record.sourcePaymentId ||
+      !record.deletionAuditLogId ||
+      !record.planName ||
+      !Number.isFinite(record.amount) ||
+      record.amount < 0 ||
+      !Number.isFinite(Date.parse(record.retainedAt)) ||
+      !Number.isFinite(Date.parse(record.retentionExpiresAt)) ||
+      Date.parse(record.retentionExpiresAt) <= Date.parse(record.retainedAt) ||
+      record.legalBasis !== "ecommerce_transaction_record_5y"
+    ) {
+      throw new RuntimeStateIntegrityError("retainedPaymentTransactions.format", record.id);
+    }
+  }
 
   for (const session of db.authSessions) {
     if (

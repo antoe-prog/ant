@@ -10,6 +10,11 @@ const {
   getMemberDeletionPendingOnlinePaymentBlockers,
   getMemberDeletionRecurringAgreementBlockers,
 } = await import("../src/lib/member-deletion-policy.ts");
+const {
+  createRetainedPaymentTransactions,
+  getTransactionRetentionExpiresAt,
+  pruneExpiredRetainedPaymentTransactions,
+} = await import("../src/lib/payment-transaction-retention.ts");
 
 const files = {
   adminSettings: "src/components/screens/admin-settings-screen.tsx",
@@ -26,6 +31,9 @@ const files = {
   recurringAgreementRoute: "src/app/api/v1/payments/[paymentId]/recurring-agreement/route.ts",
   memberRoute: "src/app/api/v1/members/[memberId]/route.ts",
   membersScreen: "src/components/screens/members-screen.tsx",
+  paymentRetention: "src/lib/payment-transaction-retention.ts",
+  runtimeMerge: "src/server/runtime-state-merge.ts",
+  serverDb: "src/server/db.ts",
   releaseChecklist: "docs/RELEASE_CHECKLIST.md",
   releaseRunner: "scripts/run-release-checks.mjs",
   smokeApi: "scripts/smoke-api.mjs",
@@ -103,6 +111,71 @@ assert.deepEqual(
   ["payment-pending"],
   "member deletion must preserve pending online payment requests until their webhook can be reconciled",
 );
+const retainedAt = "2026-08-06T00:00:00.000Z";
+const retainedTransactions = createRetainedPaymentTransactions({
+  payments: [
+    {
+      ...recurringAgreementFixture("cancelled"),
+      discountAmount: 10000,
+      refundedAmount: 20000,
+      refundedAt: "2026-08-05T00:00:00.000Z",
+      onlinePayment: {
+        provider: "external",
+        providerPaymentId: "provider-payment-1",
+        status: "refunded",
+        checkoutUrl: "https://payments.example/checkout/secret-path",
+        requestedAt: "2026-08-01T00:00:00.000Z",
+        requestedByUserId: "user-owner",
+        amount: 170000,
+        receipt: {
+          id: "receipt-1",
+          issuedAt: "2026-08-02T00:00:00.000Z",
+          providerPaymentId: "provider-payment-1",
+          receiptUrl: "https://payments.example/receipt/private-path",
+        },
+      },
+      statusHistory: [
+        {
+          id: "history-1",
+          status: "paid",
+          changedAt: "2026-08-02T00:00:00.000Z",
+          actorUserId: "user-owner",
+          reason: "민감한 자유 입력 사유",
+          event: "webhook",
+          providerEventId: "event-1",
+        },
+      ],
+    },
+  ],
+  memberId: "member-one",
+  branchId: "branch-main",
+  deletionAuditLogId: "audit-delete-1",
+  retainedAt,
+});
+assert.equal(retainedTransactions.length, 1, "member deletion must retain one compliance record per payment");
+assert.equal(
+  retainedTransactions[0].retentionExpiresAt,
+  "2031-08-06T00:00:00.000Z",
+  "transaction records must expire five years after deletion",
+);
+assert.equal(retainedTransactions[0].onlinePayment?.providerPaymentId, "provider-payment-1");
+assert.equal(retainedTransactions[0].statusHistory[0]?.providerEventId, "event-1");
+assert(
+  !JSON.stringify(retainedTransactions).includes("secret-path") &&
+    !JSON.stringify(retainedTransactions).includes("민감한 자유 입력 사유"),
+  "retained transaction records must exclude checkout URLs, receipt URLs, and free-text reasons",
+);
+assert.equal(
+  pruneExpiredRetainedPaymentTransactions(retainedTransactions, "2031-08-05T23:59:59.999Z").length,
+  1,
+  "transaction records must remain available throughout the statutory retention period",
+);
+assert.equal(
+  pruneExpiredRetainedPaymentTransactions(retainedTransactions, "2031-08-06T00:00:00.000Z").length,
+  0,
+  "expired transaction records must be removed at the retention boundary",
+);
+assert.equal(getTransactionRetentionExpiresAt(retainedAt), "2031-08-06T00:00:00.000Z");
 
 assert(sources.domain.includes("PaymentRecurringAgreement"), "domain must define recurring agreement metadata");
 assert(sources.domain.includes("recurringAgreement?: PaymentRecurringAgreement"), "Payment must carry recurring agreement metadata");
@@ -115,6 +188,18 @@ assert(
     sources.memberRoute.includes("getMemberDeletionPendingOnlinePaymentBlockers(db.payments, member.id)") &&
     sources.memberRoute.includes("진행 중인 온라인 결제 요청과 정기결제 약정을 먼저 정리해 주세요."),
   "member deletion route must preserve pending online payments and non-cancelled recurring agreements",
+);
+assert(
+  sources.memberRoute.includes("createRetainedPaymentTransactions") &&
+    sources.memberRoute.includes("retainedPaymentTransactions: [") &&
+    sources.memberRoute.includes("retainedPaymentTransactionCount"),
+  "member deletion must move completed payment evidence into the separated retention ledger",
+);
+assert(
+  sources.serverDb.includes("pruneExpiredRetainedPaymentTransactions") &&
+    sources.serverDb.includes('"retainedPaymentTransactions"') &&
+    sources.runtimeMerge.includes('"retainedPaymentTransactions"'),
+  "retained transactions must be upgraded, expired, and merged without lost updates",
 );
 assert(
   sources.membersScreen.includes("memberDeletePaymentBlockerCount") &&
@@ -190,6 +275,7 @@ console.log(
         "recurring agreement payload validation and shared payment lock",
         "recurring agreement routes authenticate and check branch scope before body validation",
         "member deletion preserves pending online payments and non-cancelled recurring agreements with a recovery path",
+        "member deletion retains a minimal five-year transaction ledger and prunes it at expiry",
         "payments screen recurring agreement UI",
         "payment CSV recurring columns",
         "API/DB docs and release gates include recurring billing",

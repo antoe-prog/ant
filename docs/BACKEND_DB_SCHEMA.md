@@ -33,6 +33,7 @@
 | Counseling | 상담/주의사항/수업 메모 |
 | Memberships | 회원권/수강권 상태 |
 | Payments | 수기 결제, 미납, 환불, 할인 |
+| Retained Payment Transactions | 회원 삭제 후 법정 보존하는 최소 거래 원장 |
 | Audit | 감사 로그 기록, 조회, CSV 내보내기 기록 |
 | Pilot Readiness | 파일럿 준비 항목 상태, 담당자, 증빙 추적 |
 | Pilot Incidents | 파일럿 운영 중 장애/이슈, 우회책, 운영 중단 판단 기록 |
@@ -145,6 +146,7 @@ MVP 기본 역할은 다음과 같다.
 - 병합 후 무결성: 사용자 휴대폰은 국가번호/구분 문자를 제거한 값, 이메일은 소문자 기준으로 유일해야 한다. 사용자 지점·회원 연결, 회원 담당 코치·학부모, 수업 코치·회원, 출석 회차·회원, 결제 회원·지점, 공지 대상, 푸시 구독 사용자 참조를 다시 확인하고 위반 시 `RuntimeStateIntegrityError`로 전체 쓰기를 중단한다.
 - JSON 다중 프로세스: `.locks` 파일시스템 디렉터리 잠금으로 operation/read/write를 직렬화하고 조회·쓰기 직전에 primary를 다시 읽는다. 읽기 전용 인스턴스도 디스크 내용이 달라지면 캐시와 로컬 revision을 갱신한다. 로컬 revision이 같아도 base와 디스크 최신본이 다르면 3-way merge하며, 2분 이상 남은 비정상 lock만 복구한다. primary 교체가 끝난 뒤 백업 pruning 실패는 커밋된 쓰기를 실패로 되돌리지 않는다.
 - 결제 재시도: 같은 요청 키는 transaction-scoped PostgreSQL advisory lock으로 여러 앱 인스턴스 사이에서 직렬화한다. 잠금 내부 read/write는 같은 트랜잭션 연결을 사용한다.
+- 거래 기록 분리 보존: 회원 삭제 시 일반 `payments`와 회원 개인정보는 제거하되, 완료된 결제의 거래 식별값·금액·상태·납부/공급 기간만 `retainedPaymentTransactions`에 분리한다. 이름·전화·주소·결제 화면 URL·자유 입력 사유는 복사하지 않으며 일반 bootstrap/API 응답에도 포함하지 않는다. 각 원장은 삭제 감사 로그와 연결하고 5년 만료 시 저장소 검증 단계에서 정리한다.
 - 스냅샷 포함 collection: `pilotReadinessChecks`, `pilotIncidents`
 - 파일럿 운영 증빙 collection: `pilotOperationLogs`. 출석 기록이 있는 `verified` 로그는 `mobileAttendanceDurationSeconds <= 30`과 `mobileAttendanceEvidence`를 함께 저장한다.
 - 운영 계정 로그인: runtime snapshot의 `users.passwordHash`는 서버 전용 PBKDF2 해시로 보강하며 bootstrap/snapshot 응답에서는 제거한다. 총괄 어드민의 임시 비밀번호 발급은 원문을 저장하지 않고 랜덤 salt 해시, 발급 시각, `auth.password_reset.complete` 감사 로그만 남긴다.
