@@ -56,6 +56,55 @@ const [
   readFile("docs/RELEASE_CHECKLIST.md", "utf8"),
 ]);
 const packageJson = JSON.parse(packageJsonSource);
+const { getMemberDeletionSecurityAffectedUserIds } = await import("../src/lib/member-deletion-policy.ts");
+
+const memberDeletionSecurityAffectedUserIds = getMemberDeletionSecurityAffectedUserIds(
+  [
+    {
+      id: "user-member",
+      role: "member",
+      memberIds: ["member-target"],
+      childMemberIds: [],
+      branchIds: [],
+      name: "",
+      title: "",
+    },
+    {
+      id: "user-family",
+      role: "guardian",
+      memberIds: [],
+      childMemberIds: ["member-target"],
+      branchIds: [],
+      name: "",
+      title: "",
+    },
+    {
+      id: "user-legacy-guardian",
+      role: "guardian",
+      memberIds: [],
+      childMemberIds: [],
+      branchIds: [],
+      name: "",
+      title: "",
+    },
+    {
+      id: "user-unrelated",
+      role: "guardian",
+      memberIds: [],
+      childMemberIds: ["member-other"],
+      branchIds: [],
+      name: "",
+      title: "",
+    },
+  ],
+  { id: "member-target", guardianIds: ["user-legacy-guardian"] },
+);
+
+assert.deepEqual(
+  memberDeletionSecurityAffectedUserIds,
+  ["user-member", "user-family", "user-legacy-guardian"],
+  "member deletion must identify direct, family, and legacy guardian account security scopes",
+);
 
 assert(
   /data-testid=\{`member-profile-age-summary-\$\{member\.id\}`\}/.test(membersScreenSource) &&
@@ -174,7 +223,12 @@ assert(
     memberRouteSource.includes("removedNoticeCount") &&
     memberRouteSource.includes("deletedUserIds") &&
     memberRouteSource.includes("withAuthAndNotificationStateLock") &&
+    memberRouteSource.includes("getMemberDeletionSecurityAffectedUserIds") &&
+    memberRouteSource.includes("hasInFlightPushDispatchForUser") &&
     memberRouteSource.includes("preparePushDispatchJobsForUserDeletion") &&
+    memberRouteSource.includes("survivingSecurityAffectedUserIds") &&
+    memberRouteSource.includes("revokeUserSecurityAccess(candidateDb, affectedUserId, new Date(now))") &&
+    memberRouteSource.includes("revokedLinkedUserAccessCount") &&
     memberRouteSource.includes("cancelledPushJobCount") &&
     memberRouteSource.includes("연결 계정의 휴대폰 알림 발송이 처리 중입니다") &&
     !memberRouteSource.includes("pushDispatchJobs: db.pushDispatchJobs.filter") &&
@@ -426,6 +480,7 @@ console.log(
         "rendered guardian age policy UI check is wired into release",
         "admin guardian edit bottom safe-area UI check is wired into release",
         "guardian link API keeps reciprocal links and revokes stale guardian sessions and push delivery",
+        "member deletion fences in-flight family delivery and revokes every changed account security scope",
         "smoke API covers runtime profile and guardian link persistence",
         "release/docs include the focused regression guard",
       ],

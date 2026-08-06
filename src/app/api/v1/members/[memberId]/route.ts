@@ -4,6 +4,7 @@ import { memberInputLimits } from "@/lib/member-input-policy";
 import {
   getMemberDeletionPendingOnlinePaymentBlockers,
   getMemberDeletionRecurringAgreementBlockers,
+  getMemberDeletionSecurityAffectedUserIds,
 } from "@/lib/member-deletion-policy";
 import { getAccessibleBranchIds, getAccessibleMemberIds } from "@/lib/mock-api";
 import { removeMemberFromTargetedNotices } from "@/lib/notices";
@@ -12,7 +13,11 @@ import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
 import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
-import { preparePushDispatchJobsForUserDeletion } from "@/server/notification-outbox";
+import { revokeUserSecurityAccess } from "@/server/auth-session";
+import {
+  hasInFlightPushDispatchForUser,
+  preparePushDispatchJobsForUserDeletion,
+} from "@/server/notification-outbox";
 import { cancelPendingNoticePushJobs } from "@/server/notification-outbox-runner";
 import { createRuntimeId } from "@/server/runtime-id";
 
@@ -528,6 +533,20 @@ export async function DELETE(
     }
 
     const now = new Date().toISOString();
+    const securityAffectedUserIds = new Set(getMemberDeletionSecurityAffectedUserIds(db.users, member));
+
+    if (
+      [...securityAffectedUserIds].some((affectedUserId) =>
+        hasInFlightPushDispatchForUser(db, affectedUserId, new Date(now)),
+      )
+    ) {
+      return jsonError(
+        409,
+        "BUSINESS_RULE_FAILED",
+        "연결 계정의 휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 삭제해 주세요.",
+      );
+    }
+
     const deletionAuditLogId = createRuntimeId("audit");
     const retainedPaymentTransactions = createRetainedPaymentTransactions({
       payments: db.payments,
@@ -569,6 +588,9 @@ export async function DELETE(
           return (candidate.memberIds ?? []).filter((candidateMemberId) => candidateMemberId !== member.id).length === 0;
         })
         .map((candidate) => candidate.id),
+    );
+    const survivingSecurityAffectedUserIds = [...securityAffectedUserIds].filter(
+      (affectedUserId) => !deletedUserIds.has(affectedUserId),
     );
     let pushCleanupDb = db;
     let cancelledPushJobCount = 0;
@@ -617,6 +639,7 @@ export async function DELETE(
         reasonRecorded: true,
         cancelledPushJobCount,
         deletedUserCount: deletedUserIds.size,
+        revokedLinkedUserAccessCount: survivingSecurityAffectedUserIds.length,
         removedAttendanceCount,
         removedClassEnrollmentCount,
         removedCounselingNoteCount,
@@ -678,7 +701,12 @@ export async function DELETE(
         ),
       nextDbBeforeNoticeCancellation,
     );
-    const nextDb = await writeServerDb(nextDbWithCancelledNoticeJobs);
+    const nextDbWithRevokedLinkedAccess = survivingSecurityAffectedUserIds.reduce(
+      (candidateDb, affectedUserId) =>
+        revokeUserSecurityAccess(candidateDb, affectedUserId, new Date(now)),
+      nextDbWithCancelledNoticeJobs,
+    );
+    const nextDb = await writeServerDb(nextDbWithRevokedLinkedAccess);
 
     return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
     }),

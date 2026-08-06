@@ -1,4 +1,20 @@
-import type { Payment } from "./domain.ts";
+import type { AppUser, Member, Payment } from "./domain.ts";
+
+export function getMemberDeletionSecurityAffectedUserIds(
+  users: readonly AppUser[],
+  member: Pick<Member, "guardianIds" | "id">,
+) {
+  const guardianIds = new Set(member.guardianIds);
+
+  return users
+    .filter(
+      (user) =>
+        guardianIds.has(user.id) ||
+        (user.memberIds ?? []).includes(member.id) ||
+        (user.childMemberIds ?? []).includes(member.id),
+    )
+    .map((user) => user.id);
+}
 
 export function getMemberDeletionRecurringAgreementBlockers(
   payments: readonly Payment[],
