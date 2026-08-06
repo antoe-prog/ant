@@ -453,6 +453,14 @@ export function inspectRuntimeStateIntegrity(db: MockDatabase): RuntimeStateInte
     }
   }
 
+  for (const auditLog of db.auditLogs) {
+    if (auditLog.action === "member.delete" && !Number.isFinite(Date.parse(auditLog.createdAt))) {
+      issues.push(createIssue("auditLogs.memberDeleteCreatedAt", auditLog.id, "blocker", true, {
+        action: auditLog.action,
+      }));
+    }
+  }
+
   return issues;
 }
 
@@ -518,6 +526,7 @@ export function reconcileRuntimeStateIntegrity(
   if (!auditActor || auditActor.role !== "admin" || auditActor.invitationStatus === "pending") {
     throw new RuntimeStateIntegrityError("auditLogs.actorUserId", options.actorUserId);
   }
+  const createdAt = options.now ?? new Date().toISOString();
 
   const users = db.users.map((user) => {
     const validBranchIds = user.branchIds.filter((branchId) => branchIds.has(branchId));
@@ -680,11 +689,26 @@ export function reconcileRuntimeStateIntegrity(
     return [{ ...subscription, branchIds: validBranchIds }];
   });
 
+  const reconciledAuditLogs = db.auditLogs.map((auditLog) => {
+    if (auditLog.action !== "member.delete" || Number.isFinite(Date.parse(auditLog.createdAt))) {
+      return auditLog;
+    }
+
+    addRepair({
+      branchId: auditLog.branchId,
+      targetId: auditLog.id,
+      targetType: "audit",
+      rule: "auditLogs.memberDeleteCreatedAt",
+      before: { createdAtValid: false },
+      after: { createdAt },
+    });
+    return { ...auditLog, createdAt };
+  });
+
   const reconciled = repairs.length === 0
     ? db
-    : { ...db, users, members, classes, notices, pushSubscriptions };
-  const createdAt = options.now ?? new Date().toISOString();
-  const auditLogs: AuditLog[] = repairs.map((repair) => ({
+    : { ...db, users, members, classes, notices, pushSubscriptions, auditLogs: reconciledAuditLogs };
+  const repairAuditLogs: AuditLog[] = repairs.map((repair) => ({
     id: options.createId?.() ?? createRuntimeId("audit"),
     branchId: repair.branchId,
     actorUserId: options.actorUserId,
@@ -697,8 +721,8 @@ export function reconcileRuntimeStateIntegrity(
     message: "런타임 데이터 참조를 정정했습니다.",
     createdAt,
   }));
-  const dbWithAudit = auditLogs.length > 0
-    ? { ...reconciled, auditLogs: [...auditLogs, ...reconciled.auditLogs] }
+  const dbWithAudit = repairAuditLogs.length > 0
+    ? { ...reconciled, auditLogs: [...repairAuditLogs, ...reconciled.auditLogs] }
     : reconciled;
 
   return {

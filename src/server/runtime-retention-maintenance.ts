@@ -1,30 +1,16 @@
 import type { MockDatabase } from "@/lib/domain";
-import { pruneExpiredMemberDeletionAuditLogs } from "@/lib/audit-log-retention";
-import { pruneExpiredRetainedPaymentTransactions } from "@/lib/payment-transaction-retention";
+import { applyRuntimeRetentionPolicy } from "@/lib/runtime-retention";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 
 export const runtimeRetentionMaintenanceLockKey = "runtime-retention-maintenance";
 
 export function applyRuntimeRetentionMaintenance(db: MockDatabase, now = new Date().toISOString()) {
-  const beforeAuditLogs = db.auditLogs;
-  const beforePaymentTransactions = db.retainedPaymentTransactions ?? [];
-  const auditLogs = pruneExpiredMemberDeletionAuditLogs(beforeAuditLogs, now);
-  const retainedPaymentTransactions = pruneExpiredRetainedPaymentTransactions(beforePaymentTransactions, now);
-  const prunedAuditLogCount = beforeAuditLogs.length - auditLogs.length;
-  const prunedPaymentTransactionCount = beforePaymentTransactions.length - retainedPaymentTransactions.length;
-
-  return {
-    db: prunedAuditLogCount === 0 && prunedPaymentTransactionCount === 0
-      ? db
-      : { ...db, auditLogs, retainedPaymentTransactions },
-    prunedAuditLogCount,
-    prunedPaymentTransactionCount,
-  };
+  return applyRuntimeRetentionPolicy(db, now);
 }
 
 export function pruneExpiredRuntimeRetentionRecords(now = new Date().toISOString()) {
   return withServerDbLock(runtimeRetentionMaintenanceLockKey, async () => {
-    const current = await readServerDb();
+    const current = await readServerDb({ enforceRuntimeRetention: false });
     const maintenance = applyRuntimeRetentionMaintenance(current, now);
 
     if (maintenance.prunedAuditLogCount === 0 && maintenance.prunedPaymentTransactionCount === 0) {

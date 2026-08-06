@@ -102,5 +102,14 @@ export function pruneExpiredRetainedPaymentTransactions(
     throw new Error("거래 기록 정리 기준 시각이 올바르지 않습니다.");
   }
 
-  return records.filter((record) => Date.parse(record.retentionExpiresAt) > nowTimestamp);
+  return records.filter((record) => {
+    const expiresAtTimestamp = Date.parse(record.retentionExpiresAt);
+
+    // Malformed statutory records must reach integrity validation instead of being silently deleted.
+    if (!Number.isFinite(expiresAtTimestamp)) {
+      return true;
+    }
+
+    return expiresAtTimestamp > nowTimestamp;
+  });
 }

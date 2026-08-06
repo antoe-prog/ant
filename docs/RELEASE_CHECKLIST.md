@@ -103,7 +103,8 @@
 - [x] `npm run test:audit-log-privacy` 변경 기록 개인정보·자격 증명·민감 메모 최소화, 회원 삭제 후 프로필 실명·주소·생년월일·연락처와 자유 입력 삭제 사유 원문 비보존, 중앙 저장 정책, 원문 JSON 없는 한국어 변경 전후 비교 검증 통과
 - [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 실제 달력 날짜·1-28 청구일·문자열 해지 사유 검증, 공통 결제 잠금과 최신 권한·상태 재검증, 저장 충돌 409 매핑, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과. 격리 `test:smoke`의 동시 생성 `200/409`, 동시 해지 `200/422`, 단일 이력·감사 기록도 통과
 - [x] `npm run test:runtime-retention-maintenance` 회원 삭제 후 분리한 거래기록이 모든 DB 쓰기 직전과 일일 내부 작업에서 만료 즉시 원본 저장소에 반영되어 삭제되고, 보존기간 중 기록과 반복 실행 멱등성이 유지되는지 격리 JSON 저장소로 검증
-- [x] 동일 `test:runtime-retention-maintenance`가 회원 삭제 감사 기록 2년·분리 법정 거래기록 5년 경계, 관련 없는 감사 액션 보존, 반복 정리 멱등성을 검증
+- [x] 동일 `test:runtime-retention-maintenance`가 회원 삭제 감사 기록 2년·분리 법정 거래기록 5년 경계, 정상 읽기의 원본 정리, stale 병합 후 재검증, 손상 보유일의 무음 삭제 차단, 관련 없는 감사 액션 보존과 반복 정리 멱등성을 검증
+- [x] `npm run test:runtime-state-integrity` 손상된 회원 삭제 감사시각의 blocker 진단, 신규 손상 쓰기 차단, 총괄 명시 복구와 `system.integrity.repair` 감사기록 검증 통과
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과
 - [x] `npm run test:payment-provider-handoff` 실 PG/VAN provider handoff manifest, webhook 서명/idempotency, checkout/영수증/정기결제 보관 정책, HTTPS/provider URI 증빙, 템플릿 `*_EVIDENCE_URI` placeholder, `localhost`/`.example`/TODO checkout origin 차단, ISO 생성/승인 시각과 생성 이후 승인 순서, 원문 secret 미보관 fixture 검증 통과
 - [x] `npm run test:next-build-readiness` 현재 Next dist의 `BUILD_ID`·빌드 입력 SHA-256 지문 누락/불일치와 빌드 후 수정·삭제·이름 변경, 격리 dist의 기본 `.next` manifest 덮어쓰기를 차단하고, 검증 시작·종료에 같은 최신 빌드만 `next start` 기반 개별 게이트에 허용

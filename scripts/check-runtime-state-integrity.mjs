@@ -80,6 +80,61 @@ assert.throws(
   "empty collection IDs must be rejected",
 );
 
+const malformedMemberDeletionAuditState = {
+  ...clean,
+  auditLogs: [{
+    id: "audit-member-delete-malformed-time",
+    branchId: "branch-a",
+    actorUserId: "admin-global",
+    action: "member.delete",
+    targetType: "member",
+    targetId: "member-deleted",
+    before: { ageGroup: "adult", branchId: "branch-a", status: "active" },
+    after: { reasonRecorded: true },
+    result: "success",
+    message: "회원과 연결된 운영 기록을 삭제했습니다.",
+    createdAt: "invalid-member-deletion-time",
+  }],
+};
+assert.equal(
+  validateRuntimeStateIntegrity(malformedMemberDeletionAuditState),
+  malformedMemberDeletionAuditState,
+  "legacy malformed deletion audits must remain readable for explicit diagnosis",
+);
+assert(
+  inspectRuntimeStateIntegrity(malformedMemberDeletionAuditState).some(
+    (issue) => issue.rule === "auditLogs.memberDeleteCreatedAt" && issue.repairable,
+  ),
+  "malformed member deletion audit timestamps must be diagnosed as repairable blockers",
+);
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(clean, malformedMemberDeletionAuditState),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    error.issues.some((issue) => issue.rule === "auditLogs.memberDeleteCreatedAt"),
+  "new malformed member deletion audit timestamps must be rejected",
+);
+const malformedAuditRepair = reconcileRuntimeStateIntegrity(malformedMemberDeletionAuditState, {
+  actorUserId: "admin-global",
+  createId: createIdSequence("audit-member-delete-time-repair"),
+  now: "2026-08-06T00:00:00.000Z",
+});
+assert.equal(
+  malformedAuditRepair.db.auditLogs.find((log) => log.id === "audit-member-delete-malformed-time")?.createdAt,
+  "2026-08-06T00:00:00.000Z",
+  "explicit reconciliation must restore a deterministic retention start time",
+);
+assert(
+  malformedAuditRepair.db.auditLogs.some(
+    (log) => log.action === "system.integrity.repair" && log.targetId === "audit-member-delete-malformed-time",
+  ),
+  "repairing a member deletion audit timestamp must emit an audit record",
+);
+assert(
+  !malformedAuditRepair.unresolvedIssues.some((issue) => issue.rule === "auditLogs.memberDeleteCreatedAt"),
+  "the repaired member deletion audit timestamp must clear its retention blocker",
+);
+
 const deletedMemberState = {
   ...clean,
   members: [],
@@ -477,6 +532,7 @@ console.log(JSON.stringify({
     "pending invitation operator exclusion",
     "legacy branch reference diagnosis",
     "empty runtime ID rejection",
+    "member deletion audit retention timestamp diagnosis and audited repair",
     "verified admin reconciliation actor",
     "active administrator coverage after concurrent merge",
     "pending administrator exclusion",

@@ -25,6 +25,9 @@ const {
   getMemberDeletionAuditRetentionExpiresAt,
   pruneExpiredMemberDeletionAuditLogs,
 } = await jiti.import("../src/lib/audit-log-retention.ts");
+const { pruneExpiredRetainedPaymentTransactions } = await jiti.import(
+  "../src/lib/payment-transaction-retention.ts",
+);
 
 const deletionAudit = (id, createdAt) => ({
   id,
@@ -81,6 +84,11 @@ const statutoryRecordOutlivingAudit = {
   retentionExpiresAt: "2029-01-01T00:00:00.000Z",
 };
 const outlivedDeletionAudit = deletionAudit("audit-member-delete-outlived", "2024-01-01T00:00:00.000Z");
+const malformedRetentionRecord = {
+  ...activeRecord,
+  id: "retained-malformed-expiry-test",
+  retentionExpiresAt: "not-a-retention-date",
+};
 
 try {
   assert.equal(
@@ -103,6 +111,14 @@ try {
     ).length,
     0,
     "member deletion audit must be removed at its retention boundary",
+  );
+  assert.equal(
+    pruneExpiredRetainedPaymentTransactions(
+      [malformedRetentionRecord],
+      "2026-08-06T00:00:00.000Z",
+    ).length,
+    1,
+    "malformed statutory records must be preserved for explicit integrity handling",
   );
 
   const seeded = createMockData();
@@ -135,12 +151,47 @@ try {
     afterWrite.retainedPaymentTransactions?.some((record) => record.id === statutoryRecordOutlivingAudit.id),
     "the five-year statutory ledger must outlive its two-year member deletion audit",
   );
+  await assert.rejects(
+    () => writeServerDb({
+      ...afterWrite,
+      retainedPaymentTransactions: [malformedRetentionRecord, ...afterWrite.retainedPaymentTransactions],
+    }),
+    /retainedPaymentTransactions\.format/,
+    "malformed statutory records must fail integrity validation instead of disappearing",
+  );
 
+  const staleSnapshot = afterWrite;
   assert(serverDbPaths?.dataFile, "isolated JSON test must expose its data file");
   const raw = JSON.parse(await readFile(serverDbPaths.dataFile, "utf8"));
   raw.auditLogs.push(expiredDeletionAudit);
   raw.retainedPaymentTransactions.push(expiredRecord);
   await writeFile(serverDbPaths.dataFile, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  await writeServerDb(staleSnapshot);
+  const afterStaleWrite = await readServerDb({ enforceRuntimeRetention: false });
+  assert(!afterStaleWrite.auditLogs.some((log) => log.id === expiredDeletionAudit.id));
+  assert(!afterStaleWrite.retainedPaymentTransactions.some((record) => record.id === expiredRecord.id));
+
+  const rawBeforeReadCleanup = JSON.parse(await readFile(serverDbPaths.dataFile, "utf8"));
+  rawBeforeReadCleanup.auditLogs.push(expiredDeletionAudit);
+  rawBeforeReadCleanup.retainedPaymentTransactions.push(expiredRecord);
+  await writeFile(serverDbPaths.dataFile, `${JSON.stringify(rawBeforeReadCleanup, null, 2)}\n`, "utf8");
+
+  const unfilteredRead = await readServerDb({ enforceRuntimeRetention: false });
+  assert(unfilteredRead.auditLogs.some((log) => log.id === expiredDeletionAudit.id));
+  assert(unfilteredRead.retainedPaymentTransactions.some((record) => record.id === expiredRecord.id));
+
+  const afterReadCleanup = await readServerDb();
+  assert(!afterReadCleanup.auditLogs.some((log) => log.id === expiredDeletionAudit.id));
+  assert(!afterReadCleanup.retainedPaymentTransactions.some((record) => record.id === expiredRecord.id));
+
+  const persistedAfterReadCleanup = JSON.parse(await readFile(serverDbPaths.dataFile, "utf8"));
+  assert(!persistedAfterReadCleanup.auditLogs.some((log) => log.id === expiredDeletionAudit.id));
+  assert(!persistedAfterReadCleanup.retainedPaymentTransactions.some((record) => record.id === expiredRecord.id));
+
+  persistedAfterReadCleanup.auditLogs.push(expiredDeletionAudit);
+  persistedAfterReadCleanup.retainedPaymentTransactions.push(expiredRecord);
+  await writeFile(serverDbPaths.dataFile, `${JSON.stringify(persistedAfterReadCleanup, null, 2)}\n`, "utf8");
 
   const maintenance = await pruneExpiredRuntimeRetentionRecords("2026-08-06T00:00:00.000Z");
   assert.equal(maintenance.prunedAuditLogCount, 1);
@@ -165,8 +216,11 @@ try {
     checked: [
       "two-year member deletion audit retention boundary",
       "expired deletion audit pruning before every DB write",
+      "post-merge pruning for stale runtime writes",
+      "persisted cleanup on ordinary runtime reads",
       "unrelated audit action preservation",
       "five-year statutory ledger survival after two-year deletion audit expiry",
+      "malformed statutory ledger integrity rejection without silent deletion",
       "expired payment transaction pruning before every DB write",
       "daily cleanup persistence in the source store",
       "active statutory transaction retention",

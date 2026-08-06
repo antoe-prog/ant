@@ -1,5 +1,4 @@
 import path from "node:path";
-import { pruneExpiredMemberDeletionAuditLogs } from "@/lib/audit-log-retention";
 import type { MockDatabase, PilotOperationLog, PilotReadinessStatus } from "@/lib/domain";
 import { sanitizeAuditLog } from "@/lib/audit-log-security";
 import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-data";
@@ -10,7 +9,7 @@ import { rollGooglePlayReviewDates } from "@/lib/google-play-review-access";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
 import { mergeRuntimeState } from "@/server/runtime-state-merge";
-import { pruneExpiredRetainedPaymentTransactions } from "@/lib/payment-transaction-retention";
+import { applyRuntimeRetentionPolicy } from "@/lib/runtime-retention";
 import {
   assertNoNewRuntimeStateIntegrityIssues,
   validateRuntimeStateIntegrity,
@@ -61,6 +60,11 @@ function sanitizeDatabaseAuditLogs(db: MockDatabase): MockDatabase {
     ...db,
     auditLogs: db.auditLogs.map(sanitizeAuditLog),
   };
+}
+
+function validateServerDbWrite(next: MockDatabase, previous: MockDatabase | null) {
+  const retained = applyRuntimeRetentionPolicy(next).db;
+  return assertNoNewRuntimeStateIntegrityIssues(previous, retained);
 }
 
 function readString(value: unknown, fallback = "") {
@@ -235,7 +239,7 @@ function createServerDbStore() {
       requireExistingState: runtimeEnvironment.enforced,
       createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
       validate: validateMockDatabase,
-      validateWrite: (next, previous) => assertNoNewRuntimeStateIntegrityIssues(previous, next),
+      validateWrite: validateServerDbWrite,
       merge: mergeRuntimeState,
     });
   }
@@ -256,7 +260,7 @@ function createServerDbStore() {
     fileName: jsonStoreTarget.fileName,
     createDefault: () => sanitizeDatabaseAuditLogs(createMockData()),
     validate: validateMockDatabase,
-    validateWrite: (next, previous) => assertNoNewRuntimeStateIntegrityIssues(previous, next),
+    validateWrite: validateServerDbWrite,
     backupLimit: 20,
     merge: mergeRuntimeState,
   });
@@ -266,20 +270,27 @@ const serverDbStore = createServerDbStore();
 
 export const serverDbPaths = "paths" in serverDbStore ? serverDbStore.paths : null;
 
-export async function readServerDb() {
-  return serverDbStore.read();
+export async function readServerDb(options: { enforceRuntimeRetention?: boolean } = {}) {
+  const db = await serverDbStore.read();
+
+  if (options.enforceRuntimeRetention === false) {
+    return db;
+  }
+
+  const retained = applyRuntimeRetentionPolicy(db);
+
+  if (retained.prunedAuditLogCount === 0 && retained.prunedPaymentTransactionCount === 0) {
+    return db;
+  }
+
+  return serverDbStore.write(sanitizeDatabaseAuditLogs(retained.db));
 }
 
 export async function writeServerDb(db: MockDatabase) {
-  const auditLogs = pruneExpiredMemberDeletionAuditLogs(db.auditLogs);
-  const retainedPaymentTransactions = pruneExpiredRetainedPaymentTransactions(
-    db.retainedPaymentTransactions ?? [],
-  );
+  const retained = applyRuntimeRetentionPolicy(db).db;
 
   return serverDbStore.write(sanitizeDatabaseAuditLogs({
-    ...db,
-    auditLogs,
-    retainedPaymentTransactions,
+    ...retained,
   }));
 }
 

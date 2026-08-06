@@ -32,6 +32,7 @@ const files = {
   memberRoute: "src/app/api/v1/members/[memberId]/route.ts",
   membersScreen: "src/components/screens/members-screen.tsx",
   paymentRetention: "src/lib/payment-transaction-retention.ts",
+  runtimeRetention: "src/lib/runtime-retention.ts",
   retentionMaintenance: "src/server/runtime-retention-maintenance.ts",
   runtimeMerge: "src/server/runtime-state-merge.ts",
   serverDb: "src/server/db.ts",
@@ -197,11 +198,13 @@ assert(
   "member deletion must move completed payment evidence into the separated retention ledger",
 );
 assert(
-  sources.serverDb.includes("pruneExpiredRetainedPaymentTransactions") &&
-    sources.serverDb.includes("retainedPaymentTransactions,") &&
+  sources.runtimeRetention.includes("pruneExpiredRetainedPaymentTransactions") &&
+    sources.runtimeRetention.includes("retainedPaymentTransactions") &&
+    sources.serverDb.includes("applyRuntimeRetentionPolicy") &&
+    sources.serverDb.includes("validateServerDbWrite") &&
     sources.serverDb.includes('"retainedPaymentTransactions"') &&
     sources.runtimeMerge.includes('"retainedPaymentTransactions"'),
-  "retained transactions must be upgraded, pruned before persistence, and merged without lost updates",
+  "retained transactions must be upgraded, pruned after stale merges and before persistence, and merged without lost updates",
 );
 assert(
   sources.retentionMaintenance.includes("applyRuntimeRetentionMaintenance") &&
