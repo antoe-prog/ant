@@ -8,7 +8,7 @@ const defaultTournamentListUrl =
 const officialTournamentHost = "judo.sports.or.kr";
 const officialTournamentPath = "/Match/Country/ajax/MatchList.asp";
 const fetchTimeoutMs = 12_000;
-const maximumSourceLength = 2_000_000;
+const maximumSourceBytes = 2_000_000;
 
 function isAllowedTournamentSourceUrl(sourceUrl: URL) {
   const isOfficialSource =
@@ -39,6 +39,50 @@ export type KoreaJudoTournamentMergeResult = {
   updatedCount: number;
   unchangedCount: number;
 };
+
+export async function readBoundedTournamentSource(
+  response: Response,
+  maximumBytes = maximumSourceBytes,
+) {
+  const declaredLength = Number(response.headers.get("content-length"));
+
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    throw new Error("대한유도회 일정 원본의 크기 또는 형식이 올바르지 않습니다.");
+  }
+
+  if (!response.body) {
+    throw new Error("대한유도회 일정 원본의 크기 또는 형식이 올바르지 않습니다.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let source = "";
+  let receivedBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      source += decoder.decode();
+      break;
+    }
+
+    receivedBytes += value.byteLength;
+
+    if (receivedBytes > maximumBytes) {
+      await reader.cancel();
+      throw new Error("대한유도회 일정 원본의 크기 또는 형식이 올바르지 않습니다.");
+    }
+
+    source += decoder.decode(value, { stream: true });
+  }
+
+  if (!source) {
+    throw new Error("대한유도회 일정 원본의 크기 또는 형식이 올바르지 않습니다.");
+  }
+
+  return source;
+}
 
 function decodeHtmlEntities(value: string) {
   const namedEntities: Record<string, string> = {
@@ -308,11 +352,7 @@ export async function fetchKoreaJudoTournaments(year: number) {
       throw new Error(`대한유도회 일정 원본이 HTTP ${response.status}를 반환했습니다.`);
     }
 
-    const html = await response.text();
-
-    if (!html || html.length > maximumSourceLength) {
-      throw new Error("대한유도회 일정 원본의 크기 또는 형식이 올바르지 않습니다.");
-    }
+    const html = await readBoundedTournamentSource(response);
 
     const parsed = parseKoreaJudoTournamentList(html, year);
 

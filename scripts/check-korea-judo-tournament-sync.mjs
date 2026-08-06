@@ -10,6 +10,7 @@ import {
   mergeKoreaJudoTournaments,
   parseKoreaJudoTournamentList,
   parseKoreaJudoTournamentPeriod,
+  readBoundedTournamentSource,
 } from "../src/server/korea-judo-tournaments.ts";
 import { canMutateTournament } from "../src/lib/tournament-policy.ts";
 
@@ -114,6 +115,25 @@ async function apiRequest(baseUrl, userId) {
 }
 
 async function main() {
+  await assert.rejects(
+    readBoundedTournamentSource(
+      new Response("oversized", { headers: { "content-length": "500" } }),
+      100,
+    ),
+    /크기 또는 형식/,
+    "declared oversized source responses must be rejected before reading",
+  );
+  await assert.rejects(
+    readBoundedTournamentSource(new Response("streamed oversized source"), 10),
+    /크기 또는 형식/,
+    "streamed source responses must stop when the byte limit is exceeded",
+  );
+  assert.equal(
+    await readBoundedTournamentSource(new Response("정상 일정"), 32),
+    "정상 일정",
+    "bounded source reads must preserve multibyte text",
+  );
+
   assert.deepEqual(
     parseKoreaJudoTournamentPeriod("2026년06월29일(월)~07월04일(토)(6일간)"),
     { eventDate: "2026-06-29", eventEndDate: "2026-07-04" },
@@ -315,6 +335,7 @@ async function main() {
         },
         api: {
           authorizedSync: true,
+          boundedSourceResponse: true,
           idempotent: true,
           manualTournamentPreserved: true,
           unauthorizedSourceRequests: 0,
