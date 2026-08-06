@@ -341,6 +341,27 @@ async function main() {
     assert.equal(createdCoachTournament.branchId, "branch-gangnam");
     assert.equal(createdCoachTournament.createdByUserId, "user-coach");
 
+    result = await apiRequest(
+      baseUrl,
+      `/api/v1/tournaments/${createdCoachTournament.id}/registrations?selectedBranchId=branch-gangnam`,
+      {
+        userId: "user-member",
+        body: { memberId: "member-minjae", division: "일반부", weightClass: "-73kg" },
+      },
+    );
+    assert.equal(result.response.status, 200, "members must register for an accessible branch tournament");
+
+    result = await apiRequest(
+      baseUrl,
+      `/api/v1/tournaments/${createdCoachTournament.id}?selectedBranchId=branch-gangnam`,
+      { userId: "user-coach", method: "DELETE" },
+    );
+    assert.equal(result.response.status, 422, "tournaments with registrations must not be deleted");
+    assert(
+      (await readDb(dbFile)).tournaments.some((item) => item.id === createdCoachTournament.id),
+      "blocked tournament deletion must preserve registrations and the tournament",
+    );
+
     const concurrentCreateTitles = ["동시 등록 대회 A", "동시 등록 대회 B"];
     const concurrentCreateResults = await Promise.all(
       concurrentCreateTitles.map((title) =>
@@ -685,6 +706,21 @@ async function main() {
       "batch submission must persist status and the operator note for every selected member",
     );
 
+    result = await apiRequest(baseUrl, "/api/v1/tournaments/tournament-global/registrations?selectedBranchId=branch-gangnam", {
+      userId: "user-coach",
+      method: "PATCH",
+      body: { memberId: "member-jun", status: "confirmed" },
+    });
+    assert.equal(result.response.status, 422, "submitted registrations must not move backward through generic review");
+    assert.equal(
+      (await readDb(dbFile)).tournaments
+        .find((item) => item.id === "tournament-global")
+        .registrations.find((registration) => registration.memberId === "member-jun")
+        .status,
+      "submitted",
+      "blocked operator rollback must preserve the association-submitted state",
+    );
+
     result = await apiRequest(baseUrl, "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam", {
       userId: "user-guardian",
       method: "GET",
@@ -814,15 +850,10 @@ async function main() {
       confirmRegistrationButtonBox && confirmRegistrationButtonBox.height >= 44,
       "registration review controls must be at least 44px high",
     );
-    await confirmRegistrationButton.click();
-    await page.getByText("1명의 대회 참가 신청을 확정했습니다.").waitFor({ state: "visible" });
-    assert.equal(
-      (await readDb(dbFile)).tournaments
-        .find((item) => item.id === "tournament-global")
-        .registrations.find((registration) => registration.memberId === "member-jun")
-        .status,
-      "confirmed",
-      "coach registration management must persist the selected status",
+    assert(await confirmRegistrationButton.isDisabled(), "submitted rows must disable reverse status controls");
+    assert(
+      await page.getByTestId("tournament-registration-management-select-member-jun").isDisabled(),
+      "submitted rows must not enter bulk status changes",
     );
     await page.getByRole("button", { name: "참가 신청 관리 창 닫기" }).click();
     await managementDialog.waitFor({ state: "hidden" });
@@ -831,6 +862,13 @@ async function main() {
     await deleteButton.waitFor({ state: "visible" });
     const deleteBox = await deleteButton.boundingBox();
     assert(deleteBox && deleteBox.height >= 44, "mobile delete trigger must be at least 44px high");
+
+    const registeredTournamentDeleteButton = page.getByTestId(`tournament-delete-${createdCoachTournament.id}`);
+    await registeredTournamentDeleteButton.waitFor({ state: "visible" });
+    assert(
+      await registeredTournamentDeleteButton.isDisabled(),
+      "mobile management must disable deletion when a tournament has registrations",
+    );
 
     await deleteButton.click();
     const confirmation = page.getByTestId("tournament-delete-confirmation-tournament-coach-ui");
@@ -918,11 +956,12 @@ async function main() {
         "serialized concurrent create and update audit integrity",
         "server-side snapshot visibility",
         "family registration authorization and privacy",
-        "duplicate registration idempotency, cancellation, and submitted-state locking",
+        "duplicate registration idempotency, cancellation, and irreversible submitted-state locking",
         "coach individual and atomic batch review authorization",
         "operator review reasons, filters, and family-visible status",
         "coach dashboard registration queue entry",
         "registration audit trail",
+        "registered tournament deletion protection",
         "390px family registration and staff management dialogs",
         "resource branchId audit accuracy",
         "390px delete cancel and confirm",

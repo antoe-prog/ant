@@ -133,6 +133,26 @@ function parseRegistrationReviewBody(value: unknown): RegistrationReviewBody | n
   };
 }
 
+function getRegistrationReviewBlockReason(
+  registrations: readonly { status?: TournamentRegistrationStatus }[],
+  nextStatus: TournamentRegistrationStatus,
+) {
+  const currentStatuses = registrations.map((registration) => registration.status ?? "pending");
+
+  if (nextStatus !== "submitted" && currentStatuses.some((status) => status === "submitted")) {
+    return "협회에 제출된 참가 신청은 일반 상태 변경으로 되돌릴 수 없습니다.";
+  }
+
+  if (
+    nextStatus === "submitted" &&
+    currentStatuses.some((status) => status !== "confirmed" && status !== "submitted")
+  ) {
+    return "참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.";
+  }
+
+  return null;
+}
+
 function getRegistrationContext(
   request: NextRequest,
   db: MockDatabase,
@@ -500,14 +520,13 @@ async function reviewRegistration(
     return initialContext.response;
   }
 
-  if (
-    body.status === "submitted" &&
-    initialContext.contexts.some(
-      (context) =>
-        (context.registration.status ?? "pending") !== "confirmed" && context.registration.status !== "submitted",
-    )
-  ) {
-    return jsonError(422, "BUSINESS_RULE_FAILED", "참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.");
+  const initialBlockReason = getRegistrationReviewBlockReason(
+    initialContext.contexts.map((context) => context.registration),
+    body.status,
+  );
+
+  if (initialBlockReason) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", initialBlockReason);
   }
 
   const reviewResult = await withServerDbLock(tournamentStateLockKey, async () => {
@@ -518,14 +537,13 @@ async function reviewRegistration(
       return context.response;
     }
 
-    if (
-      body.status === "submitted" &&
-      context.contexts.some(
-        (item) =>
-          (item.registration.status ?? "pending") !== "confirmed" && item.registration.status !== "submitted",
-      )
-    ) {
-      return jsonError(422, "BUSINESS_RULE_FAILED", "참가 확정된 회원만 협회 제출 상태로 변경할 수 있습니다.");
+    const blockReason = getRegistrationReviewBlockReason(
+      context.contexts.map((item) => item.registration),
+      body.status,
+    );
+
+    if (blockReason) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", blockReason);
     }
 
     const { contexts, selectedBranchId, tournament, user } = context;

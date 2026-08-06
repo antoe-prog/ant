@@ -225,6 +225,14 @@ export function TournamentsScreen() {
     managementStatusFilter,
     managementTournament,
   ]);
+  const actionableManagementRows = managementRows.filter((row) => row.status !== "submitted");
+  const selectedManagementRows = managementRows.filter((row) =>
+    managementSelectedMemberIds.includes(row.registration.memberId),
+  );
+  const selectedRowsIncludeSubmitted = selectedManagementRows.some((row) => row.status === "submitted");
+  const selectedRowsCanBeSubmitted = selectedManagementRows.every(
+    (row) => row.status === "confirmed" || row.status === "submitted",
+  );
 
   async function handleKoreaJudoSync() {
     if (syncPending) {
@@ -448,6 +456,11 @@ export function TournamentsScreen() {
 
     const note = managementReviewNote.trim();
 
+    if (status !== "submitted" && selectedRowsIncludeSubmitted) {
+      setManagementFeedback("협회에 제출된 참가 신청은 일반 상태 변경으로 되돌릴 수 없습니다.");
+      return;
+    }
+
     if (status === "rejected" && !note) {
       setManagementFeedback("선택한 신청을 반려하려면 처리 사유를 입력해 주세요.");
       return;
@@ -489,7 +502,7 @@ export function TournamentsScreen() {
   }
 
   function toggleAllVisibleManagementRows() {
-    const visibleMemberIds = managementRows.map((row) => row.registration.memberId);
+    const visibleMemberIds = actionableManagementRows.map((row) => row.registration.memberId);
     const allSelected =
       visibleMemberIds.length > 0 &&
       visibleMemberIds.every((memberId) => managementSelectedMemberIds.includes(memberId));
@@ -865,12 +878,14 @@ export function TournamentsScreen() {
                         className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
                         data-testid={`tournament-delete-${tournament.id}`}
                         aria-expanded={deleteConfirmationId === tournament.id}
-                        disabled={deletingTournamentId === tournament.id}
+                        aria-label={registeredMemberCount > 0 ? "참가 신청이 있어 삭제할 수 없음" : "대회 삭제"}
+                        disabled={deletingTournamentId === tournament.id || registeredMemberCount > 0}
+                        title={registeredMemberCount > 0 ? "참가 신청이 있는 대회는 삭제할 수 없습니다." : undefined}
                         type="button"
                         onClick={() => setDeleteConfirmationId(tournament.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                        삭제
+                        {registeredMemberCount > 0 ? "삭제 불가" : "삭제"}
                       </button>
                       {deleteConfirmationId === tournament.id ? (
                         <div
@@ -1280,11 +1295,12 @@ export function TournamentsScreen() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
                   <input
-                    checked={managementRows.length > 0 && managementRows.every((row) =>
+                    checked={actionableManagementRows.length > 0 && actionableManagementRows.every((row) =>
                       managementSelectedMemberIds.includes(row.registration.memberId)
                     )}
                     className="h-5 w-5 accent-teal-700"
                     data-testid="tournament-registration-management-select-all"
+                    disabled={actionableManagementRows.length === 0}
                     type="checkbox"
                     onChange={toggleAllVisibleManagementRows}
                   />
@@ -1322,7 +1338,7 @@ export function TournamentsScreen() {
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     <button
                       className="inline-flex min-h-11 items-center justify-center rounded-md bg-teal-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
-                      disabled={Boolean(reviewPendingKey)}
+                      disabled={Boolean(reviewPendingKey) || selectedRowsIncludeSubmitted}
                       type="button"
                       onClick={() => void handleBulkRegistrationReview("confirmed")}
                     >
@@ -1330,7 +1346,7 @@ export function TournamentsScreen() {
                     </button>
                     <button
                       className="inline-flex min-h-11 items-center justify-center rounded-md bg-red-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
-                      disabled={Boolean(reviewPendingKey)}
+                      disabled={Boolean(reviewPendingKey) || selectedRowsIncludeSubmitted}
                       type="button"
                       onClick={() => void handleBulkRegistrationReview("rejected")}
                     >
@@ -1338,7 +1354,7 @@ export function TournamentsScreen() {
                     </button>
                     <button
                       className="inline-flex min-h-11 items-center justify-center gap-1 rounded-md bg-blue-700 px-2 text-xs font-semibold text-white disabled:opacity-60"
-                      disabled={Boolean(reviewPendingKey)}
+                      disabled={Boolean(reviewPendingKey) || !selectedRowsCanBeSubmitted}
                       type="button"
                       onClick={() => void handleBulkRegistrationReview("submitted")}
                     >
@@ -1366,6 +1382,8 @@ export function TournamentsScreen() {
                             <input
                               checked={selected}
                               className="h-5 w-5 accent-teal-700"
+                              data-testid={`tournament-registration-management-select-${registration.memberId}`}
+                              disabled={currentStatus === "submitted"}
                               type="checkbox"
                               onChange={() => toggleManagementSelection(registration.memberId)}
                             />
@@ -1406,6 +1424,7 @@ export function TournamentsScreen() {
                             const pendingKey = `${registration.memberId}:${status}`;
                             const active = currentStatus === status;
                             const submittedBlocked = status === "submitted" && currentStatus !== "confirmed" && currentStatus !== "submitted";
+                            const submittedLocked = currentStatus === "submitted" && !active;
 
                             return (
                               <button
@@ -1422,7 +1441,7 @@ export function TournamentsScreen() {
                                     : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                                 }`}
                                 data-testid={`tournament-registration-review-${registration.memberId}-${status}`}
-                                disabled={Boolean(reviewPendingKey) || active || submittedBlocked}
+                                disabled={Boolean(reviewPendingKey) || active || submittedBlocked || submittedLocked}
                                 key={status}
                                 type="button"
                                 onClick={() =>

@@ -184,6 +184,10 @@ export async function DELETE(
     return jsonError(403, "FORBIDDEN", "이 대회 공지를 삭제할 권한이 없습니다.");
   }
 
+  if ((tournament.registrations ?? []).length > 0) {
+    return jsonError(422, "BUSINESS_RULE_FAILED", "참가 신청이 있는 대회 공지는 삭제할 수 없습니다.");
+  }
+
   return withServerDbLock(tournamentStateLockKey, async () => {
     const latestDb = await readServerDb();
     const latestSession = requireSession(request, latestDb);
@@ -213,6 +217,10 @@ export async function DELETE(
 
     if (!canMutateTournament(latestSession.user, latestTournament, latestAccessibleBranchIds)) {
       return jsonError(403, "FORBIDDEN", "이 대회 공지를 삭제할 권한이 없습니다.");
+    }
+
+    if ((latestTournament.registrations ?? []).length > 0) {
+      return jsonError(422, "BUSINESS_RULE_FAILED", "참가 신청이 있는 대회 공지는 삭제할 수 없습니다.");
     }
 
     const now = new Date().toISOString();
