@@ -101,8 +101,8 @@ const { localAutoLoginFallbackPath, localAutoLoginNextMaxLength, normalizeLocalA
 
 assert(signupScreenSource.includes("휴대폰 번호로 회원가입"), "signup must render the phone signup heading");
 assert(signupScreenSource.includes('data-testid="signup-phone-input"'), "signup must collect a phone number");
-assert(signupScreenSource.includes('data-testid="signup-code-request-button"'), "signup must request phone verification");
-assert(signupScreenSource.includes('data-testid="signup-code-input"'), "signup must collect the phone verification code");
+assert(!signupScreenSource.includes('data-testid="signup-code-request-button"'), "signup must not expose phone verification while it is deferred");
+assert(!signupScreenSource.includes('data-testid="signup-code-input"'), "signup must not collect a deferred phone verification code");
 assert(signupScreenSource.includes('data-testid="signup-branch-input"'), "multi-branch signup must collect a branch selection");
 assert(signupScreenSource.includes('data-testid="signup-password-input"'), "signup must collect a password");
 assert(signupScreenSource.includes('data-testid="signup-password-confirm-input"'), "signup must confirm the password");
@@ -113,7 +113,7 @@ assert.equal(
   "signup password and confirmation inputs must share the server password limit",
 );
 assert(signupScreenSource.includes("apiClient.registerWithPhone"), "signup must submit through the phone registration API");
-assert(signupScreenSource.includes("apiClient.requestSignupVerificationCode"), "signup must request a code before registration");
+assert(!signupScreenSource.includes("apiClient.requestSignupVerificationCode"), "signup must not call the deferred verification API");
 assert(signupScreenSource.includes(".getPublicSignupBranches()"), "signup must load server-validated public branches");
 assert(!signupScreenSource.includes("초대 링크로 회원가입"), "signup must not regress to invitation-link entry");
 assert(!signupScreenSource.includes("signup-invitation-input"), "signup must not render the invitation input");
@@ -128,10 +128,9 @@ assert(
   publicRegisterRouteSource.includes("availableBranches.find") && publicRegisterRouteSource.includes("requestedBranchId"),
   "public register route must not assign an arbitrary first branch in multi-branch environments",
 );
-assert(publicRegisterRouteSource.includes("createPhoneSignupChallenge"), "public register route must reserve a hashed phone challenge");
-assert(publicRegisterRouteSource.includes("verifyPhoneSignupCode"), "public register route must verify phone ownership before creation");
-assert(publicRegisterRouteSource.includes("hasReachedPhoneSignupRequestLimit"), "public register route must throttle verification requests");
-assert(publicRegisterRouteSource.includes("after(async ()"), "production signup SMS delivery must not affect response timing");
+assert(publicRegisterRouteSource.includes("withServerDbLock(`auth-register-phone:${phone}`"), "public register route must serialize registrations per normalized phone");
+assert(!publicRegisterRouteSource.includes("createPhoneSignupChallenge"), "public register route must not create deferred verification challenges");
+assert(!publicRegisterRouteSource.includes("verifyPhoneSignupCode"), "public register route must not require a deferred verification code");
 assert(!publicRegisterRouteSource.includes("이미 등록된 휴대폰 번호입니다."), "public signup must not enumerate registered phones");
 assert(!publicRegisterRouteSource.includes("after: { phone"), "public signup audits must not retain raw phones");
 assert(publicRegisterRouteSource.includes("createRandomPasswordHash"), "public register route must store a password hash");

@@ -27,6 +27,16 @@ const captureProfiles = {
     userAgent:
       "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
   },
+  ipad13: {
+    label: "ipad13",
+    outputDirectory: "mobile/ios/app-store/ipad-13-inch",
+    viewport: { width: 1032, height: 1376 },
+    deviceScaleFactor: 2,
+    dimensions: { width: 2064, height: 2752 },
+    expectedMobileNavigationCount: null,
+    userAgent:
+      "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  },
 };
 const profileArgument = process.argv.find((argument) => argument.startsWith("--profile="));
 const profileId = profileArgument?.slice("--profile=".length) || "tablet";
@@ -154,11 +164,13 @@ function isIgnorableConsoleMessage(message) {
 async function waitForAppScreen(page, route) {
   await page.waitForURL((url) => url.pathname === route, { timeout: 90_000, waitUntil: "domcontentloaded" });
   await page.locator("main").waitFor({ state: "visible", timeout: 90_000 });
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="mobile-bottom-navigation"] [data-mobile-route-id]').length >= 5,
-    undefined,
-    { timeout: 30_000 },
-  );
+  if (captureProfile.expectedMobileNavigationCount !== null) {
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-testid="mobile-bottom-navigation"] [data-mobile-route-id]').length >= 5,
+      undefined,
+      { timeout: 30_000 },
+    );
+  }
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
@@ -218,7 +230,13 @@ async function captureScreenshot(baseUrl, screenshot, context, hasSession) {
   assert(layout.bodyText.length > 100, `${screenshot.label} must render meaningful app content`);
   assert(!layout.bodyText.includes("파이널 로그인"), `${screenshot.label} must not capture the login screen`);
   assert(!layout.hasFrameworkOverlay, `${screenshot.label} must not show a framework error overlay`);
-  assert.equal(layout.mobileNavigationCount, 5, `${screenshot.label} must show the complete mobile navigation`);
+  if (captureProfile.expectedMobileNavigationCount !== null) {
+    assert.equal(
+      layout.mobileNavigationCount,
+      captureProfile.expectedMobileNavigationCount ?? 5,
+      `${screenshot.label} must show the complete mobile navigation`,
+    );
+  }
   assert(
     layout.scrollWidth <= layout.clientWidth + 1,
     `${screenshot.label} has horizontal overflow: ${layout.scrollWidth}px > ${layout.clientWidth}px`,
@@ -327,15 +345,29 @@ async function main() {
     await activeContext.close();
   }
 
+  const storeRequirements =
+    profileId === "ipad13"
+      ? {
+          appStoreRequirements: {
+            maxCount: 10,
+            maxFileSizeBytes: 8 * 1024 * 1024,
+            orientation: "portrait 3:4",
+            dimensions: `${captureProfile.dimensions.width}x${captureProfile.dimensions.height}`,
+          },
+        }
+      : {
+          googlePlayRequirements: {
+            maxCount: 8,
+            maxFileSizeBytes: 8 * 1024 * 1024,
+            orientation: "portrait 9:16",
+            dimensions: `${captureProfile.dimensions.width}x${captureProfile.dimensions.height}`,
+          },
+        };
   const manifest = {
     generatedAt: new Date().toISOString(),
     source: "isolated local demo data",
-    googlePlayRequirements: {
-      maxCount: 8,
-      maxFileSizeBytes: 8 * 1024 * 1024,
-      orientation: "portrait 9:16",
-      dimensions: `${captureProfile.dimensions.width}x${captureProfile.dimensions.height}`,
-    },
+    profile: profileId,
+    ...storeRequirements,
     screenshots: results,
   };
 

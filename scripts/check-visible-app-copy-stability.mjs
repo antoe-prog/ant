@@ -2353,8 +2353,8 @@ async function main() {
           assert.equal(layout.authSignupInvitationInputCount, 0, "signup must not render an invitation link/code input");
           assert.equal(layout.authSignupNameInputCount, 1, "signup must render one name input");
           assert.equal(layout.authSignupPhoneInputCount, 1, "signup must render one phone input");
-          assert.equal(layout.authSignupCodeRequestButtonCount, 1, "signup must render one phone verification request action");
-          assert(layout.authSignupCodeRequestButtonMinHeight >= 44, "signup phone verification request must keep a 44px touch height");
+          assert.equal(layout.authSignupCodeRequestButtonCount, 0, "signup must not render deferred phone verification controls");
+          assert.equal(layout.authSignupCodeRequestButtonMinHeight, 0, "deferred phone verification must not reserve layout space");
           assert.equal(layout.authSignupBranchInputCount, 1, "multi-branch signup must render one branch selector");
           assert(layout.authSignupBranchInputMinHeight >= 44, "signup branch selector must keep a 44px touch height");
           assert.equal(layout.authPasswordInputCount, 2, "signup must render password and confirmation fields");

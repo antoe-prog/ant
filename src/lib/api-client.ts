@@ -388,7 +388,6 @@ export type LoginCredentials = {
 
 export type PhoneSignupPayload = {
   branchId: string;
-  code: string;
   name: string;
   password: string;
   phone: string;
@@ -408,12 +407,6 @@ type PhoneSignupResponse = {
   memberId: string;
   ok: boolean;
   userId: string;
-};
-
-type PhoneSignupVerificationResponse = {
-  developmentCode?: string;
-  next: "verify";
-  ok: boolean;
 };
 
 type InvitationPayload = BootstrapPayload & {
@@ -678,14 +671,7 @@ export const apiClient = {
   registerWithPhone(payload: PhoneSignupPayload) {
     return apiRequest<PhoneSignupResponse>("/api/v1/auth/register", {
       method: "POST",
-      body: JSON.stringify({ action: "complete", ...payload }),
-    });
-  },
-
-  requestSignupVerificationCode(phone: string) {
-    return apiRequest<PhoneSignupVerificationResponse>("/api/v1/auth/register", {
-      method: "POST",
-      body: JSON.stringify({ action: "request", phone }),
+      body: JSON.stringify(payload),
     });
   },
 

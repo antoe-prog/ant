@@ -82,7 +82,7 @@
 | --- | --- | --- | --- | --- |
 | `POST` | `/auth/login` | 공개 | 예 | 운영 계정 로그인 또는 개발/테스트 역할 로그인 |
 | `GET` | `/auth/register` | 공개 | 아니오 | 공개 가입 가능한 지점 조회 |
-| `POST` | `/auth/register` | 공개 | 예 | 휴대폰 본인 확인 후 성인 회원가입 |
+| `POST` | `/auth/register` | 공개 | 예 | 이름·지점·휴대폰 번호·비밀번호로 성인 회원가입 |
 | `POST` | `/auth/logout` | 인증 | 예 | 로그아웃 |
 | `POST` | `/auth/password-reset` | 공개 | 예 | 휴대폰 인증 후 비밀번호 직접 변경 |
 | `POST` | `/auth/invitations/:token/accept` | 공개 | 예 | 초대 가입 수락 |
@@ -95,9 +95,7 @@
 
 `POST /auth/login`은 `{ "phone": "...", "password": "...", "keepSignedIn": true }` 운영 계정 로그인을 기본 경로로 사용한다. 휴대폰·이메일·로그인 ID·비밀번호는 문자열, 로그인 상태 유지는 boolean, 개발 역할은 허용된 역할 값이어야 하며 비문자·배열 payload는 비밀번호 검증이나 세션 변경 전에 `400 VALIDATION_ERROR`로 차단한다. 휴대폰 원문은 40자, 이메일·로그인 ID는 254자, 비밀번호는 256자로 제한해 PBKDF2 검증 전에 초과 입력을 거부한다. `keepSignedIn`을 보내지 않으면 세션 쿠키는 8시간 유지되고, `true`이면 30일 유지된다. 데모 seed와 파일럿 CSV import 사용자는 서버 저장소에서 PBKDF2 `passwordHash`를 갖지만, 모든 bootstrap/snapshot 응답에서는 `passwordHash`를 제거한다. 공용 데모 비밀번호는 로컬 seed 호환용일 뿐 신규 가입·초대·재발급에 사용할 수 없다. 파일럿 전에는 `local-demo:password-rotate`로 격리 JSON 복사본의 계정별 비밀번호를 만들고, production preflight가 salt와 무관하게 공용 비밀번호로 검증되는 해시를 차단한다. 실제 운영 반영과 전달 증빙은 별도 승인 절차로 수행한다.
 
-`GET /auth/register`는 공개 가입에 사용할 수 있는 활성 지점 중 승인된 담당 운영자가 있는 지점의 `id`, `name`, `district`만 반환한다. `POST /auth/register`는 두 단계로 처리한다. `action=request`는 `{ phone }`으로 6자리 인증번호를 요청하고, 등록 여부·시간당 요청 제한·개별 SMS 발송 결과를 구분하지 않는 `{ "ok": true, "next": "verify" }` 응답을 반환한다. 인증번호는 10분 동안 유효하고 번호당 1시간 최대 3회 요청, 최대 5회 오입력을 허용한다. 휴대폰 원문과 인증번호 원문은 저장하지 않고 각각 SHA-256 hash와 salted PBKDF2 hash만 보관한다. 운영 HTTPS webhook 발송은 중립 응답을 확정한 뒤 `after()`에서 실행하며, 개발 및 run-owned 격리 smoke만 미등록 번호의 인증번호를 응답에 제공한다.
-
-`action=complete`는 `{ branchId, code, name, password, phone }`을 받아 인증번호가 확인된 경우에만 UUID 기반 사용자·성인 회원 프로필을 함께 생성한다. 가입 지점 ID는 160자, 이름은 회원 프로필 정책과 같은 30자, 휴대폰 원문은 40자, 비밀번호는 8자 이상 256자 이하로 제한한다. 서버는 인증번호를 소비하기 전에 최신 저장소에서 지점 활성 상태와 담당 운영자를 다시 검증하고, 객체·배열 등 잘못된 필드 형식과 초과 입력은 비밀번호 해시 전에 `400 VALIDATION_ERROR`로 차단한다. 인증 확인·휴대폰 유일성 재검사·사용자/회원/감사 기록 저장은 정규화된 휴대폰 번호 잠금 안에서 원자적으로 처리한다. 같은 인증번호의 동시 완료는 정확히 한 건만 `200`으로 성공하고 나머지는 기존 계정 여부를 드러내지 않는 `400 SIGNUP_CODE_INVALID`를 반환한다. 병합 후 저장 경계도 휴대폰·이메일 유일성과 사용자·회원 연결을 다시 검증한다.
+`GET /auth/register`는 공개 가입에 사용할 수 있는 활성 지점 중 승인된 담당 운영자가 있는 지점의 `id`, `name`, `district`만 반환한다. `POST /auth/register`는 `{ branchId, name, password, phone }`을 받아 UUID 기반 사용자·성인 회원 프로필을 함께 생성한다. 가입 지점 ID는 160자, 이름은 회원 프로필 정책과 같은 30자, 휴대폰 원문은 40자, 비밀번호는 8자 이상 256자 이하로 제한한다. 서버는 최신 저장소에서 지점 활성 상태와 담당 운영자를 다시 검증하고, 객체·배열 등 잘못된 필드 형식과 초과 입력은 비밀번호 해시 전에 `400 VALIDATION_ERROR`로 차단한다. 휴대폰 유일성 재검사와 사용자·회원·감사 기록 저장은 정규화된 휴대폰 번호 잠금 안에서 원자적으로 처리한다. 같은 번호의 동시 가입은 정확히 한 건만 `200`으로 성공하고 나머지는 계정 존재를 구체적으로 드러내지 않는 `409 REGISTRATION_NOT_AVAILABLE`을 반환한다. 병합 후 저장 경계도 휴대폰·이메일 유일성과 사용자·회원 연결을 다시 검증한다. 휴대폰 소유 인증은 현재 가입 흐름에 포함하지 않으며, 별도 요청으로 재도입하기 전까지 SMS 환경 변수에 의존하지 않는다.
 
 `POST /auth/password-reset`은 같은 경로에서 세 단계를 처리한다. `action=request`는 `{ phone }`으로 6자리 인증번호 발송을 요청하고, 계정 존재 여부·시간당 요청 제한·개별 SMS 전송 실패를 구분하지 않는 `{ "ok": true, "next": "verify" }` 응답을 반환한다. 미등록·요청 제한 계정도 challenge 생성과 같은 고정 비용 PBKDF2를 수행하고, 운영 HTTPS webhook 호출은 중립 응답을 확정한 뒤 `after()`에서 실행해 제공자 지연으로 계정 존재를 추정하지 못하게 한다. 개별 전송 실패는 예약한 challenge를 제거하고 성공 감사 기록을 실패로 교정한다. 개발 및 run-owned 격리 smoke만 인증번호를 응답에 즉시 제공한다. 운영 발송은 `FINAL_JUDO_PASSWORD_RESET_SMS_WEBHOOK_URL`과 bearer secret이 모두 설정된 HTTPS webhook만 사용하며 미설정이면 계정 조회 전에 모든 요청을 `503`으로 차단한다. `action=verify`는 `{ phone, code }`를 받아 10분 만료·최대 5회 시도 제한을 적용하고, 성공 시 10분간 한 번만 쓸 수 있는 불투명 `resetToken`을 반환한다. 미등록 번호와 활성 challenge가 없는 계정도 고정 비용 더미 PBKDF2 검증을 수행하고 동일한 `400 PASSWORD_RESET_CODE_INVALID`를 반환한다. 인증번호는 salted PBKDF2 hash, 재설정 토큰은 SHA-256 hash로만 저장하며 감사 로그에 원문을 남기지 않는다. `action=complete`는 `{ resetToken, password }`를 받아 8자 이상 256자 이하의 새 비밀번호를 저장하고 모든 기존 세션·이전 기기 푸시 자격증명·대기 발송과 남은 인증 challenge를 동일 잠금 안에서 폐기한다. 잘못된 본문과 초과 입력은 계정 조회 전에 `400 VALIDATION_ERROR`로 차단한다.
 

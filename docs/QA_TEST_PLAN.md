@@ -41,7 +41,7 @@
 - `npm run test:invitation-token-security` 통과. 256-bit 초대 토큰의 해시 저장·7일 만료·단일 사용, 사용자별 비밀번호 실패 제한, 257자 비밀번호의 해시 전 차단·원문 미저장, 초대 수락 뒤 휴대폰·동일 비밀번호 로그인과 로그아웃 후 재로그인, 비관리자·담당 밖 지점 재발급 차단, 재발급 시 이전 링크 무효화와 bootstrap 해시 미노출을 확인
 - `npm run test:local-demo-password-rotation` 통과. 공용 데모 비밀번호의 고정/임의 salt 해시를 모두 탐지하고, 명시적 격리 JSON 확인 없이는 쓰지 않으며 원본·PostgreSQL·공개 산출물에 비밀번호를 남기지 않는지 확인
 - `npm run test:notification-outbox` 및 `npm run test:notification-outbox-integration` 통과. 구독별 멱등 enqueue, lease/revision 경쟁, provider 시작 전 sent/failed 정산 거부, provider 호출 전·후 취소 결과의 `not_started`/`uncertain` 구분과 완료 시각·bounded fence 보존, 재시도별 provider fence 초기화와 전송 중 소유권 변경 차단, timeout 뒤 원래 lease 만료까지 재시도·소유권 이전·키 교체를 막는 bounded provider fence, 이전 시도 전달 불확실성 보존, 지수 backoff, 최대 시도, 404/410 비활성화와 같은 기기 잔여 작업 취소, 병렬 provider 호출의 전달 불확실성 보존, 일부 발송·일부 취소 요청의 확인 필요 감사, 수동 재발송 멱등 digest, 공지 변경/삭제 취소 경계, provider timeout·불확실 전송·stale settlement 감사, CRON_SECRET 인증과 endpoint/key 없는 시도 감사 기록을 확인
-- `npm run test:phone-signup-security` 통과. 공개 회원가입이 인증번호 요청·완료 2단계를 강제하고, 휴대폰·인증번호 원문 비저장, 10분 만료·5회 오입력·번호당 시간당 3회 요청, 기존 계정 중립 응답, 운영 SMS 응답 후 발송과 같은 인증번호 동시 완료 단일 성공 계약을 확인
+- `npm run test:phone-signup-security` 통과. 공개 회원가입이 지점·이름·휴대폰 번호·비밀번호를 한 번에 제출하고, 서버 입력 상한·지점 유효성·번호별 잠금·잠금 안 유일성 재검사·기존 계정 중립 오류·감사 로그 휴대폰 원문 비저장·SMS 비의존 계약을 확인
 - `npm run test:phone-signup-login-flow` 통과. 고유 로컬 포트와 실행별 임시 JSON 저장소의 390px 휴대폰 회원가입에서 서버가 제공한 지점 선택기(44px, 가로 overflow 0)를 거쳐 선택 지점에 가입하고, 31자 이름·257자 비밀번호·255자 로그인/재설정 식별자를 계정 생성·비밀번호 검증 전에 400으로 차단한다. 정상 입력은 같은 휴대폰과 비밀번호로 가입 완료 안내 로그인 화면과 회원 대시보드까지 이동하며, 폼의 이름·휴대폰·비밀번호 `maxLength`와 잘못된 비밀번호 문구 비노출을 확인한다. 최신 브라우저 증빙은 `.data/mobile-builds/ios/phone-signup-branch-selection-20260719/summary.json`에 보관하며 기존 iPhone 16e Simulator 증빙은 `.data/mobile-builds/ios/phone-signup-login-flow-ios-20260705/summary.json`에 보관
 - `npm run test:password-reset-security` 통과. 인증번호와 reset token 원문 비저장, 재전송·지연 도착·발송 실패 정리, 10분 만료·5회 오입력·단일 사용, 미등록·제한 계정의 응답·PBKDF2 비용 중립화, 운영 SMS 응답 후 발송, 비밀번호 변경 뒤 기존 세션·푸시 자격증명·대기 발송 폐기를 확인
 - `npm run test:public-legal-pages` 통과. `/privacy`와 `/account-deletion`이 운영자 조승권의 연락처·이메일·주소, 카페24/Vercel/Neon 처리 위탁, 이용 종료 후 2년 보유 원칙과 법정 거래기록 예외, 카메라의 QR 스캔 한정 사용, 비밀번호·주민등록번호·카드번호 비수집, 이메일 기반 계정·데이터 영구 삭제 요청 경로를 공개한다. 회원가입과 내 계정에서 접근 가능하고 비로그인 법적 문서 진입은 인증 bootstrap 401을 만들지 않는다. 390px/1440px 증빙은 `.data/mobile-builds/ios/public-legal-pages-20260722/summary.json`에 보관한다.
@@ -374,10 +374,10 @@
 | QA-PAY-22 | 대표/총괄 | 수기 결제 생성·수정에서 만료일을 납부일보다 앞선 날짜로 제출하고, 상태는 유지한 채 금액·날짜만 정상 정정 | 역전된 날짜는 `400 VALIDATION_ERROR`로 차단되고 정상 정정은 감사 기록만 남기며 `statusHistory` 건수는 증가하지 않음 |
 | QA-PAY-23 | 대표/총괄 | 수기 결제 등록 API에 `partially_refunded`를 제출하고, 같은 결제의 수기 수정과 온라인 요청을 동시에 시도 | 부분 환불 직접 등록은 `400`으로 차단되고 두 변경은 순차 처리되어 온라인 요청 금액과 저장 금액이 어긋나지 않음 |
 | QA-PAY-24 | 대표 | 0원 환불 완료 또는 환불액 누락 부분 환불 레코드의 수정·삭제 API 호출 | 환불 상태 자체를 이력으로 인식해 두 요청 모두 `422 BUSINESS_RULE_FAILED`로 차단되고 원본 결제와 상태 이력이 유지됨 |
-| QA-AUTH-11 | 비로그인 사용자 | 인증번호 요청 후 같은 휴대폰 번호·인증번호로 회원가입 완료 2건을 동시에 제출 | 정확히 한 건만 `200`, 다른 한 건은 기존 계정 여부를 숨기는 `400 SIGNUP_CODE_INVALID`이며 사용자·연결 회원·성공 감사 기록이 각각 1건만 저장됨 |
-| QA-AUTH-11A | 비로그인 사용자 | 복수 활성 지점에서 지점 없이 가입 완료, 존재하지 않는 지점 ID, 만료·오입력 인증번호로 가입 완료 | 모두 `400 VALIDATION_ERROR` 또는 `400 SIGNUP_CODE_INVALID`, 사용자·회원·성공 감사 기록 미생성. 잘못된 지점은 인증번호를 소비하지 않으며 공개 지점 조회는 `id`, `name`, `district`만 노출함 |
-| QA-AUTH-11B | 비로그인 사용자 | 미등록 번호와 이미 등록된 번호로 인증번호 요청, 같은 번호로 1시간 내 4회 요청, 인증번호 5회 오입력, 소비된 번호 재사용 | 공개 응답은 계정·요청 제한·개별 발송 결과를 구분하지 않고 동일함. 요청은 시간당 3회, 오입력은 5회로 제한되며 만료·소비된 인증번호는 재사용되지 않고 휴대폰·인증번호 원문이 challenge·감사 로그에 저장되지 않음 |
-| QA-AUTH-11C | 비로그인 사용자 | 390x844 모바일에서 지점 선택, 휴대폰 입력, 인증번호 요청·입력, 가입 완료 후 같은 비밀번호로 로그인 | 요청 버튼과 인증번호 입력은 44px 이상이고 가로 overflow·콘솔 오류가 없으며, 선택 지점의 성인 회원 홈으로 이동하고 세션 쿠키가 발급됨 |
+| QA-AUTH-11 | 비로그인 사용자 | 같은 휴대폰 번호로 회원가입 2건을 동시에 제출 | 정확히 한 건만 `200`, 다른 한 건은 기존 계정 여부를 구체적으로 드러내지 않는 `409 REGISTRATION_NOT_AVAILABLE`이며 사용자·연결 회원·성공 감사 기록이 각각 1건만 저장됨 |
+| QA-AUTH-11A | 비로그인 사용자 | 복수 활성 지점에서 지점 없이 가입, 존재하지 않는 지점 ID, 잘못된 휴대폰 형식으로 가입 | 모두 `400 VALIDATION_ERROR`, 사용자·회원·성공 감사 기록 미생성. 공개 지점 조회는 `id`, `name`, `district`만 노출함 |
+| QA-AUTH-11B | 비로그인 사용자 | 이미 등록된 번호로 직접 가입 재시도 | `409 REGISTRATION_NOT_AVAILABLE`을 반환하고 기존 계정 여부를 구체적으로 설명하지 않으며 사용자·회원·성공 감사 기록이 추가되지 않음 |
+| QA-AUTH-11C | 비로그인 사용자 | 390x844 모바일에서 지점·휴대폰·비밀번호를 입력해 가입 후 같은 비밀번호로 로그인 | 인증번호 요청·입력 UI 없이 가로 overflow·콘솔 오류가 없으며, 선택 지점의 성인 회원 홈으로 이동하고 세션 쿠키가 발급됨 |
 | QA-REPORT-01 | 대표 | `/app/owner/reports`에서 운영 리포트 내보내기 | 지점별 회원/수업/출석/매출/결제위험/출석 미처리/점검 점수 CSV가 내려오고 `export.create` 변경 기록 생성 |
 | QA-REPORT-02 | 대표 | `/app/owner/reports` 우선 점검 지점 확인 | 출석 미처리, 결제 위험, 휴면 회원 배지가 지점별 점검 점수와 함께 표시 |
 | QA-REPORT-03 | 대표 | `/app/owner/reports` 오늘 우선순위 확인 | 출석 미처리 정리, 결제 위험 확인, 휴면 회원 케어가 우선순위와 담당 역할로 표시되고 요청 승인 카드는 표시되지 않음 |

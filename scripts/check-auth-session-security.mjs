@@ -322,10 +322,10 @@ assert(
 assert(resetRouteSource.includes("passwordResetMinimumPasswordLength"));
 assert(!resetRouteSource.includes("after: { identifier }"), "reset audits must not persist the supplied identifier");
 assert(registerRouteSource.includes("if (!isRegisterBody(rawBody))"));
-assert(registerRouteSource.includes("createPhoneSignupChallenge"));
-assert(registerRouteSource.includes("verifyPhoneSignupCode"));
 assert(registerRouteSource.includes("withServerDbLock(`auth-register-phone:${phone}`"));
-assert(registerRouteSource.indexOf("const verification = verifyPhoneSignupCode") < registerRouteSource.indexOf("const user: AppUser"));
+assert(registerRouteSource.includes("phoneAlreadyRegistered"));
+assert(!registerRouteSource.includes("createPhoneSignupChallenge"));
+assert(!registerRouteSource.includes("verifyPhoneSignupCode"));
 
 console.log(JSON.stringify({
   ok: true,

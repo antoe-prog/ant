@@ -680,7 +680,7 @@ async function run() {
     "/api/v1/auth/register",
     {
       method: "POST",
-      body: JSON.stringify({ action: "complete", branchId: "branch-gangnam", code: "123456", name: {}, phone: "01012345678", password: "SafePassword!2026" }),
+      body: JSON.stringify({ branchId: "branch-gangnam", name: {}, phone: "01012345678", password: "SafePassword!2026" }),
     },
     { allowError: true },
   );

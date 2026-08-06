@@ -122,19 +122,6 @@ function assertCookieMaxAge(result, expectedMaxAge, label) {
   );
 }
 
-async function requestSignupCode(client, phone, label) {
-  const result = await client.request("/api/v1/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ action: "request", phone }),
-  });
-
-  assert.equal(result.response.status, 200, `${label} verification request must succeed`);
-  assert.equal(result.payload.data?.next, "verify", `${label} verification request must advance to code entry`);
-  assert.match(result.payload.data?.developmentCode ?? "", /^\d{6}$/, `${label} must receive an isolated development code`);
-
-  return result.payload.data.developmentCode;
-}
-
 async function loginRole(client, role) {
   const result = await client.request("/api/v1/auth/login", {
     method: "POST",
@@ -352,7 +339,6 @@ async function runAssertions(baseUrl) {
 
   const publicSignupClient = createClient(baseUrl);
   const publicRegisterPhone = `010${stampPhoneSuffix}`;
-  const publicRegisterCode = await requestSignupCode(publicSignupClient, publicRegisterPhone, "public signup");
   const publicSignupBranches = await publicSignupClient.request("/api/v1/auth/register");
   assert.deepEqual(
     publicSignupBranches.payload.data?.branches?.map((branch) => branch.id),
@@ -370,9 +356,7 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
-        action: "complete",
         branchId: "",
-        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -388,9 +372,7 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
-        action: "complete",
         branchId: "branch-inactive-or-forged",
-        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -406,9 +388,7 @@ async function runAssertions(baseUrl) {
     {
       method: "POST",
       body: JSON.stringify({
-        action: "complete",
         branchId: "branch-songpa",
-        code: publicRegisterCode,
         name: "휴대폰 가입 확인",
         password: `FJ-Public-${stamp}!`,
         phone: publicRegisterPhone,
@@ -437,21 +417,26 @@ async function runAssertions(baseUrl) {
   assert.equal(publicRegisterLogin.response.status, 200, "phone signup user must be able to log in with the same password");
   assertCookieMaxAge(publicRegisterLogin, 60 * 60 * 24 * 30, "phone signup remembered login");
 
-  const existingPhoneRequest = await publicSignupClient.request("/api/v1/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ action: "request", phone: publicRegisterPhone }),
-  });
-  assert.equal(existingPhoneRequest.response.status, 200, "existing phone requests must keep a neutral success response");
-  assert.equal(existingPhoneRequest.payload.data?.next, "verify", "existing phone requests must use the same next step");
-  assert.equal(existingPhoneRequest.payload.data?.developmentCode, undefined, "existing phones must never receive a signup code");
+  const existingPhoneRegistration = await publicSignupClient.request(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        branchId: "branch-songpa",
+        name: "중복 가입 확인",
+        password: `FJ-Public-${stamp}!`,
+        phone: publicRegisterPhone,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(existingPhoneRegistration.response.status, 409, "an existing phone must not create another account");
+  assert.equal(existingPhoneRegistration.payload.error?.code, "REGISTRATION_NOT_AVAILABLE", "duplicate signup must use a neutral stable error");
 
   const concurrentPhoneSuffix = String((Number(stampPhoneSuffix) + 3) % 100000000).padStart(8, "0");
   const concurrentRegisterPhone = `010${concurrentPhoneSuffix}`;
-  const concurrentRegisterCode = await requestSignupCode(publicSignupClient, concurrentRegisterPhone, "concurrent signup");
   const concurrentRegisterBody = JSON.stringify({
-    action: "complete",
     branchId: "branch-gangnam",
-    code: concurrentRegisterCode,
     name: "동시 가입 확인",
     password: `FJ-Concurrent-${stamp}!`,
     phone: concurrentRegisterPhone,
@@ -468,12 +453,12 @@ async function runAssertions(baseUrl) {
   );
   assert.deepEqual(
     concurrentRegisterResults.map((result) => result.response.status).sort((left, right) => left - right),
-    [200, 400],
-    "concurrent registration for one verified phone must create exactly one account and consume the code",
+    [200, 409],
+    "concurrent registration for one phone must create exactly one account",
   );
   assert.equal(
-    concurrentRegisterResults.find((result) => result.response.status === 400)?.payload.error?.code,
-    "SIGNUP_CODE_INVALID",
+    concurrentRegisterResults.find((result) => result.response.status === 409)?.payload.error?.code,
+    "REGISTRATION_NOT_AVAILABLE",
     "concurrent duplicate registration must not reveal whether the phone now exists",
   );
   const concurrentRegisterBootstrap = await admin.request("/api/v1/me/bootstrap");

@@ -194,19 +194,8 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
 
     const registrationStamp = String(Date.now() % 100000000).padStart(8, "0");
     const registrationPhone = `010${registrationStamp}`;
-    const registrationCodeResponse = await fetch(`${baseUrl}/api/v1/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "request", phone: registrationPhone }),
-    });
-    const registrationCodePayload = await registrationCodeResponse.json();
-    const registrationCode = registrationCodePayload.data?.developmentCode;
-    assert.equal(registrationCodeResponse.status, 200, "PostgreSQL signup code request must succeed");
-    assert.match(registrationCode ?? "", /^\d{6}$/, "PostgreSQL signup must receive an isolated development code");
     const registrationBody = JSON.stringify({
-      action: "complete",
       branchId: "branch-gangnam",
-      code: registrationCode,
       name: "PostgreSQL 동시 가입",
       password: `FJ-Postgres-${registrationStamp}!`,
       phone: registrationPhone,
@@ -220,8 +209,8 @@ async function verifyPostgresPaymentRouteIdempotency(connectionString) {
     const registrationResponses = await Promise.all([register(), register()]);
     assert.deepEqual(
       registrationResponses.map((response) => response.status).sort((left, right) => left - right),
-      [200, 400],
-      "PostgreSQL concurrent registration must persist one account and consume one verification code",
+      [200, 409],
+      "PostgreSQL concurrent registration must persist one account",
     );
     const registrationPool = new Pool({ connectionString, max: 1 });
     try {

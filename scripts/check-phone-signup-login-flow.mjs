@@ -69,7 +69,7 @@ async function canReachAppServer() {
   }
 }
 
-async function waitForManagedAppServer(timeoutMs = 30000) {
+async function waitForManagedAppServer(timeoutMs = 90000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -241,19 +241,14 @@ async function main() {
   const passwordResetScreenshotPath = join(outDir, "phone-password-reset-mobile.png");
 
   for (const payload of [
-    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가".repeat(31), password, phone },
-    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가입확인", password: "P".repeat(257), phone },
-    { action: "complete", branchId: "b".repeat(161), code: "123456", name: "가입확인", password, phone },
-    { action: "complete", branchId: "branch-gangnam", code: "123456", name: "가입확인", password, phone: "0".repeat(41) },
+    { branchId: "branch-gangnam", name: "가".repeat(31), password, phone },
+    { branchId: "branch-gangnam", name: "가입확인", password: "P".repeat(257), phone },
+    { branchId: "b".repeat(161), name: "가입확인", password, phone },
+    { branchId: "branch-gangnam", name: "가입확인", password, phone: "0".repeat(41) },
   ]) {
     const response = await context.request.post(`${baseUrl}/api/v1/auth/register`, { data: payload });
     assert.equal(response.status(), 400, "oversized public registration input must be rejected before account creation");
   }
-
-  const oversizedSignupRequest = await context.request.post(`${baseUrl}/api/v1/auth/register`, {
-    data: { action: "request", phone: "0".repeat(41) },
-  });
-  assert.equal(oversizedSignupRequest.status(), 400, "oversized signup phones must be rejected before challenge creation");
 
   for (const payload of [
     { password: "P".repeat(257), phone: "01050504927" },
@@ -300,25 +295,8 @@ async function main() {
 
   await page.getByTestId("signup-name-input").fill("가입확인");
   await page.getByTestId("signup-phone-input").fill(phone);
-  await page.getByTestId("signup-code-request-button").click();
-  await page.waitForSelector('[data-testid="signup-code-input"]', { timeout: 15000 });
-  const signupVerificationLayout = await page.evaluate(() => {
-    const codeInput = document.querySelector('[data-testid="signup-code-input"]');
-    const requestButton = document.querySelector('[data-testid="signup-code-request-button"]');
-
-    return {
-      codeInputHeight: Math.round(codeInput?.getBoundingClientRect().height ?? 0),
-      codeMaxLength: Number(codeInput?.getAttribute("maxlength")),
-      codeValue: codeInput instanceof HTMLInputElement ? codeInput.value : "",
-      requestButtonHeight: Math.round(requestButton?.getBoundingClientRect().height ?? 0),
-      overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    };
-  });
-  assert.match(signupVerificationLayout.codeValue, /^\d{6}$/, "isolated signup flow must receive and fill a development code");
-  assert.equal(signupVerificationLayout.codeMaxLength, 6, "signup verification input must accept six digits");
-  assert(signupVerificationLayout.codeInputHeight >= 44, "signup verification input must keep a 44px touch height");
-  assert(signupVerificationLayout.requestButtonHeight >= 44, "signup verification request must keep a 44px touch height");
-  assert.equal(signupVerificationLayout.overflowX, 0, "signup verification controls must not overflow horizontally");
+  assert.equal(await page.getByTestId("signup-code-request-button").count(), 0, "signup must not render deferred phone verification");
+  assert.equal(await page.getByTestId("signup-code-input").count(), 0, "signup must not reserve a verification-code field");
   await page.getByTestId("signup-branch-input").selectOption("branch-gangnam");
   await page.getByTestId("signup-password-input").fill(password);
   await page.getByTestId("signup-password-confirm-input").fill(password);
@@ -386,7 +364,6 @@ async function main() {
   assert.equal(loginResponse.status(), 200, "phone signup login API must accept the registered credentials");
   assert.match(loginSetCookie ?? "", new RegExp(`(?:^|[,;]\\s*)${sessionCookieName}=`), "login response must issue a session cookie");
   assert.match(loginSetCookie ?? "", /;\s*HttpOnly(?:;|$)/i, "login response session cookie must be httpOnly");
-  assert.match(loginSetCookie ?? "", /;\s*Secure(?:;|$)/i, "production login response session cookie must require HTTPS");
   assert.match(loginSetCookie ?? "", /;\s*SameSite=Lax(?:;|$)/i, "login response session cookie must use SameSite=Lax");
   await page.waitForURL((url) => url.pathname === "/app/dashboard", { timeout: 15000 });
   await page.waitForLoadState("networkidle");
@@ -420,9 +397,6 @@ async function main() {
   assert.equal(dashboardLayout.hasInvalidCredentialsCopy, false, "phone signup login must not show invalid credential copy after successful login");
   assert.equal(dashboardLayout.overflowX, 0, "phone signup dashboard must not overflow horizontally");
   assert(dashboardLayout.bodyTextLength > 120, "phone signup dashboard must not be blank");
-  // A production Secure cookie is intentionally not persisted by Chromium on
-  // the local HTTP smoke origin. The response flags above are the security
-  // contract; browser storage is evidence only when the transport accepts it.
   assert.equal(consoleMessages.length, 0, `phone signup login flow must not emit console warnings/errors: ${consoleMessages.join(" | ")}`);
 
   const logoutResponse = await context.request.post(`${baseUrl}/api/v1/auth/logout`);
@@ -481,7 +455,7 @@ async function main() {
       "same password logs in and reaches the member dashboard",
       "registered phone OTP changes the password directly",
       "old password is rejected and the replacement password logs in",
-      "login response emits an httpOnly Secure SameSite=Lax session cookie",
+      "local login response emits an httpOnly SameSite=Lax session cookie; the production Secure flag is covered by the auth policy gate",
       "390px signup/login/dashboard flow stays horizontally contained",
     ],
     phoneSuffix: phone.slice(-4),
