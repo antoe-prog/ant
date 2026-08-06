@@ -153,6 +153,7 @@ const checks = [
   ["run", "test:audit-action-contract"],
   ["run", "test:audit-log-privacy"],
   ["run", "test:recurring-billing"],
+  ["run", "test:runtime-retention-maintenance"],
   ["run", "test:payment-provider-handoff-draft"],
   ["run", "test:payment-provider-handoff"],
   ["run", "test:notification-push-handoff-draft"],

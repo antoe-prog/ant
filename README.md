@@ -235,6 +235,7 @@ npm run test:admin-audit-search
 npm run test:audit-action-contract
 npm run test:audit-log-privacy
 npm run test:recurring-billing
+npm run test:runtime-retention-maintenance
 npm run test:payment-provider-handoff-draft
 npm run test:payment-provider-handoff
 npm run test:notification-push-handoff-draft
@@ -380,6 +381,7 @@ P1 readiness는 운영 배포, Android release, iOS IPA, 결제 provider, 운영
 
 `test:audit-log-privacy`는 변경 기록의 휴대폰·이메일·계정 식별값 마스킹, 비밀번호·토큰·알림 endpoint 제거, 민감 메모 원문 축약과 중첩 값 보호를 검증합니다. 서버 저장소가 모든 변경 기록에 정책을 적용하고 총괄 상세 화면이 원문 JSON 대신 한국어 변경 전후 비교를 사용하는지도 함께 확인합니다.
 `test:recurring-billing`은 provider-neutral 정기결제 약정 생성/해지 API, 인증/지점 권한 선확인, 실제 달력 날짜·청구일·해지 사유 입력 검증, 공통 결제 잠금과 최신 상태 재검증, 다음 청구일 계산, `/app/payments` 정기결제 상태 UI, 코치 provider 약정 ID 마스킹, 결제 CSV 정기결제 컬럼, API/DB 문서와 release gate가 유지되는지 검증합니다. 실제 HTTP smoke는 동시 생성 `200/409`, 동시 해지 `200/422`와 단일 상태 이력·감사 기록을 확인합니다. 실제 자동청구 승인은 운영 PG/VAN provider의 billing key/mandate 계약 확정 후 연결합니다.
+`test:runtime-retention-maintenance`는 회원 삭제 후 분리 보관한 법정 거래기록이 모든 DB 쓰기 직전과 승인된 일일 내부 작업에서 만료 즉시 원본 저장소에 반영되어 삭제되는지, 아직 보존기간인 기록과 반복 실행 멱등성이 유지되는지 격리 JSON 저장소로 검증합니다.
 `payment-provider:handoff:draft`는 `FINAL_JUDO_PAYMENT_PROVIDER`, `FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL`, `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET`와 운영자가 넘긴 provider 필드 매핑/증빙 인자에서 `.data/payment-provider-handoff.json` 초안을 생성합니다. webhook secret은 값이 아니라 `FINAL_JUDO_PAYMENT_WEBHOOK_SECRET` 이름과 저장 여부만 기록하며, 32바이트 미만 또는 placeholder 값은 저장 완료로 인정하지 않습니다. `test:payment-provider-handoff-draft`는 pending 초안 strict 차단, env 추론, 원문 secret 미기록, 운영자 완료 초안 strict 통과, 누락 webhook field mapping 차단을 검증합니다.
 `test:release-docs`는 `test:release` 실행 목록의 `npm run` 스크립트가 `package.json`에 존재하고 README, QA 계획, 릴리즈 체크리스트에 빠짐없이 안내되는지, README `검증` 명령 블록이 실제 release runner 순서와 일치하는지 확인합니다.
 `npm run lint`와 `npm run build`는 로컬 `node_modules/.bin` shim 유무에 흔들리지 않도록 각각 ESLint와 Next의 Node package entrypoint를 직접 실행하며, `test:release-docs`가 이 설정 drift와 entrypoint 존재를 함께 검증합니다.

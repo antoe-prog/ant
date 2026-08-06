@@ -32,6 +32,7 @@ const files = {
   memberRoute: "src/app/api/v1/members/[memberId]/route.ts",
   membersScreen: "src/components/screens/members-screen.tsx",
   paymentRetention: "src/lib/payment-transaction-retention.ts",
+  retentionMaintenance: "src/server/runtime-retention-maintenance.ts",
   runtimeMerge: "src/server/runtime-state-merge.ts",
   serverDb: "src/server/db.ts",
   releaseChecklist: "docs/RELEASE_CHECKLIST.md",
@@ -197,9 +198,16 @@ assert(
 );
 assert(
   sources.serverDb.includes("pruneExpiredRetainedPaymentTransactions") &&
+    sources.serverDb.includes("retainedPaymentTransactions,") &&
     sources.serverDb.includes('"retainedPaymentTransactions"') &&
     sources.runtimeMerge.includes('"retainedPaymentTransactions"'),
-  "retained transactions must be upgraded, expired, and merged without lost updates",
+  "retained transactions must be upgraded, pruned before persistence, and merged without lost updates",
+);
+assert(
+  sources.retentionMaintenance.includes("applyRuntimeRetentionMaintenance") &&
+    sources.retentionMaintenance.includes("pruneExpiredRuntimeRetentionRecords") &&
+    sources.retentionMaintenance.includes("writeServerDb(maintenance.db)"),
+  "daily retention maintenance must persist removal of expired transaction records",
 );
 assert(
   sources.membersScreen.includes("memberDeletePaymentBlockerCount") &&

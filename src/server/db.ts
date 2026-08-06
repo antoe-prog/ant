@@ -190,9 +190,9 @@ function validateMockDatabase(value: unknown) {
               : challenge,
           )
       : [],
-    retainedPaymentTransactions: pruneExpiredRetainedPaymentTransactions(
-      Array.isArray(db.retainedPaymentTransactions) ? db.retainedPaymentTransactions : [],
-    ),
+    retainedPaymentTransactions: Array.isArray(db.retainedPaymentTransactions)
+      ? db.retainedPaymentTransactions
+      : [],
     pushSubscriptions: Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : [],
     pushDispatchJobs: Array.isArray(db.pushDispatchJobs) ? db.pushDispatchJobs : [],
     pilotIncidents: Array.isArray(db.pilotIncidents) ? db.pilotIncidents : [],
@@ -270,7 +270,14 @@ export async function readServerDb() {
 }
 
 export async function writeServerDb(db: MockDatabase) {
-  return serverDbStore.write(sanitizeDatabaseAuditLogs(db));
+  const retainedPaymentTransactions = pruneExpiredRetainedPaymentTransactions(
+    db.retainedPaymentTransactions ?? [],
+  );
+
+  return serverDbStore.write(sanitizeDatabaseAuditLogs({
+    ...db,
+    retainedPaymentTransactions,
+  }));
 }
 
 export async function resetServerDb() {

@@ -135,6 +135,7 @@
     "test:audit-action-contract": "node scripts/check-audit-action-contract.mjs",
     "test:audit-log-privacy": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-audit-log-privacy.mjs",
     "test:recurring-billing": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-recurring-billing.mjs",
+    "test:runtime-retention-maintenance": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-runtime-retention-maintenance.mjs",
     "payment-provider:handoff:draft": "node scripts/create-payment-provider-handoff-draft.mjs",
     "payment-provider:handoff": "node scripts/check-payment-provider-handoff.mjs",
     "test:payment-provider-handoff-draft": "node scripts/check-payment-provider-handoff-draft-test.mjs",

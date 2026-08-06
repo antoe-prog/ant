@@ -5,6 +5,7 @@ import {
   notificationOutboxExecutionPolicy,
   processNotificationOutbox,
 } from "@/server/notification-outbox-runner";
+import { pruneExpiredRuntimeRetentionRecords } from "@/server/runtime-retention-maintenance";
 
 export const runtime = "nodejs";
 
@@ -28,9 +29,14 @@ export async function GET(request: NextRequest) {
     return jsonError(401, "UNAUTHENTICATED", "작업 실행 권한이 없습니다.");
   }
 
+  const retention = await pruneExpiredRuntimeRetentionRecords();
   const result = await processNotificationOutbox({
     concurrency: notificationOutboxExecutionPolicy.scheduled.concurrency,
     limit: notificationOutboxExecutionPolicy.scheduled.limit,
   });
-  return jsonOk({ ok: true, processed: result.processed });
+  return jsonOk({
+    ok: true,
+    processed: result.processed,
+    prunedPaymentTransactionCount: retention.prunedPaymentTransactionCount,
+  });
 }

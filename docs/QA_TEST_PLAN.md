@@ -106,6 +106,7 @@
 - `npm run test:admin-user-search` 통과. 390px 모바일 총괄 사용자 관리의 `role`+`q` 검색 딥링크, 검색어 지우기 시 역할 필터 보존, 0건 빈 상태 `전체 보기`의 q/role 복구, 검색 입력/지우기/필터 초기화/빈 상태 초기화 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음 상태를 검증
 - `npm run test:admin-audit-search` 통과. 390px 모바일 총괄 변경 기록의 `q` 검색 딥링크, 검색어 120자 상한, 검색어 지우기와 `전체 보기` URL 복구, 0건 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표, 하단 내비 clearance, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨과 승급 심사·대회 공지 변경 기록 API 필터 허용, 검색어 121자·사유 501자·지점 ID 201자 요청의 잠금 전 400 무감사 차단, 동시 동일 조회의 단일 감사 기록 보존을 검증
 - `npm run test:recurring-billing` 통과. 정기결제 약정 생성/해지 API가 세션과 역할/지점 권한을 요청 본문 검증보다 먼저 확인하고, 실제 달력 날짜·1-28 청구일·문자열 해지 사유, 공통 결제 잠금, 최신 권한·상태 재검증, 저장 충돌 409 매핑을 유지하는지 확인. 격리 `test:smoke`는 동시 생성 `200/409`, 동시 해지 `200/422`, 성공 작업별 상태 이력·감사 기록 1건을 검증
+- `npm run test:runtime-retention-maintenance` 통과. 회원 삭제 후 법정 거래기록이 일반 서비스 데이터와 분리되고, 만료 기록은 모든 DB 쓰기와 승인된 일일 내부 작업에서 원본 저장소에 실제 반영되어 삭제되며 보존기간 중 기록과 반복 정리 멱등성이 유지되는지 격리 JSON 저장소로 검증
 - `npm run test:payment-provider-handoff-draft` 통과
 - `npm run test:payment-provider-handoff` 통과
 - `npm run test:routes` 통과
