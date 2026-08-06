@@ -24,6 +24,14 @@ export type TournamentValidation =
   | { ok: false; error: string }
   | { ok: true; value: TournamentValue };
 
+export const tournamentFieldLimits = {
+  description: 500,
+  location: 80,
+  organizer: 40,
+  sourceUrl: 300,
+  title: 80,
+} as const;
+
 const tournamentBodyFields = [
   "title",
   "organizer",
@@ -89,12 +97,12 @@ export function validateTournamentBody(value: unknown): TournamentValidation {
   const sourceUrl = body.sourceUrl?.trim() || undefined;
   const description = body.description?.trim() || undefined;
 
-  if (!title || title.length > 80) {
-    return { ok: false, error: "대회명을 80자 이내로 입력해 주세요." };
+  if (!title || title.length > tournamentFieldLimits.title) {
+    return { ok: false, error: `대회명을 ${tournamentFieldLimits.title}자 이내로 입력해 주세요.` };
   }
 
-  if (!organizer || organizer.length > 40) {
-    return { ok: false, error: "주최 단체를 40자 이내로 입력해 주세요." };
+  if (!organizer || organizer.length > tournamentFieldLimits.organizer) {
+    return { ok: false, error: `주최 단체를 ${tournamentFieldLimits.organizer}자 이내로 입력해 주세요.` };
   }
 
   if (!isDateOnly(eventDate)) {
@@ -111,16 +119,19 @@ export function validateTournamentBody(value: unknown): TournamentValidation {
     }
   }
 
-  if (location !== undefined && location.length > 80) {
-    return { ok: false, error: "장소는 80자 이내로 입력해 주세요." };
+  if (location !== undefined && location.length > tournamentFieldLimits.location) {
+    return { ok: false, error: `장소는 ${tournamentFieldLimits.location}자 이내로 입력해 주세요.` };
   }
 
-  if (sourceUrl !== undefined && (!/^https?:\/\//.test(sourceUrl) || sourceUrl.length > 300)) {
-    return { ok: false, error: "공지 링크는 http(s) 주소로 300자 이내여야 합니다." };
+  if (
+    sourceUrl !== undefined &&
+    (!/^https?:\/\//.test(sourceUrl) || sourceUrl.length > tournamentFieldLimits.sourceUrl)
+  ) {
+    return { ok: false, error: `공지 링크는 http(s) 주소로 ${tournamentFieldLimits.sourceUrl}자 이내여야 합니다.` };
   }
 
-  if (description !== undefined && description.length > 500) {
-    return { ok: false, error: "설명은 500자 이내로 입력해 주세요." };
+  if (description !== undefined && description.length > tournamentFieldLimits.description) {
+    return { ok: false, error: `설명은 ${tournamentFieldLimits.description}자 이내로 입력해 주세요.` };
   }
 
   return {

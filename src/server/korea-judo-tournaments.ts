@@ -1,4 +1,5 @@
 import type { Tournament } from "@/lib/domain";
+import { tournamentFieldLimits } from "./tournaments.ts";
 
 export const koreaJudoAssociationTournamentSource = "korea_judo_association" as const;
 export const koreaJudoAssociationScheduleUrl =
@@ -9,6 +10,8 @@ const officialTournamentHost = "judo.sports.or.kr";
 const officialTournamentPath = "/Match/Country/ajax/MatchList.asp";
 const fetchTimeoutMs = 12_000;
 const maximumSourceBytes = 2_000_000;
+const maximumSourceIdLength = 32;
+const sourceIdPattern = new RegExp(`^\\d{1,${maximumSourceIdLength}}$`);
 
 function isAllowedTournamentSourceUrl(sourceUrl: URL) {
   const isOfficialSource =
@@ -221,8 +224,18 @@ export function parseKoreaJudoTournamentList(html: string, year: number) {
     const organizer = readLabelValue(segment, "주최") || "대한유도회";
     const location = readLabelValue(segment, "장소") || undefined;
     const period = parseKoreaJudoTournamentPeriod(readLabelValue(segment, "기간"));
+    const sourceUrl = `${koreaJudoAssociationScheduleUrl}?GameYear=${year}#collapse${externalId}`;
 
-    if (!/^\d+$/.test(externalId) || !title || !period || Number(period.eventDate.slice(0, 4)) !== year) {
+    if (
+      !sourceIdPattern.test(externalId) ||
+      !title ||
+      title.length > tournamentFieldLimits.title ||
+      organizer.length > tournamentFieldLimits.organizer ||
+      (location?.length ?? 0) > tournamentFieldLimits.location ||
+      sourceUrl.length > tournamentFieldLimits.sourceUrl ||
+      !period ||
+      Number(period.eventDate.slice(0, 4)) !== year
+    ) {
       skippedCount += 1;
       continue;
     }
@@ -241,7 +254,7 @@ export function parseKoreaJudoTournamentList(html: string, year: number) {
       eventDate: period.eventDate,
       ...(period.eventEndDate ? { eventEndDate: period.eventEndDate } : {}),
       ...(location ? { location } : {}),
-      sourceUrl: `${koreaJudoAssociationScheduleUrl}?GameYear=${year}#collapse${externalId}`,
+      sourceUrl,
     });
   }
 

@@ -13,6 +13,7 @@ import {
   readBoundedTournamentSource,
 } from "../src/server/korea-judo-tournaments.ts";
 import { canMutateTournament } from "../src/lib/tournament-policy.ts";
+import { tournamentFieldLimits } from "../src/server/tournaments.ts";
 
 const nextBin = "node_modules/next/dist/bin/next";
 const sourceFixture = `
@@ -53,6 +54,26 @@ const sourceFixture = `
     <input type="hidden" name="GameTitleName" value="파싱 제외 대회" />
   </div>
 `;
+
+function createSourcePanel({
+  externalId = "700",
+  location = "테스트 체육관",
+  organizer = "대한유도회",
+  title = "입력 경계 테스트 대회",
+} = {}) {
+  return `
+    <div class="panel panel-default day_count">
+      <span class="left_name">기간</span>
+      <span class="right_text">2026년08월01일(토)</span>
+      <span class="left_name">장소</span>
+      <span class="right_text">${location}</span>
+      <span class="left_name">주최</span>
+      <span class="right_text">${organizer}</span>
+      <input type="hidden" name="GameTitleIDX" value="${externalId}" />
+      <input type="hidden" name="GameTitleName" value="${title}" />
+    </div>
+  `;
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -203,6 +224,29 @@ async function main() {
     () => parseKoreaJudoTournamentList(malformedEntitySource, 2026),
     "out-of-range numeric HTML entities must not abort the full sync",
   );
+  const boundaryRecord = parseKoreaJudoTournamentList(
+    createSourcePanel({
+      externalId: "9".repeat(32),
+      location: "장".repeat(tournamentFieldLimits.location),
+      organizer: "주".repeat(tournamentFieldLimits.organizer),
+      title: "대".repeat(tournamentFieldLimits.title),
+    }),
+    2026,
+  );
+  assert.equal(boundaryRecord.records.length, 1, "source fields at the supported limits must be accepted");
+
+  const oversizedSourceCases = [
+    ["external ID", createSourcePanel({ externalId: "9".repeat(33) })],
+    ["title", createSourcePanel({ title: "대".repeat(tournamentFieldLimits.title + 1) })],
+    ["organizer", createSourcePanel({ organizer: "주".repeat(tournamentFieldLimits.organizer + 1) })],
+    ["location", createSourcePanel({ location: "장".repeat(tournamentFieldLimits.location + 1) })],
+  ];
+
+  for (const [field, source] of oversizedSourceCases) {
+    const oversized = parseKoreaJudoTournamentList(source, 2026);
+    assert.equal(oversized.records.length, 0, `oversized source ${field} must not be imported`);
+    assert.equal(oversized.skippedCount, 1, `oversized source ${field} must be reported as skipped`);
+  }
 
   const manualTournament = {
     id: "tournament-manual",
@@ -569,6 +613,7 @@ async function main() {
           manualTournamentPreserved: true,
           missingOfficialEventBlocked: true,
           missingOfficialEventManagementBlocked: true,
+          oversizedSourceFieldsRejected: true,
           registrationsPreserved: true,
           sourceFetchesSerialized: true,
           staleRegistrationCancellationPreserved: true,
