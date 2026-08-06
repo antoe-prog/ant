@@ -6,6 +6,8 @@ import { removeMemberFromTargetedNotices } from "@/lib/notices";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
+import { preparePushDispatchJobsForUserDeletion } from "@/server/notification-outbox";
 import { cancelPendingNoticePushJobs } from "@/server/notification-outbox-runner";
 import { createRuntimeId } from "@/server/runtime-id";
 
@@ -28,7 +30,6 @@ type MemberDeletePayload = {
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : null;
 }
-
 function getMemberPatchBodyTypeError(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return "변경할 회원 정보가 올바른 JSON 객체가 아닙니다.";
@@ -481,7 +482,8 @@ export async function DELETE(
     );
   }
 
-  return withServerDbLock(`member-profile:${memberId}`, async () => {
+  return withAuthAndNotificationStateLock(() =>
+    withServerDbLock(`member-profile:${memberId}`, async () => {
     const db = await readServerDb();
     const { user, response } = requireSession(request, db);
 
@@ -543,11 +545,26 @@ export async function DELETE(
         })
         .map((candidate) => candidate.id),
     );
-    const deletedSubscriptionIds = new Set(
-      db.pushSubscriptions
-        .filter((subscription) => deletedUserIds.has(subscription.userId))
-        .map((subscription) => subscription.id),
-    );
+    let pushCleanupDb = db;
+    let cancelledPushJobCount = 0;
+
+    for (const deletedUserId of deletedUserIds) {
+      const pushCleanup = preparePushDispatchJobsForUserDeletion(pushCleanupDb, deletedUserId, {
+        now: new Date().toISOString(),
+        reason: "연결 회원 삭제로 알림 발송을 취소했습니다.",
+      });
+
+      if (!pushCleanup.ok) {
+        return jsonError(
+          409,
+          "BUSINESS_RULE_FAILED",
+          "연결 계정의 휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 삭제해 주세요.",
+        );
+      }
+
+      pushCleanupDb = pushCleanup.db as MockDatabase;
+      cancelledPushJobCount += pushCleanup.cancelledJobCount;
+    }
     const nextUsers = db.users
       .filter((candidate) => !deletedUserIds.has(candidate.id))
       .map((candidate) => ({
@@ -575,6 +592,7 @@ export async function DELETE(
       },
       after: {
         reason,
+        cancelledPushJobCount,
         deletedUserCount: deletedUserIds.size,
         removedAttendanceCount,
         removedClassEnrollmentCount,
@@ -591,7 +609,7 @@ export async function DELETE(
       createdAt: now,
     };
     const nextDbBeforeNoticeCancellation: MockDatabase = {
-      ...db,
+      ...pushCleanupDb,
       members: db.members.filter((candidate) => candidate.id !== member.id),
       users: nextUsers,
       classes: db.classes.map((session) => ({
@@ -619,10 +637,7 @@ export async function DELETE(
       authSessions: db.authSessions.filter((session) => !deletedUserIds.has(session.userId)),
       passwordResetChallenges: db.passwordResetChallenges.filter((challenge) => !deletedUserIds.has(challenge.userId)),
       pushSubscriptions: db.pushSubscriptions.filter((subscription) => !deletedUserIds.has(subscription.userId)),
-      pushDispatchJobs: db.pushDispatchJobs.filter(
-        (job) => !deletedUserIds.has(job.recipientUserId) && !deletedSubscriptionIds.has(job.subscriptionId),
-      ),
-      auditLogs: [auditLog, ...db.auditLogs],
+      auditLogs: [auditLog, ...pushCleanupDb.auditLogs],
     };
     const nextDbWithCancelledNoticeJobs = noticeCleanup.changedNoticeIds.reduce<MockDatabase>(
       (candidateDb, noticeId) =>
@@ -637,5 +652,6 @@ export async function DELETE(
     const nextDb = await writeServerDb(nextDbWithCancelledNoticeJobs);
 
     return jsonOk(createBootstrapPayload(nextDb, user, selectedScope.selectedBranchId ?? member.branchId));
-  });
+    }),
+  );
 }

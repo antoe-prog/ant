@@ -436,7 +436,7 @@ export function PromotionsScreen() {
                     </p>
                     <p className="mt-1.5 text-xs text-zinc-500">
                       심사일 {formatDate(promotion.examDate)}
-                      {evaluator ? ` · 심사자 ${evaluator.name}` : ""}
+                      {` · 심사자 ${evaluator?.name ?? "삭제된 사용자"}`}
                       {promotion.note ? ` · 공개 안내 ${promotion.note}` : ""}
                     </p>
                   </div>

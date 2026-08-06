@@ -89,7 +89,7 @@ export function PromotionCertificateScreen({ promotionId }: { promotionId: strin
         <div className="mt-12 grid gap-1 text-sm text-zinc-700">
           <p className="font-semibold">{formatDate(issuedDate)}</p>
           <p className="mt-4 text-base font-bold text-zinc-950">파이널 유도 멀티짐 {branch?.name ?? ""}</p>
-          {evaluator ? <p className="text-sm text-zinc-600">심사위원 {evaluator.name}</p> : null}
+          <p className="text-sm text-zinc-600">심사위원 {evaluator?.name ?? "삭제된 사용자"}</p>
         </div>
       </section>
     </div>

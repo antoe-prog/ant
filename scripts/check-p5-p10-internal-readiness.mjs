@@ -2973,7 +2973,7 @@ for (const snippet of [
   "function resetFilters",
   "처리 항목 필터",
   "전체 처리 항목",
-  "담당자 확인 중",
+  "삭제된 사용자",
   'branchId: "all"',
   "전체 지점/공통",
   "공통 기록",
@@ -3104,8 +3104,8 @@ for (const snippet of ["감사 로그를 조회했습니다.", "감사 로그 �
   assertExcludes(sources.adminAuditLogsScreen, snippet, "admin change record old audit copy");
   assertExcludes(sources.auditLogsRoute, snippet, "admin change record old audit route copy");
 }
-assertIncludes(sources.classesScreen, "처리자 확인 중", "classes action log actor fallback app copy");
-assertIncludes(sources.membersScreen, "작성자 확인 중", "members note author fallback app copy");
+assertIncludes(sources.classesScreen, "삭제된 사용자", "classes deleted action-log actor fallback app copy");
+assertIncludes(sources.membersScreen, "삭제된 사용자", "members deleted note author fallback app copy");
 assertIncludes(sources.auditLogPresentation, 'return "없음";', "shared admin audit payload empty value copy");
 assertExcludes(sources.adminAuditLogsScreen, "변경 내용 없음", "admin audit detail must avoid duplicate empty payload blocks");
 for (const [label, source] of [

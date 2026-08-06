@@ -335,6 +335,54 @@ export function inspectRuntimeStateIntegrity(db: MockDatabase): RuntimeStateInte
     }
   }
 
+  for (const note of db.counselingNotes) {
+    if (memberById.get(note.memberId)?.branchId === note.branchId) {
+      continue;
+    }
+    issues.push(createIssue("counselingNotes.references", note.id, "warning", false, {
+      branchId: note.branchId,
+      memberId: note.memberId,
+    }));
+  }
+
+  for (const promotion of db.promotions) {
+    if (memberById.get(promotion.memberId)?.branchId === promotion.branchId) {
+      continue;
+    }
+    issues.push(createIssue("promotions.references", promotion.id, "warning", false, {
+      branchId: promotion.branchId,
+      memberId: promotion.memberId,
+    }));
+  }
+
+  for (const tournament of db.tournaments) {
+    for (const registration of tournament.registrations ?? []) {
+      const member = memberById.get(registration.memberId);
+      const branchMatches = tournament.scope !== "branch" || tournament.branchId === member?.branchId;
+      if (member && branchMatches) {
+        continue;
+      }
+      issues.push(createIssue("tournaments.registrations", registration.id, "warning", false, {
+        branchId: tournament.branchId ?? null,
+        memberId: registration.memberId,
+        tournamentId: tournament.id,
+      }));
+    }
+  }
+
+  for (const challenge of db.attendanceQrChallenges ?? []) {
+    for (const memberId of challenge.redeemedMemberIds) {
+      if (memberById.get(memberId)?.branchId === challenge.branchId) {
+        continue;
+      }
+      issues.push(createIssue("attendanceQrChallenges.references", challenge.id, "warning", false, {
+        branchId: challenge.branchId,
+        memberId,
+        sessionId: challenge.sessionId,
+      }));
+    }
+  }
+
   for (const payment of db.payments) {
     if (!branchIds.has(payment.branchId) || memberById.get(payment.memberId)?.branchId !== payment.branchId) {
       issues.push(createIssue("payments.references", payment.id, "blocker", false, {

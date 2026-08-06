@@ -11,6 +11,7 @@ import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, 
 import { createRuntimeId } from "@/server/runtime-id";
 import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { revokeUserSecurityAccess } from "@/server/auth-session";
+import { hasInFlightPushDispatchForUser } from "@/server/notification-outbox";
 import { isActiveAdmin } from "@/server/user-administration";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import {
@@ -221,6 +222,14 @@ export async function PUT(
       "BUSINESS_RULE_FAILED",
       "같은 지점의 인계 가능 담당자를 먼저 배정해 주세요.",
       summarizeOperationalReassignmentBlockers(operationalLinks.blockers, db),
+    );
+  }
+
+  if (hasInFlightPushDispatchForUser(db, targetUser.id)) {
+    return jsonError(
+      409,
+      "BUSINESS_RULE_FAILED",
+      "휴대폰 알림 발송이 처리 중입니다. 잠시 후 역할을 다시 변경해 주세요.",
     );
   }
 

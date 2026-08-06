@@ -2363,7 +2363,7 @@ export function ClassesScreen() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-zinc-950">최근 저장 · {latestAttendanceAuditResultLabel}</p>
                   <p className="mt-0.5 truncate text-xs text-zinc-500">
-                    {formatDateTime(latestAttendanceAuditLog.createdAt)} · {latestAttendanceAuditActor?.name ?? "처리자 확인 중"}
+                    {formatDateTime(latestAttendanceAuditLog.createdAt)} · {latestAttendanceAuditActor?.name ?? "삭제된 사용자"}
                   </p>
                 </div>
                 <button
@@ -2399,7 +2399,7 @@ export function ClassesScreen() {
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">
-                          {formatDateTime(log.createdAt)} · {actor?.name ?? "처리자 확인 중"}
+                          {formatDateTime(log.createdAt)} · {actor?.name ?? "삭제된 사용자"}
                         </p>
                       </article>
                     );

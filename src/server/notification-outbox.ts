@@ -118,6 +118,45 @@ export function hasInFlightPushDispatchForSubscription(
   );
 }
 
+export function hasInFlightPushDispatchForUser(
+  db: NotificationOutboxDatabase,
+  userId: string,
+  now = new Date(),
+) {
+  return db.pushSubscriptions
+    .filter((subscription) => subscription.userId === userId)
+    .some((subscription) => hasInFlightPushDispatchForSubscription(db, subscription.id, now));
+}
+
+export function preparePushDispatchJobsForUserDeletion(
+  db: NotificationOutboxDatabase,
+  userId: string,
+  input: { now: string; reason: string },
+):
+  | { ok: true; db: NotificationOutboxDatabase; cancelledJobCount: number }
+  | { ok: false; db: NotificationOutboxDatabase; reason: "push_delivery_in_flight" } {
+  const subscriptionIds = new Set(
+    db.pushSubscriptions
+      .filter((subscription) => subscription.userId === userId)
+      .map((subscription) => subscription.id),
+  );
+  if (hasInFlightPushDispatchForUser(db, userId, new Date(input.now))) {
+    return { ok: false, db, reason: "push_delivery_in_flight" };
+  }
+
+  const cancellableJobIds = new Set(
+    db.pushDispatchJobs
+      .filter((job) => subscriptionIds.has(job.subscriptionId) && !terminal(job.status))
+      .map((job) => job.id),
+  );
+  const nextDb = cancelPushDispatchJobsForSubscriptions(db, subscriptionIds, input);
+  const cancelledJobCount = nextDb.pushDispatchJobs.filter(
+    (job) => cancellableJobIds.has(job.id) && (job.status === "cancelled" || Boolean(job.cancellationRequestedAt)),
+  ).length;
+
+  return { ok: true, db: nextDb, cancelledJobCount };
+}
+
 const defaultRetryPolicy: NotificationOutboxRetryPolicy = {
   baseDelayMs: 30_000,
   maxDelayMs: 30 * 60_000,

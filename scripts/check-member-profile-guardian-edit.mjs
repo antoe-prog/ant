@@ -173,8 +173,13 @@ assert(
     memberRouteSource.includes("cancelPendingNoticePushJobs") &&
     memberRouteSource.includes("removedNoticeCount") &&
     memberRouteSource.includes("deletedUserIds") &&
+    memberRouteSource.includes("withAuthAndNotificationStateLock") &&
+    memberRouteSource.includes("preparePushDispatchJobsForUserDeletion") &&
+    memberRouteSource.includes("cancelledPushJobCount") &&
+    memberRouteSource.includes("연결 계정의 휴대폰 알림 발송이 처리 중입니다") &&
+    !memberRouteSource.includes("pushDispatchJobs: db.pushDispatchJobs.filter") &&
     memberRouteSource.includes("memberInputLimits.deleteReasonLength"),
-  "member deletion must require a reason, use a confirmation dialog, and cascade linked operations and sole member accounts",
+  "member deletion must require a reason, cascade linked operations and sole member accounts, and fence linked-account push delivery",
 );
 assert(
   membersScreenSource.includes("updateGuardianLinkDraft(member, {") &&
@@ -287,6 +292,11 @@ assert(
     guardianRouteSource.includes("canMemberHaveGuardianLink(member)") &&
     guardianRouteSource.includes("syncAffectedGuardianUsers") &&
     guardianRouteSource.includes("syncGuardianUserFamilyLinks") &&
+    guardianRouteSource.includes("withAuthAndNotificationStateLock") &&
+    guardianRouteSource.includes("hasInFlightPushDispatchForUser") &&
+    guardianRouteSource.includes("revokeUserSecurityAccess") &&
+    guardianRouteSource.includes("revokedGuardianAccessCount") &&
+    guardianRouteSource.includes("guardianAccessRevoked") &&
     guardianRouteSource.includes("hasReciprocalGuardianLink") &&
     guardianRouteSource.includes("hasGuardianLink") &&
     guardianRouteSource.includes("보호자-자녀 연결 정보를 복구했습니다.") &&
@@ -325,7 +335,6 @@ assertAppearsAfter(
   "if (selectedScope.response)",
   "guardian link API must verify selected branch scope before reading request body",
 );
-
 for (const snippet of [
   "owner member age group update did not persist",
   "owner member profile update did not sync linked user name",
@@ -416,7 +425,7 @@ console.log(
         "guardian link UI/API rejects adult members as guardian-child links",
         "rendered guardian age policy UI check is wired into release",
         "admin guardian edit bottom safe-area UI check is wired into release",
-        "guardian link API keeps reciprocal member.guardianIds and user.childMemberIds updates",
+        "guardian link API keeps reciprocal links and revokes stale guardian sessions and push delivery",
         "smoke API covers runtime profile and guardian link persistence",
         "release/docs include the focused regression guard",
       ],

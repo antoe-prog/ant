@@ -5,7 +5,10 @@ import { parseGuardianLinkInput } from "@/lib/member-guardian-input-policy";
 import { canMemberHaveGuardianLink } from "@/lib/member-age-policy";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
+import { revokeUserSecurityAccess } from "@/server/auth-session";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { hasInFlightPushDispatchForUser } from "@/server/notification-outbox";
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
@@ -217,6 +220,16 @@ async function replaceGuardianLink(
   }
 
   const repairsExistingMemberLink = member.guardianIds.length === 1 && member.guardianIds[0] === guardian.id;
+  const removedGuardianIds = member.guardianIds.filter((candidate) => candidate !== guardian.id);
+
+  if (removedGuardianIds.some((removedGuardianId) => hasInFlightPushDispatchForUser(db, removedGuardianId))) {
+    return jsonError(
+      409,
+      "BUSINESS_RULE_FAILED",
+      "기존 학부모 계정의 휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 변경해 주세요.",
+    );
+  }
+
   const nextMember = replaceMemberGuardians(member, guardian.id);
   const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
   const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [...member.guardianIds, guardian.id]);
@@ -240,6 +253,7 @@ async function replaceGuardianLink(
       guardianIds: nextMember.guardianIds,
       guardianUserId: guardian.id,
       guardianChildMemberIds: nextGuardian.childMemberIds ?? [],
+      revokedGuardianAccessCount: removedGuardianIds.length,
     },
     result: "success",
     message: repairsExistingMemberLink
@@ -247,12 +261,17 @@ async function replaceGuardianLink(
       : "보호자-자녀 연결을 변경했습니다.",
     createdAt: new Date().toISOString(),
   };
-  const nextDb = await writeServerDb({
+  const updatedDb = {
     ...db,
     members: nextMembers,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  };
+  const securedDb = removedGuardianIds.reduce(
+    (candidateDb, removedGuardianId) => revokeUserSecurityAccess(candidateDb, removedGuardianId),
+    updatedDb,
+  );
+  const nextDb = await writeServerDb(securedDb);
 
   return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
 }
@@ -283,6 +302,14 @@ async function deleteGuardianLink(
     return jsonError(422, "BUSINESS_RULE_FAILED", "학부모 계정을 확인할 수 없습니다.");
   }
 
+  if (hasInFlightPushDispatchForUser(db, guardian.id)) {
+    return jsonError(
+      409,
+      "BUSINESS_RULE_FAILED",
+      "학부모 계정의 휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 해제해 주세요.",
+    );
+  }
+
   const nextMember = unlinkMemberGuardian(member, guardian.id);
   const nextMembers = db.members.map((candidate) => (candidate.id === member.id ? nextMember : candidate));
   const nextUsers = syncAffectedGuardianUsers(db.users, nextMembers, [guardian.id]);
@@ -303,6 +330,7 @@ async function deleteGuardianLink(
       guardianIds: nextMember.guardianIds,
       guardianUserId: guardian.id,
       guardianChildMemberIds: nextGuardian.childMemberIds ?? [],
+      guardianAccessRevoked: true,
     },
     result: "success",
     message: hasMemberLink
@@ -310,12 +338,13 @@ async function deleteGuardianLink(
       : "남아 있던 보호자-자녀 연결 정보를 정리했습니다.",
     createdAt: new Date().toISOString(),
   };
-  const nextDb = await writeServerDb({
+  const updatedDb = {
     ...db,
     members: nextMembers,
     users: nextUsers,
     auditLogs: [auditLog, ...db.auditLogs],
-  });
+  };
+  const nextDb = await writeServerDb(revokeUserSecurityAccess(updatedDb, guardian.id));
 
   return jsonOk(createBootstrapPayload(nextDb, user, selectedBranchId));
 }
@@ -359,8 +388,10 @@ export async function PUT(request: NextRequest, context: GuardianLinkRouteContex
     return jsonError(400, "VALIDATION_ERROR", "변경할 학부모 계정을 선택해 주세요.");
   }
 
-  return withServerDbLock(guardianLinkStateLockKey, () =>
-    replaceGuardianLink(request, context, parsedBody.guardianUserId),
+  return withAuthAndNotificationStateLock(() =>
+    withServerDbLock(guardianLinkStateLockKey, () =>
+      replaceGuardianLink(request, context, parsedBody.guardianUserId),
+    ),
   );
 }
 
@@ -381,7 +412,9 @@ export async function DELETE(request: NextRequest, context: GuardianLinkRouteCon
     return jsonError(400, "VALIDATION_ERROR", "해제할 학부모 계정을 선택해 주세요.");
   }
 
-  return withServerDbLock(guardianLinkStateLockKey, () =>
-    deleteGuardianLink(request, context, parsedBody.guardianUserId),
+  return withAuthAndNotificationStateLock(() =>
+    withServerDbLock(guardianLinkStateLockKey, () =>
+      deleteGuardianLink(request, context, parsedBody.guardianUserId),
+    ),
   );
 }

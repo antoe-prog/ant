@@ -16,6 +16,7 @@ import { createRandomPasswordHash, defaultPilotPassword } from "@/server/auth-pa
 import { readUnmodifiedPassword, revokeUserSecurityAccess } from "@/server/auth-session";
 import { consumePasswordResetChallenges } from "@/server/password-reset";
 import { createRuntimeId } from "@/server/runtime-id";
+import { hasInFlightPushDispatchForUser, preparePushDispatchJobsForUserDeletion } from "@/server/notification-outbox";
 import { isActiveAdmin } from "@/server/user-administration";
 import {
   findAcceptedBranchOperatorId,
@@ -80,6 +81,10 @@ function getUserUpdateBodyTypeError(body: Record<string, unknown>) {
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function canonicalIdList(ids: string[]) {
+  return [...new Set(ids)].sort().join("\u0000");
 }
 
 function cleanEmail(value: unknown) {
@@ -556,6 +561,21 @@ export async function PATCH(
     return jsonError(422, "BUSINESS_RULE_FAILED", "최소 1명의 총괄 어드민이 필요합니다.");
   }
 
+  const authorizationContextChanged =
+    nextRole !== targetUser.role ||
+    canonicalIdList(nextBranchIds) !== canonicalIdList(targetUser.branchIds) ||
+    canonicalIdList(nextMemberIds) !== canonicalIdList(targetUser.memberIds ?? []) ||
+    canonicalIdList(nextChildMemberIds) !== canonicalIdList(targetUser.childMemberIds ?? []);
+  const securityContextChanged = Boolean(nextPassword) || authorizationContextChanged;
+
+  if (authorizationContextChanged && hasInFlightPushDispatchForUser(db, targetUser.id)) {
+    return jsonError(
+      409,
+      "BUSINESS_RULE_FAILED",
+      "휴대폰 알림 발송이 처리 중입니다. 잠시 후 역할, 지점 또는 회원 연결을 다시 변경해 주세요.",
+    );
+  }
+
   const auditLog = createUserAuditLog({
     action: "user.update",
     actorUserId: user.id,
@@ -620,9 +640,6 @@ export async function PATCH(
       ...db.auditLogs,
     ],
   };
-  const securityContextChanged = Boolean(nextPassword) ||
-    nextRole !== targetUser.role ||
-    nextBranchIds.join("\u0000") !== targetUser.branchIds.join("\u0000");
   const securedDb = securityContextChanged ? revokeUserSecurityAccess(updatedDb, targetUser.id) : updatedDb;
   const nextDb = await writeServerDb(
     nextPassword ? consumePasswordResetChallenges(securedDb, targetUser.id) : securedDb,
@@ -737,6 +754,19 @@ export async function DELETE(
     );
   }
 
+  const pushCleanup = preparePushDispatchJobsForUserDeletion(db, targetUser.id, {
+    now: new Date().toISOString(),
+    reason: "사용자 계정 삭제로 알림 발송을 취소했습니다.",
+  });
+
+  if (!pushCleanup.ok) {
+    return jsonError(
+      409,
+      "BUSINESS_RULE_FAILED",
+      "휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 삭제해 주세요.",
+    );
+  }
+
   const auditLog = createUserAuditLog({
     action: "user.delete",
     actorUserId: user.id,
@@ -753,27 +783,28 @@ export async function DELETE(
     },
     after: {
       reason,
+      cancelledPushJobCount: pushCleanup.cancelledJobCount,
       reassignedClassCount: operationalLinks.reassignedClassCount,
       reassignedMemberCount: operationalLinks.reassignedMemberCount,
     },
     message: "사용자 계정을 삭제했습니다.",
   });
   const nextDb = await writeServerDb({
-    ...db,
-    users: db.users.filter((candidate) => candidate.id !== targetUser.id),
+    ...pushCleanup.db,
+    users: pushCleanup.db.users.filter((candidate) => candidate.id !== targetUser.id),
     classes: operationalLinks.classes,
     members: operationalLinks.members.map((member) => ({
       ...member,
       guardianIds: member.guardianIds.filter((guardianId) => guardianId !== targetUser.id),
     })),
-    notices: db.notices.map((notice) => ({
+    notices: pushCleanup.db.notices.map((notice) => ({
       ...notice,
       readByUserIds: getNoticeReadByUserIds(notice).filter((readByUserId) => readByUserId !== targetUser.id),
     })),
-    authSessions: db.authSessions.filter((session) => session.userId !== targetUser.id),
-    passwordResetChallenges: db.passwordResetChallenges.filter((challenge) => challenge.userId !== targetUser.id),
-    pushSubscriptions: db.pushSubscriptions.filter((subscription) => subscription.userId !== targetUser.id),
-    auditLogs: [auditLog, ...db.auditLogs],
+    authSessions: pushCleanup.db.authSessions.filter((session) => session.userId !== targetUser.id),
+    passwordResetChallenges: pushCleanup.db.passwordResetChallenges.filter((challenge) => challenge.userId !== targetUser.id),
+    pushSubscriptions: pushCleanup.db.pushSubscriptions.filter((subscription) => subscription.userId !== targetUser.id),
+    auditLogs: [auditLog, ...pushCleanup.db.auditLogs],
   });
 
     return jsonOk(createBootstrapPayload(nextDb, createSafeActor(nextDb, user), selectedScope.selectedBranchId));

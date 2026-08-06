@@ -30,6 +30,8 @@ const notificationOutboxRunner = readFileSync("src/server/notification-outbox-ru
 const notificationOutboxCron = readFileSync("src/app/api/v1/internal/notification-outbox/route.ts", "utf8");
 const pushConfigRoute = readFileSync("src/app/api/v1/notifications/push-config/route.ts", "utf8");
 const pushSubscriptionRoute = readFileSync("src/app/api/v1/notifications/subscriptions/route.ts", "utf8");
+const adminUserRoute = readFileSync("src/app/api/v1/admin/users/[userId]/route.ts", "utf8");
+const adminUserRoleRoute = readFileSync("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8");
 const noticeCreateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/route.ts", "utf8");
 const noticeUpdateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/[noticeId]/route.ts", "utf8");
 const noticeReadRoute = readFileSync("src/app/api/v1/me/notices/[noticeId]/read/route.ts", "utf8");
@@ -660,6 +662,22 @@ assert(
     pushSubscriptionRoute.includes("if (existing && hasInFlightPushDispatchForSubscription(db, existing.id))") &&
     pushSubscriptionRoute.includes('"PUSH_SUBSCRIPTION_UPDATE_PENDING"'),
   "every push subscription mutation must wait while a provider call still uses the previous record",
+);
+assert(
+  adminUserRoute.includes("preparePushDispatchJobsForUserDeletion") &&
+    adminUserRoute.includes('"휴대폰 알림 발송이 처리 중입니다. 잠시 후 다시 삭제해 주세요."') &&
+    adminUserRoute.includes("cancelledPushJobCount: pushCleanup.cancelledJobCount"),
+  "account deletion must cancel queued push work and wait for in-flight provider calls",
+);
+assert(
+  adminUserRoute.includes("authorizationContextChanged && hasInFlightPushDispatchForUser") &&
+    adminUserRoute.includes("canonicalIdList(nextMemberIds)") &&
+    adminUserRoute.includes("canonicalIdList(targetUser.memberIds ?? [])") &&
+    adminUserRoute.includes("canonicalIdList(nextChildMemberIds)") &&
+    adminUserRoute.includes("canonicalIdList(targetUser.childMemberIds ?? [])") &&
+    adminUserRoute.includes("역할, 지점 또는 회원 연결을 다시 변경해 주세요.") &&
+    adminUserRoleRoute.includes("hasInFlightPushDispatchForUser(db, targetUser.id)"),
+  "role, branch, and linked-member changes must wait while an old-scope provider call can still deliver",
 );
 assert(pushSubscriptionRoute.includes("family_notification_always_on"), "push subscription route must audit family notification always-on policy");
 assert(pushSubscriptionRoute.includes("enforcedAlwaysOn: true"), "push subscription route must tell clients family notifications stayed on");

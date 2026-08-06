@@ -707,7 +707,7 @@ function CounselingNoteListDialog({
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">{note.body}</p>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-zinc-500">
-                  {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
+                  {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "삭제된 사용자"}
                   {note.updatedAt && note.updatedAt !== note.createdAt ? " · 수정됨" : ""}
                 </p>
                 {noteManageable ? (
@@ -2680,7 +2680,7 @@ export function MembersScreen() {
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">{note.body}</p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-zinc-500">
-                            {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "작성자 확인 중"}
+                            {isFamilyRole ? "코치" : "작성자"} {authorNamesById.get(note.authorUserId) ?? "삭제된 사용자"}
                             {note.updatedAt && note.updatedAt !== note.createdAt ? " · 수정됨" : ""}
                           </p>
                           {canManageNote ? (

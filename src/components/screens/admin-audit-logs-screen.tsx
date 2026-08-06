@@ -575,7 +575,7 @@ export function AdminAuditLogsScreen() {
                             <span className="truncate">{auditActionLabels[log.action]}</span>
                           </p>
                           <p className="mt-0.5 truncate text-[11px] font-medium leading-4 text-zinc-500 lg:hidden">
-                            {formatDateTime(log.createdAt)} · {actor?.name ?? "담당자 확인 중"}
+                            {formatDateTime(log.createdAt)} · {actor?.name ?? "삭제된 사용자"}
                           </p>
                         </div>
                         <span
@@ -599,7 +599,7 @@ export function AdminAuditLogsScreen() {
                         ) : null}
                       </div>
                       <div className="hidden lg:block">
-                        <p className="text-sm font-medium text-zinc-950">{actor?.name ?? "담당자 확인 중"}</p>
+                        <p className="text-sm font-medium text-zinc-950">{actor?.name ?? "삭제된 사용자"}</p>
                         <p className="mt-1 hidden text-xs text-zinc-500 sm:block" data-testid="admin-audit-branch-meta">
                           {branch?.name ?? "공통"}
                         </p>

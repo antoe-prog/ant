@@ -764,7 +764,7 @@ export function DashboardScreen() {
           actionHref: "/app/members",
           actionLabel: "자세히 보기",
           detail: latestChildFeedback
-            ? `${latestChildFeedbackAuthor?.name ?? "코치"} · ${formatDate(latestChildFeedback.createdAt)}`
+            ? `${latestChildFeedbackAuthor?.name ?? "삭제된 코치"} · ${formatDate(latestChildFeedback.createdAt)}`
             : `${selectedChildCoachLabel} 수업 후 확인`,
           eyebrow: "코치 피드백",
           icon: MessageSquareText,

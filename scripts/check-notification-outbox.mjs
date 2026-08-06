@@ -8,9 +8,11 @@ const {
   createNoticePushPayloadSnapshot,
   enqueuePushDispatchJob,
   hasInFlightPushDispatchForSubscription,
+  hasInFlightPushDispatchForUser,
   isPermanentPushSubscriptionFailure,
   leasePushDispatchJob,
   notificationOutboxLockKey,
+  preparePushDispatchJobsForUserDeletion,
   recoverExpiredPushDispatchLeases,
   settlePushDispatchJob,
 } = await import("../src/server/notification-outbox.ts");
@@ -125,6 +127,19 @@ const successConflict = enqueue(successQueued.db, "success", {
 });
 assert.equal(successConflict.ok, false);
 assert.equal(successConflict.reason, "idempotency_conflict");
+const userDeletionQueued = enqueue(createDb("user-delete"), "user-delete");
+const preparedUserDeletion = preparePushDispatchJobsForUserDeletion(
+  userDeletionQueued.db,
+  "user-user-delete",
+  { now: addMs(start, 25), reason: "사용자 계정 삭제" },
+);
+assert.equal(preparedUserDeletion.ok, true);
+assert.equal(preparedUserDeletion.cancelledJobCount, 1);
+assert.equal(
+  preparedUserDeletion.db.pushDispatchJobs.find((job) => job.id === "push-job-user-delete")?.status,
+  "cancelled",
+  "account deletion must cancel queued device work before removing the subscription",
+);
 const successLeased = lease(successQueued.db, "success", start);
 assert.equal(successLeased.job.status, "leased");
 assert.equal(successLeased.job.attemptCount, 1);
@@ -588,6 +603,18 @@ assert.equal(
   "subscription ownership must not transfer while a provider call can still deliver the old user's payload",
 );
 assert.equal(
+  hasInFlightPushDispatchForUser(afterProviderBegin.db, "user-cancel-after-provider", new Date(addMs(start, 30))),
+  true,
+  "authorization changes must detect provider calls through the user's subscriptions",
+);
+const blockedUserDeletion = preparePushDispatchJobsForUserDeletion(
+  afterProviderBegin.db,
+  "user-cancel-after-provider",
+  { now: addMs(start, 30), reason: "사용자 계정 삭제" },
+);
+assert.equal(blockedUserDeletion.ok, false, "account deletion must wait while a provider call can still deliver");
+assert.equal(blockedUserDeletion.reason, "push_delivery_in_flight");
+assert.equal(
   hasInFlightPushDispatchForSubscription(afterProviderBegin.db, "push-cancel-after-provider", new Date(addMs(start, 5_001))),
   false,
   "an expired provider-call lease must not block subscription ownership forever",
@@ -726,6 +753,7 @@ console.log(
         "leased cancellation before and after provider start preserves truthful provider state",
         "subscription-scoped cancellation preserves other subscriptions and in-flight uncertainty",
         "in-flight provider call blocks push subscription ownership transfer",
+        "account deletion cancels queued pushes and waits for in-flight provider calls",
         "at-least-once retry with stable notification tag",
       ],
     },

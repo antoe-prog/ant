@@ -22,6 +22,9 @@ function emptyRuntimeState() {
     payments: [],
     notices: [],
     authSessions: [],
+    passwordResetChallenges: [],
+    phoneSignupChallenges: [],
+    attendanceQrChallenges: [],
     pushSubscriptions: [],
     pushDispatchJobs: [],
     pilotReadinessChecks: [],
@@ -75,6 +78,71 @@ assert.throws(
   () => validateRuntimeStateIntegrity({ ...clean, notices: [{ id: "", branchId: "branch-a" }] }),
   /notices.id/,
   "empty collection IDs must be rejected",
+);
+
+const deletedMemberState = {
+  ...clean,
+  members: [],
+  classes: clean.classes.map((session) => ({ ...session, enrolledMemberIds: [] })),
+  attendance: [],
+  payments: [],
+};
+const concurrentMemberWrites = {
+  ...clean,
+  counselingNotes: [{
+    id: "note-concurrent",
+    branchId: "branch-a",
+    memberId: "member-a",
+    authorUserId: "coach-a",
+  }],
+  promotions: [{
+    id: "promotion-concurrent",
+    branchId: "branch-a",
+    memberId: "member-a",
+  }],
+  tournaments: [{
+    id: "tournament-concurrent",
+    scope: "branch",
+    branchId: "branch-a",
+    registrations: [{ id: "registration-concurrent", memberId: "member-a" }],
+  }],
+  attendanceQrChallenges: [{
+    id: "attendance-qr-concurrent",
+    tokenHash: "a".repeat(64),
+    userId: "coach-a",
+    branchId: "branch-a",
+    sessionId: "class-a",
+    redeemedMemberIds: ["member-a"],
+    createdAt: "2026-07-14T00:00:00.000Z",
+    expiresAt: "2026-07-14T01:00:00.000Z",
+  }],
+};
+const memberDeleteRaceResult = mergeRuntimeState(clean, deletedMemberState, concurrentMemberWrites);
+assert.equal(memberDeleteRaceResult.members.length, 0, "the regression fixture must delete the member");
+assert.equal(memberDeleteRaceResult.counselingNotes.length, 1, "the regression fixture must retain the concurrent note");
+assert.equal(memberDeleteRaceResult.promotions.length, 1, "the regression fixture must retain the concurrent promotion");
+assert.equal(memberDeleteRaceResult.tournaments[0].registrations.length, 1, "the regression fixture must retain the concurrent registration");
+assert.equal(memberDeleteRaceResult.attendanceQrChallenges[0].redeemedMemberIds.length, 1, "the regression fixture must retain the concurrent QR redemption");
+const memberDeleteRaceRules = new Set(inspectRuntimeStateIntegrity(memberDeleteRaceResult).map((issue) => issue.rule));
+for (const rule of [
+  "counselingNotes.references",
+  "promotions.references",
+  "tournaments.registrations",
+  "attendanceQrChallenges.references",
+]) {
+  assert(memberDeleteRaceRules.has(rule), `a deleted-member race must diagnose ${rule}`);
+}
+assert.throws(
+  () => assertNoNewRuntimeStateIntegrityIssues(clean, memberDeleteRaceResult),
+  (error) =>
+    error instanceof RuntimeStateWriteIntegrityError &&
+    [
+      "counselingNotes.references",
+      "promotions.references",
+      "tournaments.registrations",
+      "attendanceQrChallenges.references",
+    ].every((rule) => error.issues.some((issue) => issue.rule === rule)),
+  "write validation must reject every dangling member reference created by a delete race",
 );
 
 const legacyBranchScope = {
@@ -414,5 +482,6 @@ console.log(JSON.stringify({
     "pending administrator exclusion",
     "accepted branch owner coverage after concurrent merge",
     "pending owner exclusion and ownerless branch compatibility",
+    "deleted-member race rejection across notes, promotions, tournaments, and QR redemptions",
   ],
 }, null, 2));
