@@ -172,6 +172,7 @@ export const auditPayloadFieldLabels: Record<string, string> = {
   query: "검색어",
   readByUserIds: "확인 사용자",
   reason: "처리 사유",
+  reasonRecorded: "삭제 사유 확인",
   rule: "정정 규칙",
   recipientCount: "수신 인원",
   recurringAgreement: "정기결제 약정",

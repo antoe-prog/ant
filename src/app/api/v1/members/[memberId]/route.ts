@@ -611,11 +611,10 @@ export async function DELETE(
       before: {
         ageGroup: member.ageGroup,
         branchId: member.branchId,
-        name: member.name,
         status: member.status,
       },
       after: {
-        reason,
+        reasonRecorded: true,
         cancelledPushJobCount,
         deletedUserCount: deletedUserIds.size,
         removedAttendanceCount,

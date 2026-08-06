@@ -2832,6 +2832,9 @@ export function MembersScreen() {
                   }}
                 />
               </label>
+              <p className="mt-2 text-xs leading-5 text-zinc-500">
+                입력한 사유는 삭제 확인에만 사용하며 변경 기록에는 원문을 저장하지 않습니다.
+              </p>
               <p className="mt-2 min-h-5 text-xs font-medium text-red-700" aria-live="polite" role="status">
                 {memberDeleteFeedback}
               </p>

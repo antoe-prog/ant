@@ -100,7 +100,7 @@
 - [x] `npm run test:admin-user-search` 총괄 사용자 관리 `role`+`q` 검색 딥링크, 검색어 지우기 시 역할 필터 보존, 0건 검색 빈 상태 `전체 보기` q/role 복구, 검색 입력/인라인 지우기/필터 초기화/빈 상태 초기화 44px 터치 목표와 하단 내비 clearance, 표시 건수, 목록 축소, overflow 0, 콘솔 오류 없음 상태 유지 검증 통과
 - [x] `npm run test:admin-audit-search` 총괄 변경 기록 `q` 검색·`detail` 상세 딥링크 복원, 검색 입력 120자 상한, 상세 열기/닫기·검색어 지우기·`전체 보기` URL 동기화, 0건 검색 빈 상태 초기화, 필터 입력/지우기/적용/초기화 44px 터치 목표와 하단 내비 clearance, 목록 축소, overflow 0, 콘솔 오류 없음, 공통 처리/결과 라벨, 승급 심사·대회 공지 API 필터 허용, 검색어 121자·사유 501자·지점 ID 201자 잠금 전 400 무감사 차단, 동일 조회 5초 중복 저장 방지와 동시 재시도 1건 보존, 한국 시간 종료일 전체 포함과 역전 날짜 범위 차단 검증 통과
 - [x] `npm run test:audit-action-contract` 앱 `AuditAction`, 공통 표시 라벨, API 사용값, PostgreSQL `audit_action` 마이그레이션, DB 스키마 문서 완전성 검증 통과
-- [x] `npm run test:audit-log-privacy` 변경 기록 개인정보·자격 증명·민감 메모 최소화, 중앙 저장 정책, 원문 JSON 없는 한국어 변경 전후 비교 검증 통과
+- [x] `npm run test:audit-log-privacy` 변경 기록 개인정보·자격 증명·민감 메모 최소화, 회원 삭제 후 프로필 실명·주소·생년월일·연락처와 자유 입력 삭제 사유 원문 비보존, 중앙 저장 정책, 원문 JSON 없는 한국어 변경 전후 비교 검증 통과
 - [x] `npm run test:recurring-billing` provider-neutral 정기결제 약정 생성/해지, 인증·지점 권한 선확인, 실제 달력 날짜·1-28 청구일·문자열 해지 사유 검증, 공통 결제 잠금과 최신 권한·상태 재검증, 저장 충돌 409 매핑, 다음 청구일 계산, 결제 CSV 정기결제 컬럼, 코치 provider 약정 ID 마스킹 검증 통과. 격리 `test:smoke`의 동시 생성 `200/409`, 동시 해지 `200/422`, 단일 이력·감사 기록도 통과
 - [x] `npm run test:runtime-retention-maintenance` 회원 삭제 후 분리한 거래기록이 모든 DB 쓰기 직전과 일일 내부 작업에서 만료 즉시 원본 저장소에 반영되어 삭제되고, 보존기간 중 기록과 반복 실행 멱등성이 유지되는지 격리 JSON 저장소로 검증
 - [x] `npm run test:payment-provider-handoff-draft` 실 PG/VAN handoff 초안 생성, env 추론, 원문 webhook secret 미기록, pending/ready/missing mapping fixture 검증 통과

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createJiti } from "jiti";
 
 const { sanitizeAuditLog, sanitizeAuditPayload } = await import("../src/lib/audit-log-security.ts");
 const { getAuditPayloadChanges } = await import("../src/lib/audit-log-presentation.ts");
@@ -66,6 +69,46 @@ const sanitizedLog = sanitizeAuditLog({
 assert.equal(sanitizedLog.before.email, "o***@example.com", "sanitizeAuditLog must protect before payloads");
 assert.equal(sanitizedLog.after.phone, "010-****-5678", "sanitizeAuditLog must protect after payloads");
 
+const rawMemberDeletionLog = {
+  action: "member.delete",
+  actorUserId: "user-admin",
+  after: {
+    reason: "중복 등록 회원 김민수 연락 010-1234-5678",
+    removedAttendanceCount: 2,
+  },
+  before: {
+    address: "서울시 강서구",
+    ageGroup: "adult",
+    birthDate: "1990-01-01",
+    branchId: "branch-a",
+    emergencyContact: "010-1234-5678",
+    name: "김민수",
+    status: "active",
+  },
+  branchId: "branch-a",
+  createdAt: "2026-07-13T12:00:00.000Z",
+  id: "audit-member-delete-privacy",
+  message: "회원과 연결된 운영 기록을 삭제했습니다.",
+  result: "success",
+  targetId: "member-deleted",
+  targetType: "member",
+};
+const sanitizedMemberDeletionLog = sanitizeAuditLog(rawMemberDeletionLog);
+assert.deepEqual(
+  sanitizedMemberDeletionLog.before,
+  { ageGroup: "adult", branchId: "branch-a", status: "active" },
+  "member deletion audit must retain only non-identifying operational state",
+);
+assert.equal(sanitizedMemberDeletionLog.after.reason, undefined, "member deletion audit must not retain a free-text reason");
+assert.equal(sanitizedMemberDeletionLog.after.reasonRecorded, true, "member deletion audit must retain reason confirmation");
+assert(
+  !Object.hasOwn(sanitizedMemberDeletionLog.before, "address") &&
+    !Object.hasOwn(sanitizedMemberDeletionLog.before, "birthDate") &&
+    !Object.hasOwn(sanitizedMemberDeletionLog.before, "emergencyContact") &&
+    !Object.hasOwn(sanitizedMemberDeletionLog.before, "name"),
+  "member deletion audit must not retain deleted profile name, address, birth date, or contact fields",
+);
+
 const changes = getAuditPayloadChanges(
   { amount: 100000, phone: "010-****-1111", status: "scheduled" },
   { amount: 120000, phone: "010-****-5678", reason: "금액 정정", status: "paid" },
@@ -80,12 +123,22 @@ assert.equal(changes[0]?.after, "₩120,000", "audit detail must format next pay
 assert.equal(changes[2]?.before, "예정", "audit detail must translate previous status values");
 assert.equal(changes[2]?.after, "납부 완료", "audit detail must translate next status values");
 
-const [serverDbSource, serverApiSource, adminAuditScreenSource, backendSchemaSource] = await Promise.all([
+const [memberRouteSource, serverDbSource, serverApiSource, adminAuditScreenSource, backendSchemaSource] = await Promise.all([
+  readFile("src/app/api/v1/members/[memberId]/route.ts", "utf8"),
   readFile("src/server/db.ts", "utf8"),
   readFile("src/server/api.ts", "utf8"),
   readFile("src/components/screens/admin-audit-logs-screen.tsx", "utf8"),
   readFile("docs/BACKEND_DB_SCHEMA.md", "utf8"),
 ]);
+
+const memberDeletionSource = memberRouteSource.slice(memberRouteSource.indexOf('action: "member.delete"'));
+assert(
+  memberDeletionSource.includes("ageGroup: member.ageGroup") &&
+    memberDeletionSource.includes("branchId: member.branchId") &&
+    memberDeletionSource.includes("status: member.status") &&
+    !memberDeletionSource.includes("name: member.name"),
+  "member deletion route must not place the deleted member name in its audit snapshot",
+);
 
 assert(serverDbSource.includes('from "@/lib/audit-log-security"'), "server DB must import audit privacy policy");
 assert(
@@ -93,7 +146,7 @@ assert(
   "server DB must sanitize every audit log before persistence",
 );
 assert(
-  serverDbSource.includes("serverDbStore.write(sanitizeDatabaseAuditLogs(db))"),
+  serverDbSource.includes("serverDbStore.write(sanitizeDatabaseAuditLogs({"),
   "server DB writes must enforce audit privacy centrally",
 );
 assert(
@@ -116,6 +169,42 @@ assert(!adminAuditScreenSource.includes("JSON.stringify(payload"), "admin audit 
 assert(!adminAuditScreenSource.includes("<pre"), "admin audit detail must not render developer-style preformatted payloads");
 assert(backendSchemaSource.includes("휴대폰·이메일·계정 식별값"), "DB policy must document audit PII masking");
 
+const dataDirectory = await mkdtemp(path.join(os.tmpdir(), "final-judo-audit-privacy-"));
+process.env.FINAL_JUDO_DATA_DIR = dataDirectory;
+process.env.FINAL_JUDO_DB_DRIVER = "json";
+const jiti = createJiti(import.meta.url, {
+  alias: { "@": path.join(process.cwd(), "src") },
+});
+const { createMockData } = await jiti.import("../src/lib/mock-data.ts");
+const {
+  closeServerDb,
+  serverDbPaths,
+  writeServerDb,
+} = await jiti.import("../src/server/db.ts");
+
+try {
+  const seeded = createMockData();
+  await writeServerDb({
+    ...seeded,
+    auditLogs: [rawMemberDeletionLog, ...seeded.auditLogs],
+  });
+
+  assert(serverDbPaths?.dataFile, "isolated audit privacy test must expose its data file");
+  const persisted = JSON.parse(await readFile(serverDbPaths.dataFile, "utf8"));
+  const persistedDeletionLog = persisted.auditLogs.find((log) => log.id === rawMemberDeletionLog.id);
+  assert(persistedDeletionLog, "member deletion audit must be persisted for accountability");
+  assert.deepEqual(
+    persistedDeletionLog.before,
+    { ageGroup: "adult", branchId: "branch-a", status: "active" },
+    "the source store must contain only minimized member deletion state",
+  );
+  assert.equal(persistedDeletionLog.after.reason, undefined, "the source store must not retain the deletion reason text");
+  assert.equal(persistedDeletionLog.after.reasonRecorded, true, "the source store must retain reason confirmation");
+} finally {
+  await closeServerDb();
+  await rm(dataDirectory, { recursive: true, force: true });
+}
+
 console.log(
   JSON.stringify(
     {
@@ -123,6 +212,8 @@ console.log(
       checked: [
         "audit phone, email, identifier, credential, endpoint, and sensitive content masking",
         "nested and free-text contact redaction",
+        "member deletion profile and free-text reason minimization",
+        "persisted member deletion audit minimization in an isolated source store",
         "central server read/write audit sanitization",
         "readable before/after audit detail rows without raw JSON",
         "audit detail URL restoration",

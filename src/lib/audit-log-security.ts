@@ -10,6 +10,7 @@ const sensitiveContentKeys = new Set([
   "useragent",
   "workaround",
 ]);
+const memberDeletionBeforeKeys = new Set(["ageGroup", "branchId", "status"]);
 
 function maskEmail(value: string) {
   if (value.includes("*")) {
@@ -144,10 +145,41 @@ export function sanitizeAuditPayload(payload: AuditLog["before"] | AuditLog["aft
   );
 }
 
+function sanitizeMemberDeletionBefore(payload: AuditLog["before"]) {
+  if (!payload) {
+    return payload;
+  }
+
+  return Object.fromEntries(
+    Object.entries(payload)
+      .filter(([key]) => memberDeletionBeforeKeys.has(key))
+      .map(([key, value]) => [key, sanitizeAuditValue(key, value)]),
+  );
+}
+
+function sanitizeMemberDeletionAfter(payload: AuditLog["after"]) {
+  const sanitized = sanitizeAuditPayload(payload);
+
+  if (!sanitized) {
+    return sanitized;
+  }
+
+  const { reason, ...operationalState } = sanitized;
+
+  return {
+    ...operationalState,
+    ...(reason !== null && reason !== undefined && reason !== "" ? { reasonRecorded: true } : {}),
+  };
+}
+
 export function sanitizeAuditLog(log: AuditLog): AuditLog {
   return {
     ...log,
-    before: sanitizeAuditPayload(log.before),
-    after: sanitizeAuditPayload(log.after),
+    before: log.action === "member.delete"
+      ? sanitizeMemberDeletionBefore(log.before)
+      : sanitizeAuditPayload(log.before),
+    after: log.action === "member.delete"
+      ? sanitizeMemberDeletionAfter(log.after)
+      : sanitizeAuditPayload(log.after),
   };
 }
