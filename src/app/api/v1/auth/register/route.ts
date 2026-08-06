@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthInputLimitError } from "@/lib/auth-input-policy";
 import type { AppUser, AuditLog, Member, MockDatabase } from "@/lib/domain";
+import { isPublicSignupBranch } from "@/lib/google-play-review-access";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import {
   createRandomPasswordHash,
@@ -32,7 +33,7 @@ function isRegisterBody(value: unknown): value is RegisterBody {
 
 function getAvailableSignupBranches(db: MockDatabase) {
   return db.branches
-    .filter((branch) => branch.status !== "inactive")
+    .filter(isPublicSignupBranch)
     .map((branch) => ({ branch, operatorId: findAcceptedBranchOperatorId(db, branch.id) }))
     .filter((entry): entry is { branch: MockDatabase["branches"][number]; operatorId: string } => Boolean(entry.operatorId));
 }

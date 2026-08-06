@@ -158,6 +158,33 @@ try {
   });
   await waitForServer(baseUrl);
 
+  const publicSignupBranchesResponse = await fetch(`${baseUrl}/api/v1/auth/register`);
+  const publicSignupBranchesPayload = await publicSignupBranchesResponse.json();
+  assert.equal(publicSignupBranchesResponse.status, 200, "public signup branch lookup must remain available");
+  assert.equal(
+    publicSignupBranchesPayload.data.branches.some((branch) => branch.id === googlePlayReviewBranchId),
+    false,
+    "synthetic review branch must not appear in public signup",
+  );
+
+  const blockedReviewBranchSignup = await fetch(`${baseUrl}/api/v1/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      branchId: googlePlayReviewBranchId,
+      name: "Public signup must not enter review data",
+      password: "FJ-Public-review-blocked-2026",
+      phone: "01012341234",
+    }),
+  });
+  const blockedReviewBranchSignupPayload = await blockedReviewBranchSignup.json();
+  assert.equal(blockedReviewBranchSignup.status, 400, "public signup must reject the synthetic review branch");
+  assert.equal(
+    blockedReviewBranchSignupPayload.error?.code,
+    "VALIDATION_ERROR",
+    "review branch signup rejection must use the public validation contract",
+  );
+
   const sessions = {};
   for (const role of Object.keys(googlePlayReviewUserIds)) {
     sessions[role] = await login(baseUrl, role);
@@ -211,7 +238,7 @@ try {
   assert.equal(forcedScope.status, 403, "review admin must not select a real branch by URL manipulation");
 
   assert.equal(serverErrors.includes("Error"), false, `review API server emitted errors: ${serverErrors}`);
-  console.log("Google Play review API checks passed: five logins, isolated snapshots, blocked global writes, and forced branch scope.");
+  console.log("Google Play review API checks passed: hidden public signup branch, five logins, isolated snapshots, blocked global writes, and forced branch scope.");
 } finally {
   await stopServer();
   await rm(dataDirectory, { force: true, recursive: true });
