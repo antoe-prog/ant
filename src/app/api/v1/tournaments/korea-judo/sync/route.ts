@@ -18,6 +18,7 @@ import {
 import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
+const koreaJudoTournamentSyncLockKey = "tournament:korea-judo-sync";
 
 function readSyncYear(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -56,81 +57,85 @@ export async function POST(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "동기화할 연도를 올바르게 입력해 주세요.");
   }
 
-  let sourceResult: Awaited<ReturnType<typeof fetchKoreaJudoTournaments>>;
+  return withServerDbLock(koreaJudoTournamentSyncLockKey, async () => {
+    let sourceResult: Awaited<ReturnType<typeof fetchKoreaJudoTournaments>>;
 
-  try {
-    sourceResult = await fetchKoreaJudoTournaments(year);
-  } catch (error) {
-    return jsonError(
-      502,
-      "TOURNAMENT_SOURCE_UNAVAILABLE",
-      error instanceof Error ? error.message : "대한유도회 일정을 불러오지 못했습니다.",
-    );
-  }
-
-  return withServerDbLock(tournamentStateLockKey, async () => {
-    const db = await readServerDb();
-    const latestSession = requireSession(request, db);
-
-    if (!latestSession.user) {
-      return latestSession.response;
+    try {
+      sourceResult = await fetchKoreaJudoTournaments(year);
+    } catch (error) {
+      return jsonError(
+        502,
+        "TOURNAMENT_SOURCE_UNAVAILABLE",
+        error instanceof Error ? error.message : "대한유도회 일정을 불러오지 못했습니다.",
+      );
     }
 
-    if (!hasGlobalAdminDataAccess(latestSession.user)) {
-      return jsonError(403, "FORBIDDEN", "대한유도회 일정을 동기화할 권한이 없습니다.");
-    }
+    return withServerDbLock(tournamentStateLockKey, async () => {
+      const db = await readServerDb();
+      const latestSession = requireSession(request, db);
 
-    const latestScope = requireSelectedBranchScope(request, latestSession.user, db);
+      if (!latestSession.user) {
+        return latestSession.response;
+      }
 
-    if (latestScope.response) {
-      return latestScope.response;
-    }
+      if (!hasGlobalAdminDataAccess(latestSession.user)) {
+        return jsonError(403, "FORBIDDEN", "대한유도회 일정을 동기화할 권한이 없습니다.");
+      }
 
-    const syncedAt = new Date().toISOString();
-    const mergeResult = mergeKoreaJudoTournaments(
-      db.tournaments ?? [],
-      sourceResult.records,
-      year,
-      latestSession.user.id,
-      syncedAt,
-    );
-    const auditLog: AuditLog = {
-      id: createRuntimeId("audit"),
-      branchId: null,
-      actorUserId: latestSession.user.id,
-      action: "tournament.sync",
-      targetType: "tournament",
-      targetId: `${koreaJudoAssociationTournamentSource}:${year}`,
-      before: null,
-      after: {
-        createdCount: mergeResult.createdCount,
-        importedCount: sourceResult.records.length,
-        skippedCount: sourceResult.skippedCount,
-        unchangedCount: mergeResult.unchangedCount,
-        updatedCount: mergeResult.updatedCount,
+      const latestScope = requireSelectedBranchScope(request, latestSession.user, db);
+
+      if (latestScope.response) {
+        return latestScope.response;
+      }
+
+      const syncedAt = new Date().toISOString();
+      const mergeResult = mergeKoreaJudoTournaments(
+        db.tournaments ?? [],
+        sourceResult.records,
         year,
-      },
-      result: "success",
-      message: `${year}년 대한유도회 대회 일정을 동기화했습니다.`,
-      createdAt: syncedAt,
-    };
-    const persisted = await writeServerDb({
-      ...db,
-      tournaments: mergeResult.tournaments,
-      auditLogs: [auditLog, ...db.auditLogs],
-    });
-
-    return jsonOk({
-      ...createBootstrapPayload(persisted, latestSession.user, latestScope.selectedBranchId ?? null),
-      sync: {
-        createdCount: mergeResult.createdCount,
-        importedCount: sourceResult.records.length,
-        skippedCount: sourceResult.skippedCount,
+        latestSession.user.id,
         syncedAt,
-        unchangedCount: mergeResult.unchangedCount,
-        updatedCount: mergeResult.updatedCount,
-        year,
-      },
+      );
+      const auditLog: AuditLog = {
+        id: createRuntimeId("audit"),
+        branchId: null,
+        actorUserId: latestSession.user.id,
+        action: "tournament.sync",
+        targetType: "tournament",
+        targetId: `${koreaJudoAssociationTournamentSource}:${year}`,
+        before: null,
+        after: {
+          createdCount: mergeResult.createdCount,
+          importedCount: sourceResult.records.length,
+          missingCount: mergeResult.missingCount,
+          skippedCount: sourceResult.skippedCount,
+          unchangedCount: mergeResult.unchangedCount,
+          updatedCount: mergeResult.updatedCount,
+          year,
+        },
+        result: "success",
+        message: `${year}년 대한유도회 대회 일정을 동기화했습니다.`,
+        createdAt: syncedAt,
+      };
+      const persisted = await writeServerDb({
+        ...db,
+        tournaments: mergeResult.tournaments,
+        auditLogs: [auditLog, ...db.auditLogs],
+      });
+
+      return jsonOk({
+        ...createBootstrapPayload(persisted, latestSession.user, latestScope.selectedBranchId ?? null),
+        sync: {
+          createdCount: mergeResult.createdCount,
+          importedCount: sourceResult.records.length,
+          missingCount: mergeResult.missingCount,
+          skippedCount: sourceResult.skippedCount,
+          syncedAt,
+          unchangedCount: mergeResult.unchangedCount,
+          updatedCount: mergeResult.updatedCount,
+          year,
+        },
+      });
     });
   });
 }

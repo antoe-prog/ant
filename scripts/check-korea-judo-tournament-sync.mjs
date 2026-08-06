@@ -38,6 +38,16 @@ const sourceFixture = `
   </div>
   <div class="panel panel-default day_count">
     <span class="left_name">기간</span>
+    <span class="right_text">2026년08월01일(토)~03일(월)(3일간)</span>
+    <span class="left_name">장소</span>
+    <span class="right_text">중복 일정</span>
+    <span class="left_name">주최</span>
+    <span class="right_text">대한유도회</span>
+    <input type="hidden" name="GameTitleIDX" value="523" />
+    <input type="hidden" name="GameTitleName" value="중복된 백제왕도 대회" />
+  </div>
+  <div class="panel panel-default day_count">
+    <span class="left_name">기간</span>
     <span class="right_text">날짜 미정</span>
     <input type="hidden" name="GameTitleIDX" value="601" />
     <input type="hidden" name="GameTitleName" value="파싱 제외 대회" />
@@ -114,6 +124,19 @@ async function apiRequest(baseUrl, userId) {
   return { response, payload: await response.json() };
 }
 
+async function registrationRequest(baseUrl, tournamentId, method, body) {
+  const response = await fetch(`${baseUrl}/api/v1/tournaments/${tournamentId}/registrations`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "x-user-id": "user-member",
+    },
+    body: JSON.stringify(body),
+  });
+
+  return { response, payload: await response.json() };
+}
+
 async function main() {
   await assert.rejects(
     readBoundedTournamentSource(
@@ -147,9 +170,22 @@ async function main() {
 
   const parsed = parseKoreaJudoTournamentList(sourceFixture, 2026);
   assert.equal(parsed.records.length, 2, "valid source panels must be parsed");
-  assert.equal(parsed.skippedCount, 1, "malformed source panels must be skipped");
+  assert.equal(parsed.skippedCount, 2, "malformed and duplicate source panels must be skipped");
+  assert.equal(
+    parsed.records[0].title,
+    "2026 백제왕도 익산 생활체육전국유도대회",
+    "the first valid record must win when the source repeats an external ID",
+  );
   assert.equal(parsed.records[1].location, "테스트 & 체육관", "HTML entities must be decoded");
   assert.equal(parsed.records[1].eventEndDate, "2026-12-04", "source end dates must be normalized");
+  const malformedEntitySource = sourceFixture.replace(
+    "2026 백제왕도 익산 생활체육전국유도대회",
+    "안전 &#9999999999; 대회",
+  );
+  assert.doesNotThrow(
+    () => parseKoreaJudoTournamentList(malformedEntitySource, 2026),
+    "out-of-range numeric HTML entities must not abort the full sync",
+  );
 
   const manualTournament = {
     id: "tournament-manual",
@@ -170,6 +206,33 @@ async function main() {
   );
   assert.equal(merged.createdCount, 2, "first sync must create imported tournaments");
   assert(merged.tournaments.some((tournament) => tournament.id === manualTournament.id), "manual tournaments must survive sync");
+  const importedWithRegistration = {
+    ...merged.tournaments.find((tournament) => tournament.sourceId === "2026:523"),
+    registrations: [
+      {
+        id: "tournament-registration-preserved",
+        memberId: "member-minjae",
+        appliedByUserId: "user-member",
+        status: "submitted",
+        appliedAt: "2026-07-29T00:00:00.000Z",
+      },
+    ],
+  };
+  const changedRecords = parsed.records.map((record) =>
+    record.externalId === "523" ? { ...record, location: "변경된 대회장" } : record,
+  );
+  const resynced = mergeKoreaJudoTournaments(
+    [manualTournament, importedWithRegistration],
+    changedRecords,
+    2026,
+    "user-admin",
+    "2026-07-29T00:00:00.000Z",
+  );
+  assert.deepEqual(
+    resynced.tournaments.find((tournament) => tournament.sourceId === "2026:523")?.registrations,
+    importedWithRegistration.registrations,
+    "source updates must preserve every existing tournament registration and status",
+  );
 
   const tempRoot = path.join(process.cwd(), ".data", "test-runs");
   await mkdir(tempRoot, { recursive: true });
@@ -203,11 +266,27 @@ async function main() {
   ]);
 
   let sourceRequestCount = 0;
+  let sourceResponseBody = sourceFixture;
+  let sourceResponseDelayMs = 0;
+  let activeSourceRequests = 0;
+  let maximumConcurrentSourceRequests = 0;
   const sourceServer = createServer((request, response) => {
     sourceRequestCount += 1;
+    activeSourceRequests += 1;
+    maximumConcurrentSourceRequests = Math.max(maximumConcurrentSourceRequests, activeSourceRequests);
     assert.equal(request.method, "POST", "source adapter must use the official POST contract");
-    response.writeHead(200, { "content-type": "text/html;charset=utf-8" });
-    response.end(sourceFixture);
+    const responseBody = sourceResponseBody;
+    const completeResponse = () => {
+      response.writeHead(200, { "content-type": "text/html;charset=utf-8" });
+      response.end(responseBody);
+      activeSourceRequests -= 1;
+    };
+
+    if (sourceResponseDelayMs > 0) {
+      setTimeout(completeResponse, sourceResponseDelayMs);
+    } else {
+      completeResponse();
+    }
   });
   const sourcePort = await getFreePort();
   await new Promise((resolve, reject) => {
@@ -255,7 +334,7 @@ async function main() {
     const firstSync = await apiRequest(baseUrl, "user-admin");
     assert.equal(firstSync.response.status, 200, JSON.stringify(firstSync.payload));
     assert.equal(firstSync.payload.data.sync.createdCount, 2, "admin sync must report created records");
-    assert.equal(firstSync.payload.data.sync.skippedCount, 1, "admin sync must report malformed source records");
+    assert.equal(firstSync.payload.data.sync.skippedCount, 2, "admin sync must report malformed and duplicate source records");
     const importedTournament = firstSync.payload.data.db.tournaments.find(
       (tournament) => tournament.source === "korea_judo_association",
     );
@@ -265,6 +344,16 @@ async function main() {
       false,
       "imported tournaments must remain read-only",
     );
+    const registrationTournament = firstSync.payload.data.db.tournaments.find(
+      (tournament) => tournament.sourceId === "2026:600",
+    );
+    assert(registrationTournament, "sync must expose the future imported tournament used for registration checks");
+    const registrationApply = await registrationRequest(baseUrl, registrationTournament.id, "POST", {
+      memberId: "member-minjae",
+      division: "일반부",
+      weightClass: "-73kg",
+    });
+    assert.equal(registrationApply.response.status, 200, JSON.stringify(registrationApply.payload));
 
     const memberBootstrap = await fetch(`${baseUrl}/api/v1/me/bootstrap`, {
       headers: { "x-user-id": "user-member" },
@@ -282,7 +371,65 @@ async function main() {
     assert.equal(secondSync.response.status, 200, JSON.stringify(secondSync.payload));
     assert.equal(secondSync.payload.data.sync.createdCount, 0, "repeat sync must be idempotent");
     assert.equal(secondSync.payload.data.sync.unchangedCount, 2, "repeat sync must identify unchanged records");
-    assert.equal(sourceRequestCount, 2, "only authorized sync calls may reach the external source");
+    assert.equal(
+      secondSync.payload.data.db.tournaments.find((tournament) => tournament.sourceId === "2026:600")
+        ?.registrations?.[0]?.status,
+      "pending",
+      "repeat sync must preserve a persisted family registration",
+    );
+
+    sourceResponseBody = sourceFixture.replace('value="600"', 'value="missing-600"');
+    const missingSourceSync = await apiRequest(baseUrl, "user-admin");
+    assert.equal(missingSourceSync.response.status, 200, JSON.stringify(missingSourceSync.payload));
+    assert.equal(missingSourceSync.payload.data.sync.missingCount, 1, "sync must report imported events absent from the source");
+    const unavailableTournament = missingSourceSync.payload.data.db.tournaments.find(
+      (tournament) => tournament.sourceId === "2026:600",
+    );
+    assert.equal(
+      unavailableTournament?.sourceAvailability,
+      "missing",
+      "an imported event absent from the latest official list must require confirmation",
+    );
+    assert.equal(
+      unavailableTournament?.registrations?.[0]?.status,
+      "pending",
+      "marking an imported event unavailable must preserve its registration history",
+    );
+
+    const unavailableUpdate = await registrationRequest(baseUrl, registrationTournament.id, "POST", {
+      memberId: "member-minjae",
+      division: "일반부",
+      weightClass: "-81kg",
+    });
+    assert.equal(unavailableUpdate.response.status, 422, "a missing official event must reject new or updated applications");
+    assert.match(
+      unavailableUpdate.payload.error.message,
+      /공식 일정에서 현재 확인되지 않는/,
+      "the blocked application must explain the source state",
+    );
+
+    const unavailableCancellation = await registrationRequest(baseUrl, registrationTournament.id, "DELETE", {
+      memberId: "member-minjae",
+    });
+    assert.equal(unavailableCancellation.response.status, 200, "families must still be able to cancel a pending stale application");
+
+    sourceResponseBody = sourceFixture;
+    sourceResponseDelayMs = 100;
+    const concurrentSyncs = await Promise.all([
+      apiRequest(baseUrl, "user-admin"),
+      apiRequest(baseUrl, "user-admin"),
+    ]);
+    sourceResponseDelayMs = 0;
+    assert(
+      concurrentSyncs.every(({ response }) => response.status === 200),
+      "concurrent authorized sync requests must both complete",
+    );
+    assert.equal(
+      maximumConcurrentSourceRequests,
+      1,
+      "source fetches must be serialized so an older slow response cannot overwrite a newer sync",
+    );
+    assert.equal(sourceRequestCount, 5, "only authorized sync calls may reach the external source");
 
     const persisted = JSON.parse(await readFile(dbFile, "utf8"));
     assert(persisted.tournaments.some((tournament) => tournament.id === manualTournament.id), "manual data must be preserved");
@@ -293,7 +440,7 @@ async function main() {
     );
     assert.equal(
       persisted.auditLogs.filter((log) => log.action === "tournament.sync").length,
-      2,
+      5,
       "every successful sync must be audited",
     );
 
@@ -304,6 +451,11 @@ async function main() {
     ]);
     assert(screenSource.includes('data-testid="korea-judo-tournament-sync"'), "tournament screen must expose the admin sync action");
     assert(screenSource.includes("대한유도회 연동"), "imported tournament cards must identify their source");
+    assert(screenSource.includes("공식 일정 확인 필요"), "missing official events must be visibly distinguished");
+    assert(
+      screenSource.includes("registrationSourceUnavailable"),
+      "the family registration dialog must disable new or updated applications for missing official events",
+    );
     assert(
       calendarSource.includes("getCalendarTournamentLabel(dayTournaments[0].title)"),
       "calendar dates must show a readable tournament title",
@@ -312,6 +464,10 @@ async function main() {
     assert(calendarSource.includes('aria-modal="true"'), "tournament details must be announced as a modal");
     assert(calendarSource.includes('event.key === "Escape"'), "the tournament dialog must close with Escape");
     assert(calendarSource.includes('data-testid="family-calendar-selected-tournaments"'), "dialog must render selected-day tournaments");
+    assert(
+      calendarSource.includes('tournament.sourceAvailability === "missing"'),
+      "calendar tournament details must warn when the official event is no longer confirmed",
+    );
     assert(classesSource.includes("familyTournamentDateKeys"), "tournament dates must be selectable in the family calendar");
   } catch (error) {
     if (serverOutput) {
@@ -336,8 +492,13 @@ async function main() {
         api: {
           authorizedSync: true,
           boundedSourceResponse: true,
+          duplicateSourceIdsRejected: true,
           idempotent: true,
           manualTournamentPreserved: true,
+          missingOfficialEventBlocked: true,
+          registrationsPreserved: true,
+          sourceFetchesSerialized: true,
+          staleRegistrationCancellationPreserved: true,
           unauthorizedSourceRequests: 0,
         },
         ui: {

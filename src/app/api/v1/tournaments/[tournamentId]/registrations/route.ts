@@ -219,6 +219,13 @@ function getApplicationBlockReason(tournament: Tournament, memberStatus: string,
     return "활성 또는 체험 상태인 회원만 대회 참가를 신청할 수 있습니다.";
   }
 
+  if (
+    tournament.source === "korea_judo_association" &&
+    tournament.sourceAvailability === "missing"
+  ) {
+    return "대한유도회 공식 일정에서 현재 확인되지 않는 대회입니다. 담당 코치에게 확인해 주세요.";
+  }
+
   if (tournament.registrationDeadline && tournament.registrationDeadline < todayKey) {
     return "대회 참가 신청 기간이 마감되었습니다.";
   }

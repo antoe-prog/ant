@@ -170,6 +170,9 @@ export function TournamentsScreen() {
       (registration) => registration.memberId === selectedRegistrationMember?.id,
     ) ?? null;
   const selectedRegistrationSubmitted = selectedRegistration?.status === "submitted";
+  const registrationSourceUnavailable =
+    registrationTournament?.source === "korea_judo_association" &&
+    registrationTournament.sourceAvailability === "missing";
   const managementTournament =
     tournaments.find((tournament) => tournament.id === managementTournamentId) ?? null;
   const pendingRegistrationTournaments = tournaments
@@ -794,6 +797,8 @@ export function TournamentsScreen() {
               : false;
             const eventEnded = (tournament.eventEndDate ?? tournament.eventDate) < todayKey;
             const registeredMemberCount = (tournament.registrations ?? []).length;
+            const sourceUnavailable =
+              tournament.source === "korea_judo_association" && tournament.sourceAvailability === "missing";
 
             return (
               <li
@@ -812,8 +817,14 @@ export function TournamentsScreen() {
                       {branchName}
                     </span>
                     {tournament.source === "korea_judo_association" ? (
-                      <span className="ml-1.5 mt-2 inline-flex rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700">
-                        대한유도회 연동
+                      <span
+                        className={`ml-1.5 mt-2 inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${
+                          sourceUnavailable
+                            ? "border-amber-300 bg-amber-50 text-amber-800"
+                            : "border-teal-200 bg-teal-50 text-teal-700"
+                        }`}
+                      >
+                        {sourceUnavailable ? "공식 일정 확인 필요" : "대한유도회 연동"}
                       </span>
                     ) : null}
                   </div>
@@ -847,6 +858,11 @@ export function TournamentsScreen() {
                   ) : null}
                   {tournament.description ? (
                     <p className="whitespace-pre-line break-words text-sm leading-6 text-zinc-600">{tournament.description}</p>
+                  ) : null}
+                  {sourceUnavailable ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                      최근 동기화에서 공식 일정을 확인하지 못했습니다. 신규 신청 전 담당 코치에게 확인해 주세요.
+                    </p>
                   ) : null}
                 </div>
 
@@ -940,7 +956,7 @@ export function TournamentsScreen() {
                     <button
                       className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md bg-teal-700 px-4 text-xs font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
                       data-testid={`tournament-registration-open-${tournament.id}`}
-                      disabled={deadlinePassed || eventEnded}
+                      disabled={deadlinePassed || eventEnded || (sourceUnavailable && registeredMemberCount === 0)}
                       type="button"
                       onClick={() => openRegistration(tournament)}
                     >
@@ -949,7 +965,17 @@ export function TournamentsScreen() {
                       ) : (
                         <UserPlus className="h-4 w-4" aria-hidden />
                       )}
-                      {eventEnded ? "대회 종료" : deadlinePassed ? "신청 마감" : registeredMemberCount > 0 ? "신청 확인" : "참가 신청"}
+                      {eventEnded
+                        ? "대회 종료"
+                        : deadlinePassed
+                          ? "신청 마감"
+                          : sourceUnavailable
+                            ? registeredMemberCount > 0
+                              ? "신청 확인"
+                              : "일정 확인 필요"
+                            : registeredMemberCount > 0
+                              ? "신청 확인"
+                              : "참가 신청"}
                     </button>
                   ) : null}
                 </div>
@@ -1071,13 +1097,24 @@ export function TournamentsScreen() {
                 )}
               </fieldset>
 
+              {registrationSourceUnavailable ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-medium leading-6 text-amber-900">
+                  대한유도회 공식 일정에서 현재 확인되지 않습니다. 기존 신청은 취소할 수 있지만 신규 신청과 정보 수정은 담당 코치 확인 후 진행해 주세요.
+                </p>
+              ) : null}
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1.5 text-sm font-semibold text-zinc-950">
                   종별
                   <select
                     className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-base font-medium text-zinc-950 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-zinc-100"
                     data-testid="tournament-registration-division"
-                    disabled={!selectedRegistrationMember || registrationPending || selectedRegistrationSubmitted}
+                    disabled={
+                      !selectedRegistrationMember ||
+                      registrationPending ||
+                      selectedRegistrationSubmitted ||
+                      registrationSourceUnavailable
+                    }
                     value={registrationDivision}
                     onChange={(event) => {
                       setRegistrationDivision(event.target.value as TournamentDivision);
@@ -1097,7 +1134,12 @@ export function TournamentsScreen() {
                   <input
                     className="min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-base font-medium text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-zinc-100"
                     data-testid="tournament-registration-weight-class"
-                    disabled={!selectedRegistrationMember || registrationPending || selectedRegistrationSubmitted}
+                    disabled={
+                      !selectedRegistrationMember ||
+                      registrationPending ||
+                      selectedRegistrationSubmitted ||
+                      registrationSourceUnavailable
+                    }
                     inputMode="text"
                     maxLength={30}
                     placeholder="예: -60kg, +100kg, 무제한급"
@@ -1123,7 +1165,9 @@ export function TournamentsScreen() {
                 role="status"
               >
                 {registrationFeedback ??
-                  (selectedRegistrationSubmitted
+                  (registrationSourceUnavailable
+                    ? "공식 일정 확인 전에는 신규 신청이나 신청 정보 수정이 제한됩니다."
+                    : selectedRegistrationSubmitted
                     ? "협회에 제출된 참가 신청은 직접 수정하거나 취소할 수 없습니다. 담당 코치에게 문의해 주세요."
                     : selectedRegistration
                     ? `${selectedRegistrationMember?.name ?? "선택 회원"}님의 ${selectedRegistration.division ?? "종별 미입력"} · ${selectedRegistration.weightClass ?? "체급 미입력"} 신청은 ${tournamentRegistrationStatusLabels[getTournamentRegistrationStatus(selectedRegistration.status)]} 상태입니다.`
@@ -1163,7 +1207,8 @@ export function TournamentsScreen() {
                     !selectedRegistrationMember ||
                     !registrationWeightClass.trim() ||
                     registrationPending ||
-                    selectedRegistrationSubmitted
+                    selectedRegistrationSubmitted ||
+                    registrationSourceUnavailable
                   }
                   size="lg"
                   type="button"
@@ -1172,7 +1217,9 @@ export function TournamentsScreen() {
                 >
                   {registrationPending
                     ? "저장 중"
-                    : selectedRegistrationSubmitted
+                    : registrationSourceUnavailable
+                      ? "일정 확인 필요"
+                      : selectedRegistrationSubmitted
                       ? "수정 불가"
                       : selectedRegistration
                         ? "신청 정보 수정"

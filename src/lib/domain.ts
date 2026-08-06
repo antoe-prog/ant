@@ -631,6 +631,8 @@ export type Tournament = {
   source?: "korea_judo_association";
   sourceId?: string;
   sourceSyncedAt?: string;
+  sourceAvailability?: "active" | "missing";
+  sourceMissingAt?: string;
   description?: string;
   registrations?: TournamentRegistration[];
   createdByUserId?: string;

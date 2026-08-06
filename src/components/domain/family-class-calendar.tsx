@@ -435,6 +435,11 @@ export function FamilyClassCalendar({
                       신청 마감 {formatDate(`${tournament.registrationDeadline}T12:00:00+09:00`)}
                     </p>
                   ) : null}
+                  {tournament.source === "korea_judo_association" && tournament.sourceAvailability === "missing" ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium leading-6 text-amber-900">
+                      최근 동기화에서 대한유도회 공식 일정을 확인하지 못했습니다. 참가 전 담당 코치에게 확인해 주세요.
+                    </p>
+                  ) : null}
                   {tournament.description ? (
                     <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-600">{tournament.description}</p>
                   ) : null}

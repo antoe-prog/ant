@@ -36,6 +36,7 @@ export type KoreaJudoTournamentRecord = {
 export type KoreaJudoTournamentMergeResult = {
   tournaments: Tournament[];
   createdCount: number;
+  missingCount: number;
   updatedCount: number;
   unchangedCount: number;
 };
@@ -97,16 +98,25 @@ function decodeHtmlEntities(value: string) {
   return value.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, token: string) => {
     if (token.startsWith("#x")) {
       const codePoint = Number.parseInt(token.slice(2), 16);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : entity;
+      return isValidHtmlCodePoint(codePoint) ? String.fromCodePoint(codePoint) : entity;
     }
 
     if (token.startsWith("#")) {
       const codePoint = Number.parseInt(token.slice(1), 10);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : entity;
+      return isValidHtmlCodePoint(codePoint) ? String.fromCodePoint(codePoint) : entity;
     }
 
     return namedEntities[token.toLowerCase()] ?? entity;
   });
+}
+
+function isValidHtmlCodePoint(codePoint: number) {
+  return (
+    Number.isInteger(codePoint) &&
+    codePoint >= 0 &&
+    codePoint <= 0x10ffff &&
+    (codePoint < 0xd800 || codePoint > 0xdfff)
+  );
 }
 
 function normalizeHtmlText(value: string) {
@@ -201,6 +211,7 @@ export function parseKoreaJudoTournamentList(html: string, year: number) {
   const panelPattern = /<div\b[^>]*class=["'][^"']*\bpanel\b[^"']*\bpanel-default\b[^"']*["'][^>]*>/gi;
   const panelStarts = [...html.matchAll(panelPattern)].map((match) => match.index ?? 0);
   const records: KoreaJudoTournamentRecord[] = [];
+  const seenExternalIds = new Set<string>();
   let skippedCount = 0;
 
   for (let index = 0; index < panelStarts.length; index += 1) {
@@ -215,6 +226,13 @@ export function parseKoreaJudoTournamentList(html: string, year: number) {
       skippedCount += 1;
       continue;
     }
+
+    if (seenExternalIds.has(externalId)) {
+      skippedCount += 1;
+      continue;
+    }
+
+    seenExternalIds.add(externalId);
 
     records.push({
       externalId,
@@ -245,6 +263,7 @@ function hasTournamentSourceChanges(
     tournament.eventEndDate !== record.eventEndDate ||
     tournament.location !== record.location ||
     tournament.sourceUrl !== record.sourceUrl ||
+    tournament.sourceAvailability === "missing" ||
     tournament.scope !== "global" ||
     tournament.branchId !== null
   );
@@ -267,7 +286,9 @@ export function mergeKoreaJudoTournaments(
       .map((tournament) => [tournament.sourceId as string, tournament]),
   );
   const mergedById = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
+  const currentSourceIds = new Set(records.map((record) => `${year}:${record.externalId}`));
   let createdCount = 0;
+  let missingCount = 0;
   let updatedCount = 0;
   let unchangedCount = 0;
 
@@ -294,6 +315,8 @@ export function mergeKoreaJudoTournaments(
       source: koreaJudoAssociationTournamentSource,
       sourceId,
       sourceSyncedAt: syncedAt,
+      sourceAvailability: "active",
+      sourceMissingAt: undefined,
       description: "대한유도회 국내대회 일정에서 가져온 정보입니다.",
       ...(existing && sourceChanged ? { updatedAt: syncedAt } : {}),
     };
@@ -309,9 +332,34 @@ export function mergeKoreaJudoTournaments(
     }
   }
 
+  for (const tournament of tournaments) {
+    if (
+      tournament.source !== koreaJudoAssociationTournamentSource ||
+      !tournament.sourceId?.startsWith(`${year}:`) ||
+      currentSourceIds.has(tournament.sourceId)
+    ) {
+      continue;
+    }
+
+    missingCount += 1;
+
+    if (tournament.sourceAvailability === "missing") {
+      continue;
+    }
+
+    mergedById.set(tournament.id, {
+      ...tournament,
+      sourceAvailability: "missing",
+      sourceMissingAt: syncedAt,
+      updatedAt: syncedAt,
+    });
+    updatedCount += 1;
+  }
+
   return {
     tournaments: [...mergedById.values()],
     createdCount,
+    missingCount,
     updatedCount,
     unchangedCount,
   };
