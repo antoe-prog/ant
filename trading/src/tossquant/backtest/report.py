@@ -10,6 +10,7 @@ from rich.table import Table
 
 from .metrics import Metrics
 from .simulator import BacktestResult
+from .walkforward import WalkForwardResult
 
 
 def _pct(value: float) -> str:
@@ -107,6 +108,94 @@ def render(result: BacktestResult, console: Console, show_trades: int = 10) -> N
                 str(trade.bars_held),
             )
         console.print(table)
+
+
+def render_walkforward(result: WalkForwardResult, console: Console) -> None:
+    metrics = result.metrics
+    console.print(
+        f"[bold]워크포워드[/bold] {len(result.folds)}구간 × {result.grid_size}조합 "
+        f"(목적함수 {result.objective})"
+    )
+    console.print(
+        f"[bold]평가 기간[/bold] {result.curve[0].ts:%Y-%m-%d} ~ "
+        f"{result.curve[-1].ts:%Y-%m-%d} ({metrics.bars}봉 / {metrics.years:.2f}년)\n"
+    )
+
+    folds = Table(title="구간별 결과")
+    folds.add_column("#", justify="right")
+    folds.add_column("학습 기간")
+    folds.add_column("평가 기간")
+    folds.add_column("선택 파라미터")
+    folds.add_column("IS 점수", justify="right")
+    folds.add_column("OOS 점수", justify="right")
+    folds.add_column("OOS 수익", justify="right")
+    for item in result.folds:
+        oos_return = item.test.metrics.total_return
+        color = "green" if oos_return > 0 else "red"
+        folds.add_row(
+            str(item.fold.index + 1),
+            f"{item.train.curve[0].ts:%Y-%m-%d}~{item.train.curve[-1].ts:%m-%d}",
+            f"{item.test.curve[0].ts:%Y-%m-%d}~{item.test.curve[-1].ts:%m-%d}",
+            ", ".join(f"{k}={v}" for k, v in sorted(item.params.items())),
+            f"{item.train_score:.2f}",
+            f"{item.test_score:.2f}",
+            f"[{color}]{_pct(oos_return)}[/{color}]",
+        )
+    console.print(folds)
+
+    summary = Table(title="이어붙인 아웃오브샘플 성과")
+    summary.add_column("지표")
+    summary.add_column("값", justify="right")
+    summary.add_row("최종 평가액", f"{metrics.end_equity:,.2f}")
+    summary.add_row("총 수익률", _pct(metrics.total_return))
+    summary.add_row("연평균 (CAGR)", _pct(metrics.cagr))
+    summary.add_row("최대 낙폭 (MDD)", f"-{metrics.max_drawdown * 100:.2f}%")
+    summary.add_row("Sharpe", f"{metrics.sharpe:.2f}")
+    summary.add_row("거래 횟수", str(metrics.trades))
+    summary.add_row("승률", f"{metrics.win_rate * 100:.1f}%")
+    summary.add_row(
+        "수익 구간", f"{result.positive_folds}/{len(result.folds)}"
+    )
+    console.print(summary)
+
+    _render_verdict(result, console)
+
+
+def _render_verdict(result: WalkForwardResult, console: Console) -> None:
+    """숫자를 어떻게 읽어야 하는지까지 같이 찍는다.
+
+    워크포워드는 '얼마 벌었나'가 아니라 '이 성과를 믿어도 되나'를 보는 도구다.
+    유지율과 파라미터 안정성을 해석 없이 던져두면 대개 무시된다.
+    """
+    retention = result.retention
+    stability = result.param_stability
+
+    console.print("\n[bold]과최적화 점검[/bold]")
+
+    if retention >= 0.7:
+        note = "[green]인샘플 성과가 밖에서도 대체로 유지됐습니다.[/green]"
+    elif retention >= 0.3:
+        note = "[yellow]밖에서 성과가 상당히 깎였습니다. 흔한 수준이지만 기대치를 낮추세요.[/yellow]"
+    elif retention >= 0:
+        note = "[red]인샘플 성과 대부분이 과거에 맞춘 것이었습니다.[/red]"
+    else:
+        note = "[red]인샘플 우승 조합이 밖에서는 손해였습니다.[/red]"
+    console.print(f"  성과 유지율 (OOS/IS)  {retention:6.2f}  {note}")
+
+    if stability >= 0.6:
+        note = "[green]구간이 바뀌어도 비슷한 파라미터가 뽑혔습니다.[/green]"
+    elif stability >= 0.4:
+        note = "[yellow]파라미터가 다소 흔들립니다.[/yellow]"
+    else:
+        note = "[red]구간마다 최적값이 널뜁니다 — 잡음일 수 있습니다.[/red]"
+    console.print(f"  파라미터 안정성       {stability:6.2f}  {note}")
+
+    if len(result.folds) < 5:
+        console.print(
+            f"\n[yellow]구간이 {len(result.folds)}개뿐입니다. "
+            "통계적으로 의미를 두기엔 부족하니 데이터를 늘리거나 "
+            "--test-bars를 줄이세요.[/yellow]"
+        )
 
 
 def export(result: BacktestResult, directory: Path) -> list[Path]:

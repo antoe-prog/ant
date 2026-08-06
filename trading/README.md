@@ -71,6 +71,9 @@ tossquant notify-test
 # 3. 과거 데이터로 전략 검증
 tossquant backtest --source csv --csv-dir data --symbols AAPL,MSFT
 
+# 3-1. 과최적화 여부 교차 확인 — 실주문 전에 반드시
+tossquant walkforward --source csv --csv-dir data --symbols AAPL,MSFT
+
 # 4. 한 사이클만 돌려보기
 tossquant run --once -v
 
@@ -111,6 +114,7 @@ tossquant reset
 | `backtest/simulator.py` | 백테스트 루프 + 라운드트립 장부 |
 | `backtest/metrics.py` | CAGR·MDD·Sharpe·승률·손익비 |
 | `backtest/data.py` | CSV / 토스 API 소스 + 캔들 캐시 |
+| `backtest/walkforward.py` | 구간 분할 최적화 + 과최적화 진단 |
 
 **설계상 중요한 분리 두 가지:**
 
@@ -275,6 +279,66 @@ CSV는 `<폴더>/<종목>.csv` 형태로 두면 되고, 헤더는 `date,open,hig
 (`paper_slippage_bps`), 수수료(`paper_commission_bps`). 그래도 호가 잔량은
 무시하므로 결과는 **상단 추정치**다.
 
+## 워크포워드 검증 (`backtest/walkforward.py`)
+
+**단일 구간 백테스트로 파라미터를 고르는 건 검증이 아니다.** 같은 데이터로 고르고
+같은 데이터로 평가하면 어떤 전략이든 좋아 보인다. SMA 20/60이 잘 나온 게 그 구간에
+우연히 맞았기 때문인지 진짜 작동하는 건지 구분할 방법이 없다.
+
+```
+[--- 학습 ---][평가]
+       [--- 학습 ---][평가]
+              [--- 학습 ---][평가]
+```
+
+각 구간마다 **앞부분에서만** 파라미터를 고르고 **한 번도 안 본 뒤 구간**에서 평가한다.
+평가 구간들을 이어붙인 곡선이 실제로 기대할 수 있는 성과다.
+
+```bash
+tossquant walkforward --source csv --csv-dir data --symbols AAPL,MSFT
+
+# 학습 300봉 / 평가 100봉, 낙폭을 벌주는 목적함수로
+tossquant walkforward --train-bars 300 --test-bars 100 --objective calmar
+
+# 탐색 범위 지정, 확장 창(학습 구간이 계속 늘어남)
+tossquant walkforward --fast-range 5,10,20 --slow-range 60,120 --anchored
+```
+
+목적함수는 `sharpe`(기본) / `sortino` / `calmar` / `cagr` / `return`. **`return`은
+피하는 게 좋다** — 수익률만 최대화하면 낙폭을 무시하고 과최적화로 직행한다.
+
+### 두 숫자만 보면 된다
+
+출력 맨 아래 "과최적화 점검"에 해석까지 같이 찍는다.
+
+| 지표 | 의미 |
+| --- | --- |
+| **성과 유지율 (OOS/IS)** | 인샘플 성과가 밖에서 얼마나 남았나. 떨어지는 건 정상이고 격차의 크기가 문제다. 음수면 인샘플 우승 조합이 밖에선 손해였다는 뜻 |
+| **파라미터 안정성** | 구간마다 같은 파라미터가 뽑히는 비율. 널뛰면 그 '최적값'은 신호가 아니라 잡음이다 |
+
+수익 구간 개수(예: `2/6`)도 같이 본다. 한 구간이 전체 수익을 다 만들었다면 그건
+전략이 아니라 운이다.
+
+### 미래 정보 차단
+
+학습에는 `[train_start, train_end)` 구간만 넘어간다. 평가 구간에는 앞에 워밍업 봉만
+붙이고 뒤로는 절대 넘어가지 않는다. `test_walkforward.py`가 실제로 `Backtester`에
+전달된 데이터의 시각 범위를 검사해서 이걸 못 박는다 — 일부러 누출을 주입하면 두 개의
+테스트가 즉시 깨지는 것을 확인했다.
+
+### 실측 예시
+
+합성 랜덤워크 데이터(6년치, AAPL/MSFT)에 SMA 크로스를 돌린 결과:
+
+```
+성과 유지율 (OOS/IS)   -0.14   인샘플 우승 조합이 밖에서는 손해였습니다.
+파라미터 안정성         0.29   구간마다 최적값이 널뜁니다 — 잡음일 수 있습니다.
+수익 구간               2/6
+```
+
+랜덤워크에 추세추종을 돌렸으니 당연한 결과다. **이 도구는 이런 결론을 내는 게
+목적이다** — 실제 데이터에서도 이런 숫자가 나오면 그 전략은 쓰면 안 된다.
+
 ## 전략 교체
 
 `strategy/base.py`의 `Strategy`를 상속하고 `cli.py:_build()`에서 갈아끼운다.
@@ -294,7 +358,7 @@ class MyStrategy(Strategy):
 ## 테스트
 
 ```bash
-pytest        # 201개
+pytest        # 235개
 ```
 
 토스 클라이언트 테스트는 `respx`로 HTTP를 모킹한다. 응답 스키마가 확정되지 않았으므로
@@ -310,6 +374,8 @@ pytest        # 201개
 - [ ] 페이퍼로 최소 몇 주간 운용해 체결·손익 기록 확인
 - [ ] `stop_loss_pct`가 0이 아닌지 확인 — 끄고 실주문을 돌리지 말 것
 - [ ] `tossquant notify-test` 통과 — 알림 없이 실주문을 돌리지 말 것
+- [ ] `tossquant walkforward`에서 성과 유지율·파라미터 안정성 확인
+      (유지율이 음수거나 안정성이 0.4 미만이면 그 파라미터는 근거가 없다)
 - [ ] `max_daily_loss_pct`, `max_order_notional`을 감당 가능한 수준으로 설정
 - [ ] 첫 실주문은 `max_order_notional`을 아주 작게(예: 100 USD) 잡고 시작
 - [ ] `.env`가 git에 올라가지 않는지 확인 (`.gitignore`에 포함되어 있음)
@@ -320,7 +386,7 @@ pytest        # 201개
 
 - 페이퍼·백테스트 체결 모두 호가 잔량과 거래량을 무시한다. 대량 주문일수록 낙관적
   이므로 성과는 **상단 추정치**로 볼 것.
-- 파라미터 최적화 도구는 없다. `--fast`/`--slow`를 바꿔가며 직접 비교해야 한다.
-  (과최적화를 부추기지 않으려는 의도이기도 하다.)
+- 파라미터 탐색은 격자 전수 탐색뿐이다. 조합이 많아지면 느리고, 애초에 넓은
+  격자를 뒤지는 것 자체가 과최적화를 부른다 — 워크포워드로 반드시 교차 확인할 것.
 - 환전을 다루지 않는다. 계좌에 USD가 있다고 가정한다.
 - 휴장일 목록(`calendar_us.py`)은 2027년까지만 들어 있다. 매년 갱신 필요.

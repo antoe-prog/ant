@@ -13,7 +13,8 @@ from rich.console import Console
 from rich.table import Table
 
 from .backtest.data import CandleCache, CsvSource, TossSource, load_history
-from .backtest.report import export, render
+from .backtest import walkforward as walkforward_mod
+from .backtest.report import export, render, render_walkforward
 from .backtest.simulator import Backtester
 from .broker.base import BrokerError
 from .broker.paper import PaperBroker
@@ -367,6 +368,108 @@ def backtest(
     if export_dir is not None:
         written = export(result, export_dir)
         console.print("\n" + "\n".join(f"기록: {path}" for path in written))
+
+
+@app.command()
+def walkforward(
+    source: str = typer.Option("csv", "--source", help="csv | toss"),
+    csv_dir: Path = typer.Option(Path("data"), "--csv-dir"),
+    symbols: str = typer.Option("", "--symbols", help="쉼표 구분"),
+    start: str = typer.Option("", "--from", help="시작일 YYYY-MM-DD"),
+    end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
+    count: int = typer.Option(1000, "--count", help="source=toss일 때 요청할 봉 개수"),
+    train_bars: int = typer.Option(250, "--train-bars", help="학습 구간 봉 수"),
+    test_bars: int = typer.Option(60, "--test-bars", help="평가 구간 봉 수"),
+    objective: str = typer.Option(
+        "sharpe", "--objective", help="sharpe | sortino | calmar | cagr | return"
+    ),
+    anchored: bool = typer.Option(
+        False, "--anchored", help="학습 구간을 처음부터 확장 (기본은 롤링)"
+    ),
+    fast_range: str = typer.Option("5,10,20,30", "--fast-range", help="단기선 후보"),
+    slow_range: str = typer.Option("40,60,100,150", "--slow-range", help="장기선 후보"),
+    cash: float = typer.Option(0.0, "--cash"),
+    cache_path: Path = typer.Option(Path("candles.db"), "--cache"),
+    refresh: bool = typer.Option(False, "--refresh"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """구간을 나눠 앞에서 파라미터를 고르고 뒤에서 검증한다.
+
+    단일 백테스트로 파라미터를 고르면 그 결과는 검증이 아니라 자기충족이다.
+    여기서는 학습 구간에서만 고르고 한 번도 보지 않은 구간에서 평가해, 인샘플
+    성과가 밖에서 얼마나 유지되는지를 숫자로 보여준다.
+    """
+    _setup_logging(verbose, quiet_level=logging.WARNING)
+    # 구간마다 수십 번 백테스트를 돌리므로 보호 청산 로그가 화면을 덮는다.
+    if not verbose:
+        logging.getLogger("tossquant.stops").setLevel(logging.ERROR)
+    settings = Settings()
+
+    if symbols:
+        settings.symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if cash:
+        settings.paper_cash = Decimal(str(cash))
+
+    def parse_ints(text: str, label: str) -> list[int]:
+        try:
+            return sorted({int(v) for v in text.split(",") if v.strip()})
+        except ValueError:
+            console.print(f"[red]{label}는 쉼표로 구분된 정수여야 합니다: {text}[/red]")
+            raise typer.Exit(1) from None
+
+    grid = walkforward_mod.sma_grid(
+        parse_ints(fast_range, "--fast-range"), parse_ints(slow_range, "--slow-range")
+    )
+    if len(grid) == 0:
+        console.print("[red]유효한 파라미터 조합이 없습니다 (단기 < 장기 필요)[/red]")
+        raise typer.Exit(1)
+
+    if source == "csv":
+        history_source = CsvSource(csv_dir)
+        cache = None
+    elif source == "toss":
+        history_source = TossSource(_client(settings))
+        cache = CandleCache(cache_path)
+    else:
+        console.print(f"[red]알 수 없는 소스: {source} (csv | toss)[/red]")
+        raise typer.Exit(1)
+
+    def parse_day(text: str) -> datetime | None:
+        return (
+            datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if text
+            else None
+        )
+
+    try:
+        history = load_history(
+            settings.symbols,
+            settings.candle_interval,
+            history_source,
+            count=count,
+            start=parse_day(start),
+            end=parse_day(end),
+            cache=cache,
+            refresh=refresh,
+        )
+        with console.status("구간별 최적화 중…"):
+            result = walkforward_mod.run(
+                history,
+                settings,
+                grid=grid,
+                train_bars=train_bars,
+                test_bars=test_bars,
+                objective=objective,
+                anchored=anchored,
+            )
+    except (ValueError, FileNotFoundError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    finally:
+        if cache is not None:
+            cache.close()
+
+    render_walkforward(result, console)
 
 
 @app.command()
