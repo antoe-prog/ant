@@ -353,7 +353,9 @@ export function AdminBranchesScreen() {
       <div className="grid min-w-0 gap-3 xl:grid-cols-2">
         {visibleBranches.map((branch) => {
           const owners = ownerByBranch.get(branch.id) ?? [];
-          const draftOwnerId = ownerDrafts[branch.id] ?? owners[0]?.id ?? "";
+          const assignedOwnerIds = new Set(owners.map((owner) => owner.id));
+          const availableOwnerUsers = ownerUsers.filter((owner) => !assignedOwnerIds.has(owner.id));
+          const draftOwnerId = ownerDrafts[branch.id] ?? "";
           const edit = getBranchEdit(branch);
           const status = getBranchStatus(branch);
           const branchTimezoneLabel = formatBranchTimezone(branch.timezone);
@@ -388,7 +390,7 @@ export function AdminBranchesScreen() {
                   <button
                     aria-controls={`admin-branch-owner-form-${branch.id}`}
                     aria-expanded={ownerEditorOpen}
-                    aria-label={`${branch.name} 대표 변경`}
+                    aria-label={`${branch.name} 대표 추가 배정`}
                     className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-800 transition hover:bg-zinc-50"
                     data-testid="admin-branch-owner-toggle"
                     type="button"
@@ -445,7 +447,7 @@ export function AdminBranchesScreen() {
                   onSubmit={(event) => void handleAssignOwner(event, branch.id)}
                 >
                   <label>
-                    <span className="mb-1 block text-xs font-semibold text-zinc-500">대표 변경</span>
+                    <span className="mb-1 block text-xs font-semibold text-zinc-500">대표 추가 배정</span>
                     <select
                       className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500"
                       value={draftOwnerId}
@@ -456,8 +458,8 @@ export function AdminBranchesScreen() {
                         }))
                       }
                     >
-                      <option value="">대표 선택</option>
-                      {ownerUsers.map((owner) => (
+                      <option value="">{availableOwnerUsers.length > 0 ? "대표 선택" : "추가 가능한 대표 없음"}</option>
+                      {availableOwnerUsers.map((owner) => (
                         <option key={owner.id} value={owner.id}>
                           {owner.name}
                         </option>

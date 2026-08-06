@@ -75,6 +75,10 @@ async function assignBranchOwner(
     return jsonError(422, "BUSINESS_RULE_FAILED", "대표 역할 사용자만 지점 대표로 배정할 수 있습니다.");
   }
 
+  if (owner.branchIds.includes(branchId)) {
+    return jsonOk(createBootstrapPayload(db, user, selectedBranchId));
+  }
+
   const previousOwnerIds = db.users
     .filter((candidate) => candidate.role === "owner" && candidate.branchIds.includes(branchId))
     .map((candidate) => candidate.id);

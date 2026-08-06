@@ -176,6 +176,23 @@ async function runAssertions(baseUrl) {
   const admin = createClient(baseUrl);
   await loginRole(admin, "admin");
 
+  const ownerNoopSnapshotBefore = await admin.request("/api/v1/me/bootstrap");
+  const ownerNoopAuditCountBefore = ownerNoopSnapshotBefore.payload.data.db.auditLogs.filter(
+    (log) => log.action === "branch.owner.assign" && log.targetId === "branch-gangnam",
+  ).length;
+  const ownerNoopAssignment = await admin.request("/api/v1/admin/branches/branch-gangnam/owner", {
+    method: "PUT",
+    body: JSON.stringify({ ownerUserId: "user-owner" }),
+  });
+  assert.equal(ownerNoopAssignment.response.status, 200, "existing branch owner assignment must be idempotent");
+  assert.equal(
+    ownerNoopAssignment.payload.data.db.auditLogs.filter(
+      (log) => log.action === "branch.owner.assign" && log.targetId === "branch-gangnam",
+    ).length,
+    ownerNoopAuditCountBefore,
+    "existing branch owner assignment must not append a false change audit",
+  );
+
   const beforeMalformedUserMutation = await admin.request("/api/v1/me/bootstrap");
   const ownerBeforeMalformedUserMutation = beforeMalformedUserMutation.payload.data.db.users.find(
     (candidate) => candidate.id === "user-owner",
@@ -2076,6 +2093,7 @@ async function runAssertions(baseUrl) {
     "authentication-first admin user role and invitation guards",
     "invitation input safety and concurrent identity uniqueness",
     "authentication-first admin branch API guards",
+    "existing branch owner assignment remains idempotent without a false change audit",
     "serialized admin invitation approval and login flow",
     "user update profile and branch assignment",
     "member-role save auto-provisions a visible branch member profile",

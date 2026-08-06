@@ -3206,7 +3206,8 @@ assertExcludes(sources.adminBranchesScreen, ">정책</dt>", "admin branch collap
 assertExcludes(sources.adminBranchesScreen, ">시간대</dt>", "admin branch collapsed detail must hide timezone chip");
 assertIncludes(sources.adminBranchesScreen, 'data-testid="admin-branch-action-grid"', "admin branch compact action row hook");
 assertIncludes(sources.adminBranchesScreen, "grid shrink-0 grid-cols-[auto_auto_auto] items-center gap-1.5", "admin branch actions stay compact in the card header");
-assertIncludes(sources.adminBranchesScreen, 'aria-label={`${branch.name} 대표 변경`}', "admin branch owner icon action has accessible label");
+assertIncludes(sources.adminBranchesScreen, 'aria-label={`${branch.name} 대표 추가 배정`}', "admin branch owner icon action has an accurate accessible label");
+assertIncludes(sources.adminBranchesScreen, "availableOwnerUsers", "admin branch owner picker excludes already assigned owners");
 assertIncludes(sources.adminBranchesScreen, 'aria-label={`${branch.name} 운영 설정`}', "admin branch settings icon action has accessible label");
 assertIncludes(sources.adminBranchesScreen, 'const [ownerEditorBranchId, setOwnerEditorBranchId] = useState<string | null>(null)', "admin branch owner form collapsed state");
 assertIncludes(sources.adminBranchesScreen, 'data-testid="admin-branch-owner-toggle"', "admin branch owner toggle hook");
