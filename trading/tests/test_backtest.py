@@ -308,6 +308,135 @@ def test_multi_symbol_backtest_runs(settings):
     assert len(result.curve) > 1
 
 
+# --- 보호 청산 연동 ----------------------------------------------------------
+
+
+class AlwaysIn(Strategy):
+    """비면 사고, 절대 스스로 팔지 않는다.
+
+    보호 청산을 격리하기 위한 전략이다. SMA 크로스를 쓰면 급락 시 데드크로스가
+    같은 봉에 발동해서 청산이 손절 때문인지 전략 때문인지 구분할 수 없다.
+    이 전략은 청산 신호를 절대 내지 않으므로, 나가는 건 전부 보호 장치의 몫이다.
+    """
+
+    name = "always_in"
+
+    @property
+    def warmup_bars(self) -> int:
+        return 2
+
+    def on_bar(self, symbol, candles, position) -> Signal | None:
+        if position is not None and position.quantity > 0:
+            return None
+        return Signal(symbol, SignalAction.ENTER_LONG, "always in", candles[-1].close)
+
+
+def stop_settings(settings, **overrides):
+    settings.paper_slippage_bps = Decimal("0")
+    settings.backtest_spread_bps = Decimal("0")
+    settings.paper_commission_bps = Decimal("0")
+    settings.paper_cash = Decimal("100000")
+    settings.max_position_pct = Decimal("1")
+    settings.stop_loss_pct = Decimal("0")
+    settings.trailing_stop_pct = Decimal("0")
+    settings.take_profit_pct = Decimal("0")
+    settings.max_holding_days = 0
+    for key, value in overrides.items():
+        setattr(settings, key, value)
+    return settings
+
+
+# 100에 진입 → 완만하게 하락. 손절 10%면 종가 88인 봉에서 발동한다.
+DECLINE = [(100, 100), (100, 100), (100, 100), (100, 95), (95, 92), (92, 88),
+           (88, 85), (85, 85), (85, 85), (85, 85)]
+
+
+def run_decline(settings, **overrides):
+    return Backtester(
+        {"A": bars("A", DECLINE)}, AlwaysIn(), stop_settings(settings, **overrides)
+    ).run()
+
+
+def test_no_exit_at_all_without_protection(settings):
+    """전략이 청산을 안 내면 손절 없이는 끝까지 물린다 — 이게 고치려는 문제다."""
+    result = run_decline(settings)
+    assert result.trades == []
+
+
+def test_stop_loss_exits_when_strategy_never_would(settings):
+    result = run_decline(settings, stop_loss_pct=Decimal("0.10"))
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.entry_price == Decimal("100")
+    # 종가 88 <= 90(손절선)인 봉에서 발동 → 다음 봉 시가 88에 체결
+    assert trade.exit_price == Decimal("88")
+    assert not trade.is_win
+
+
+def test_stop_loss_reduces_drawdown_and_preserves_capital(settings):
+    without = run_decline(settings)
+    with_stop = run_decline(settings, stop_loss_pct=Decimal("0.10"))
+
+    assert with_stop.metrics.max_drawdown < without.metrics.max_drawdown
+    assert with_stop.metrics.end_equity > without.metrics.end_equity
+
+
+def test_stop_loss_silent_when_decline_stays_within_band(settings):
+    result = run_decline(settings, stop_loss_pct=Decimal("0.30"))
+    assert result.trades == []
+
+
+def test_trailing_stop_locks_in_gains(settings):
+    # 100에 진입 → 150까지 상승 → 반락
+    rows = [(100, 100), (100, 100), (100, 120), (120, 150), (150, 134),
+            (134, 130), (130, 130)]
+    result = Backtester(
+        {"A": bars("A", rows)},
+        AlwaysIn(),
+        stop_settings(settings, trailing_stop_pct=Decimal("0.10")),
+    ).run()
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    # 고점 150의 -10%는 135. 종가 134인 봉에서 발동 → 다음 봉 시가 134에 체결
+    assert trade.exit_price == Decimal("134")
+    assert trade.is_win  # 진입 100 대비로는 여전히 이익
+
+
+def test_take_profit_exits_on_the_way_up(settings):
+    rows = [(100, 100), (100, 100), (100, 110), (110, 125), (125, 130), (130, 130)]
+    result = Backtester(
+        {"A": bars("A", rows)},
+        AlwaysIn(),
+        stop_settings(settings, take_profit_pct=Decimal("0.20")),
+    ).run()
+
+    assert result.trades[0].exit_price == Decimal("125")
+    assert result.trades[0].is_win
+
+
+def test_max_holding_days_forces_exit(settings):
+    rows = [(100, 100)] * 10
+    result = Backtester(
+        {"A": bars("A", rows)}, AlwaysIn(), stop_settings(settings, max_holding_days=3)
+    ).run()
+
+    assert len(result.trades) >= 1
+    assert result.trades[0].bars_held <= 5
+
+
+def test_cooldown_blocks_immediate_reentry(settings):
+    """AlwaysIn은 비면 바로 다시 사려 하므로 쿨다운이 없으면 무한 재진입한다."""
+    blocked = run_decline(settings, stop_loss_pct=Decimal("0.10"), stop_cooldown_days=30)
+    unblocked = run_decline(settings, stop_loss_pct=Decimal("0.10"), stop_cooldown_days=0)
+
+    assert blocked.rejections["stop_cooldown"] >= 1
+    # 쿨다운이 없으면 손절당한 자리에서 곧바로 다시 들어가 있다.
+    assert unblocked.curve[-1].invested > 0
+    assert blocked.curve[-1].invested == 0
+
+
 # --- 지표 --------------------------------------------------------------------
 
 

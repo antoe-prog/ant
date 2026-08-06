@@ -24,8 +24,10 @@ from decimal import Decimal
 from ..broker.base import OrderRejected
 from ..broker.paper import PaperBroker
 from ..config import Settings
+from ..engine import collect_signals
 from ..models import Candle, Order, OrderRequest, OrderType, Side, SignalAction
 from ..risk import RiskManager
+from ..stops import StopManager
 from ..store import Store
 from ..strategy.base import Strategy
 from .metrics import EquityPoint, Metrics, Trade, compute
@@ -47,6 +49,9 @@ class BacktestResult:
     benchmark_curve: list[EquityPoint]
     benchmark_metrics: Metrics
     rejections: Counter[str]
+    # 어떤 보호 장치를 켜고 돌렸는지. 여러 설정을 비교할 때 결과만 보고
+    # 조건을 되짚을 수 있어야 한다.
+    protection: list[str] = field(default_factory=list)
 
     @property
     def excess_return(self) -> float:
@@ -101,6 +106,14 @@ class Backtester:
             max_daily_loss_pct=self.settings.max_daily_loss_pct,
             max_order_notional=self.settings.max_order_notional,
         )
+        stops = StopManager(
+            store,
+            stop_loss_pct=self.settings.stop_loss_pct,
+            trailing_stop_pct=self.settings.trailing_stop_pct,
+            take_profit_pct=self.settings.take_profit_pct,
+            max_holding_days=self.settings.max_holding_days,
+            cooldown_days=self.settings.stop_cooldown_days,
+        )
 
         curve: list[EquityPoint] = []
         trades: list[Trade] = []
@@ -126,14 +139,28 @@ class Backtester:
             if not self.market.has_next():
                 break  # 체결할 다음 봉이 없다
 
-            for symbol in self.market.symbols:
-                candles = self.market.get_candles(
+            candles = {
+                symbol: self.market.get_candles(
                     symbol, self.settings.candle_interval, warmup + CANDLE_LOOKBACK_SLACK
                 )
-                signal = self.strategy.on_bar(
-                    symbol, candles, account.positions.get(symbol)
-                )
-                if signal is None:
+                for symbol in self.market.symbols
+            }
+            signals = collect_signals(
+                self.market.symbols,
+                self.strategy,
+                stops,
+                account.positions,
+                marks,
+                candles,
+                ts,
+            )
+
+            for signal in signals:
+                symbol = signal.symbol
+                if signal.action is SignalAction.ENTER_LONG and stops.is_blocked(
+                    symbol, ts
+                ):
+                    rejections["stop_cooldown"] += 1
                     continue
 
                 # 사이징은 실제 체결가(다음 봉 시가)로 한다. 신호 봉 종가로
@@ -161,6 +188,9 @@ class Backtester:
                     rejections[f"broker:{exc.reason.split(',')[0]}"] += 1
                     continue
 
+                if signal.action is SignalAction.EXIT:
+                    stops.on_exit(symbol, ts, protective=signal.protective)
+
                 self._record(order, store, lots, trades, index + 1)
                 account = broker.get_account()
 
@@ -180,7 +210,24 @@ class Backtester:
             benchmark_curve=benchmark_curve,
             benchmark_metrics=compute(benchmark_curve),
             rejections=rejections,
+            protection=self._protection_summary(),
         )
+
+    def _protection_summary(self) -> list[str]:
+        """켜져 있는 보호 장치 목록. 여러 설정을 비교할 때 조건을 되짚기 위한 것."""
+        s = self.settings
+        active: list[str] = []
+        if s.stop_loss_pct > 0:
+            active.append(f"손절 {float(s.stop_loss_pct) * 100:g}%")
+        if s.trailing_stop_pct > 0:
+            active.append(f"트레일링 {float(s.trailing_stop_pct) * 100:g}%")
+        if s.take_profit_pct > 0:
+            active.append(f"익절 {float(s.take_profit_pct) * 100:g}%")
+        if s.max_holding_days > 0:
+            active.append(f"최대보유 {s.max_holding_days}일")
+        if active and s.stop_cooldown_days > 0:
+            active.append(f"쿨다운 {s.stop_cooldown_days}일")
+        return active
 
     def _record(
         self,

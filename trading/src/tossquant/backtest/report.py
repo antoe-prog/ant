@@ -63,7 +63,9 @@ def render(result: BacktestResult, console: Console, show_trades: int = 10) -> N
         f"[bold]기간[/bold] {result.curve[0].ts:%Y-%m-%d} ~ {result.curve[-1].ts:%Y-%m-%d} "
         f"({metrics.bars}봉 / {metrics.years:.2f}년, {result.interval})"
     )
-    console.print(f"[bold]종목[/bold] {', '.join(result.symbols)}\n")
+    console.print(f"[bold]종목[/bold] {', '.join(result.symbols)}")
+    protection = " · ".join(result.protection) if result.protection else "[red]없음[/red]"
+    console.print(f"[bold]보호 청산[/bold] {protection}\n")
 
     console.print(_summary_table(result))
 

@@ -16,7 +16,9 @@ from .broker.paper import PaperBroker
 from .calendar_us import describe, is_market_open
 from .config import Settings
 from .models import Candle, Order, OrderRequest, OrderType, Side, Signal, SignalAction
+from .models import Position
 from .risk import RiskManager
+from .stops import StopManager
 from .store import Store
 from .strategy.base import Strategy
 
@@ -24,6 +26,44 @@ log = logging.getLogger(__name__)
 
 # 워밍업에 여유를 둬서 휴장일·결측 캔들로 신호가 안 나오는 상황을 피한다.
 CANDLE_BUFFER = 20
+
+
+def collect_signals(
+    symbols: list[str],
+    strategy: Strategy,
+    stops: StopManager,
+    positions: dict[str, Position],
+    marks: dict[str, Decimal],
+    candles: dict[str, list[Candle]],
+    now: datetime,
+) -> list[Signal]:
+    """이번 사이클에 처리할 신호 목록.
+
+    실시간 엔진과 백테스트가 **같은 함수**를 쓴다. 신호 우선순위가 두 곳에서
+    갈리면 백테스트 결과를 믿을 수 없게 되므로 여기 한 곳에만 둔다.
+
+    보호 청산이 전략보다 우선한다. 손절이 걸린 종목은 그 사이클에 전략 신호를
+    아예 묻지 않는다 — 같은 봉에서 손절과 전략 매수가 동시에 나오는 걸 막는다.
+    """
+    protective = stops.exits(positions, marks, now)
+    stopped = {signal.symbol for signal in protective}
+    signals = list(protective)
+
+    for symbol in symbols:
+        if symbol in stopped:
+            continue
+        rows = candles.get(symbol)
+        if not rows:
+            continue
+        try:
+            signal = strategy.on_bar(symbol, rows, positions.get(symbol))
+        except Exception:  # 전략 버그가 루프 전체를 죽이지 않게 한다
+            log.exception("%s 전략 평가 중 오류", symbol)
+            continue
+        if signal is not None:
+            signals.append(signal)
+
+    return signals
 
 
 class TradingEngine:
@@ -34,12 +74,21 @@ class TradingEngine:
         risk: RiskManager,
         store: Store,
         settings: Settings,
+        stops: StopManager | None = None,
     ) -> None:
         self.broker = broker
         self.strategy = strategy
         self.risk = risk
         self.store = store
         self.settings = settings
+        self.stops = stops or StopManager(
+            store,
+            stop_loss_pct=settings.stop_loss_pct,
+            trailing_stop_pct=settings.trailing_stop_pct,
+            take_profit_pct=settings.take_profit_pct,
+            max_holding_days=settings.max_holding_days,
+            cooldown_days=settings.stop_cooldown_days,
+        )
         self._stopped = False
 
     # --- 한 사이클 ----------------------------------------------------------
@@ -71,15 +120,22 @@ class TradingEngine:
         # 어딘가로 잡혀 일일 손실 한도가 헐거워진다.
         self.risk.day_baseline(equity, moment)
 
+        signals = collect_signals(
+            list(candles),
+            self.strategy,
+            self.stops,
+            account.positions,
+            marks,
+            candles,
+            moment,
+        )
+
         executed: list[Order] = []
-        for symbol, rows in candles.items():
-            signal = self._signal_for(symbol, rows, account)
-            if signal is None:
-                continue
+        for signal in signals:
             order = self._act(signal, account, marks, moment)
             if order is not None:
                 executed.append(order)
-                # 체결로 현금·포지션이 바뀌었으므로 다음 종목 심사 전에 갱신.
+                # 체결로 현금·포지션이 바뀌었으므로 다음 신호 심사 전에 갱신.
                 account = self.broker.get_account()
 
         return executed
@@ -102,13 +158,6 @@ class TradingEngine:
             collected[symbol] = rows
         return collected
 
-    def _signal_for(self, symbol: str, rows: list[Candle], account) -> Signal | None:
-        try:
-            return self.strategy.on_bar(symbol, rows, account.positions.get(symbol))
-        except Exception:  # 전략 버그가 루프 전체를 죽이지 않게 한다
-            log.exception("%s 전략 평가 중 오류", symbol)
-            return None
-
     def _exec_price(self, signal: Signal) -> Decimal | None:
         """주문이 실제로 체결될 가격. 사이징 기준을 종가가 아닌 현재 호가로 잡는다.
 
@@ -130,6 +179,12 @@ class TradingEngine:
         marks: dict[str, Decimal],
         moment: datetime,
     ) -> Order | None:
+        if signal.action is SignalAction.ENTER_LONG and self.stops.is_blocked(
+            signal.symbol, moment
+        ):
+            log.info("신호 기각 %s ENTER_LONG — 보호 청산 쿨다운 중", signal.symbol)
+            return None
+
         decision = self.risk.evaluate(
             signal, account, marks, moment, exec_price=self._exec_price(signal)
         )
@@ -149,12 +204,17 @@ class TradingEngine:
             signal.reason, decision.reason,
         )
         try:
-            return self.broker.place_order(request)
+            order = self.broker.place_order(request)
         except OrderRejected as exc:
             log.error("주문 거부: %s", exc)
+            return None
         except BrokerError as exc:
             log.error("주문 실패: %s", exc)
-        return None
+            return None
+
+        if signal.action is SignalAction.EXIT:
+            self.stops.on_exit(signal.symbol, moment, protective=signal.protective)
+        return order
 
     # --- 상시 루프 ----------------------------------------------------------
 

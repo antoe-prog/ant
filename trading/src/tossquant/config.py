@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     max_daily_loss_pct: Decimal = Decimal("0.03")
     max_order_notional: Decimal = Decimal("5000")
 
+    # --- 보호 청산 (0이면 비활성) ---
+    # 손절은 기본으로 켜 둔다. 전략 신호만으로 청산하면 급락에 수십 봉 늦는다.
+    stop_loss_pct: Decimal = Decimal("0.08")
+    trailing_stop_pct: Decimal = Decimal("0")
+    take_profit_pct: Decimal = Decimal("0")
+    max_holding_days: int = 0
+    stop_cooldown_days: int = 3
+
     @field_validator("symbols", mode="before")
     @classmethod
     def _split_symbols(cls, v: object) -> object:

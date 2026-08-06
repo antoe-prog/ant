@@ -123,3 +123,5 @@ class Signal:
     action: SignalAction
     reason: str
     ref_price: Decimal
+    # 전략이 아니라 보호 장치(손절 등)가 낸 신호. 청산 후 쿨다운 대상이 된다.
+    protective: bool = False

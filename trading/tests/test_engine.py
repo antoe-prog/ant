@@ -9,7 +9,7 @@ from tossquant.broker.base import BrokerError
 from tossquant.broker.paper import PaperBroker
 from tossquant.calendar_us import NY
 from tossquant.engine import TradingEngine
-from tossquant.models import Side, Signal, SignalAction
+from tossquant.models import OrderRequest, Position, Side, Signal, SignalAction
 from tossquant.risk import RiskManager
 from tossquant.strategy.sma_cross import SmaCrossStrategy
 
@@ -66,7 +66,6 @@ def test_flat_market_produces_nothing(settings, store):
 def test_dead_cross_exits_existing_position(settings, store):
     engine, broker, market = build(DEAD, settings, store)
     # 먼저 포지션을 만든다.
-    from tossquant.models import OrderRequest
     broker.place_order(OrderRequest(symbol="AAPL", side=Side.BUY, quantity=10))
     assert broker.get_account().positions["AAPL"].quantity == 10
 
@@ -164,6 +163,99 @@ def test_trading_continues_when_quote_lookup_fails(settings, store):
 
     assert len(orders) == 1
     assert orders[0].filled_quantity == 83  # 종가 60 기준 5000/60
+
+
+# --- 보호 청산 연동 ----------------------------------------------------------
+
+
+def silence_strategy(engine) -> None:
+    """전략을 침묵시켜 보호 청산만 격리해서 본다.
+
+    급락은 손절과 데드크로스를 동시에 트리거하므로, 이렇게 하지 않으면 매도가
+    어느 쪽 때문인지 구분할 수 없다.
+    """
+    engine.strategy.on_bar = lambda symbol, candles, position: None
+
+
+def test_stop_loss_liquidates_without_any_strategy_signal(settings, store):
+    settings.stop_loss_pct = Decimal("0.10")
+    engine, broker, market = build(FLAT, settings, store)
+    silence_strategy(engine)
+    broker.place_order(OrderRequest(symbol="AAPL", side=Side.BUY, quantity=10))
+
+    # 평단은 20.01인데 시세가 15로 떨어졌다 (-25%).
+    market.closes["AAPL"] = [Decimal("20")] * 25 + [Decimal("15")]
+
+    orders = engine.run_once(OPEN)
+
+    assert len(orders) == 1
+    assert orders[0].side is Side.SELL
+    assert "AAPL" not in broker.get_account().positions
+
+
+def test_stop_loss_does_not_fire_within_threshold(settings, store):
+    settings.stop_loss_pct = Decimal("0.10")
+    engine, broker, market = build(FLAT, settings, store)
+    silence_strategy(engine)
+    broker.place_order(OrderRequest(symbol="AAPL", side=Side.BUY, quantity=10))
+
+    market.closes["AAPL"] = [Decimal("20")] * 25 + [Decimal("19")]  # -5%
+
+    assert engine.run_once(OPEN) == []
+    assert broker.get_account().positions["AAPL"].quantity == 10
+
+
+def test_stop_out_sets_cooldown_but_strategy_exit_does_not(settings, store):
+    """손절로 나간 뒤에만 재진입이 막혀야 한다."""
+    settings.stop_loss_pct = Decimal("0.10")
+    settings.stop_cooldown_days = 5
+
+    engine, broker, market = build(FLAT, settings, store)
+    silence_strategy(engine)
+    broker.place_order(OrderRequest(symbol="AAPL", side=Side.BUY, quantity=10))
+    market.closes["AAPL"] = [Decimal("20")] * 25 + [Decimal("15")]
+
+    engine.run_once(OPEN)
+
+    assert engine.stops.is_blocked("AAPL", OPEN) is True
+
+
+def test_cooldown_blocks_reentry_after_stop_out(settings, store):
+    settings.stop_loss_pct = Decimal("0.10")
+    settings.stop_cooldown_days = 5
+    engine, broker, _ = build(GOLDEN, settings, store)
+
+    engine.stops.on_exit("AAPL", OPEN, protective=True)
+    orders = engine.run_once(OPEN)  # 골든크로스가 떠 있지만 쿨다운 중
+
+    assert orders == []
+    assert broker.get_account().positions == {}
+
+
+def test_protective_exit_suppresses_strategy_signal_same_cycle(settings, store):
+    """손절이 걸린 종목은 그 사이클에 전략 신호를 묻지 않는다."""
+    from tossquant.engine import collect_signals
+
+    settings.stop_loss_pct = Decimal("0.05")
+    engine, broker, market = build(GOLDEN, settings, store)
+
+    calls: list[str] = []
+
+    def counting_on_bar(symbol, candles, position):
+        calls.append(symbol)
+        return None
+
+    engine.strategy.on_bar = counting_on_bar
+    positions = {"AAPL": Position("AAPL", 10, Decimal("100"))}
+
+    signals = collect_signals(
+        ["AAPL"], engine.strategy, engine.stops, positions,
+        {"AAPL": Decimal("80")}, {"AAPL": []}, OPEN,
+    )
+
+    assert len(signals) == 1
+    assert signals[0].protective is True
+    assert calls == []  # 전략은 호출조차 되지 않았다
 
 
 def test_run_forever_survives_a_failing_cycle(settings, store):

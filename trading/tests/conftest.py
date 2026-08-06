@@ -31,4 +31,11 @@ def settings(tmp_path) -> Settings:
         max_positions=2,
         max_daily_loss_pct=Decimal("0.03"),
         max_order_notional=Decimal("100000"),
+        # 보호 청산은 기본으로 꺼 둔다. 급락 시나리오에서 손절과 전략 신호가
+        # 동시에 발동하면 무엇을 테스트하는지 흐려지므로, 필요한 테스트에서만
+        # 명시적으로 켠다. 운영 기본값(8%)은 test_config.py에서 따로 지킨다.
+        stop_loss_pct=Decimal("0"),
+        trailing_stop_pct=Decimal("0"),
+        take_profit_pct=Decimal("0"),
+        max_holding_days=0,
     )

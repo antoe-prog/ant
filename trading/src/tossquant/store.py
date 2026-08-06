@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS fills (
     ts         TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS position_tracking (
+    symbol        TEXT PRIMARY KEY,
+    high_water    TEXT,
+    opened_at     TEXT,
+    blocked_until TEXT
+);
+
 CREATE TABLE IF NOT EXISTS equity_curve (
     ts     TEXT PRIMARY KEY,
     equity TEXT NOT NULL,
@@ -169,6 +176,43 @@ class Store:
         return self._conn.execute(
             "SELECT * FROM orders ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    # --- 포지션 추적 (손절·트레일링·쿨다운) --------------------------------
+
+    def load_tracking(self, symbol: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM position_tracking WHERE symbol = ?", (symbol,)
+        ).fetchone()
+
+    def all_tracking(self) -> list[sqlite3.Row]:
+        return self._conn.execute("SELECT * FROM position_tracking").fetchall()
+
+    def save_tracking(
+        self,
+        symbol: str,
+        *,
+        high_water: Decimal | None,
+        opened_at: datetime | None,
+        blocked_until: datetime | None,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO position_tracking (symbol, high_water, opened_at, blocked_until) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(symbol) DO UPDATE SET "
+            "high_water = excluded.high_water, opened_at = excluded.opened_at, "
+            "blocked_until = excluded.blocked_until",
+            (
+                symbol,
+                str(high_water) if high_water is not None else None,
+                opened_at.isoformat() if opened_at else None,
+                blocked_until.isoformat() if blocked_until else None,
+            ),
+        )
+        self._conn.commit()
+
+    def delete_tracking(self, symbol: str) -> None:
+        self._conn.execute("DELETE FROM position_tracking WHERE symbol = ?", (symbol,))
+        self._conn.commit()
 
     # --- 평가액 곡선 -------------------------------------------------------
 

@@ -209,6 +209,11 @@ def backtest(
     fast: int = typer.Option(0, "--fast", help="SMA 단기 (0이면 .env 설정)"),
     slow: int = typer.Option(0, "--slow", help="SMA 장기 (0이면 .env 설정)"),
     cash: float = typer.Option(0.0, "--cash", help="시작 자본 (0이면 .env 설정)"),
+    stop_loss: float = typer.Option(-1.0, "--stop-loss", help="손절 비율 (0.08 = 8%)"),
+    trailing: float = typer.Option(-1.0, "--trailing", help="트레일링 스톱 비율"),
+    take_profit: float = typer.Option(-1.0, "--take-profit", help="익절 비율"),
+    max_holding: int = typer.Option(-1, "--max-holding", help="최대 보유 일수"),
+    no_stops: bool = typer.Option(False, "--no-stops", help="보호 청산 전부 끄고 비교"),
     cache_path: Path = typer.Option(Path("candles.db"), "--cache", help="캔들 캐시 파일"),
     refresh: bool = typer.Option(False, "--refresh", help="캐시를 무시하고 다시 받는다"),
     export_dir: Path = typer.Option(None, "--export", help="결과 CSV를 쓸 폴더"),
@@ -221,6 +226,10 @@ def backtest(
     같은 전략·리스크·체결 코드를 그대로 탄다.
     """
     _setup_logging(verbose, quiet_level=logging.WARNING)
+    # 보호 청산은 라이브에선 WARNING이 맞지만, 백테스트에선 수백 건이 쏟아지고
+    # 어차피 거래 표에 다 나온다. -v를 주면 다시 보인다.
+    if not verbose:
+        logging.getLogger("tossquant.stops").setLevel(logging.ERROR)
     settings = Settings()
 
     if symbols:
@@ -236,6 +245,21 @@ def backtest(
     if settings.sma_fast >= settings.sma_slow:
         console.print("[red]--fast 는 --slow 보다 작아야 합니다[/red]")
         raise typer.Exit(1)
+
+    # -1 = 지정 안 함(.env 값 유지). 0은 '끄기'라는 유효한 값이라 구분이 필요하다.
+    if stop_loss >= 0:
+        settings.stop_loss_pct = Decimal(str(stop_loss))
+    if trailing >= 0:
+        settings.trailing_stop_pct = Decimal(str(trailing))
+    if take_profit >= 0:
+        settings.take_profit_pct = Decimal(str(take_profit))
+    if max_holding >= 0:
+        settings.max_holding_days = max_holding
+    if no_stops:
+        settings.stop_loss_pct = Decimal("0")
+        settings.trailing_stop_pct = Decimal("0")
+        settings.take_profit_pct = Decimal("0")
+        settings.max_holding_days = 0
 
     if source == "csv":
         history_source = CsvSource(csv_dir)
