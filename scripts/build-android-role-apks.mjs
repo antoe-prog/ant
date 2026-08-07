@@ -170,7 +170,7 @@ function signerSha256FromVerification(value) {
 }
 
 function buildEnv(rootDir) {
-  const javaHome = process.env.JAVA_HOME || path.join(rootDir, ".data/toolchains/jdk/Contents/Home");
+  const javaHome = process.env.JAVA_HOME || path.join(rootDir, ".data/toolchains/jdk21/Contents/Home");
   const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(rootDir, ".data/toolchains/android-sdk");
 
   return {

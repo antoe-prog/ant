@@ -149,6 +149,7 @@ async function decodeProvisioningProfile(profileFile) {
 
 function summarizeProfile({ file, plist, expectedIdentifier, wildcardIdentifier, teamId }) {
   const appIdentifier = plistValue(plist, "application-identifier");
+  const apsEnvironment = plistValue(plist, "aps-environment");
   const name = plistValue(plist, "Name");
   const uuid = plistValue(plist, "UUID");
   const expirationDate = plistDateValue(plist, "ExpirationDate");
@@ -176,6 +177,8 @@ function summarizeProfile({ file, plist, expectedIdentifier, wildcardIdentifier,
     hasRegisteredDevices,
     isAppStoreDistribution,
     isDistributionReady,
+    hasPushNotifications: apsEnvironment === "development" || apsEnvironment === "production",
+    ...(apsEnvironment ? { apsEnvironment } : {}),
     ...(getTaskAllow !== null ? { getTaskAllow } : {}),
     ...(provisionsAllDevices !== null ? { provisionsAllDevices } : {}),
   };
@@ -210,7 +213,7 @@ function provisioningProfileDirectories(profilesDir) {
   ];
 }
 
-async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, teamId }) {
+async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, requiresPushNotifications, teamId }) {
   const profileDirectories = provisioningProfileDirectories(profilesDir);
   const inventory = {
     directory: profileDirectories.join(", "),
@@ -225,6 +228,7 @@ async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, t
     matchingAppStoreProfiles: 0,
     matchingDistributionReadyProfiles: 0,
     matchingExportMethodProfiles: 0,
+    matchingPushEnabledProfiles: 0,
     profiles: [],
   };
 
@@ -308,7 +312,11 @@ async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, t
   inventory.matchingAppStoreProfiles = matchingProfiles.filter((profile) => profile.isAppStoreDistribution).length;
   inventory.matchingDistributionReadyProfiles = matchingProfiles.filter((profile) => profile.isDistributionReady).length;
   const exportMethodProfiles = matchingProfiles.filter((profile) => profileSupportsExportMethod(profile, exportMethod));
-  inventory.matchingExportMethodProfiles = exportMethodProfiles.length;
+  inventory.matchingPushEnabledProfiles = matchingProfiles.filter((profile) => profile.hasPushNotifications).length;
+  const readyProfiles = requiresPushNotifications
+    ? exportMethodProfiles.filter((profile) => profile.hasPushNotifications)
+    : exportMethodProfiles;
+  inventory.matchingExportMethodProfiles = readyProfiles.length;
 
   if (inventory.readableProfileFiles === 0) {
     return {
@@ -340,11 +348,31 @@ async function provisioningProfileCheck({ bundleId, exportMethod, profilesDir, t
     };
   }
 
+  if (requiresPushNotifications && readyProfiles.length === 0) {
+    return {
+      ok: false,
+      reason: `matching profile for ${exportMethod} does not include the Push Notifications capability (aps-environment)`,
+      value: `${exportMethodProfiles.length} export-compatible profiles without push capability`,
+      inventory,
+    };
+  }
+
   return {
     ok: true,
-    value: `${exportMethodProfiles.length} profiles ready for ${exportMethod}`,
+    value: `${readyProfiles.length} profiles ready for ${exportMethod}`,
     inventory,
   };
+}
+
+async function iosProjectRequiresPushNotifications() {
+  const entitlementsPath = path.join("mobile", "ios", "App", "App", "App.entitlements");
+
+  try {
+    const entitlements = await readFile(entitlementsPath, "utf8");
+    return entitlements.includes("<key>aps-environment</key>");
+  } catch {
+    return false;
+  }
 }
 
 function isPlaceholderOriginValue(value) {
@@ -503,6 +531,7 @@ function profileInventorySummary(report) {
       matchingProfilesWithRegisteredDevices: "unknown",
       matchingAppStoreProfiles: "unknown",
       matchingExportMethodProfiles: "unknown",
+      matchingPushEnabledProfiles: "unknown",
       profileFiles: "unknown",
     };
   }
@@ -512,6 +541,7 @@ function profileInventorySummary(report) {
     matchingProfilesWithRegisteredDevices: String(inventory.matchingProfilesWithRegisteredDevices ?? 0),
     matchingAppStoreProfiles: String(inventory.matchingAppStoreProfiles ?? 0),
     matchingExportMethodProfiles: String(inventory.matchingExportMethodProfiles ?? 0),
+    matchingPushEnabledProfiles: String(inventory.matchingPushEnabledProfiles ?? 0),
     profileFiles: String(inventory.totalProfileFiles ?? 0),
   };
 }
@@ -539,6 +569,7 @@ function createMarkdown(report) {
     `| Matching team/bundle profiles | ${markdownCell(inventory.matchingProfiles)} |`,
     `| Profiles with registered iPhone devices | ${markdownCell(inventory.matchingProfilesWithRegisteredDevices)} |`,
     `| App Store distribution profiles | ${markdownCell(inventory.matchingAppStoreProfiles)} |`,
+    `| Profiles with Push Notifications | ${markdownCell(inventory.matchingPushEnabledProfiles)} |`,
     `| Profiles ready for export method | ${markdownCell(inventory.matchingExportMethodProfiles)} |`,
     "",
     "### IPA Ready Gate",
@@ -582,6 +613,7 @@ function createMarkdown(report) {
       `- Matching bundle profiles: \`${inventory.matchingBundleProfiles}\``,
       `- Matching profiles with registered devices: \`${inventory.matchingProfilesWithRegisteredDevices}\``,
       `- Matching App Store distribution profiles: \`${inventory.matchingAppStoreProfiles}\``,
+      `- Matching profiles with Push Notifications: \`${inventory.matchingPushEnabledProfiles}\``,
       `- Matching profiles ready for selected export method: \`${inventory.matchingExportMethodProfiles}\``,
       "- Device UDIDs are intentionally not written to this report.",
       "",
@@ -627,6 +659,7 @@ const exportMethod = text(args.exportMethod) ?? text(releaseConfig.exportMethod)
 const originValue = resolveOriginValue(args);
 const origin = validateHttpsOrigin(originValue, { allowApiOriginWebapp: args.allowApiOriginWebapp });
 const codeSigningIdentity = codeSigningIdentityCheck();
+const requiresPushNotifications = await iosProjectRequiresPushNotifications();
 const capacitorBundleId = await capacitorAppId();
 const bundleId = resolveIosBundleId({ cliBundleId: args.bundleId, config: releaseConfig, fallbackBundleId: capacitorBundleId });
 const teamId = resolveIosTeamId({ cliTeamId: args.teamId, config: releaseConfig });
@@ -659,7 +692,13 @@ const checks = {
     value: teamId ?? null,
     ...(!teamId ? { reason: "missing --team-id, APPLE_TEAM_ID, or mobile/ios/release-config.json appleTeamId" } : {}),
   },
-  provisioningProfile: await provisioningProfileCheck({ bundleId, exportMethod, profilesDir: args.profilesDir, teamId }),
+  provisioningProfile: await provisioningProfileCheck({
+    bundleId,
+    exportMethod,
+    profilesDir: args.profilesDir,
+    requiresPushNotifications,
+    teamId,
+  }),
 };
 
 const requiredChecks = [
@@ -691,6 +730,9 @@ function nextActionsForBlockers(blockers, { bundleId, exportMethod }) {
       actions.push(`Register the test iPhone in Apple Developer and create/download a device-backed provisioning profile for ${bundleId}.`);
     } else {
       actions.push(`Create/download a provisioning profile compatible with ${exportMethod} for ${bundleId}.`);
+    }
+    if (requiresPushNotifications) {
+      actions.push(`Enable Push Notifications for the ${bundleId} App ID, then regenerate and install the provisioning profile.`);
     }
   }
 

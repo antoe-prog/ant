@@ -11,6 +11,8 @@ const {
   hasInFlightPushDispatchForUser,
   isPermanentPushSubscriptionFailure,
   leasePushDispatchJob,
+  noticePushBodyMaxBytes,
+  noticePushTitleMaxBytes,
   notificationOutboxLockKey,
   preparePushDispatchJobsForUserDeletion,
   recoverExpiredPushDispatchLeases,
@@ -108,6 +110,23 @@ assert.equal(calculateNotificationOutboxBackoffMs(4, retryPolicy), 8_000);
 assert.equal(isPermanentPushSubscriptionFailure(404), true);
 assert.equal(isPermanentPushSubscriptionFailure(410), true);
 assert.equal(isPermanentPushSubscriptionFailure(503), false);
+
+const boundedKoreanPayload = createNoticePushPayloadSnapshot({
+  noticeId: "notice-byte-limit",
+  title: "중요한 공지 ".repeat(100),
+  body: "회원과 학부모에게 전달할 긴 공지입니다. ".repeat(500),
+  important: true,
+});
+assert.ok(
+  Buffer.byteLength(boundedKoreanPayload.title, "utf8") <= noticePushTitleMaxBytes,
+  "push titles must remain within the byte budget",
+);
+assert.ok(
+  Buffer.byteLength(boundedKoreanPayload.body, "utf8") <= noticePushBodyMaxBytes,
+  "push bodies must remain within the byte budget",
+);
+assert.match(boundedKoreanPayload.title, /…$/, "truncated titles must make truncation visible");
+assert.match(boundedKoreanPayload.body, /…$/, "truncated bodies must make truncation visible");
 
 const successQueued = enqueue(createDb("success"), "success");
 assert.equal(successQueued.ok, true);

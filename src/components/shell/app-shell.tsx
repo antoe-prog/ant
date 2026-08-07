@@ -36,7 +36,11 @@ import {
 import { formatNotificationActionableLabel, getNotificationAlertCounts } from "@/lib/notification-alerts";
 import { connectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
 import { getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
-import { isNativeAndroidApp } from "@/lib/native-app-permissions";
+import {
+  connectCurrentNativePushRegistration,
+  initializeNativePushNotificationActions,
+  isNativeMobileApp,
+} from "@/lib/native-push-registration";
 import { useFamilyMemberSelection } from "@/hooks/use-guardian-child-selection";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
@@ -113,7 +117,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (
       !familyPushUserId ||
       (familyPushUserRole !== "member" && familyPushUserRole !== "guardian") ||
-      isNativeAndroidApp() ||
       familyPushReconciledUserIdRef.current === familyPushUserId
     ) {
       return;
@@ -121,7 +124,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     // Never open a permission prompt on app entry; only reconcile an already-approved endpoint.
     familyPushReconciledUserIdRef.current = familyPushUserId;
-    void connectCurrentBrowserPushSubscription({ requestPermission: false }).catch(() => {
+    const reconcile = isNativeMobileApp()
+      ? Promise.all([
+          initializeNativePushNotificationActions(),
+          connectCurrentNativePushRegistration({ requestPermission: false }),
+        ])
+      : connectCurrentBrowserPushSubscription({ requestPermission: false });
+    void reconcile.catch(() => {
       if (familyPushReconciledUserIdRef.current === familyPushUserId) {
         familyPushReconciledUserIdRef.current = null;
       }

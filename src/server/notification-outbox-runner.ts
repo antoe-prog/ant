@@ -19,6 +19,7 @@ import {
   completeNoticePushDispatchAuditLog,
   getNoticePushSubscriptions,
   getPushConfig,
+  isPushProviderConfiguredForSubscription,
   sendPushPayloadToSubscription,
   runPushDeliveryWithTimeout,
   type PushDeliveryResult,
@@ -145,8 +146,9 @@ export function prepareNoticePushDispatchJobs(
   requestAuditLog: AuditLog,
   now = requestAuditLog.createdAt,
 ) {
-  const subscriptions = getNoticePushSubscriptions(db, notice);
-  const configured = getPushConfig().configured;
+  const candidateSubscriptions = getNoticePushSubscriptions(db, notice);
+  const subscriptions = candidateSubscriptions.filter(isPushProviderConfiguredForSubscription);
+  const configured = subscriptions.length > 0 || (candidateSubscriptions.length === 0 && getPushConfig().configured);
   let nextDb: MockDatabase = {
     ...db,
     auditLogs: db.auditLogs.map((auditLog) =>

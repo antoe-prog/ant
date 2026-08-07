@@ -11,9 +11,12 @@ import {
   createEndpointHint,
   disablePushSubscription,
   getVisibleActivePushSubscriptionCount,
+  isNativePushRegistrationCurrentForUser,
   isPushSubscriptionCurrentForUser,
+  normalizeNativePushRegistration,
   normalizePushEndpoint,
   normalizePushSubscription,
+  upsertNativePushRegistration,
   upsertPushSubscription,
 } from "@/server/push-notifications";
 import { createRuntimeId } from "@/server/runtime-id";
@@ -25,6 +28,7 @@ const pushUserAgentMaxLength = 512;
 
 type SubscribeBody = {
   allowReactivation?: boolean;
+  nativeRegistration?: unknown;
   subscription?: unknown;
   userAgent?: string;
 };
@@ -43,9 +47,10 @@ export async function POST(request: NextRequest) {
 
   const body = (await request.json().catch(() => null)) as SubscribeBody | null;
   const subscription = normalizePushSubscription(body?.subscription);
+  const nativeRegistration = normalizeNativePushRegistration(body?.nativeRegistration);
   const userAgent = typeof body?.userAgent === "string" ? body.userAgent.trim() : undefined;
 
-  if (!subscription) {
+  if ((!subscription && !nativeRegistration) || (subscription && nativeRegistration)) {
     return jsonError(400, "VALIDATION_ERROR", "공지 알림 등록 정보가 올바르지 않습니다.");
   }
 
@@ -57,9 +62,89 @@ export async function POST(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "공지 알림 기기 정보가 올바르지 않습니다.");
   }
 
-  return withAuthAndNotificationStateLock(() =>
-    persistPushSubscription(request, subscription, userAgent, body?.allowReactivation === true),
-  );
+  return withAuthAndNotificationStateLock(() => subscription
+    ? persistPushSubscription(request, subscription, userAgent, body?.allowReactivation === true)
+    : persistNativePushRegistration(request, nativeRegistration!, userAgent, body?.allowReactivation === true));
+}
+
+async function persistNativePushRegistration(
+  request: NextRequest,
+  registration: NonNullable<ReturnType<typeof normalizeNativePushRegistration>>,
+  userAgent?: string,
+  allowReactivation = false,
+) {
+  const db = await readServerDb();
+  const { user, response } = requireSession(request, db);
+  if (!user) {
+    return response;
+  }
+
+  const existing = db.pushSubscriptions.find((item) => item.endpoint === registration.endpoint);
+  if (existing && isNativePushRegistrationCurrentForUser(existing, user, registration, userAgent)) {
+    return jsonOk({
+      subscription: {
+        id: existing.id,
+        endpointHint: createEndpointHint(existing.endpoint),
+        disabledAt: null,
+      },
+      activeSubscriptionCount: getVisibleActivePushSubscriptionCount(db, user),
+    });
+  }
+  if (existing?.disabledAt && !allowReactivation) {
+    return jsonOk({
+      subscription: {
+        id: existing.id,
+        endpointHint: createEndpointHint(existing.endpoint),
+        disabledAt: existing.disabledAt,
+      },
+      activeSubscriptionCount: getVisibleActivePushSubscriptionCount(db, user),
+      reactivationRequired: true,
+    });
+  }
+  if (existing && hasInFlightPushDispatchForSubscription(db, existing.id)) {
+    return jsonError(
+      409,
+      "PUSH_SUBSCRIPTION_UPDATE_PENDING",
+      "기기의 알림 발송을 마무리하고 있습니다. 잠시 후 다시 연결해 주세요.",
+    );
+  }
+
+  const { db: dbWithRegistration, record } = upsertNativePushRegistration(db, user, registration, userAgent);
+  const now = new Date().toISOString();
+  const auditLog: AuditLog = {
+    id: createRuntimeId("audit"),
+    branchId: user.branchIds[0] ?? null,
+    actorUserId: user.id,
+    action: "notification.subscribe",
+    targetType: "push_subscription",
+    targetId: record.id,
+    before: existing ? { endpointHint: createEndpointHint(existing.endpoint), userId: existing.userId } : null,
+    after: {
+      endpointHint: createEndpointHint(record.endpoint),
+      branchIds: record.branchIds,
+      transport: record.transport,
+      userId: record.userId,
+      userAgent: record.userAgent,
+    },
+    result: "success",
+    message: existing?.userId !== record.userId
+      ? "앱 알림 기기의 계정 연결을 변경했습니다."
+      : "앱 알림 기기를 저장했습니다.",
+    createdAt: now,
+  };
+  const nextDb = await writeServerDb({
+    ...dbWithRegistration,
+    auditLogs: [auditLog, ...dbWithRegistration.auditLogs],
+  });
+
+  return jsonOk({
+    subscription: {
+      id: record.id,
+      endpointHint: createEndpointHint(record.endpoint),
+      disabledAt: null,
+    },
+    activeSubscriptionCount: getVisibleActivePushSubscriptionCount(nextDb, user),
+  });
 }
 
 async function persistPushSubscription(

@@ -41,7 +41,7 @@ export async function getPasswordResetSmsReadiness(
 
 export async function sendPasswordResetSms(
   readiness: Extract<PasswordResetSmsReadiness, { ready: true }>,
-  input: { phone: string; code: string; purpose?: "password_reset" | "signup" },
+  input: { phone: string; code: string },
 ): Promise<PasswordResetSmsResult> {
   if (readiness.mode === "development") {
     return { ok: true, developmentCode: input.code };
@@ -51,10 +51,8 @@ export async function sendPasswordResetSms(
   const timeoutId = setTimeout(() => controller.abort(), 8_000);
 
   try {
-    const purpose = input.purpose ?? "password_reset";
-    const message = purpose === "signup"
-      ? `[파이널유도멀티짐] 회원가입 인증번호는 ${input.code}입니다. 10분 안에 입력해 주세요.`
-      : `[파이널유도멀티짐] 비밀번호 변경 인증번호는 ${input.code}입니다. 10분 안에 입력해 주세요.`;
+    const purpose = "password_reset";
+    const message = `[파이널유도멀티짐] 비밀번호 변경 인증번호는 ${input.code}입니다. 10분 안에 입력해 주세요.`;
     const response = await fetch(readiness.webhookUrl!, {
       method: "POST",
       headers: {

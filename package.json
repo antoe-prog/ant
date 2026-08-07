@@ -247,6 +247,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.2",
     "@types/web-push": "^3.6.4",
     "@zxing/browser": "^0.2.1",
     "lucide-react": "^1.18.0",

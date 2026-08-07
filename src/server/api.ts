@@ -307,6 +307,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     })
     .map((subscription) => ({
       ...subscription,
+      ...(subscription.deviceToken ? { deviceToken: "masked" } : {}),
       endpoint: createEndpointHint(subscription.endpoint),
       keys: {
         auth: "masked",

@@ -384,6 +384,35 @@ export function createNoticePushTag(noticeId: string) {
   return `final-judo-notice-${normalized}`;
 }
 
+export const noticePushTitleMaxBytes = 256;
+export const noticePushBodyMaxBytes = 1_200;
+
+function truncateUtf8Preview(value: string, maxBytes: number) {
+  const normalized = value.trim();
+
+  if (Buffer.byteLength(normalized, "utf8") <= maxBytes) {
+    return normalized;
+  }
+
+  const ellipsis = "…";
+  const byteBudget = maxBytes - Buffer.byteLength(ellipsis, "utf8");
+  const characters: string[] = [];
+  let usedBytes = 0;
+
+  for (const character of normalized) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+
+    if (usedBytes + characterBytes > byteBudget) {
+      break;
+    }
+
+    characters.push(character);
+    usedBytes += characterBytes;
+  }
+
+  return `${characters.join("").trimEnd()}${ellipsis}`;
+}
+
 // Store only the user-visible payload that was approved with the request audit. This keeps retries deterministic
 // after notice edits or deletion without duplicating subscription endpoints, keys, or other delivery credentials.
 export function createNoticePushPayloadSnapshot(input: {
@@ -400,9 +429,12 @@ export function createNoticePushPayloadSnapshot(input: {
     throw new Error("title and body are required.");
   }
 
+  const visibleTitle = input.important ? `[중요] ${title}` : title;
+
   return {
-    title: input.important ? `[중요] ${title}` : title,
-    body,
+    // Native push providers enforce byte-based payload limits. Keep the full notice in the app and send a bounded preview.
+    title: truncateUtf8Preview(visibleTitle, noticePushTitleMaxBytes),
+    body: truncateUtf8Preview(body, noticePushBodyMaxBytes),
     tag: createNoticePushTag(input.noticeId),
     url: input.url?.trim() || "/app/notifications",
   };

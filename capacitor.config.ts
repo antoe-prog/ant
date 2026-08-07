@@ -15,6 +15,11 @@ const config: CapacitorConfig = {
   android: {
     path: "mobile/android-cap",
   },
+  plugins: {
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
+    },
+  },
   ...(activeServerUrl
     ? {
         server: {

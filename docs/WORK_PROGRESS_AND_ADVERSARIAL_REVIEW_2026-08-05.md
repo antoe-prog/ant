@@ -9,9 +9,9 @@
 
 ## 결론
 
-이번 적대적 검토에서 확정한 애플리케이션·릴리스 결함 60건을 수정하고 회귀 검증을 추가했다. 반려된 대회 재신청, 감사 로그 순서, 공지 삭제와 outbox 경합, 알림 worker 직렬 처리, 결제 표시명 위조와 결제 채널 중복 진행, 결제 웹훅 이벤트 ID 충돌·미래 시각 오염·약한 인증 secret 허용·잘못된 발생 시각 은폐, 결제 provider 설정 오타 허용, 대기 계정과 계정별 제한 응답·PBKDF2 생략을 통한 로그인 계정 열거, 비밀번호 인증번호 재전송·지연 도착·발송 실패 충돌·계정 존재 노출과 운영 SMS 응답 시간 노출, 휴대폰 소유 확인 없이 공개 가입할 수 있던 문제, 가입·재설정 보안 검증이 전체 릴리스 러너에서 누락된 문제, PostgreSQL 중첩 잠금 거부로 인한 계정 보안·푸시·결제 웹훅 500 오류, 강화된 비밀번호 재설정 세션·푸시 폐기를 실패로 처리한 릴리스 게이트, 회원 삭제 뒤 개인 공지가 지점 공지로 확대되는 문제, 가족 응답의 보호자·공지·결제·대회·출석 내부 정보 노출, 마지막 자녀 연결 해제 시 학부모 계정 저장 실패, 한쪽에만 남은 보호자 관계 미복구, 가족 계정의 지점 범위 역할 변경 500 오류, 역할·지점 변경 뒤 푸시 구독 범위 고착, 보안 변경과 직접 구독 해지 뒤 이전 기기 푸시 자격증명·대기 발송이 잔존하는 문제, 만료된 기기 구독의 같은 기기 잔여 발송이 큐에 남는 문제, 푸시 재시도 중 구독 소유권 보호가 풀리고 이전 전달 불확실성이 지워지는 문제, provider timeout 뒤 실제 호출이 남아 있어도 재시도·구독 이전·키 교체가 겹칠 수 있는 문제, stale settlement 감사에서 이전 전달 불확실성이 지워지는 문제, 일부 발송·일부 취소 요청이 전체 성공으로 기록되는 문제, provider 시작 없이 sent/failed 상태를 확정할 수 있는 문제, provider 시작 후 취소 결과가 호출 전 상태로 축소되는 문제, 공용 브라우저 계정 전환 뒤 푸시 엔드포인트가 이전 계정에 남는 문제와 알림함 진입 전 소유권 미교정, 자동 소유권 교정이 보안 폐기 기기를 재활성화하는 회귀, 전송 중 구독의 키 교체와 보안 변경·푸시 상태의 교차 잠금 경합, 모바일 검증의 공용 포트·빌드 디렉터리 오염, 승급 심사자 표시 누락, 발급자가 바뀌면 이전 수업 QR이 살아남는 문제, 외부 일정 redirect, 격리 릴리스 스모크의 휴대폰 인증, iOS App Store 프로파일 판정 및 P1 상태판 오안내가 해소됐다. 이후 현재 UI와 어긋나 있던 P5-P10 내부 readiness 계약도 역할별 화면의 실제 동작에 맞게 교정했고, 모바일 결제 딥링크와 기존 온라인 결제 대기 상태의 정상 노출을 실패로 처리하던 검증 오탐, 회원 삭제 연쇄 처리의 빌드 타입 결함도 수정했다.
+이번 적대적 검토에서 확정한 애플리케이션·릴리스 결함에 회귀 검증을 추가했다. 반려된 대회 재신청, 감사 로그 순서, 공지 삭제와 outbox 경합, 알림 worker 직렬 처리, 결제 표시명 위조와 결제 채널 중복 진행, 결제 웹훅 이벤트 ID 충돌·미래 시각 오염·약한 인증 secret 허용·잘못된 발생 시각 은폐, 결제 provider 설정 오타 허용, 대기 계정과 계정별 제한 응답·PBKDF2 생략을 통한 로그인 계정 열거, 비밀번호 인증번호 재전송·지연 도착·발송 실패 충돌·계정 존재 노출과 운영 SMS 응답 시간 노출, 가입·재설정 보안 검증이 전체 릴리스 러너에서 누락된 문제, PostgreSQL 중첩 잠금 거부로 인한 계정 보안·푸시·결제 웹훅 500 오류, 강화된 비밀번호 재설정 세션·푸시 폐기를 실패로 처리한 릴리스 게이트, 회원 삭제 뒤 개인 공지가 지점 공지로 확대되는 문제, 가족 응답의 보호자·공지·결제·대회·출석 내부 정보 노출, 마지막 자녀 연결 해제 시 학부모 계정 저장 실패, 한쪽에만 남은 보호자 관계 미복구, 가족 계정의 지점 범위 역할 변경 500 오류, 역할·지점 변경 뒤 푸시 구독 범위 고착, 보안 변경과 직접 구독 해지 뒤 이전 기기 푸시 자격증명·대기 발송이 잔존하는 문제, 만료된 기기 구독의 같은 기기 잔여 발송이 큐에 남는 문제, 푸시 재시도 중 구독 소유권 보호가 풀리고 이전 전달 불확실성이 지워지는 문제, provider timeout 뒤 실제 호출이 남아 있어도 재시도·구독 이전·키 교체가 겹칠 수 있는 문제, stale settlement 감사에서 이전 전달 불확실성이 지워지는 문제, 일부 발송·일부 취소 요청이 전체 성공으로 기록되는 문제, provider 시작 없이 sent/failed 상태를 확정할 수 있는 문제, provider 시작 후 취소 결과가 호출 전 상태로 축소되는 문제, 공용 브라우저 계정 전환 뒤 푸시 엔드포인트가 이전 계정에 남는 문제와 알림함 진입 전 소유권 미교정, 자동 소유권 교정이 보안 폐기 기기를 재활성화하는 회귀, 전송 중 구독의 키 교체와 보안 변경·푸시 상태의 교차 잠금 경합, 모바일 검증의 공용 포트·빌드 디렉터리 오염, 승급 심사자 표시 누락, 발급자가 바뀌면 이전 수업 QR이 살아남는 문제, 외부 일정 redirect, 격리 릴리스 스모크의 휴대폰 인증, iOS App Store 프로파일 판정 및 P1 상태판 오안내가 해소됐다. 휴대폰 소유 확인 기반 가입은 한 차례 구현했으나 후속 제품 결정으로 유예했으며, 현재 공개 가입은 SMS 인증 없이 동작한다. 이후 현재 UI와 어긋나 있던 P5-P10 내부 readiness 계약도 역할별 화면의 실제 동작에 맞게 교정했고, 모바일 결제 딥링크와 기존 온라인 결제 대기 상태의 정상 노출을 실패로 처리하던 검증 오탐, 회원 삭제 연쇄 처리의 빌드 타입 결함도 수정했다.
 
-후속 지속 검토에서 회원 삭제 뒤 연결 계정의 세션·기기 구독·전송 중 푸시가 남는 P1 결함, 협회 제출 완료 대회 신청을 일반 상태 변경으로 되돌릴 수 있던 P1 결함, 참가 신청이 있는 대회 삭제로 신청 이력이 유실되던 P1 결함, 대한유도회 공식 목록에서 사라진 대회가 정상 일정으로 남아 신규 신청을 받거나 운영자가 참가 확정·협회 제출할 수 있던 P1 결함, 느린 이전 동기화가 나중 완료된 최신 동기화 결과를 덮어쓸 수 있던 P1 결함, 대한유도회 원본 중복·비정상 엔티티·비정상적으로 긴 필드·제어문자와 참가 신청 체급·처리 사유의 방향 제어문자로 저장소·공지·모바일 렌더링이 불안정해지는 P2 결함을 추가로 수정해 누적 해결 건수는 70건이다.
+후속 지속 검토에서 회원 삭제 뒤 연결 계정의 세션·기기 구독·전송 중 푸시가 남는 P1 결함, 협회 제출 완료 대회 신청을 일반 상태 변경으로 되돌릴 수 있던 P1 결함, 참가 신청이 있는 대회 삭제로 신청 이력이 유실되던 P1 결함, 대한유도회 공식 목록에서 사라진 대회가 정상 일정으로 남아 신규 신청을 받거나 운영자가 참가 확정·협회 제출할 수 있던 P1 결함, 느린 이전 동기화가 나중 완료된 최신 동기화 결과를 덮어쓸 수 있던 P1 결함, 대한유도회 원본 중복·비정상 엔티티·비정상적으로 긴 필드·제어문자와 참가 신청 체급·처리 사유의 방향 제어문자로 저장소·공지·모바일 렌더링이 불안정해지는 P2 결함을 추가로 수정했다. 누적 수정 이력은 70건이며, 현재 해결 상태는 아래의 유예 P1-29를 별도로 반영한다.
 
 현재 P1 readiness는 **1건 ready(iOS), 6건 blocked**다. 이는 코드 실패가 아니라 운영 배포, Android 실기기, 실 PG/VAN, 운영 푸시, 외부 이슈 인계, 파일럿 증빙이 아직 충족되지 않은 상태다. 따라서 **현재 개선 묶음의 내부 검증만 완료됐으며 운영 ready/출시 완료는 아니다**.
 
@@ -389,11 +389,12 @@
 - 조치: 미등록·요청 제한 계정에도 challenge 생성과 같은 PBKDF2 1회를 수행한다. 운영 webhook 발송과 실패 교정은 중립 응답 확정 뒤 Next `after()`에서 실행하고, 개발 및 run-owned 격리 smoke만 기존처럼 인증번호를 즉시 반환한다.
 - 회귀 검증: 비밀번호 재설정 보안 게이트와 production guard가 미등록·제한 분기의 PBKDF2 작업과 운영 webhook의 응답 후 실행을 확인한다. 발송 실패 challenge·감사 교정, 인증번호 원문 비저장, 토큰 단일 사용 계약은 유지한다.
 
-### 해결 P1-29. 휴대폰 소유 확인 없는 공개 회원가입
+### 유예 P1-29. 휴대폰 소유 확인 없는 공개 회원가입
 
 - 재현: 공개 `/auth/register`에 지점·이름·휴대폰 번호·비밀번호만 보내면 해당 번호를 실제로 소유하지 않아도 즉시 로그인 계정과 성인 회원 프로필이 생성됐다. 중복 번호는 직접 `409`로 응답해 등록 계정 열거도 가능했다.
-- 조치: 가입을 `request`와 `complete` 2단계로 분리했다. 6자리 인증번호는 10분 만료, 최대 5회 오입력, 번호당 시간당 3회 요청을 적용하고 휴대폰·인증번호 원문을 저장하지 않는다. 기존·미등록 번호 요청은 같은 응답과 PBKDF2 비용을 사용하고 운영 SMS는 응답 후 발송한다. 인증 확인·지점 재검증·휴대폰 유일성·사용자/회원/감사 저장은 같은 번호 잠금 안에서 원자적으로 처리한다.
-- 회귀 검증: `test:phone-signup-security`, `test:auth-production-guard`, `test:auth-session-security`, 격리 모바일 `test:phone-signup-login-flow`, production `test:admin-user-management-api`, TypeScript와 빌드를 통과했다. 같은 인증번호의 동시 완료는 `200/400 SIGNUP_CODE_INVALID` 한 건씩이며 계정·회원은 한 건만 생성된다.
+- 현재 결정: 휴대폰 인증 기능은 별도 요청 전까지 유예한다. 가입 화면과 API는 지점·이름·휴대폰 번호·비밀번호를 한 번에 제출하며 SMS 설정에 의존하지 않는다. 가입용 challenge 생성·검증·SMS 분기는 제거했고, 과거 운영 상태를 안전하게 읽기 위한 legacy challenge 컬렉션 호환성만 유지한다.
+- 잔존 위험: 휴대폰 소유권을 증명하지 않으므로 타인의 번호를 선점할 수 있다. 서버는 번호별 잠금·지점별 요청 제한·중립 중복 응답·휴대폰 원문 비저장으로 범위를 제한하지만, 본인 인증을 재도입하기 전까지 이 위험은 해결되지 않은 것으로 취급한다.
+- 회귀 검증: `test:phone-signup-security`, `test:auth-production-guard`, `test:auth-session-security`, 격리 모바일 `test:phone-signup-login-flow`가 인증번호 UI·API·실행 코드가 다시 노출되지 않고 직접 가입의 입력 제한·동시성·감사 계약이 유지되는지 확인한다.
 - QA 인프라: 브라우저 게이트가 사용자 개발 서버의 `.next/dev/lock`과 충돌하지 않도록 실행별 Next `distDir`·tsconfig·JSON 저장소를 격리하고, Chrome 종료가 지연돼도 5초 안에 소유 프로세스와 산출물을 정리하도록 제한했다.
 
 ### 해결 P1-30. 회원 삭제 뒤 연결된 가족 계정의 보안 범위와 푸시가 잔존
@@ -572,13 +573,13 @@
 - `npm run test:p1-operator-status`
 - 실제 `p1:readiness`: ready 1, blocked 6.
 - 실제 `p1:operator-status`: deferred external prep 0, iOS doctor ready.
-- 최신 격리 build ID: `vMCCOOTLCHsmBTPE78HBp` (입력 해시 `537375a688632179bd695c21aeb1bc31ee2569baf918b80e5da0b6678b383aec`, 입력 416개). 휴대폰 본인 확인 기반 가입과 가입 계정 열거 방어까지 포함한 소스를 빌드했다.
+- 최신 격리 build ID: `vMCCOOTLCHsmBTPE78HBp` (입력 해시 `537375a688632179bd695c21aeb1bc31ee2569baf918b80e5da0b6678b383aec`, 입력 416개). 이 항목은 당시 휴대폰 본인 확인 기반 가입 빌드의 역사적 증빙이며 현재 가입 계약을 나타내지 않는다.
 - 최신 build readiness: 현재 작업 트리와 build 입력 지문 일치, 삭제·이름 변경·신규 public asset·mtime 보존 변경 감지 계약 통과.
 - 최신 격리 production smoke: `http://127.0.0.1:62386`, 전체 `scripts/smoke-api.mjs` 43개 항목 통과 후 소유 프로세스와 임시 JSON 저장소를 정리했다. 사용자 개발 서버 `4326`은 재사용하거나 종료하지 않았다.
 - 최신 모바일 알림함 증빙: `http://127.0.0.1:54933`, 앱 진입 `allowReactivation=false`, 회원·학부모 직접 활성화 `true`, 각 등록 요청 1회, 권한 자동 요청·가로 overflow·콘솔 오류 0을 확인하고 소유 프로세스·전용 Next 출력·임시 tsconfig·임시 JSON 저장소를 정리.
 - 기존 사용자 개발 서버 `127.0.0.1:4326`은 PID 59979로 계속 유지됨을 확인했다.
 - 최신 추가 점검에서 결제 웹훅 이벤트 ID 충돌, 미래 시각 오염, 약한 webhook secret 허용, 잘못된 발생 시각 은폐, 결제 provider 설정 오타 허용, readiness 문자열 오탐, 마지막 자녀 연결 해제 저장 실패, 한쪽 보호자 관계 미복구, 가족 계정 지점 역할 변경 500 오류, 역할·지점 변경 뒤 푸시 구독 범위 고착, 보안 변경 뒤 이전 기기 푸시 자격증명 존속과 대기 발송 잔존, 직접 구독 해지 뒤 이전 푸시 작업 잔존, 만료 구독의 같은 기기 잔여 작업 잔존, 푸시 재시도 중 소유권 보호·전달 불확실성 소실, provider timeout 뒤 보호 경계 조기 해제, stale settlement 거부 감사의 누적 불확실성 소실, 일부 발송·일부 취소 요청의 성공 오기록, provider 시작 없는 발송 결과 확정, provider 시작 후 취소 상태 축소, 로그인 제한 응답·해시 검증 생략을 통한 계정 존재 노출, 비밀번호 재설정 검증·개별 발송 응답을 통한 계정 존재 노출, PostgreSQL 중첩 잠금 거부, 강화된 비밀번호 재설정 보안을 실패로 오인한 production guard, 공용 브라우저 계정 전환 뒤 푸시 소유권 잔존, 알림함 진입 전 푸시 소유권 미교정, 자동 푸시 재활성화 회귀, 전송 중 구독 key 교체, 계정 보안·푸시 상태 분리 잠금, 모바일 검증 격리 실패 30건을 확정·수정했다. 저장소, 가족 연결, 관리자 계정, 결제, 대회, 대한유도회 동기화, 알림 outbox 핵심 게이트와 격리 production smoke는 수정 후 모두 통과했다.
-- 후속 인증 점검에서 운영 SMS webhook 지연, 휴대폰 소유 확인 없는 공개 회원가입, 인증 보안 게이트의 전체 릴리스 누락 3건을 추가 확정·수정해 최신 누적 결함은 60건이다.
+- 후속 인증 점검에서 운영 SMS webhook 지연, 휴대폰 소유 확인 없는 공개 회원가입, 인증 보안 게이트의 전체 릴리스 누락 3건을 한 차례 수정했다. 이 중 공개 가입 본인 확인은 이후 제품 결정으로 유예되어 현재 잔존 위험으로 다시 분류한다.
 - 실제 Docker 통합 게이트 `npm run test:db`와 `npm run test:postgres-store`를 실행해 마이그레이션·시드, runtime 저장소 읽기/쓰기, advisory lock, stale snapshot merge, 휴대폰 가입 유일성, 결제 멱등성, 교차 도메인 동시성까지 통과했다.
 - 현재 작업 트리의 최종 연속 릴리스 로그: `/tmp/final-judo-test-release-20260805-green.log`.
 - 웹 릴리스 커밋 `79f8d89`를 원격에 푸시하고 Vercel 운영 alias에 배포했다. 배포 후 `/login` 200, 잘못된 로그인 401, 비로그인 `/api/v1/me/bootstrap` 401을 확인했다.
@@ -616,8 +617,50 @@
 - 이번 내부 개선 사이클: 가족 개인정보·가족 계정 역할/지점 범위·회원 삭제·계정 복구·출석 QR·결제 웹훅 상태 전이 묶음 완료 (지속 적대적 검토는 진행 중)
 - 관련 코드 회귀 검증: 완료
 - 웹 운영 배포와 비인증 smoke: 완료
-- iOS archive/IPA 빌드 2: 완료, App Store Connect 업로드 미실행
+- iOS archive/IPA 빌드 3: 완료, App Store Connect 업로드 미실행
 - Android AAB/APK 1.0.44 (45): 완료, Play Console 업로드·실기기 smoke 미실행
 - 전체 운영 준비: 외부 DB·실결제·실푸시·파일럿 증빙으로 차단
 - 실결제·실푸시 준비: 차단
 - 파일럿/운영 ready/출시 완료: 아님
+
+## 2026-08-07 네이티브 푸시 외부 설정 점검
+
+### Android / Firebase 완료
+
+- Firebase 프로젝트 `final-judo-multigym-prod`와 Android 앱 `kr.co.finaljudo.multigym`을 등록했다.
+- 공식 `google-services.json`을 Android 앱 모듈에 반영했고 패키지명과 Firebase 앱 ID 일치를 확인했다.
+- FCM HTTP v1 전송 전용 서비스 계정에 `roles/firebasecloudmessaging.admin`만 부여했다. 장기 키 원문은 저장소와 증빙에 남기지 않고 Vercel Production의 민감 환경변수로 등록했다.
+- `FINAL_JUDO_FIREBASE_PROJECT_ID`, `FINAL_JUDO_FIREBASE_CLIENT_EMAIL`, `FINAL_JUDO_FIREBASE_PRIVATE_KEY`가 Vercel Production에 등록돼 있다. Vercel의 Sensitive 값은 로컬 재다운로드가 차단되므로 값 원문 검증 대신 등록 상태와 서비스 계정 권한을 확인했다.
+- Capacitor 동기화가 `@capacitor/push-notifications@8.1.2`를 인식했고, 릴리스 매니페스트에서 `POST_NOTIFICATIONS`, Firebase Messaging 서비스와 수신기를 확인했다.
+- 저장소 격리 JDK 21을 사용한 `:app:bundleRelease`가 Google Services 처리와 릴리스 서명을 포함해 성공했다. 산출물은 `mobile/android-cap/app/build/outputs/bundle/release/app-release.aab`, SHA-256은 `0f06a78c02f406459e88a0eb9285af173df4501a6de9d8ec7f025d7db94ad943`이다.
+- 공식 Android Play/APK 빌드 스크립트가 저장소의 `.data/toolchains/jdk21`을 자동 탐색하도록 보강했다.
+
+### iOS / APNs 완료
+
+- Push Notifications entitlement와 네이티브 등록 코드를 반영했다.
+- Production·Team Scoped APNs Auth Key의 형식을 비밀값 노출 없이 확인하고 Team ID, Key ID, private key를 Vercel Production의 Sensitive 환경변수로 등록했다.
+- `aps-environment=production`을 포함한 `kr.co.finaljudo.multigym App Store Connect` 프로비저닝 프로파일을 설치하고 릴리스 설정이 해당 프로파일을 명시하도록 갱신했다.
+- 무효 기기 토큰을 사용한 APNs 진단 요청은 provider 인증 오류 `403`이 아닌 토큰 오류 `400`으로 응답해 서명 키와 production 엔드포인트 연결을 확인했다. 실제 사용자에게 알림은 발송하지 않았다.
+- iOS doctor는 `releaseDecision: ready`로 통과했다. App Store Connect용 `1.0 (3)` IPA를 생성했고 코드 서명, 번들 ID, `aps-environment=production`을 확인했다.
+- IPA 산출물은 `.data/mobile-builds/ios/ipa/App.ipa`와 바탕화면 `Final-Judo-AppStore-1.0-build-3.ipa`에 있으며 SHA-256은 `11fdc59c27f32dcc5b3ac68ec83d99ec50c13ab44d7ecfadb3e01c1ce7dc9350`이다.
+
+### 이번 점검에서 통과한 검증
+
+- `npm run test:android-packaging`
+- `npm run test:notification-readiness`
+- `npm run test:notification-outbox`
+- `npm run test:ios-ipa-doctor`
+- `npm run ios:ipa:doctor -- --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md`
+- `APPLE_TEAM_ID=CA7A5SP5G5 FINAL_JUDO_IOS_SERVER_URL=https://final-judo.vercel.app npm run ios:ipa:build -- --team-id=CA7A5SP5G5 --xcode-export-method=app-store-connect --allow-provisioning-updates`
+- `npm run lint`
+- `npm run build`
+- `git diff --check`
+
+### 현재 판정
+
+- Android native push 외부 설정 및 로컬 릴리스 빌드: 완료
+- Android 실기기 권한 승인·토큰 등록·실제 FCM 수신: 미검증
+- iOS native push 외부 설정 및 App Store Connect IPA 빌드: 완료
+- iOS 실기기 알림 권한 승인·토큰 등록·실제 APNs 수신: 미검증
+- 이번 변경의 커밋·운영 배포: 미실행
+- 실푸시 ready/운영 ready: 아님

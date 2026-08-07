@@ -77,13 +77,27 @@ async function stopServer(server) {
 }
 
 async function loginTo(page, baseUrl, role, nextPath) {
-  const loginUrl = new URL("/api/v1/dev/auto-login", baseUrl);
+  const loginUrl = new URL("/login", baseUrl);
+  const expectedUrl = new URL(nextPath, baseUrl);
+  loginUrl.searchParams.set("autoLogin", "1");
   loginUrl.searchParams.set("role", role);
   loginUrl.searchParams.set("next", nextPath);
-  const loginResponse = await page.context().request.get(loginUrl.toString(), { maxRedirects: 0 });
 
-  assert([302, 303, 307, 308].includes(loginResponse.status()), `${role} demo login must redirect`);
-  await page.goto(new URL(nextPath, baseUrl).toString(), { waitUntil: "domcontentloaded" });
+  await page.goto(loginUrl.toString(), { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForURL(
+      (url) => url.pathname === expectedUrl.pathname && url.search === expectedUrl.search,
+      { timeout: 30_000 },
+    );
+    await page.waitForLoadState("domcontentloaded");
+    await page.locator("main").waitFor({ state: "visible", timeout: 30_000 });
+  } catch (error) {
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).trim().slice(0, 500);
+    throw new Error(
+      `Notice compose auto-login failed for ${role}: expected ${nextPath}, got ${page.url()}; body=${JSON.stringify(bodyText)}`,
+      { cause: error },
+    );
+  }
 }
 
 async function requestFromPage(page, path, { body, headers = {}, method = "GET" } = {}) {
@@ -457,8 +471,7 @@ async function main() {
       process.execPath,
       [
         "node_modules/next/dist/bin/next",
-        "dev",
-        "--webpack",
+        "start",
         "--hostname",
         plan.hostname,
         "--port",
@@ -484,6 +497,7 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       baseUrl: plan.baseUrl,
+      appServer: "owned-next-start",
       browserAvailability: "Browser skill is listed, but node_repl/browser runtime tools are unavailable; isolated Playwright fallback used",
       idempotency,
       ui,

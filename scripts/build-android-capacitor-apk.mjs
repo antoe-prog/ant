@@ -153,6 +153,7 @@ async function findJavaHome(rootDir) {
   const candidates = [
     process.env.JAVA_HOME,
     path.join(os.homedir(), "java/jdk-21.0.5+11/Contents/Home"),
+    path.join(rootDir, ".data/toolchains/jdk21/Contents/Home"),
     path.join(rootDir, ".data/toolchains/jdk/Contents/Home"),
   ].filter(Boolean);
 

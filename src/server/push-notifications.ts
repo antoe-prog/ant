@@ -1,4 +1,5 @@
 import * as webPush from "web-push";
+import { createHash } from "node:crypto";
 import type {
   AppUser,
   AuditLog,
@@ -9,6 +10,11 @@ import type {
 } from "@/lib/domain";
 import { getNoticeRecipients } from "@/lib/push-subscription-scope";
 import { createRuntimeId } from "@/server/runtime-id";
+import {
+  getNativePushProviderReadiness,
+  sendApnsPush,
+  sendFcmPush,
+} from "@/server/native-push-providers";
 
 export {
   getNoticePushSubscriptions,
@@ -25,14 +31,26 @@ type WebPushSubscriptionInput = {
   };
 };
 
+type NativePushRegistrationInput = {
+  platform?: unknown;
+  token?: unknown;
+};
+
 export const pushEndpointMaxLength = 2_048;
 const pushKeyMaxLength = 512;
 const pushKeyPattern = /^[A-Za-z0-9_-]+={0,2}$/;
+const nativePushTokenMaxLength = 4_096;
+const nativePushTokenPattern = /^[^\s\u0000-\u001f\u007f]+$/;
 
 export type PushConfigPayload = {
   configured: boolean;
   publicKey: string | null;
   subject: string | null;
+  providers: {
+    apns: boolean;
+    fcm: boolean;
+    web: boolean;
+  };
 };
 
 export type PushDispatchSummary = {
@@ -120,10 +138,44 @@ export function getPushConfig(): PushConfigPayload {
   const privateKey = process.env.FINAL_JUDO_VAPID_PRIVATE_KEY?.trim() || null;
   const subject = process.env.FINAL_JUDO_VAPID_SUBJECT?.trim() || null;
 
+  const web = Boolean(publicKey && privateKey && subject);
+  const nativeProviders = getNativePushProviderReadiness();
+
   return {
-    configured: Boolean(publicKey && privateKey && subject),
+    configured: web || nativeProviders.apns || nativeProviders.fcm,
+    providers: {
+      ...nativeProviders,
+      web,
+    },
     publicKey,
     subject,
+  };
+}
+
+export function normalizeNativePushRegistration(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const registration = value as NativePushRegistrationInput;
+  const platform = registration.platform === "android" || registration.platform === "ios"
+    ? registration.platform
+    : null;
+  const token = typeof registration.token === "string" ? registration.token.trim() : "";
+  if (
+    !platform ||
+    token.length < 16 ||
+    token.length > nativePushTokenMaxLength ||
+    !nativePushTokenPattern.test(token)
+  ) {
+    return null;
+  }
+
+  return {
+    endpoint: `native:${platform}:${createHash("sha256").update(token).digest("hex")}`,
+    platform,
+    token,
+    transport: platform === "android" ? "fcm" as const : "apns" as const,
   };
 }
 
@@ -195,10 +247,29 @@ export async function sendPushPayloadToSubscription(
   subscription: PushSubscriptionRecord,
   payload: PushDispatchPayloadSnapshot,
 ): Promise<PushDeliveryResult> {
+  if (subscription.transport === "fcm") {
+    return subscription.deviceToken
+      ? sendFcmPush(subscription.deviceToken, payload)
+      : {
+          outcome: "failed",
+          errorCode: "FCM_TOKEN_MISSING",
+          message: "Android 앱 알림 등록 정보가 올바르지 않습니다.",
+        };
+  }
+  if (subscription.transport === "apns") {
+    return subscription.deviceToken
+      ? sendApnsPush(subscription.deviceToken, payload)
+      : {
+          outcome: "failed",
+          errorCode: "APNS_TOKEN_MISSING",
+          message: "iPhone 앱 알림 등록 정보가 올바르지 않습니다.",
+        };
+  }
+
   const config = getPushConfig();
   const privateKey = process.env.FINAL_JUDO_VAPID_PRIVATE_KEY?.trim();
 
-  if (!config.configured || !config.publicKey || !config.subject || !privateKey) {
+  if (!config.providers.web || !config.publicKey || !config.subject || !privateKey) {
     return {
       outcome: "failed",
       errorCode: "PUSH_NOT_CONFIGURED",
@@ -235,6 +306,17 @@ export async function sendPushPayloadToSubscription(
       ...(timedOut ? { deliveryUncertain: true } : {}),
     };
   }
+}
+
+export function isPushProviderConfiguredForSubscription(subscription: PushSubscriptionRecord) {
+  const providers = getPushConfig().providers;
+  if (subscription.transport === "fcm") {
+    return providers.fcm;
+  }
+  if (subscription.transport === "apns") {
+    return providers.apns;
+  }
+  return providers.web;
 }
 
 export function getNoticeFamilyRecipientCount(db: MockDatabase, notice: Notice) {
@@ -331,6 +413,7 @@ export function upsertPushSubscription(
     id: existing?.id ?? createRuntimeId("push"),
     userId: user.id,
     branchIds: [...new Set(user.branchIds)],
+    transport: "web",
     endpoint: subscription.endpoint,
     keys: subscription.keys,
     userAgent: typeof userAgent === "string" ? userAgent.trim() || existing?.userAgent : existing?.userAgent,
@@ -347,6 +430,61 @@ export function upsertPushSubscription(
     },
     record: nextRecord,
   };
+}
+
+export function upsertNativePushRegistration(
+  db: MockDatabase,
+  user: AppUser,
+  registration: NonNullable<ReturnType<typeof normalizeNativePushRegistration>>,
+  userAgent?: string,
+) {
+  const now = new Date().toISOString();
+  const existing = db.pushSubscriptions.find((item) => item.endpoint === registration.endpoint);
+  const nextRecord: PushSubscriptionRecord = {
+    id: existing?.id ?? createRuntimeId("push"),
+    userId: user.id,
+    branchIds: [...new Set(user.branchIds)],
+    transport: registration.transport,
+    endpoint: registration.endpoint,
+    keys: { auth: "", p256dh: "" },
+    deviceToken: registration.token,
+    userAgent: typeof userAgent === "string" ? userAgent.trim() || existing?.userAgent : existing?.userAgent,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  return {
+    db: {
+      ...db,
+      pushSubscriptions: existing
+        ? db.pushSubscriptions.map((item) => item.id === existing.id ? nextRecord : item)
+        : [nextRecord, ...db.pushSubscriptions],
+    },
+    record: nextRecord,
+  };
+}
+
+export function isNativePushRegistrationCurrentForUser(
+  existing: PushSubscriptionRecord | undefined,
+  user: AppUser,
+  registration: NonNullable<ReturnType<typeof normalizeNativePushRegistration>>,
+  userAgent?: string,
+) {
+  if (!existing || existing.disabledAt) {
+    return false;
+  }
+  const existingBranchIds = [...new Set(existing.branchIds)].sort();
+  const currentBranchIds = [...new Set(user.branchIds)].sort();
+  const normalizedUserAgent = typeof userAgent === "string" ? userAgent.trim() || existing.userAgent : existing.userAgent;
+
+  return (
+    existing.userId === user.id &&
+    existing.transport === registration.transport &&
+    existing.deviceToken === registration.token &&
+    existing.userAgent === normalizedUserAgent &&
+    existingBranchIds.length === currentBranchIds.length &&
+    existingBranchIds.every((branchId, index) => branchId === currentBranchIds[index])
+  );
 }
 
 export function isPushSubscriptionCurrentForUser(

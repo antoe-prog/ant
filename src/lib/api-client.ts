@@ -233,6 +233,11 @@ export type PushConfigPayload = {
   activeSubscriptionCount: number;
   configured: boolean;
   currentUserSubscribed: boolean;
+  providers: {
+    apns: boolean;
+    fcm: boolean;
+    web: boolean;
+  };
   publicKey: string | null;
   subject: string | null;
 };
@@ -1372,6 +1377,13 @@ export const apiClient = {
     return apiRequest<PushSubscriptionPayload>("/api/v1/notifications/subscriptions", {
       method: "POST",
       body: JSON.stringify({ allowReactivation, subscription, userAgent }),
+    });
+  },
+
+  subscribeToNativePush(token: string, platform: "android" | "ios", userAgent: string, allowReactivation: boolean) {
+    return apiRequest<PushSubscriptionPayload>("/api/v1/notifications/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ allowReactivation, nativeRegistration: { platform, token }, userAgent }),
     });
   },
 

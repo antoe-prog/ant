@@ -383,7 +383,8 @@ assert(
   "ios:ipa:build must keep a provisioning profile check so doctor-only cannot mark an unprovisioned IPA as ready",
 );
 assert(
-  /provisioningProfile:\s*await provisioningProfileCheck/.test(iosBuildScriptSource),
+  /const provisioningProfile\s*=\s*await provisioningProfileCheck/.test(iosBuildScriptSource) &&
+    /\n\s*provisioningProfile,\n/.test(iosBuildScriptSource),
   "ios:ipa:build checks must include provisioningProfile before archive/export",
 );
 assert(

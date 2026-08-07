@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const registerRouteSource = readFileSync("src/app/api/v1/auth/register/route.ts", "utf8");
 const signupScreenSource = readFileSync("src/components/screens/signup-screen.tsx", "utf8");
 const apiClientSource = readFileSync("src/lib/api-client.ts", "utf8");
+const passwordResetSmsSource = readFileSync("src/server/password-reset-sms.ts", "utf8");
+
+assert.equal(
+  existsSync("src/server/phone-signup-verification.ts"),
+  false,
+  "deferred signup verification implementation must remain removed until explicitly requested",
+);
 
 assert(registerRouteSource.includes("type RegisterBody = { branchId: string; name: string; password: string; phone: string }"));
 assert(registerRouteSource.includes("if (!isRegisterBody(rawBody))"), "signup must reject malformed payloads before processing");
@@ -36,6 +43,8 @@ assert(!signupScreenSource.includes('data-testid="signup-code-input"'));
 assert(!signupScreenSource.includes("requestSignupVerificationCode"));
 assert(apiClientSource.includes("registerWithPhone(payload: PhoneSignupPayload)"));
 assert(!apiClientSource.includes("requestSignupVerificationCode"));
+assert(!passwordResetSmsSource.includes('purpose?: "password_reset" | "signup"'));
+assert(!passwordResetSmsSource.includes("회원가입 인증번호"));
 
 console.log(JSON.stringify({
   ok: true,
@@ -46,6 +55,7 @@ console.log(JSON.stringify({
     "duplicate responses do not disclose registered phone numbers",
     "signup audit metadata omits raw phone numbers",
     "signup UI and API do not expose deferred phone verification",
+    "deferred signup challenge and SMS implementation remain removed",
     "passwords are hashed and users are linked to member profiles",
   ],
 }, null, 2));

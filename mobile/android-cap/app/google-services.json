@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "327804269757",
+    "project_id": "final-judo-multigym-prod",
+    "storage_bucket": "final-judo-multigym-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:327804269757:android:8f4382c2a19c55e63433d4",
+        "android_client_info": {
+          "package_name": "kr.co.finaljudo.multigym"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDd2KLHtT-L93-tVOUAM6_mgimL72PTOv4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

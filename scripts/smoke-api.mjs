@@ -2009,6 +2009,18 @@ async function run() {
     "guardian relink after unlink did not update member guardian ids",
   );
 
+  const revokedGuardianSession = await guardian.request(
+    "/api/v1/me/bootstrap?selectedBranchId=branch-gangnam",
+    {},
+    { allowError: true },
+  );
+  assert.equal(
+    revokedGuardianSession.response.status,
+    401,
+    "guardian relationship changes must revoke the previous guardian session",
+  );
+  await login(guardian, "guardian");
+
   const guardianAfterLink = createClient();
   result = await login(guardianAfterLink, "guardian");
   assert(

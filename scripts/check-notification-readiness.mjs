@@ -10,6 +10,7 @@ const appStore = readFileSync("src/store/app-store.tsx", "utf8");
 const browserPushSubscription = readFileSync("src/lib/browser-push-subscription.ts", "utf8");
 const notificationAlerts = readFileSync("src/lib/notification-alerts.ts", "utf8");
 const nativeAppPermissions = readFileSync("src/lib/native-app-permissions.ts", "utf8");
+const nativePushRegistration = readFileSync("src/lib/native-push-registration.ts", "utf8");
 const roles = readFileSync("src/lib/roles.ts", "utf8");
 const notificationsAliasRoute = readFileSync("src/app/(app)/app/notifications/page.tsx", "utf8");
 const noticesAliasRoute = readFileSync("src/app/(app)/notices/page.tsx", "utf8");
@@ -22,9 +23,15 @@ const noticeMemberSearch = readFileSync("src/lib/notice-member-search.ts", "utf8
 const noticeInputPolicy = readFileSync("src/lib/notice-input-policy.ts", "utf8");
 const pushSubscriptionScope = readFileSync("src/lib/push-subscription-scope.ts", "utf8");
 const paymentCheckoutAccess = readFileSync("src/lib/payment-checkout-access.ts", "utf8");
+const serverApi = readFileSync("src/server/api.ts", "utf8");
 const serverDb = readFileSync("src/server/db.ts", "utf8");
 const authNotificationStateLock = readFileSync("src/server/auth-notification-state-lock.ts", "utf8");
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
+const nativePushProviders = readFileSync("src/server/native-push-providers.ts", "utf8");
+const iosAppDelegate = readFileSync("mobile/ios/App/App/AppDelegate.swift", "utf8");
+const iosEntitlements = readFileSync("mobile/ios/App/App/App.entitlements", "utf8");
+const iosProject = readFileSync("mobile/ios/App/App.xcodeproj/project.pbxproj", "utf8");
+const androidAppBuild = readFileSync("mobile/android-cap/app/build.gradle", "utf8");
 const notificationOutbox = readFileSync("src/server/notification-outbox.ts", "utf8");
 const notificationOutboxRunner = readFileSync("src/server/notification-outbox-runner.ts", "utf8");
 const notificationOutboxCron = readFileSync("src/app/api/v1/internal/notification-outbox/route.ts", "utf8");
@@ -243,8 +250,13 @@ assert(
 );
 assert(notificationsScreen.includes('data-testid="family-push-enable-action"'), "family push opt-in must keep an explicit mobile action");
 assert(
-  notificationsScreen.includes('requestNativeAppPermission("notifications")'),
-  "Capacitor notification opt-in must request the Android notification permission",
+  notificationsScreen.includes("connectCurrentNativePushRegistration({ requestPermission })") &&
+    nativePushRegistration.includes("PushNotifications.requestPermissions()") &&
+    nativePushRegistration.includes('permission.receive === "prompt-with-rationale"') &&
+    nativePushRegistration.includes("PushNotifications.register()") &&
+    nativePushRegistration.includes("apiClient.subscribeToNativePush") &&
+    !nativePushRegistration.includes("new Promise<string>(async"),
+  "Capacitor notification opt-in must handle rationale re-prompts, reject listener failures, register a token, and persist the native device",
 );
 assert(
   notificationsScreen.includes("openNativeAppSettings") &&
@@ -259,6 +271,30 @@ assert(
   nativeAppPermissions.includes('registerPlugin<AppPermissionsPlugin>("AppPermissions")') &&
     nativeAppPermissions.includes('export type NativeAppPermission = "camera" | "notifications"'),
   "web app must keep a typed bridge to the native Android permission plugin",
+);
+assert(
+  packageJson.dependencies?.["@capacitor/push-notifications"] &&
+    appShell.includes("initializeNativePushNotificationActions()") &&
+    appShell.includes("connectCurrentNativePushRegistration({ requestPermission: false })"),
+  "native app entry must include the official push plugin, notification action routing, and approved-token reconciliation",
+);
+assert(
+  iosAppDelegate.includes("capacitorDidRegisterForRemoteNotifications") &&
+    iosAppDelegate.includes("capacitorDidFailToRegisterForRemoteNotifications") &&
+    iosEntitlements.includes("aps-environment") &&
+    iosProject.includes("com.apple.Push") &&
+    iosProject.includes("CODE_SIGN_ENTITLEMENTS = App/App.entitlements"),
+  "iOS project must declare APNs capability and forward native registration callbacks to Capacitor",
+);
+assert(
+  androidAppBuild.includes("google-services.json is required for release builds") &&
+    androidAppBuild.includes("releaseBuildRequested") &&
+    androidAppBuild.includes("throw new GradleException"),
+  "Android release builds must fail closed when Firebase configuration is absent",
+);
+assert(
+  serverApi.includes('...(subscription.deviceToken ? { deviceToken: "masked" } : {})'),
+  "bootstrap responses must not expose native push device tokens",
 );
 assertExcludes(noticesScreen, "이 기기에서는 알림을 받을 수 없습니다.", "notification panel unsupported-device hard failure copy");
 assertExcludes(noticesScreen, "공지 알림은 준비 중입니다.", "notification panel app UI copy");
@@ -561,8 +597,10 @@ assert(domain.includes("notification.dispatch"), "audit actions must include pus
 assert(serverDb.includes('"pushSubscriptions"'), "runtime DB must require pushSubscriptions collection");
 
 assert(packageJson.dependencies?.["web-push"], "package.json must include web-push");
+assert(packageJson.dependencies?.["@capacitor/push-notifications"], "package.json must include Capacitor native push support");
 assert(apiClient.includes("getPushConfig"), "api client must expose push config lookup");
 assert(apiClient.includes("subscribeToPush"), "api client must expose push subscribe");
+assert(apiClient.includes("subscribeToNativePush"), "api client must expose native device registration");
 assert(apiClient.includes("unsubscribeFromPush"), "api client must expose push unsubscribe");
 assert(apiClient.includes("dispatchNoticePush"), "api client must expose notice push dispatch");
 assert(apiClient.includes("markNoticesAsRead"), "api client must expose filtered notice bulk read");
@@ -576,6 +614,13 @@ assert(pushHelper.includes("FINAL_JUDO_VAPID_PRIVATE_KEY"), "push helper must re
 assert(pushHelper.includes("FINAL_JUDO_VAPID_SUBJECT"), "push helper must read VAPID subject from env");
 assert(!pushHelper.includes("ops@finaljudo.test"), "push helper must not use a sample mailto subject fallback");
 assert(pushHelper.includes("webPush.sendNotification"), "push helper must send web push notifications");
+assert(
+  pushHelper.includes("sendFcmPush") &&
+    pushHelper.includes("sendApnsPush") &&
+    nativePushProviders.includes("FINAL_JUDO_FIREBASE_PROJECT_ID") &&
+    nativePushProviders.includes("FINAL_JUDO_APNS_TEAM_ID"),
+  "push helper must dispatch native tokens through configured FCM and APNs providers",
+);
 assert(pushHelper.includes("statusCode === 404 || statusCode === 410"), "push helper must disable expired subscriptions");
 assert(notificationOutbox.includes("[중요]"), "outbox payload snapshot must mark important notice push titles");
 assert(

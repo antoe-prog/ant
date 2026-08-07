@@ -6,7 +6,7 @@
   "exportMethod": "app-store-connect",
   "signingStyle": "manual",
   "signingCertificate": "Apple Distribution",
-  "provisioningProfile": "Final Judo App Store Connect",
+  "provisioningProfile": "kr.co.finaljudo.multigym App Store Connect",
   "doctorReport": ".data/mobile-builds/ios/ios-ipa-doctor.json",
   "doctorMarkdown": ".data/mobile-builds/ios/ios-ipa-doctor.md",
   "buildReport": ".data/mobile-builds/ios/ios-ipa-build-report.json",

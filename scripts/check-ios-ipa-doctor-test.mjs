@@ -9,10 +9,12 @@ const execFile = promisify(execFileCallback);
 
 const outputDir = await mkdtemp(path.join(tmpdir(), "final-judo-ios-ipa-doctor-"));
 const profilesDir = path.join(outputDir, "profiles");
+const profilesWithoutPushDir = path.join(outputDir, "profiles-without-push");
 const reportPath = path.join(outputDir, "ios-ipa-doctor.json");
 const markdownPath = path.join(outputDir, "ios-ipa-doctor.md");
 const apiOriginReportPath = path.join(outputDir, "ios-ipa-doctor.api-origin.json");
 const defaultConfigReportPath = path.join(outputDir, "ios-ipa-doctor-default-config.json");
+const noPushReportPath = path.join(outputDir, "ios-ipa-doctor-no-push.json");
 const buildReportDir = path.join(outputDir, "build-report");
 const buildApiOriginReportDir = path.join(outputDir, "build-report-api-origin");
 const buildDefaultConfigReportDir = path.join(outputDir, "build-report-default-config");
@@ -20,6 +22,7 @@ const buildReportPath = path.join(buildReportDir, "ios-ipa-build-report.json");
 const buildApiOriginReportPath = path.join(buildApiOriginReportDir, "ios-ipa-build-report.json");
 const buildDefaultConfigReportPath = path.join(buildDefaultConfigReportDir, "ios-ipa-build-report.json");
 await mkdir(profilesDir, { recursive: true });
+await mkdir(profilesWithoutPushDir, { recursive: true });
 const doctorSource = await readFile("scripts/check-ios-ipa-doctor.mjs", "utf8");
 
 const matchingProfile = `<?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +38,7 @@ const matchingProfile = `<?xml version="1.0" encoding="UTF-8"?>
   <key>Entitlements</key>
   <dict>
     <key>application-identifier</key><string>5GWZ792DWH.kr.co.finaljudo.multigym</string>
+    <key>aps-environment</key><string>development</string>
   </dict>
   <key>ProvisionedDevices</key>
   <array>
@@ -45,7 +49,7 @@ const matchingProfile = `<?xml version="1.0" encoding="UTF-8"?>
 const appStoreProfile = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
-  <key>Name</key><string>Final Judo App Store Connect</string>
+  <key>Name</key><string>kr.co.finaljudo.multigym App Store Connect</string>
   <key>UUID</key><string>11111111-1111-1111-1111-111111111111</string>
   <key>TeamIdentifier</key>
   <array>
@@ -55,6 +59,7 @@ const appStoreProfile = `<?xml version="1.0" encoding="UTF-8"?>
   <key>Entitlements</key>
   <dict>
     <key>application-identifier</key><string>5GWZ792DWH.kr.co.finaljudo.multigym</string>
+    <key>aps-environment</key><string>production</string>
     <key>get-task-allow</key><false/>
   </dict>
 </dict>
@@ -77,6 +82,10 @@ const mismatchedProfile = `<?xml version="1.0" encoding="UTF-8"?>
 await writeFile(path.join(profilesDir, "matching.mobileprovision"), matchingProfile);
 await writeFile(path.join(profilesDir, "app-store.mobileprovision"), appStoreProfile);
 await writeFile(path.join(profilesDir, "mismatched.mobileprovision"), mismatchedProfile);
+await writeFile(
+  path.join(profilesWithoutPushDir, "app-store-without-push.mobileprovision"),
+  appStoreProfile.replace("    <key>aps-environment</key><string>production</string>\n", ""),
+);
 
 await execFile(
   process.execPath,
@@ -119,6 +128,11 @@ assert.equal(
   "doctor must select a profile compatible with the configured App Store export method",
 );
 assert.equal(
+  report.checks.provisioningProfile.inventory.matchingPushEnabledProfiles,
+  2,
+  "doctor must count matching profiles that include the Push Notifications entitlement",
+);
+assert.equal(
   report.checks.provisioningProfile.inventory.matchingProfilesWithRegisteredDevices,
   1,
   "doctor must count matching profiles with registered devices",
@@ -130,6 +144,30 @@ assert(
 assert(
   report.blockers.some((blocker) => blocker.check === "origin"),
   "doctor must block when FINAL_JUDO_IOS_SERVER_URL/--origin is missing",
+);
+
+await execFile(
+  process.execPath,
+  [
+    "scripts/check-ios-ipa-doctor.mjs",
+    "--team-id=5GWZ792DWH",
+    "--bundle-id=kr.co.finaljudo.multigym",
+    "--origin=https://final-judo.vercel.app",
+    `--profiles-dir=${profilesWithoutPushDir}`,
+    `--out=${noPushReportPath}`,
+  ],
+  { cwd: process.cwd() },
+);
+const noPushReport = JSON.parse(await readFile(noPushReportPath, "utf8"));
+assert.equal(
+  noPushReport.checks.provisioningProfile.ok,
+  false,
+  "doctor must reject an otherwise matching profile that lacks Push Notifications",
+);
+assert.match(
+  noPushReport.checks.provisioningProfile.reason,
+  /aps-environment/,
+  "doctor must explain the missing Push Notifications entitlement",
 );
 assert(Array.isArray(report.resolutionHints.appleDeveloper), "doctor report must expose Apple Developer hints");
 assert(Array.isArray(report.resolutionHints.xcode), "doctor report must expose Xcode hints");
@@ -276,7 +314,7 @@ assert.equal(
 );
 assert.equal(
   buildReport.provisioningProfile,
-  "Final Judo App Store Connect",
+  "kr.co.finaljudo.multigym App Store Connect",
   "App Store build must use the configured distribution profile",
 );
 assert.equal(

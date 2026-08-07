@@ -227,7 +227,15 @@ try {
       resetCallerCount += 1;
     }
 
-    if (source.includes("spawn(") && (source.includes('"dev"') || source.includes('"run", "dev"'))) {
+    if (
+      source.includes("spawn(") &&
+      (
+        source.includes('"dev"') ||
+        source.includes('"run", "dev"') ||
+        source.includes('"start"') ||
+        source.includes('"run", "start"')
+      )
+    ) {
       if (!source.includes("resetOwnedSmokeServer(")) {
         continue;
       }

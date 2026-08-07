@@ -344,11 +344,13 @@ export type PushSubscriptionRecord = {
   id: string;
   userId: string;
   branchIds: string[];
+  transport?: "web" | "fcm" | "apns";
   endpoint: string;
   keys: {
     auth: string;
     p256dh: string;
   };
+  deviceToken?: string;
   userAgent?: string;
   createdAt: string;
   updatedAt: string;
@@ -426,6 +428,7 @@ export type PasswordResetChallenge = {
   consumedAt?: string;
 };
 
+// Read-only compatibility for challenges written before signup verification was deferred.
 export type PhoneSignupChallenge = {
   id: string;
   phoneHash: string;

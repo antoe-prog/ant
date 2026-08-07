@@ -6,11 +6,13 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
 import {
   assertOwnedSmokeServer,
+  getFreePort,
   prepareStandaloneSmokeEnvironment,
   resetOwnedSmokeServer,
 } from "./lib/release-smoke-environment.mjs";
 
-const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+const explicitBaseUrl = process.env.SMOKE_BASE_URL?.trim();
+const baseUrl = explicitBaseUrl || `http://127.0.0.1:${await getFreePort()}`;
 const parsedBaseUrl = new URL(baseUrl);
 const managedHostname = parsedBaseUrl.hostname.replace(/^\[(.*)\]$/, "$1");
 const managedPort = parsedBaseUrl.port || "3000";

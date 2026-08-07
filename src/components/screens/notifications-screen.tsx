@@ -20,11 +20,13 @@ import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { connectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
 import {
-  getNativeAppPermissionStatus,
   isNativeAndroidApp,
   openNativeAppSettings,
-  requestNativeAppPermission,
 } from "@/lib/native-app-permissions";
+import {
+  connectCurrentNativePushRegistration,
+  isNativeMobileApp,
+} from "@/lib/native-push-registration";
 import { getFamilyMemberRelationLabel, getGuardianFamilyMemberIds, getGuardianFamilyMembers, getGuardianMemberRelation } from "@/lib/family-members";
 import { canDeleteNotice } from "@/lib/notice-permissions";
 import { isNoticeReadByUser, isNoticeRelevantToMember, sortNoticesForDisplay } from "@/lib/notices";
@@ -40,7 +42,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-bloc
 type NotificationFilter = "all" | "unread" | "important" | "payment" | "promotion";
 type NotificationKind = "notice" | "payment" | "promotion";
 type NotificationTone = "critical" | "warning" | "teal" | "zinc";
-type FamilyPushStatus = "checking" | "prompt" | "saving" | "ready" | "blocked" | "error" | "hidden";
+type FamilyPushStatus = "checking" | "prompt" | "saving" | "ready" | "blocked" | "error" | "hidden" | "unavailable";
 
 type NotificationItem = {
   body: string;
@@ -297,23 +299,8 @@ export function NotificationsScreen() {
       return "hidden" as const;
     }
 
-    if (isNativeAndroidApp()) {
-      const currentPermission = await getNativeAppPermissionStatus("notifications");
-      const permission =
-        currentPermission === "granted" || !requestPermission
-          ? currentPermission
-          : await requestNativeAppPermission("notifications");
-
-      if (permission === "denied") {
-        return "blocked" as const;
-      }
-
-      if (permission !== "granted") {
-        return "prompt" as const;
-      }
-
-      // Capacitor WebView notification delivery is connected separately from browser PushManager.
-      return "ready" as const;
+    if (isNativeMobileApp()) {
+      return connectCurrentNativePushRegistration({ requestPermission });
     }
 
     return connectCurrentBrowserPushSubscription({ requestPermission });
@@ -344,7 +331,7 @@ export function NotificationsScreen() {
   }, [connectFamilyPush, context.user.id, familyNotificationsAlwaysOn]);
 
   useEffect(() => {
-    if (!familyNotificationsAlwaysOn || !isNativeAndroidApp()) {
+    if (!familyNotificationsAlwaysOn || !isNativeMobileApp()) {
       return;
     }
 
@@ -553,24 +540,30 @@ export function NotificationsScreen() {
       ) : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white" aria-label="알림 목록">
-        {familyNotificationsAlwaysOn && ["prompt", "saving", "blocked", "error"].includes(familyPushStatus) ? (
+        {familyNotificationsAlwaysOn && ["prompt", "saving", "blocked", "error", "unavailable"].includes(familyPushStatus) ? (
           <div
             className="flex min-h-14 items-center justify-between gap-3 border-b border-teal-100 bg-teal-50 px-3 py-2 sm:px-4"
             data-testid="family-push-connection-row"
           >
             <div className="min-w-0">
               <p className="text-sm font-semibold text-teal-950">
-                {familyPushStatus === "blocked" ? "휴대폰 알림이 꺼져 있습니다" : "새 공지를 휴대폰으로 받기"}
+                {familyPushStatus === "blocked"
+                  ? "휴대폰 알림이 꺼져 있습니다"
+                  : familyPushStatus === "unavailable"
+                    ? "앱 알림 연결을 준비 중입니다"
+                    : "새 공지를 휴대폰으로 받기"}
               </p>
               <p className="mt-0.5 text-xs leading-4 text-teal-800">
                 {familyPushStatus === "blocked"
                   ? "기기 설정에서 FINAL 알림을 허용해 주세요."
+                  : familyPushStatus === "unavailable"
+                    ? "기기 등록은 완료됐습니다. 서비스 설정을 확인한 뒤 다시 시도해 주세요."
                   : familyPushStatus === "error"
-                    ? "연결하지 못했습니다. 다시 시도해 주세요."
+                    ? "기기 알림 등록에 실패했습니다. 앱을 업데이트한 뒤 다시 시도해 주세요."
                     : "공지와 중요 안내를 놓치지 않도록 연결합니다."}
               </p>
             </div>
-            {familyPushStatus !== "blocked" ? (
+            {familyPushStatus !== "blocked" && familyPushStatus !== "unavailable" ? (
               <Button
                 aria-label="휴대폰 공지 알림 켜기"
                 className="shrink-0"

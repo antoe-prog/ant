@@ -28,6 +28,10 @@
 # misc
 .DS_Store
 *.pem
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
 .data/
 
 # debug
@@ -35,6 +39,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+firebase-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
