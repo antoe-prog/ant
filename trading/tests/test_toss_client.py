@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 
-from tossquant.broker.base import BrokerError
+from tossquant.broker.base import BrokerError, CredentialsRejected
 from tossquant.broker.toss import TossClient
 from tossquant.models import OrderRequest, OrderStatus, Side
 from tossquant.ratelimit import RateLimiter, TokenBucket
@@ -64,7 +64,7 @@ def test_token_failure_surfaces(client):
     respx.post(f"{BASE}/oauth2/token").mock(
         return_value=httpx.Response(401, text="bad client")
     )
-    with pytest.raises(BrokerError, match="토큰 발급 실패"):
+    with pytest.raises(CredentialsRejected, match="자격증명 거부"):
         client.list_accounts()
 
 

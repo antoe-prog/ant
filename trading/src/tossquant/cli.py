@@ -16,9 +16,9 @@ from .backtest.data import CandleCache, CsvSource, TossSource, load_history
 from .backtest import walkforward as walkforward_mod
 from .backtest.report import export, render, render_walkforward
 from .backtest.simulator import Backtester
-from .broker.base import BrokerError
+from .broker.base import BrokerError, CredentialsRejected, IPNotAllowed
 from .broker.paper import PaperBroker
-from .broker.toss import TossClient
+from .broker.toss import TossClient, public_ip
 from .calendar_us import describe
 from .config import Mode, Settings
 from . import notify
@@ -77,7 +77,30 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     settings = Settings()
     console.print(f"[bold]base_url[/bold] {settings.base_url}")
     console.print(f"[bold]mode[/bold] {settings.mode.value}")
-    console.print(f"[bold]market[/bold] {describe(datetime.now(timezone.utc))}\n")
+    console.print(f"[bold]market[/bold] {describe(datetime.now(timezone.utc))}")
+
+    ip = public_ip()
+    console.print(
+        f"[bold]현재 공인 IP[/bold] {ip or '확인 실패'}"
+        "  [dim](토스 허용 IP 목록에 등록돼 있어야 합니다)[/dim]"
+    )
+
+    if settings.key_expires_at:
+        remaining = settings.days_until_key_expiry()
+        warning = settings.key_expiry_warning()
+        color = "red" if warning else "green"
+        console.print(
+            f"[bold]키 만료[/bold] [{color}]{settings.key_expires_at} "
+            f"({remaining}일 남음)[/{color}]"
+        )
+        if warning:
+            console.print(f"  [yellow]{warning}[/yellow]")
+    else:
+        console.print(
+            "[bold]키 만료[/bold] [dim]미설정 — TOSSQUANT_KEY_EXPIRES_AT 을 넣으면 "
+            "만료 전에 알려줍니다[/dim]"
+        )
+    console.print()
 
     client = _client(settings)
 
@@ -85,9 +108,15 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     try:
         token = client._access_token()  # noqa: SLF001 — 진단 목적
         console.print(f"[green]OK[/green] access_token …{token[-8:]}")
+    except IPNotAllowed as exc:
+        console.print(f"[red]IP 차단[/red]\n{exc}")
+        raise typer.Exit(1) from None
+    except CredentialsRejected as exc:
+        console.print(f"[red]자격증명 문제[/red]\n{exc}")
+        raise typer.Exit(1) from None
     except BrokerError as exc:
         console.print(f"[red]실패[/red] {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.rule("2. 계좌 목록")
     try:

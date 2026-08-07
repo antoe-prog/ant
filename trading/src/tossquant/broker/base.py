@@ -58,3 +58,20 @@ class OrderRejected(BrokerError):
 class InsufficientFunds(OrderRejected):
     def __init__(self, needed: Decimal, available: Decimal, request: OrderRequest) -> None:
         super().__init__(f"need {needed:.2f} USD but only {available:.2f} available", request)
+
+
+class AuthError(BrokerError):
+    """인증 실패. 원인별로 대처가 완전히 다르므로 하위 타입으로 나눈다."""
+
+
+class IPNotAllowed(AuthError):
+    """허용 IP 목록에 없는 곳에서 호출했을 때.
+
+    토스 Open API는 IP 화이트리스트를 쓴다. 집 인터넷의 유동 IP가 바뀌거나
+    서버를 옮기면 자격증명이 멀쩡해도 인증이 통째로 막힌다 — 밤새 돌던 봇이
+    조용히 죽는 흔한 원인이다.
+    """
+
+
+class CredentialsRejected(AuthError):
+    """client_id/secret이 틀렸거나 키가 만료·폐기됐을 때."""

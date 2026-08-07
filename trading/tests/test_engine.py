@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -426,3 +426,36 @@ def test_run_forever_survives_a_failing_cycle(settings, store):
     engine.run_forever(sleep=lambda _: None)
 
     assert calls["n"] == 2  # 첫 사이클 실패 후 계속 돌았다
+
+
+def test_startup_warns_when_key_is_expiring(settings, store):
+    """1년 뒤 조용히 멈추는 걸 막는 게 목적이므로 시작 알림에 실려야 한다."""
+    from datetime import date
+
+    settings.key_expires_at = date.today() + timedelta(days=10)
+    engine, _, _ = build(FLAT, settings, store)
+    notifier = Recorder(throttle_seconds=0)
+    engine.notifier = notifier
+    engine.stop()
+
+    engine.run_forever(sleep=lambda _: None)
+
+    start = next(n for n in notifier.sent if "봇 시작" in n.title)
+    assert any("10일 뒤 만료" in line for line in start.lines)
+    assert start.level is Level.WARN
+
+
+def test_startup_is_quiet_when_key_is_fresh(settings, store):
+    from datetime import date
+
+    settings.key_expires_at = date.today() + timedelta(days=300)
+    engine, _, _ = build(FLAT, settings, store)
+    notifier = Recorder(throttle_seconds=0)
+    engine.notifier = notifier
+    engine.stop()
+
+    engine.run_forever(sleep=lambda _: None)
+
+    start = next(n for n in notifier.sent if "봇 시작" in n.title)
+    assert not any("만료" in line for line in start.lines)
+    assert start.level is Level.INFO

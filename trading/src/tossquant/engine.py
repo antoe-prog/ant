@@ -345,14 +345,22 @@ class TradingEngine:
             mode, self.strategy.name, ",".join(self.settings.symbols),
             self.settings.poll_seconds,
         )
+        startup = [
+            f"전략 {self.strategy.name} (SMA {self.settings.sma_fast}/{self.settings.sma_slow})",
+            f"종목 {', '.join(self.settings.symbols)}",
+            f"손절 {self._protection_line()}",
+        ]
+        # 키 만료는 시작할 때 알려야 의미가 있다. 만료되고 나면 토큰 발급부터
+        # 실패해서 봇이 통째로 멈추고, 그때는 이미 늦다.
+        expiry = self.settings.key_expiry_warning()
+        if expiry:
+            startup.append(f"⚠ {expiry}")
+            log.warning(expiry)
         self.notifier.notify(
             Notification(
                 title=f"봇 시작 [{mode}]",
-                lines=[
-                    f"전략 {self.strategy.name} (SMA {self.settings.sma_fast}/{self.settings.sma_slow})",
-                    f"종목 {', '.join(self.settings.symbols)}",
-                    f"손절 {self._protection_line()}",
-                ],
+                lines=startup,
+                level=Level.WARN if expiry else Level.INFO,
             )
         )
 

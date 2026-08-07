@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -31,7 +32,13 @@ from ..models import (
     Side,
 )
 from ..ratelimit import RateLimiter
-from .base import Broker, BrokerError, OrderRejected
+from .base import (
+    Broker,
+    BrokerError,
+    CredentialsRejected,
+    IPNotAllowed,
+    OrderRejected,
+)
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +107,69 @@ def _ts(value: Any) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+# 응답 본문에서 IP 차단을 시사하는 표현. 토스가 어떤 문구를 쓰는지 확인되지
+# 않아 후보를 여러 개 두되, 단어 경계를 지켜야 한다 — 맨 "ip"로 검색하면
+# "description" 같은 흔한 단어에 걸려 자격증명 오류를 IP 문제로 오진한다.
+IP_HINT_PATTERN = re.compile(
+    r"\bip\b|allow[\s_-]?list|white[\s_-]?list|허용\s*ip|화이트리스트|ip[\s_-]?address",
+    re.IGNORECASE,
+)
+
+PUBLIC_IP_SERVICES = (
+    "https://api.ipify.org",
+    "https://ifconfig.me/ip",
+)
+
+
+def public_ip(timeout: float = 3.0) -> str | None:
+    """현재 나가는 공인 IP. 실패하면 None.
+
+    IP 차단으로 막혔을 때 '어느 IP를 등록해야 하는지'를 바로 알려주기 위한
+    것이다. 진단 경로에서만 호출하고, 실패해도 조용히 넘어간다 — 이것 때문에
+    에러 메시지가 안 뜨면 본말전도다.
+    """
+    for url in PUBLIC_IP_SERVICES:
+        try:
+            response = httpx.get(url, timeout=timeout)
+            if response.status_code < 400:
+                candidate = response.text.strip()
+                if candidate and len(candidate) <= 45:
+                    return candidate
+        except httpx.RequestError:
+            continue
+    return None
+
+
+def classify_auth_failure(status: int, body: str) -> BrokerError:
+    """인증 실패 원인을 추정한다.
+
+    자격증명이 틀린 것과 IP가 막힌 것은 대처가 완전히 다르다. 전자는 키를 다시
+    발급받아야 하고, 후자는 키가 멀쩡한데 접속 위치만 바꾸면 된다. 구분해 주지
+    않으면 멀쩡한 키를 재발급하며 시간을 버리게 된다.
+    """
+    snippet = body[:300]
+
+    if status == 403 or IP_HINT_PATTERN.search(body):
+        current = public_ip()
+        where = f"현재 IP는 {current} 입니다." if current else "현재 IP를 확인하지 못했습니다."
+        return IPNotAllowed(
+            f"인증 거부 ({status}). 허용 IP 목록 문제일 가능성이 높습니다.\n"
+            f"  {where}\n"
+            "  토스증권 WTS > 설정 > Open API > 허용 IP 관리 에서 이 IP를 추가하세요.\n"
+            "  (집 인터넷은 유동 IP라 재접속 시 바뀔 수 있습니다.)\n"
+            f"  서버 응답: {snippet}"
+        )
+
+    if status in (400, 401):
+        return CredentialsRejected(
+            f"자격증명 거부 ({status}). client_id/secret이 틀렸거나 키가 만료·폐기됐습니다.\n"
+            "  토스증권 WTS > 설정 > Open API 에서 상태와 만료일을 확인하세요.\n"
+            f"  서버 응답: {snippet}"
+        )
+
+    return BrokerError(f"토큰 발급 실패 ({status}): {snippet}")
+
+
 class _Token:
     __slots__ = ("value", "expires_at")
 
@@ -149,9 +219,7 @@ class TossClient(Broker):
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             if response.status_code >= 400:
-                raise BrokerError(
-                    f"토큰 발급 실패 ({response.status_code}): {response.text[:300]}"
-                )
+                raise classify_auth_failure(response.status_code, response.text)
             payload = _unwrap(response.json())
             token = _pick(payload, "access_token", "accessToken")
             if not token:
@@ -214,6 +282,10 @@ class TossClient(Broker):
                 )
                 self._backoff(attempt, response.headers.get("Retry-After"))
                 continue
+
+            if response.status_code == 403:
+                # 토큰이 캐시된 뒤 IP가 바뀌면 토큰 발급이 아니라 여기서 막힌다.
+                raise classify_auth_failure(403, response.text)
 
             if response.status_code >= 400:
                 raise BrokerError(

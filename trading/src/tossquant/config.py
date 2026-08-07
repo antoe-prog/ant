@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -29,6 +30,10 @@ class Settings(BaseSettings):
     account_id: str = ""
     base_url: str = "https://openapi.tossinvest.com"
     request_timeout: float = 10.0
+    # WTS의 Open API 화면에 찍힌 만료일. API가 남은 기간을 알려주지 않으므로
+    # 여기 적어두지 않으면 만료 당일 봇이 인증 실패로 조용히 멈춘다.
+    key_expires_at: date | None = None
+    key_expiry_warn_days: int = 30
 
     # --- 실행 ---
     mode: Mode = Mode.PAPER
@@ -101,3 +106,32 @@ class Settings(BaseSettings):
                 + ", ".join(f"TOSSQUANT_{m.upper()}" for m in missing)
                 + " — 토스증권 WTS > 설정 > Open API 에서 발급하세요."
             )
+
+    def days_until_key_expiry(self, today: date | None = None) -> int | None:
+        """키 만료까지 남은 일수. 만료일을 설정하지 않았으면 None."""
+        if self.key_expires_at is None:
+            return None
+        return (self.key_expires_at - (today or date.today())).days
+
+    def key_expiry_warning(self, today: date | None = None) -> str | None:
+        """경고가 필요하면 사람이 읽을 문장, 아니면 None.
+
+        만료된 키로는 토큰 발급 자체가 안 되므로 봇이 통째로 멈춘다. 미리
+        알려주지 않으면 1년 뒤 원인 모를 인증 실패로 나타난다.
+        """
+        remaining = self.days_until_key_expiry(today)
+        if remaining is None:
+            return None
+        if remaining < 0:
+            return (
+                f"API 키가 {-remaining}일 전에 만료됐습니다 ({self.key_expires_at}). "
+                "토스증권 WTS > 설정 > Open API 에서 재발급하세요."
+            )
+        if remaining == 0:
+            return f"API 키가 오늘 만료됩니다 ({self.key_expires_at}). 지금 재발급하세요."
+        if remaining <= self.key_expiry_warn_days:
+            return (
+                f"API 키가 {remaining}일 뒤 만료됩니다 ({self.key_expires_at}). "
+                "미리 재발급해 두세요."
+            )
+        return None
