@@ -250,13 +250,13 @@ def test_protective_exit_suppresses_strategy_signal_same_cycle(settings, store):
     engine.strategy.on_bar = counting_on_bar
     positions = {"AAPL": Position("AAPL", 10, Decimal("100"))}
 
-    signals = collect_signals(
+    batch = collect_signals(
         ["AAPL"], engine.strategy, engine.stops, positions,
         {"AAPL": Decimal("80")}, {"AAPL": []}, OPEN,
     )
 
-    assert len(signals) == 1
-    assert signals[0].protective is True
+    assert len(batch.signals) == 1
+    assert batch.signals[0].protective is True
     assert calls == []  # 전략은 호출조차 되지 않았다
 
 

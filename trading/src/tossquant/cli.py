@@ -372,6 +372,22 @@ def _parse_grid(spec: str, strategy: str) -> walkforward_mod.ParamGrid:
 
 
 
+def _apply_regime(settings: Settings, symbol: str, ma_bars: int) -> None:
+    """--regime / --regime-ma 를 설정에 반영한다.
+
+    'off'로 명시적으로 끌 수 있어야 .env에 켜둔 상태에서도 비교 실행이 된다.
+    """
+    if symbol:
+        if symbol.lower() == "off":
+            settings.regime_enabled = False
+        else:
+            settings.regime_enabled = True
+            settings.regime_symbol = symbol.upper()
+    if ma_bars > 0:
+        settings.regime_ma_bars = ma_bars
+
+
+
 def _resolve_count(count: int, source: str, toss_default: int) -> int:
     """--count 기본값을 소스에 맞게 정한다.
 
@@ -405,6 +421,11 @@ def backtest(
     slow: int = typer.Option(0, "--slow", help="SMA 장기 (0이면 .env 설정)"),
     cash: float = typer.Option(0.0, "--cash", help="시작 자본 (0이면 .env 설정)"),
     stop_loss: float = typer.Option(-1.0, "--stop-loss", help="손절 비율 (0.08 = 8%)"),
+    regime: str = typer.Option(
+        "", "--regime",
+        help="시장 국면 필터 지수 심볼 (예: SPY). 'off'면 끈다.",
+    ),
+    regime_ma: int = typer.Option(0, "--regime-ma", help="국면 판정 이동평균 봉 수"),
     trailing: float = typer.Option(-1.0, "--trailing", help="트레일링 스톱 비율"),
     take_profit: float = typer.Option(-1.0, "--take-profit", help="익절 비율"),
     max_holding: int = typer.Option(-1, "--max-holding", help="최대 보유 일수"),
@@ -451,6 +472,7 @@ def backtest(
         settings.take_profit_pct = Decimal(str(take_profit))
     if max_holding >= 0:
         settings.max_holding_days = max_holding
+    _apply_regime(settings, regime, regime_ma)
     if no_stops:
         settings.stop_loss_pct = Decimal("0")
         settings.trailing_stop_pct = Decimal("0")
@@ -473,8 +495,12 @@ def backtest(
         return datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     try:
+        wanted = list(settings.symbols)
+        if settings.regime_enabled and settings.regime_symbol not in wanted:
+            # 지수는 매매 대상이 아니지만 캔들은 같이 받아와야 한다.
+            wanted.append(settings.regime_symbol)
         history = load_history(
-            settings.symbols,
+            wanted,
             settings.candle_interval,
             history_source,
             count=_resolve_count(count, source, 500),

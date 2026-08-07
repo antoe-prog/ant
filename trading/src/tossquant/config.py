@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     meanrev_entry_z: Decimal = Decimal("-2")
     meanrev_exit_z: Decimal = Decimal("0")
 
+    # --- 시장 국면 필터 ---
+    # 지수가 장기선 아래면 신규 진입만 막는다 (청산은 항상 허용).
+    # 기본은 꺼둔다 — 지수 캔들이 없으면 아무 일도 안 하므로 켤 때 확인이 필요하다.
+    regime_enabled: bool = False
+    regime_symbol: str = "SPY"
+    regime_ma_bars: int = 200
+
     # --- 리스크 ---
     max_position_pct: Decimal = Decimal("0.25")
     max_positions: int = 4

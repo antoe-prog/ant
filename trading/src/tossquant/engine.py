@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -26,6 +27,7 @@ from .models import (
     SignalAction,
 )
 from .notify import Level, Notification, Notifier, NullNotifier
+from .regime import RegimeFilter
 from .risk import RiskManager
 from .stops import StopManager
 from .store import Store
@@ -37,6 +39,14 @@ log = logging.getLogger(__name__)
 CANDLE_BUFFER = 20
 
 
+@dataclass
+class SignalBatch:
+    """이번 사이클의 신호와, 국면 필터가 걷어낸 진입 수."""
+
+    signals: list[Signal]
+    suppressed_entries: int = 0
+
+
 def collect_signals(
     symbols: list[str],
     strategy: Strategy,
@@ -45,18 +55,25 @@ def collect_signals(
     marks: dict[str, Decimal],
     candles: dict[str, list[Candle]],
     now: datetime,
-) -> list[Signal]:
+    *,
+    allow_entries: bool = True,
+) -> SignalBatch:
     """이번 사이클에 처리할 신호 목록.
 
     실시간 엔진과 백테스트가 **같은 함수**를 쓴다. 신호 우선순위가 두 곳에서
     갈리면 백테스트 결과를 믿을 수 없게 되므로 여기 한 곳에만 둔다.
 
-    보호 청산이 전략보다 우선한다. 손절이 걸린 종목은 그 사이클에 전략 신호를
-    아예 묻지 않는다 — 같은 봉에서 손절과 전략 매수가 동시에 나오는 걸 막는다.
+    우선순위:
+    1. 보호 청산이 전략보다 앞선다. 손절이 걸린 종목은 그 사이클에 전략 신호를
+       아예 묻지 않는다 — 같은 봉에서 손절과 전략 매수가 동시에 나오는 걸 막는다.
+    2. `allow_entries=False`(시장 국면 위험)면 **신규 진입만** 걷어낸다.
+       청산은 국면과 무관하게 통과시킨다 — 하락장에서 못 빠져나오게 막는 건
+       정확히 반대로 가는 짓이다.
     """
     protective = stops.exits(positions, marks, now)
     stopped = {signal.symbol for signal in protective}
     signals = list(protective)
+    suppressed = 0
 
     for symbol in symbols:
         if symbol in stopped:
@@ -69,10 +86,14 @@ def collect_signals(
         except Exception:  # 전략 버그가 루프 전체를 죽이지 않게 한다
             log.exception("%s 전략 평가 중 오류", symbol)
             continue
-        if signal is not None:
-            signals.append(signal)
+        if signal is None:
+            continue
+        if not allow_entries and signal.action is SignalAction.ENTER_LONG:
+            suppressed += 1
+            continue
+        signals.append(signal)
 
-    return signals
+    return SignalBatch(signals=signals, suppressed_entries=suppressed)
 
 
 class TradingEngine:
@@ -85,6 +106,7 @@ class TradingEngine:
         settings: Settings,
         stops: StopManager | None = None,
         notifier: Notifier | None = None,
+        regime: RegimeFilter | None = None,
     ) -> None:
         self.broker = broker
         self.strategy = strategy
@@ -99,6 +121,11 @@ class TradingEngine:
             take_profit_pct=settings.take_profit_pct,
             max_holding_days=settings.max_holding_days,
             cooldown_days=settings.stop_cooldown_days,
+        )
+        self.regime = regime or RegimeFilter(
+            settings.regime_symbol,
+            settings.regime_ma_bars,
+            enabled=settings.regime_enabled,
         )
         self._stopped = False
 
@@ -133,7 +160,12 @@ class TradingEngine:
         self._notify_daily_loss(equity, baseline, moment)
         self._notify_daily_summary(equity, baseline, moment)
 
-        signals = collect_signals(
+        state = self.regime.evaluate(self._regime_candles())
+        if not state.risk_on:
+            log.info("시장 국면 위험 — 신규 진입 차단 (%s)", state.reason)
+        self._notify_regime(state, moment)
+
+        batch = collect_signals(
             list(candles),
             self.strategy,
             self.stops,
@@ -141,10 +173,13 @@ class TradingEngine:
             marks,
             candles,
             moment,
+            allow_entries=state.risk_on,
         )
+        if batch.suppressed_entries:
+            log.info("국면 필터가 진입 신호 %d건을 걷어냈습니다", batch.suppressed_entries)
 
         executed: list[Order] = []
-        for signal in signals:
+        for signal in batch.signals:
             order = self._act(signal, account, marks, moment)
             if order is not None:
                 executed.append(order)
@@ -170,6 +205,21 @@ class TradingEngine:
                 continue
             collected[symbol] = rows
         return collected
+
+    def _regime_candles(self) -> list[Candle] | None:
+        """국면 판정용 지수 캔들. 매매 대상이 아니라 데이터로만 쓴다."""
+        if not self.regime.enabled:
+            return None
+        try:
+            return self.broker.get_candles(
+                self.regime.symbol,
+                self.settings.candle_interval,
+                self.regime.warmup_bars + CANDLE_BUFFER,
+            )
+        except BrokerError as exc:
+            # fail-open: 조회 실패로 매수를 막으면 봇이 멈춘 이유가 드러나지 않는다.
+            log.warning("%s 지수 캔들 조회 실패: %s", self.regime.symbol, exc)
+            return None
 
     def _exec_price(self, signal: Signal) -> Decimal | None:
         """주문이 실제로 체결될 가격. 사이징 기준을 종가가 아닌 현재 호가로 잡는다.
@@ -259,6 +309,33 @@ class TradingEngine:
                 level=Level.ERROR,
                 # 같은 종목의 같은 문제가 매 사이클 반복되는 걸 막는다.
                 dedup_key=f"order-problem:{signal.symbol}:{title}",
+            )
+        )
+
+    def _notify_regime(self, state, moment: datetime) -> None:
+        """국면이 바뀔 때만 알린다.
+
+        매 사이클 보내면 하루 종일 같은 메시지가 쌓인다. 전환은 드물게 일어나고
+        일어날 때는 반드시 알아야 하는 사건이라 SQLite에 직전 상태를 남긴다.
+        """
+        if not self.regime.enabled:
+            return
+        previous = self.store.get_state("regime.risk_on")
+        if previous is not None and previous == state.risk_on:
+            return
+        self.store.set_state("regime.risk_on", state.risk_on)
+        if previous is None:
+            return  # 첫 관측은 전환이 아니다
+
+        self.notifier.notify(
+            Notification(
+                title=(
+                    "시장 국면 → 위험 (신규 진입 차단)"
+                    if not state.risk_on
+                    else "시장 국면 → 정상 (신규 진입 재개)"
+                ),
+                lines=[state.reason, "보유 포지션 청산은 국면과 무관하게 계속됩니다."],
+                level=Level.WARN if not state.risk_on else Level.INFO,
             )
         )
 

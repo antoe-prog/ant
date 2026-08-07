@@ -56,8 +56,15 @@ class ReplayMarket(MarketData):
         self,
         history: dict[str, list[Candle]],
         spread_bps: Decimal = Decimal("2"),
+        data_only: frozenset[str] = frozenset(),
     ) -> None:
+        """data_only 심볼은 정렬·커서에는 참여하지만 매매 대상은 아니다.
+
+        시장 국면 판정용 지수가 그렇다. 같은 정렬을 타야 커서가 어긋나지 않고,
+        무엇보다 지수도 `get_candles`의 커서 제한을 받아 **미래를 못 본다.**
+        """
         self._history = align(history)
+        self._data_only = frozenset(s.upper() for s in data_only)
         if not self._history:
             raise ValueError("백테스트할 캔들이 없습니다")
 
@@ -84,6 +91,11 @@ class ReplayMarket(MarketData):
 
     @property
     def symbols(self) -> list[str]:
+        """매매 대상 심볼. 지수 같은 참고용 데이터는 빠진다."""
+        return [s for s in self._history if s not in self._data_only]
+
+    @property
+    def all_symbols(self) -> list[str]:
         return list(self._history)
 
     def seek(self, index: int) -> None:
@@ -106,8 +118,8 @@ class ReplayMarket(MarketData):
         return self._history[symbol][self._cursor].close
 
     def marks(self) -> dict[str, Decimal]:
-        """현재 봉 종가 기준 평가용 가격."""
-        return {symbol: self.close_price(symbol) for symbol in self._history}
+        """현재 봉 종가 기준 평가용 가격. 매매 대상만."""
+        return {symbol: self.close_price(symbol) for symbol in self.symbols}
 
     # --- MarketData ---------------------------------------------------------
 

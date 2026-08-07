@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=0, help="종목 수 제한 (0=전체)")
     p.add_argument("--min-bars", type=int, default=0, help="이 봉 수 미만은 제외")
     p.add_argument("--stop-loss", type=float, default=0.08)
+    p.add_argument("--regime", default="", help="국면 필터 지수 심볼 (예: SPY)")
+    p.add_argument("--regime-ma", type=int, default=200)
     return p.parse_args()
 
 
@@ -54,6 +56,8 @@ def main() -> None:
 
     # 기간이 다른 종목을 섞으면 비교가 무의미해진다. 기본은 최장 기간만 남긴다.
     counts = {f.stem: bar_count(f) for f in files}
+    regime_symbol = args.regime.upper()
+    counts.pop(regime_symbol, None)  # 지수는 매매 대상이 아니다
     threshold = args.min_bars or max(counts.values())
     symbols = [s for s, n in sorted(counts.items()) if n >= threshold]
     if args.limit:
@@ -67,6 +71,9 @@ def main() -> None:
         max_position_pct=Decimal("1"),
         max_positions=1,
         stop_loss_pct=Decimal(str(args.stop_loss)),
+        regime_enabled=bool(regime_symbol),
+        regime_symbol=regime_symbol or "SPY",
+        regime_ma_bars=args.regime_ma,
         strategy=args.strategy,
         sma_fast=args.fast,
         sma_slow=args.slow,
@@ -77,7 +84,8 @@ def main() -> None:
     rows = []
     for symbol in symbols:
         try:
-            history = load_history([symbol], "1d", source, count=0)
+            wanted = [symbol] + ([regime_symbol] if regime_symbol else [])
+            history = load_history(wanted, "1d", source, count=0)
             result = Backtester(history, strategy, settings).run()
         except (ValueError, KeyError):
             continue  # 봉이 부족한 종목은 건너뛴다
@@ -111,7 +119,8 @@ def report(rows: list[tuple], args: argparse.Namespace, bars: int) -> None:
 
     print(
         f"종목 {total}개 × {bars}봉 · 전략 {args.strategy} · "
-        f"손절 {args.stop_loss * 100:g}%\n"
+        f"손절 {args.stop_loss * 100:g}% · "
+        f"국면필터 {f'{regime}일선' if (regime := args.regime_ma if args.regime else 0) else '없음'}\n"
     )
     print(f"{'':20} {'전략':>10} {'바이앤홀드':>12}")
     for label, index in (("총수익률 중앙값", 1), ("MDD 중앙값", 3)):

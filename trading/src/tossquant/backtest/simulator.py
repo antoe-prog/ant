@@ -26,6 +26,7 @@ from ..broker.paper import PaperBroker
 from ..config import Settings
 from ..engine import collect_signals
 from ..models import Candle, Order, OrderRequest, OrderType, Side, SignalAction
+from ..regime import RegimeFilter
 from ..risk import RiskManager
 from ..stops import StopManager
 from ..store import Store
@@ -82,18 +83,50 @@ class Backtester:
         history: dict[str, list[Candle]],
         strategy: Strategy,
         settings: Settings,
+        regime: RegimeFilter | None = None,
     ) -> None:
-        self.market = ReplayMarket(history, spread_bps=settings.backtest_spread_bps)
+        self.regime = regime or RegimeFilter(
+            settings.regime_symbol,
+            settings.regime_ma_bars,
+            enabled=settings.regime_enabled,
+        )
+        # 지수는 정렬에 참여시키되 매매 대상에서는 뺀다. 같은 커서를 타야
+        # 지수도 미래를 보지 못한다.
+        data_only = (
+            frozenset({self.regime.symbol})
+            if self.regime.enabled and self.regime.symbol in history
+            else frozenset()
+        )
+        if self.regime.enabled and not data_only:
+            log.warning(
+                "국면 필터가 켜져 있지만 %s 캔들이 없습니다 — 필터 없이 진행합니다",
+                self.regime.symbol,
+            )
+        self.market = ReplayMarket(
+            history, spread_bps=settings.backtest_spread_bps, data_only=data_only
+        )
         self.strategy = strategy
         self.settings = settings
 
     def run(self) -> BacktestResult:
         warmup = self.strategy.warmup_bars
-        first_bar = warmup - 1
+        # 국면 필터가 켜져 있으면 지수 이동평균도 채워져야 한다. 전략 워밍업만
+        # 보면 앞부분이 '필터가 판단 불가라 통과'로 흘러가 필터 효과가
+        # 과소평가된다 — 200일선을 쓰는데 전략이 60봉이면 140봉이 무필터다.
+        effective_warmup = warmup
+        if self.regime.enabled and self.regime.symbol in self.market.all_symbols:
+            effective_warmup = max(warmup, self.regime.warmup_bars)
+
+        first_bar = effective_warmup - 1
         if first_bar >= self.market.length - 1:
             raise ValueError(
                 f"캔들이 부족합니다: {self.market.length}개 수신, "
-                f"전략 워밍업에 {warmup}개 + 체결용 1개가 필요합니다"
+                f"워밍업에 {effective_warmup}개 + 체결용 1개가 필요합니다"
+                + (
+                    f" (전략 {warmup}, 국면 필터 {self.regime.warmup_bars})"
+                    if effective_warmup != warmup
+                    else ""
+                )
             )
 
         # 인메모리 SQLite — 백테스트가 실거래 상태 파일을 건드리지 않게 한다.
@@ -119,6 +152,7 @@ class Backtester:
         trades: list[Trade] = []
         lots: dict[str, _Lot] = {}
         rejections: Counter[str] = Counter()
+        regime_off_bars = 0
         benchmark = _BuyAndHold(self.settings.paper_cash)
 
         for index in range(first_bar, self.market.length):
@@ -145,7 +179,16 @@ class Backtester:
                 )
                 for symbol in self.market.symbols
             }
-            signals = collect_signals(
+            state = self.regime.evaluate(
+                self.market.get_candles(
+                    self.regime.symbol,
+                    self.settings.candle_interval,
+                    self.regime.warmup_bars + CANDLE_LOOKBACK_SLACK,
+                )
+                if self.regime.enabled and self.regime.symbol in self.market.all_symbols
+                else None
+            )
+            batch = collect_signals(
                 self.market.symbols,
                 self.strategy,
                 stops,
@@ -153,9 +196,13 @@ class Backtester:
                 marks,
                 candles,
                 ts,
+                allow_entries=state.risk_on,
             )
+            rejections["regime_risk_off"] += batch.suppressed_entries
+            if not state.risk_on:
+                regime_off_bars += 1
 
-            for signal in signals:
+            for signal in batch.signals:
                 symbol = signal.symbol
                 if signal.action is SignalAction.ENTER_LONG and stops.is_blocked(
                     symbol, ts
@@ -227,6 +274,8 @@ class Backtester:
             active.append(f"최대보유 {s.max_holding_days}일")
         if active and s.stop_cooldown_days > 0:
             active.append(f"쿨다운 {s.stop_cooldown_days}일")
+        if s.regime_enabled:
+            active.append(f"국면필터 {s.regime_symbol} {s.regime_ma_bars}일선")
         return active
 
     def _record(
