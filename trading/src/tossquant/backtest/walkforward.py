@@ -24,14 +24,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from itertools import product
 from typing import Any
 
 from ..config import Settings
 from ..models import Candle
+from ..params import ParamGrid
 from ..strategy.base import Strategy
 from ..strategy.sma_cross import SmaCrossStrategy
 from .metrics import EquityPoint, Metrics, Trade, compute
@@ -52,27 +52,6 @@ OBJECTIVES: dict[str, Callable[[Metrics], float]] = {
     "cagr": lambda m: m.cagr,
     "return": lambda m: m.total_return,
 }
-
-
-@dataclass(frozen=True)
-class ParamGrid:
-    """탐색할 파라미터 조합.
-
-    `valid`로 말이 안 되는 조합(단기선 >= 장기선)을 걸러낸다.
-    """
-
-    values: dict[str, list[Any]]
-    valid: Callable[[dict[str, Any]], bool] | None = None
-
-    def combinations(self) -> Iterator[dict[str, Any]]:
-        keys = list(self.values)
-        for combo in product(*(self.values[k] for k in keys)):
-            params = dict(zip(keys, combo))
-            if self.valid is None or self.valid(params):
-                yield params
-
-    def __len__(self) -> int:
-        return sum(1 for _ in self.combinations())
 
 
 def sma_grid(fast: list[int], slow: list[int]) -> ParamGrid:

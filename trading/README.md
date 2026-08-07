@@ -56,6 +56,7 @@ $EDITOR .env
 | `TOSSQUANT_ACCOUNT_ID` | 주문 계좌 (`verify`로 확인) |
 | `TOSSQUANT_MODE` | `paper`(기본) 또는 `live` |
 | `TOSSQUANT_SYMBOLS` | 대상 종목, 쉼표 구분 |
+| `TOSSQUANT_STRATEGY` | `sma_cross`(기본) / `momentum` / `breakout` / `mean_reversion` |
 | `TOSSQUANT_MAX_POSITION_PCT` | 종목당 평가액 비중 상한 |
 | `TOSSQUANT_MAX_DAILY_LOSS_PCT` | 일일 손실 한도 |
 | `TOSSQUANT_STOP_LOSS_PCT` | 손절 비율 (기본 0.08) |
@@ -107,7 +108,9 @@ tossquant reset
 | `calendar_us.py` | 미국 정규장 개장 판정 (휴장일·조기폐장 포함) |
 | `broker/toss.py` | 토스 REST 클라이언트 (OAuth2, 재시도, 백오프) |
 | `broker/paper.py` | 가상 체결 브로커 |
-| `strategy/sma_cross.py` | 샘플 전략 (SMA 골든/데드크로스) |
+| `strategy/registry.py` | 이름으로 전략 선택 + 워크포워드 기본 격자 |
+| `strategy/indicators.py` | 공용 지표 (SMA·표준편차·z·ROC·신고가/신저가) |
+| `strategy/*.py` | 전략 4종 (아래 참고) |
 | `risk.py` | 사이징과 모든 한도 검사 |
 | `stops.py` | 손절·트레일링·익절·최대보유 (전략과 무관하게 동작) |
 | `notify.py` | 텔레그램·Slack 알림 (실패해도 매매를 막지 않음) |
@@ -279,7 +282,8 @@ tossquant backtest --source csv --csv-dir data --symbols AAPL,MSFT
 # 토스 API에서 캔들을 받아서 (첫 실행 후 candles.db에 캐시된다)
 tossquant backtest --source toss --symbols AAPL --count 500
 
-# 파라미터 바꿔가며 비교
+# 전략·파라미터 바꿔가며 비교
+tossquant backtest --strategy mean_reversion
 tossquant backtest --fast 10 --slow 40 --from 2024-01-01 --to 2026-01-01
 
 # 결과를 CSV로
@@ -344,7 +348,7 @@ tossquant walkforward --source csv --csv-dir data --symbols AAPL,MSFT
 tossquant walkforward --train-bars 300 --test-bars 100 --objective calmar
 
 # 탐색 범위 지정, 확장 창(학습 구간이 계속 늘어남)
-tossquant walkforward --fast-range 5,10,20 --slow-range 60,120 --anchored
+tossquant walkforward --strategy breakout --grid 'entry_bars=10,20,40' --anchored
 ```
 
 목적함수는 `sharpe`(기본) / `sortino` / `calmar` / `cagr` / `return`. **`return`은
@@ -388,22 +392,40 @@ S&P 500 전 종목 일봉 2013-02 ~ 2018-02 (약 5년, 468종목 × 1259봉)으�
 돌린 결과다. 데이터는 [plotly/datasets의 `all_stocks_5yr.csv`](https://raw.githubusercontent.com/plotly/datasets/master/all_stocks_5yr.csv)
 (Kaggle S&P 500 데이터셋).
 
+
+### 전략 4종 모두 이 구간에서 바이앤홀드에 크게 졌다
+
 ```bash
-# 종목별로 쪼갠 뒤
-python scripts/sweep.py ./data --fast 20 --slow 60
+for s in sma_cross momentum breakout mean_reversion; do
+  python scripts/sweep.py ./data --strategy $s
+done
 ```
 
-### 기본 전략(SMA 20/60)은 이 구간에서 바이앤홀드에 크게 졌다
+| 전략 | 수익 중앙값 | MDD 중앙값 | Sharpe | 벤치 승률 | 평균 거래 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `sma_cross` | +8.3% | 14.7% | 0.25 | 14.7% | 10.7 |
+| `momentum` | +7.9% | 14.5% | 0.24 | 16.2% | 12.8 |
+| `breakout` | +5.4% | 13.5% | 0.19 | 12.2% | 21.2 |
+| `mean_reversion` | **+8.5%** | **8.7%** | **0.35** | **16.5%** | 22.0 |
+| *바이앤홀드* | *+60.9%* | *32.7%* | *0.57* | — | — |
 
-| | 전략 | 바이앤홀드 |
-| --- | ---: | ---: |
-| 총수익률 중앙값 | +8.3% | +60.9% |
-| MDD 중앙값 | 14.7% | 32.7% |
-| Sharpe 중앙값 | 0.25 | 0.57 |
+**어떤 전략도 바이앤홀드의 20%를 넘기지 못했다.** 승률도 12~17% 사이로 고만고만하다.
+전략을 바꿔서 해결되는 문제가 아니라는 뜻이다.
 
-**바이앤홀드를 이긴 종목: 69/468 (14.7%)**
+읽을 만한 차이는 두 가지다:
 
-이긴 곳과 진 곳의 패턴이 뚜렷하다:
+- **평균회귀가 네 전략 중 가장 낫다.** MDD 8.7%로 바이앤홀드의 1/4이고 Sharpe도
+  유일하게 0.3을 넘는다. 강세장에서 추세추종이 휩쏘로 깎일 때, 눌림목을 사는 쪽이
+  덜 다쳤다.
+- **돌파가 가장 나쁘다.** 거래는 두 배로 많은데(21.2회) 수익은 가장 낮다. 잦은
+  신호가 비용만 만들었다.
+
+공통점은 **낙폭을 절반 이하로 줄인다**는 것이다(32.7% → 8.7~14.7%). 네 전략 모두
+수익 창출기가 아니라 위험 축소기로 동작했고, 이 구간에서는 그 맞바꿈이 손해였다.
+
+### 이긴 종목과 진 종목
+
+패턴은 전략과 무관하게 같다:
 
 ```
 초과수익 상위    RRC  전략  -18.1%  벤치  -82.4%   (급락장에서 손실을 줄임)
@@ -441,9 +463,30 @@ python scripts/sweep.py ./data --fast 20 --slow 60
 않았다'로 읽어야 한다.** 그리고 그걸 실계좌가 아니라 여기서 알게 된 것이 이 도구의
 목적이다.
 
-## 전략 교체
+## 전략
 
-`strategy/base.py`의 `Strategy`를 상속하고 `cli.py:_build()`에서 갈아끼운다.
+`--strategy` 또는 `TOSSQUANT_STRATEGY`로 고른다.
+
+| 이름 | 방식 | 주요 파라미터 |
+| --- | --- | --- |
+| `sma_cross` | 골든/데드크로스 | `sma_fast` 20 / `sma_slow` 60 |
+| `momentum` | 룩백 수익률이 임계 돌파 | `momentum_lookback` 60 / `momentum_entry` 0.05 |
+| `breakout` | 돈치안 채널 (터틀 계열) | `breakout_entry_bars` 20 / `breakout_exit_bars` 10 |
+| `mean_reversion` | z-score 과매도 매수 | `meanrev_lookback` 20 / `meanrev_entry_z` -2 |
+
+앞의 셋은 추세추종, 마지막 하나는 **정반대 방향**이다. 추세추종은 오르는 걸 사고,
+평균회귀는 과도하게 빠진 걸 산다. 위험 성격도 반대다 — 추세추종은 조금씩 여러 번
+잃고 크게 한 번 먹는 반면, 평균회귀는 자주 조금씩 먹다가 추세가 꺾이지 않고 계속
+빠지면 크게 물린다('떨어지는 칼날'). `stops.py`의 손절이 평균회귀에서 특히 중요한
+이유다.
+
+진입·청산 임계를 따로 두는 전략(`momentum`, `mean_reversion`)은 히스테리시스를
+만든다. 하나로 두면 임계 근처에서 가격이 오르내릴 때마다 사고팔며 수수료만 나간다.
+
+### 새 전략 추가
+
+`Strategy`를 상속하고 `registry.py`의 세 딕셔너리를 채우면 CLI·워크포워드·스윕에
+모두 자동으로 붙는다.
 
 ```python
 class MyStrategy(Strategy):
@@ -457,10 +500,24 @@ class MyStrategy(Strategy):
         ...  # 방향만 반환. 수량은 리스크 계층이 정한다.
 ```
 
+```python
+# registry.py
+BUILDERS["my_strategy"]  = lambda s: MyStrategy(...)      # 설정 → 전략
+FACTORIES["my_strategy"] = lambda p: MyStrategy(p["x"])   # 파라미터 → 전략
+GRIDS["my_strategy"]     = lambda: ParamGrid(values={"x": [1, 2, 3]})
+```
+
+세 곳 중 하나만 빠뜨리면 백테스트는 되는데 워크포워드에서만 터진다. `test_registry.py`가
+네 전략 전부에 대해 세 딕셔너리가 맞물리는지 검사한다.
+
+지표는 `strategy/indicators.py`를 쓸 것. 특히 신고가 계산은 **현재 봉을 빼야 한다** —
+포함하면 "오늘 종가가 오늘을 포함한 최고가보다 높은가"를 묻는 셈이라 돌파가 영원히
+성립하지 않는다. 예외도 안 나고 거래만 0건이 되므로 조용히 지나간다.
+
 ## 테스트
 
 ```bash
-pytest        # 285개
+pytest        # 364개
 ```
 
 토스 클라이언트 테스트는 `respx`로 HTTP를 모킹한다. 응답 스키마가 확정되지 않았으므로

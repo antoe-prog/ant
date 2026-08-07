@@ -24,12 +24,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 from tossquant.backtest.data import CsvSource, load_history  # noqa: E402
 from tossquant.backtest.simulator import Backtester  # noqa: E402
 from tossquant.config import Settings  # noqa: E402
-from tossquant.strategy.sma_cross import SmaCrossStrategy  # noqa: E402
+from tossquant.strategy import registry  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("csv_dir", type=pathlib.Path)
+    p.add_argument("--strategy", default="sma_cross", choices=registry.NAMES)
     p.add_argument("--fast", type=int, default=20)
     p.add_argument("--slow", type=int, default=60)
     p.add_argument("--limit", type=int, default=0, help="종목 수 제한 (0=전체)")
@@ -66,16 +67,18 @@ def main() -> None:
         max_position_pct=Decimal("1"),
         max_positions=1,
         stop_loss_pct=Decimal(str(args.stop_loss)),
+        strategy=args.strategy,
+        sma_fast=args.fast,
+        sma_slow=args.slow,
     )
+    strategy = registry.build(args.strategy, settings)
     source = CsvSource(args.csv_dir)
 
     rows = []
     for symbol in symbols:
         try:
             history = load_history([symbol], "1d", source, count=0)
-            result = Backtester(
-                history, SmaCrossStrategy(args.fast, args.slow), settings
-            ).run()
+            result = Backtester(history, strategy, settings).run()
         except (ValueError, KeyError):
             continue  # 봉이 부족한 종목은 건너뛴다
         rows.append(
@@ -107,7 +110,7 @@ def report(rows: list[tuple], args: argparse.Namespace, bars: int) -> None:
     total = len(rows)
 
     print(
-        f"종목 {total}개 × {bars}봉 · SMA {args.fast}/{args.slow} · "
+        f"종목 {total}개 × {bars}봉 · 전략 {args.strategy} · "
         f"손절 {args.stop_loss * 100:g}%\n"
     )
     print(f"{'':20} {'전략':>10} {'바이앤홀드':>12}")

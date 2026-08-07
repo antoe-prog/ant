@@ -26,7 +26,7 @@ from .engine import TradingEngine
 from .notify import Notification, Notifier, NullNotifier
 from .risk import RiskManager
 from .store import Store
-from .strategy.sma_cross import SmaCrossStrategy
+from .strategy import registry
 
 app = typer.Typer(help="토스증권 Open API 기반 미국주식 자동매매", no_args_is_help=True)
 console = Console()
@@ -53,7 +53,7 @@ def _build(settings: Settings) -> tuple[TradingEngine, Store, Notifier]:
     store = Store(settings.db_path)
     toss = _client(settings)
     broker = toss if settings.mode is Mode.LIVE else PaperBroker(toss, store, settings)
-    strategy = SmaCrossStrategy(settings.sma_fast, settings.sma_slow)
+    strategy = registry.build(settings.strategy, settings)
     risk = RiskManager(
         store,
         max_position_pct=settings.max_position_pct,
@@ -328,6 +328,50 @@ def notify_test(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         raise typer.Exit(1)
 
 
+def _select_strategy(settings: Settings, name: str) -> None:
+    """--strategy 를 설정에 반영하고 이름을 검증한다."""
+    if name:
+        settings.strategy = name
+    if settings.strategy not in registry.NAMES:
+        console.print(
+            f"[red]알 수 없는 전략 '{settings.strategy}' "
+            f"(가능: {', '.join(registry.NAMES)})[/red]"
+        )
+        raise typer.Exit(1)
+
+
+def _parse_grid(spec: str, strategy: str) -> walkforward_mod.ParamGrid:
+    """`fast=5,10;slow=40,60` 형태를 격자로. 비우면 전략 기본 격자."""
+    if not spec:
+        return registry.default_grid(strategy)
+
+    values: dict[str, list] = {}
+    for part in spec.split(";"):
+        if not part.strip():
+            continue
+        key, _, raw = part.partition("=")
+        if not raw:
+            console.print(f"[red]--grid 형식 오류: '{part}' (key=v1,v2 이어야 합니다)[/red]")
+            raise typer.Exit(1)
+        parsed = []
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                parsed.append(int(token) if "." not in token else float(token))
+            except ValueError:
+                console.print(f"[red]--grid 값이 숫자가 아닙니다: '{token}'[/red]")
+                raise typer.Exit(1) from None
+        values[key.strip()] = parsed
+
+    base = registry.default_grid(strategy)
+    # 지정하지 않은 축은 기본 격자의 값을 그대로 쓴다.
+    merged = {**base.values, **values}
+    return walkforward_mod.ParamGrid(values=merged, valid=base.valid)
+
+
+
 def _resolve_count(count: int, source: str, toss_default: int) -> int:
     """--count 기본값을 소스에 맞게 정한다.
 
@@ -346,6 +390,10 @@ def backtest(
     source: str = typer.Option("csv", "--source", help="csv | toss"),
     csv_dir: Path = typer.Option(Path("data"), "--csv-dir", help="source=csv일 때 CSV 폴더"),
     symbols: str = typer.Option("", "--symbols", help="쉼표 구분. 비우면 .env 설정 사용"),
+    strategy: str = typer.Option(
+        "", "--strategy",
+        help="sma_cross | momentum | breakout | mean_reversion (비우면 .env)",
+    ),
     interval: str = typer.Option("", "--interval", help="비우면 .env 설정 사용"),
     start: str = typer.Option("", "--from", help="시작일 YYYY-MM-DD"),
     end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
@@ -389,7 +437,8 @@ def backtest(
         settings.sma_slow = slow
     if cash:
         settings.paper_cash = Decimal(str(cash))
-    if settings.sma_fast >= settings.sma_slow:
+    _select_strategy(settings, strategy)
+    if settings.strategy == "sma_cross" and settings.sma_fast >= settings.sma_slow:
         console.print("[red]--fast 는 --slow 보다 작아야 합니다[/red]")
         raise typer.Exit(1)
 
@@ -435,7 +484,7 @@ def backtest(
             refresh=refresh,
         )
         result = Backtester(
-            history, SmaCrossStrategy(settings.sma_fast, settings.sma_slow), settings
+            history, registry.build(settings.strategy, settings), settings
         ).run()
     except (ValueError, FileNotFoundError) as exc:
         console.print(f"[red]{exc}[/red]")
@@ -470,8 +519,14 @@ def walkforward(
     anchored: bool = typer.Option(
         False, "--anchored", help="학습 구간을 처음부터 확장 (기본은 롤링)"
     ),
-    fast_range: str = typer.Option("5,10,20,30", "--fast-range", help="단기선 후보"),
-    slow_range: str = typer.Option("40,60,100,150", "--slow-range", help="장기선 후보"),
+    strategy: str = typer.Option(
+        "", "--strategy",
+        help="sma_cross | momentum | breakout | mean_reversion (비우면 .env)",
+    ),
+    grid_spec: str = typer.Option(
+        "", "--grid",
+        help="탐색 격자 `fast=5,10;slow=40,60`. 비우면 전략별 기본 격자.",
+    ),
     cash: float = typer.Option(0.0, "--cash"),
     cache_path: Path = typer.Option(Path("candles.db"), "--cache"),
     refresh: bool = typer.Option(False, "--refresh"),
@@ -494,18 +549,10 @@ def walkforward(
     if cash:
         settings.paper_cash = Decimal(str(cash))
 
-    def parse_ints(text: str, label: str) -> list[int]:
-        try:
-            return sorted({int(v) for v in text.split(",") if v.strip()})
-        except ValueError:
-            console.print(f"[red]{label}는 쉼표로 구분된 정수여야 합니다: {text}[/red]")
-            raise typer.Exit(1) from None
-
-    grid = walkforward_mod.sma_grid(
-        parse_ints(fast_range, "--fast-range"), parse_ints(slow_range, "--slow-range")
-    )
+    _select_strategy(settings, strategy)
+    grid = _parse_grid(grid_spec, settings.strategy)
     if len(grid) == 0:
-        console.print("[red]유효한 파라미터 조합이 없습니다 (단기 < 장기 필요)[/red]")
+        console.print("[red]유효한 파라미터 조합이 없습니다[/red]")
         raise typer.Exit(1)
 
     if source == "csv":
@@ -541,6 +588,7 @@ def walkforward(
                 history,
                 settings,
                 grid=grid,
+                factory=registry.factory(settings.strategy),
                 train_bars=train_bars,
                 test_bars=test_bars,
                 objective=objective,

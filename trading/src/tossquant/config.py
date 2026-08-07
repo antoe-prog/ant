@@ -51,9 +51,23 @@ class Settings(BaseSettings):
     # 호가 스프레드. paper_slippage_bps(시장충격)와는 별개 비용이므로 둘 다 붙는다.
     backtest_spread_bps: Decimal = Decimal("2")
 
-    # --- 전략 (SMA 크로스) ---
+    # --- 전략 ---
+    # sma_cross | momentum | breakout | mean_reversion
+    strategy: str = "sma_cross"
+
     sma_fast: int = 20
     sma_slow: int = 60
+
+    momentum_lookback: int = 60
+    momentum_entry: Decimal = Decimal("0.05")
+    momentum_exit: Decimal = Decimal("0")
+
+    breakout_entry_bars: int = 20
+    breakout_exit_bars: int = 10
+
+    meanrev_lookback: int = 20
+    meanrev_entry_z: Decimal = Decimal("-2")
+    meanrev_exit_z: Decimal = Decimal("0")
 
     # --- 리스크 ---
     max_position_pct: Decimal = Decimal("0.25")

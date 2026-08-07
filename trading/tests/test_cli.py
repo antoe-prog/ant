@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import pytest
+import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
 from tossquant import cli
 from tossquant.cli import app
+from tossquant.config import Settings
 
 runner = CliRunner()
 
@@ -134,3 +136,61 @@ def test_explicit_count_wins_for_both_sources():
 
 def test_explicit_zero_means_all():
     assert cli._resolve_count(0, "toss", 500) == 0
+
+
+# --- 전략 선택 ---------------------------------------------------------------
+
+
+def test_strategy_flag_overrides_settings():
+    settings = Settings(_env_file=None, client_id="x", client_secret="y")
+    cli._select_strategy(settings, "breakout")
+    assert settings.strategy == "breakout"
+
+
+def test_empty_strategy_flag_keeps_settings():
+    settings = Settings(_env_file=None, client_id="x", client_secret="y",
+                        strategy="momentum")
+    cli._select_strategy(settings, "")
+    assert settings.strategy == "momentum"
+
+
+def test_unknown_strategy_exits():
+    settings = Settings(_env_file=None, client_id="x", client_secret="y")
+    with pytest.raises(typer.Exit):
+        cli._select_strategy(settings, "없는전략")
+
+
+# --- --grid 파싱 -------------------------------------------------------------
+
+
+def test_empty_grid_spec_uses_strategy_default():
+    grid = cli._parse_grid("", "breakout")
+    assert set(grid.values) == {"entry_bars", "exit_bars"}
+
+
+def test_grid_spec_overrides_one_axis_only():
+    """지정하지 않은 축은 기본값을 유지해야 한다."""
+    grid = cli._parse_grid("fast=5,7", "sma_cross")
+    assert grid.values["fast"] == [5, 7]
+    assert grid.values["slow"] == [40, 60, 100, 150]
+
+
+def test_grid_spec_parses_floats():
+    grid = cli._parse_grid("entry_z=-1.5,-2.5", "mean_reversion")
+    assert grid.values["entry_z"] == [-1.5, -2.5]
+
+
+def test_grid_spec_keeps_validity_rule():
+    """축을 덮어써도 fast < slow 규칙은 살아 있어야 한다."""
+    grid = cli._parse_grid("fast=30,100", "sma_cross")
+    assert all(c["fast"] < c["slow"] for c in grid.combinations())
+
+
+def test_malformed_grid_spec_exits():
+    with pytest.raises(typer.Exit):
+        cli._parse_grid("fast", "sma_cross")
+
+
+def test_non_numeric_grid_value_exits():
+    with pytest.raises(typer.Exit):
+        cli._parse_grid("fast=abc", "sma_cross")
