@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..models import Candle
+from .corporate import back_adjust, detect
 
 log = logging.getLogger(__name__)
 
@@ -179,8 +180,20 @@ def load_history(
     end: datetime | None = None,
     cache: CandleCache | None = None,
     refresh: bool = False,
+    on_break: str = "warn",
 ) -> dict[str, list[Candle]]:
-    """캐시를 우선 보고, 없거나 refresh면 소스에서 받아 캐시에 넣는다."""
+    """캐시를 우선 보고, 없거나 refresh면 소스에서 받아 캐시에 넣는다.
+
+    on_break — 가격 불연속(분할·분사·데이터 오류)을 어떻게 다룰지:
+      "ignore"  아무것도 하지 않는다
+      "warn"    (기본) 로그로 경고만 한다. 데이터는 그대로 둔다.
+      "adjust"  분할로 **확신되는** 것만 소급 조정한다. 나머지는 경고.
+
+    기본이 warn인 이유: 불연속을 감지하는 건 확실하지만 원인은 외부 데이터
+    없이 확정할 수 없다. 조용히 고치는 것보다 알려주는 게 낫다.
+    """
+    if on_break not in ("ignore", "warn", "adjust"):
+        raise ValueError(f"알 수 없는 on_break '{on_break}'")
     history: dict[str, list[Candle]] = {}
 
     for symbol in symbols:
@@ -203,6 +216,40 @@ def load_history(
 
         if not candles:
             raise ValueError(f"{symbol}: 지정한 기간에 해당하는 캔들이 없습니다")
+
+        if on_break != "ignore":
+            candles = _handle_breaks(symbol, candles, on_break)
         history[symbol] = candles
 
     return history
+
+
+def _handle_breaks(symbol: str, candles: list[Candle], policy: str) -> list[Candle]:
+    """가격 불연속을 보고하고, 정책이 adjust면 확신되는 분할만 고친다."""
+    breaks = detect(candles)
+    if not breaks:
+        return candles
+
+    splits = [b for b in breaks if b.looks_like_split]
+    bad_bars = [b for b in breaks if b.looks_like_bad_bar]
+    unknown = [b for b in breaks if not b.looks_like_split and not b.looks_like_bad_bar]
+
+    for item in bad_bars:
+        log.warning("%s 데이터 오류 의심 — %s", symbol, item.describe())
+    for item in unknown:
+        log.warning(
+            "%s 원인 불명 불연속 — %s (분사면 백테스트가 왜곡됩니다)",
+            symbol, item.describe(),
+        )
+
+    if policy == "adjust" and splits:
+        for item in splits:
+            log.info("%s 분할 소급 조정 — %s", symbol, item.describe())
+        return back_adjust(candles, breaks)
+
+    for item in splits:
+        log.warning(
+            "%s 분할 추정 — %s (on_break=adjust 로 보정할 수 있습니다)",
+            symbol, item.describe(),
+        )
+    return candles

@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .backtest.corporate import detect
 from .backtest.data import CandleCache, CsvSource, TossSource, load_history
 from .backtest import walkforward as walkforward_mod
 from .backtest.report import export, render, render_walkforward
@@ -426,6 +427,10 @@ def backtest(
         help="시장 국면 필터 지수 심볼 (예: SPY). 'off'면 끈다.",
     ),
     regime_ma: int = typer.Option(0, "--regime-ma", help="국면 판정 이동평균 봉 수"),
+    on_break: str = typer.Option(
+        "warn", "--on-break",
+        help="가격 불연속 처리: ignore | warn(기본) | adjust",
+    ),
     trailing: float = typer.Option(-1.0, "--trailing", help="트레일링 스톱 비율"),
     take_profit: float = typer.Option(-1.0, "--take-profit", help="익절 비율"),
     max_holding: int = typer.Option(-1, "--max-holding", help="최대 보유 일수"),
@@ -508,6 +513,7 @@ def backtest(
             end=parse_day(end),
             cache=cache,
             refresh=refresh,
+            on_break=on_break,
         )
         result = Backtester(
             history, registry.build(settings.strategy, settings), settings
@@ -608,6 +614,7 @@ def walkforward(
             end=parse_day(end),
             cache=cache,
             refresh=refresh,
+            on_break=on_break,
         )
         with console.status("구간별 최적화 중…"):
             result = walkforward_mod.run(
@@ -628,6 +635,71 @@ def walkforward(
             cache.close()
 
     render_walkforward(result, console)
+
+
+@app.command("scan-data")
+def scan_data(
+    csv_dir: Path = typer.Option(Path("data"), "--csv-dir"),
+    threshold: float = typer.Option(0.25, "--threshold", help="불연속 판정 기준 (0.25 = 25%)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """CSV 폴더 전체에서 가격 불연속을 찾아 분류한다.
+
+    미조정 데이터에는 실제로 없던 급락이 섞여 있다. 액면분할은 -50%, 분사는
+    -57%로 찍히고, 그대로 백테스트에 넣으면 손절이 발동해 전략이 폭락을 피한
+    것처럼 보인다. 백테스트를 믿기 전에 이걸 먼저 돌릴 것.
+    """
+    _setup_logging(verbose, quiet_level=logging.ERROR)
+    files = sorted(csv_dir.glob("*.csv"))
+    if not files:
+        console.print(f"[red]{csv_dir} 에 CSV가 없습니다[/red]")
+        raise typer.Exit(1)
+
+    source = CsvSource(csv_dir)
+    buckets: dict[str, list[tuple[str, object]]] = {
+        "split": [], "bad": [], "unknown": [], "real": []
+    }
+    for path in files:
+        try:
+            candles = source.fetch(path.stem, "1d", 0)
+        except (ValueError, FileNotFoundError) as exc:
+            console.print(f"[yellow]{path.name} 건너뜀: {exc}[/yellow]")
+            continue
+        for item in detect(candles, Decimal(str(threshold))):
+            key = (
+                "split" if item.looks_like_split
+                else "bad" if item.looks_like_bad_bar
+                else "unknown" if item.distorts_backtest
+                else "real"
+            )
+            buckets[key].append((path.stem, item))
+
+    total = sum(len(v) for v in buckets.values())
+    console.print(f"[bold]{len(files)}개 파일 · 불연속 {total}건[/bold] (기준 {threshold * 100:g}%)\n")
+
+    sections = [
+        ("split", "분할로 추정 — `--on-break adjust` 로 보정 가능", "green"),
+        ("bad", "데이터 오류 의심 — 원본을 고치거나 해당 종목을 빼세요", "yellow"),
+        ("unknown", "원인 불명 하락 갭 — 분사일 가능성. 백테스트가 왜곡됩니다", "red"),
+        ("real", "원인 불명 상승 갭 — 대개 실적·임상 등 실제 뉴스", "dim"),
+    ]
+    for key, title, colour in sections:
+        rows = buckets[key]
+        if not rows:
+            continue
+        table = Table(title=f"[{colour}]{title}[/{colour}] ({len(rows)}건)")
+        table.add_column("종목")
+        table.add_column("내용")
+        for symbol, item in sorted(rows, key=lambda r: r[0]):
+            table.add_row(symbol, item.describe())
+        console.print(table)
+
+    if buckets["unknown"]:
+        console.print(
+            f"\n[red]원인 불명 {len(buckets['unknown'])}건이 있습니다.[/red] "
+            "분사라면 손절이 가짜 급락에서 발동해 전략 성과가 부풀려집니다.\n"
+            "해당 종목을 제외하고 다시 측정하는 것을 권합니다."
+        )
 
 
 @app.command()

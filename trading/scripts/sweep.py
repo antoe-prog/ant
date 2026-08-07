@@ -21,6 +21,7 @@ from decimal import Decimal
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
+from tossquant.backtest.corporate import detect  # noqa: E402
 from tossquant.backtest.data import CsvSource, load_history  # noqa: E402
 from tossquant.backtest.simulator import Backtester  # noqa: E402
 from tossquant.config import Settings  # noqa: E402
@@ -38,6 +39,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--stop-loss", type=float, default=0.08)
     p.add_argument("--regime", default="", help="국면 필터 지수 심볼 (예: SPY)")
     p.add_argument("--regime-ma", type=int, default=200)
+    p.add_argument("--on-break", default="warn",
+                   choices=("ignore", "warn", "adjust"),
+                   help="가격 불연속 처리")
+    p.add_argument("--exclude-contaminated", action="store_true",
+                   help="원인 불명 불연속이 있는 종목을 아예 제외")
     return p.parse_args()
 
 
@@ -60,6 +66,22 @@ def main() -> None:
     counts.pop(regime_symbol, None)  # 지수는 매매 대상이 아니다
     threshold = args.min_bars or max(counts.values())
     symbols = [s for s, n in sorted(counts.items()) if n >= threshold]
+    source = CsvSource(args.csv_dir)
+
+    if args.exclude_contaminated:
+        # 분사처럼 조정 계수를 알 수 없는 불연속이 있으면 그 종목은 통째로 뺀다.
+        # 가짜 급락에서 손절이 발동해 전략 성과가 부풀려지기 때문이다.
+        clean, dropped = [], []
+        for symbol in symbols:
+            breaks = detect(source.fetch(symbol, "1d", 0))
+            if any(b.distorts_backtest for b in breaks):
+                dropped.append(symbol)
+            else:
+                clean.append(symbol)
+        if dropped:
+            print(f"오염 종목 {len(dropped)}개 제외: {', '.join(sorted(dropped))}\n")
+        symbols = clean
+
     if args.limit:
         symbols = symbols[: args.limit]
 
@@ -79,13 +101,12 @@ def main() -> None:
         sma_slow=args.slow,
     )
     strategy = registry.build(args.strategy, settings)
-    source = CsvSource(args.csv_dir)
-
     rows = []
     for symbol in symbols:
         try:
             wanted = [symbol] + ([regime_symbol] if regime_symbol else [])
-            history = load_history(wanted, "1d", source, count=0)
+            history = load_history(wanted, "1d", source, count=0,
+                                   on_break=args.on_break)
             result = Backtester(history, strategy, settings).run()
         except (ValueError, KeyError):
             continue  # 봉이 부족한 종목은 건너뛴다
