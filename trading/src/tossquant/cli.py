@@ -328,6 +328,19 @@ def notify_test(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         raise typer.Exit(1)
 
 
+def _resolve_count(count: int, source: str, toss_default: int) -> int:
+    """--count 기본값을 소스에 맞게 정한다.
+
+    토스는 호출 한도가 있어 개수를 제한하는 게 맞지만, 로컬 CSV에까지 같은
+    상한이 걸리면 파일에 5년치가 있어도 조용히 뒷부분만 잘라 쓰게 된다.
+    실제로 이 함정에 걸려 1259봉짜리 데이터로 440봉만 백테스트했다.
+    """
+    if count >= 0:
+        return count
+    return 0 if source == "csv" else toss_default
+
+
+
 @app.command()
 def backtest(
     source: str = typer.Option("csv", "--source", help="csv | toss"),
@@ -336,7 +349,10 @@ def backtest(
     interval: str = typer.Option("", "--interval", help="비우면 .env 설정 사용"),
     start: str = typer.Option("", "--from", help="시작일 YYYY-MM-DD"),
     end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
-    count: int = typer.Option(500, "--count", help="source=toss일 때 요청할 봉 개수"),
+    count: int = typer.Option(
+        -1, "--count",
+        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 500. 0도 전체.",
+    ),
     fast: int = typer.Option(0, "--fast", help="SMA 단기 (0이면 .env 설정)"),
     slow: int = typer.Option(0, "--slow", help="SMA 장기 (0이면 .env 설정)"),
     cash: float = typer.Option(0.0, "--cash", help="시작 자본 (0이면 .env 설정)"),
@@ -412,7 +428,7 @@ def backtest(
             settings.symbols,
             settings.candle_interval,
             history_source,
-            count=count,
+            count=_resolve_count(count, source, 500),
             start=parse_day(start),
             end=parse_day(end),
             cache=cache,
@@ -442,7 +458,10 @@ def walkforward(
     symbols: str = typer.Option("", "--symbols", help="쉼표 구분"),
     start: str = typer.Option("", "--from", help="시작일 YYYY-MM-DD"),
     end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
-    count: int = typer.Option(1000, "--count", help="source=toss일 때 요청할 봉 개수"),
+    count: int = typer.Option(
+        -1, "--count",
+        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 1000. 0도 전체.",
+    ),
     train_bars: int = typer.Option(250, "--train-bars", help="학습 구간 봉 수"),
     test_bars: int = typer.Option(60, "--test-bars", help="평가 구간 봉 수"),
     objective: str = typer.Option(
@@ -511,7 +530,7 @@ def walkforward(
             settings.symbols,
             settings.candle_interval,
             history_source,
-            count=count,
+            count=_resolve_count(count, source, 1000),
             start=parse_day(start),
             end=parse_day(end),
             cache=cache,

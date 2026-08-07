@@ -112,3 +112,25 @@ def test_help_lists_every_command():
     for command in ("verify", "run", "status", "notify-test", "backtest",
                     "walkforward", "reset"):
         assert command in output
+
+
+# --- --count 기본값 ----------------------------------------------------------
+
+
+def test_count_defaults_to_all_for_csv():
+    """로컬 CSV에 상한을 걸면 파일에 5년치가 있어도 뒷부분만 잘라 쓰게 된다."""
+    assert cli._resolve_count(-1, "csv", 500) == 0
+
+
+def test_count_defaults_to_api_limit_for_toss():
+    """토스는 호출 한도가 있으니 개수를 제한하는 게 맞다."""
+    assert cli._resolve_count(-1, "toss", 500) == 500
+
+
+def test_explicit_count_wins_for_both_sources():
+    assert cli._resolve_count(300, "csv", 500) == 300
+    assert cli._resolve_count(300, "toss", 500) == 300
+
+
+def test_explicit_zero_means_all():
+    assert cli._resolve_count(0, "toss", 500) == 0
