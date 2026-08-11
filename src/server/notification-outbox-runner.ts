@@ -149,22 +149,32 @@ export function prepareNoticePushDispatchJobs(
   const candidateSubscriptions = getNoticePushSubscriptions(db, notice);
   const subscriptions = candidateSubscriptions.filter(isPushProviderConfiguredForSubscription);
   const configured = subscriptions.length > 0 || (candidateSubscriptions.length === 0 && getPushConfig().configured);
+  const dispatchAuditLog: AuditLog = {
+    ...requestAuditLog,
+    after: {
+      ...requestAuditLog.after,
+      configured,
+      dispatchableCount: subscriptions.length,
+      unconfiguredCount: candidateSubscriptions.length - subscriptions.length,
+    },
+  };
   let nextDb: MockDatabase = {
     ...db,
     auditLogs: db.auditLogs.map((auditLog) =>
       auditLog.id === requestAuditLog.id
-        ? { ...auditLog, after: { ...auditLog.after, configured } }
+        ? dispatchAuditLog
         : auditLog,
     ),
   };
 
   if (!configured || subscriptions.length === 0) {
-    const completed = completeNoticePushDispatchAuditLog(requestAuditLog, {
+    const completed = completeNoticePushDispatchAuditLog(dispatchAuditLog, {
       configured,
       attempted: 0,
       disabled: 0,
       failed: 0,
       sent: 0,
+      unconfigured: candidateSubscriptions.length - subscriptions.length,
     }, now);
     return {
       db: {
@@ -483,7 +493,9 @@ export async function processNotificationOutbox({
         return true;
       }
 
-      const deliveryResult = await runPushDeliveryWithTimeout(() => send(begun.subscription, begun.job.payloadSnapshot));
+      const deliveryResult = await runPushDeliveryWithTimeout((signal) =>
+        send(begun.subscription, begun.job.payloadSnapshot, signal)
+      );
       await withServerDbLock(notificationOutboxLockKey, async () => {
         const db = await readServerDb();
         const now = new Date().toISOString();

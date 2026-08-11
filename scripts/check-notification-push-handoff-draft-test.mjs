@@ -46,39 +46,70 @@ async function expectStrictFailure(filePath) {
 
 const pending = await runDraft();
 assert.equal(pending.report.ok, true);
-assert.equal(pending.draft.vapid.privateKeyStored, false);
+assert.equal(pending.draft.schemaVersion, 2);
+assert.equal(pending.draft.providers.apns.privateKeyStored, false);
+assert.equal(pending.draft.providers.fcm.privateKeyStored, false);
+assert.equal(pending.draft.providers.web.enabled, false);
+assert.equal(pending.draft.retryWorker.secretStored, false);
+assert.equal(pending.draft.retryWorker.invocationVerified, false);
 assert.equal(pending.draft.devices[0].device, "TODO_ANDROID_DEVICE");
-assert(pending.report.pendingEvidence.includes("vapid.evidence"));
+assert.equal(pending.draft.devices[1].device, "TODO_IOS_DEVICE");
+assert(pending.report.pendingEvidence.includes("providers.apns.evidence"));
+assert(pending.report.pendingEvidence.includes("providers.fcm.evidence"));
+assert(pending.report.pendingEvidence.includes("retryWorker.evidence"));
 const pendingStrict = await expectStrictFailure(pending.out);
-assert(pendingStrict.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_VAPID_PRIVATE_KEY_STORED"));
+assert(pendingStrict.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_APNS_PRIVATE_KEY"));
+assert(pendingStrict.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_FCM_PRIVATE_KEY"));
 assert(pendingStrict.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_DEVICE_FIELD"));
 
-const rawPrivateKey = "-----BEGIN PRIVATE KEY-----\nsecret-value-that-should-not-be-written\n-----END PRIVATE KEY-----";
+const rawApnsPrivateKey = "-----BEGIN PRIVATE KEY-----\napns-secret-value-that-should-not-be-written\n-----END PRIVATE KEY-----";
+const rawFcmPrivateKey = "-----BEGIN PRIVATE KEY-----\nfcm-secret-value-that-should-not-be-written\n-----END PRIVATE KEY-----";
 const inferred = await runDraft(
-  ["--production-origin=https://app.finaljudo.kr", "--vapid-subject=mailto:ops@finaljudo.kr"],
+  ["--production-origin=https://app.finaljudo.kr"],
   {
-    FINAL_JUDO_VAPID_PUBLIC_KEY: "BK_pub_configured_for_test",
-    FINAL_JUDO_VAPID_PRIVATE_KEY: rawPrivateKey,
+    FINAL_JUDO_APNS_KEY_ID: "APNSKEY1",
+    FINAL_JUDO_APNS_PRIVATE_KEY: rawApnsPrivateKey,
+    FINAL_JUDO_APNS_TEAM_ID: "TEAMID1",
+    FINAL_JUDO_APNS_TOPIC: "kr.co.finaljudo.multigym",
+    FINAL_JUDO_FIREBASE_CLIENT_EMAIL: "firebase@finaljudo.test",
+    FINAL_JUDO_FIREBASE_PRIVATE_KEY: rawFcmPrivateKey,
+    FINAL_JUDO_FIREBASE_PROJECT_ID: "final-judo-test",
   },
 );
 const inferredSource = await readFile(inferred.out, "utf8");
 assert.equal(inferred.draft.production.origin, "https://app.finaljudo.kr");
-assert.equal(inferred.draft.vapid.privateKeyStored, true);
-assert.equal(inferred.draft.vapid.privateKeySecretName, "FINAL_JUDO_VAPID_PRIVATE_KEY");
-assert(!inferredSource.includes(rawPrivateKey), "draft must not write raw VAPID private key values");
+assert.equal(inferred.draft.providers.apns.privateKeyStored, true);
+assert.equal(inferred.draft.providers.apns.privateKeySecretName, "FINAL_JUDO_APNS_PRIVATE_KEY");
+assert.equal(inferred.draft.providers.fcm.privateKeyStored, true);
+assert.equal(inferred.draft.providers.fcm.privateKeySecretName, "FINAL_JUDO_FIREBASE_PRIVATE_KEY");
+assert(!inferredSource.includes(rawApnsPrivateKey), "draft must not write raw APNs private key values");
+assert(!inferredSource.includes(rawFcmPrivateKey), "draft must not write raw Firebase private key values");
 
 const ready = await runDraft(
   [
     "--production-origin=https://app.finaljudo.kr",
     "--production-evidence=https://evidence.finaljudo.kr/push/production-origin",
-    "--vapid-stored",
-    "--vapid-subject=mailto:ops@finaljudo.kr",
-    "--vapid-evidence=drive://final-judo/evidence/push/vapid-secret-store",
+    "--apns-stored",
+    "--apns-configured",
+    "--apns-evidence=drive://final-judo/evidence/push/apns-secret-store",
+    "--fcm-stored",
+    "--fcm-configured",
+    "--fcm-evidence=drive://final-judo/evidence/push/fcm-secret-store",
+    "--retry-worker-verified",
+    "--retry-worker-secret-stored",
+    "--retry-scheduler=external",
+    "--retry-max-interval-minutes=5",
+    "--retry-schedule-supported-by-plan",
+    "--retry-worker-evidence=drive://final-judo/evidence/push/retry-worker",
     "--device-verified",
     "--android-device=Pixel 8 / Android 15",
-    "--android-browser=Chrome Android installed PWA",
-    "--user-email=coach@finaljudo.kr",
+    "--android-client=Final Judo 1.0 native app",
+    "--android-user-email=coach@finaljudo.kr",
     "--android-evidence=https://evidence.finaljudo.kr/push/android-device-recording",
+    "--ios-device=iPhone 15 / iOS 18",
+    "--ios-client=Final Judo 1.0 native app",
+    "--ios-user-email=guardian@finaljudo.kr",
+    "--ios-evidence=https://evidence.finaljudo.kr/push/ios-device-recording",
     "--subscription-evidence=https://evidence.finaljudo.kr/push/subscription-audit",
     "--dispatch-verified",
     "--notice-id=notice-pilot-important",
@@ -95,7 +126,8 @@ const ready = await runDraft(
     "--signoff-evidence=https://evidence.finaljudo.kr/push/signoff",
   ],
   {
-    FINAL_JUDO_VAPID_PRIVATE_KEY: rawPrivateKey,
+    FINAL_JUDO_APNS_PRIVATE_KEY: rawApnsPrivateKey,
+    FINAL_JUDO_FIREBASE_PRIVATE_KEY: rawFcmPrivateKey,
   },
 );
 const readyStrict = await runStrictHandoff(ready.out);
@@ -109,8 +141,8 @@ console.log(
       ok: true,
       checked: [
         "pending notification push draft with strict blockers",
-        "env inference without raw VAPID private key output",
-        "operator-completed draft passes strict handoff",
+        "env inference without raw APNs or Firebase private key output",
+        "operator-completed draft with authenticated timely retry worker passes strict handoff",
       ],
     },
     null,

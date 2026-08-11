@@ -185,6 +185,14 @@ async function runPreflight(filePath, extraArgs = [], extraEnv = {}) {
     FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL: "https://payments.finaljudo.kr",
     FINAL_JUDO_PAYMENT_WEBHOOK_SECRET: "final-judo-preflight-0123456789-ABCDEF",
     FINAL_JUDO_PUSH_ENABLED: "0",
+    FINAL_JUDO_APNS_ENVIRONMENT: "",
+    FINAL_JUDO_APNS_KEY_ID: "",
+    FINAL_JUDO_APNS_PRIVATE_KEY: "",
+    FINAL_JUDO_APNS_TEAM_ID: "",
+    FINAL_JUDO_APNS_TOPIC: "",
+    FINAL_JUDO_FIREBASE_CLIENT_EMAIL: "",
+    FINAL_JUDO_FIREBASE_PRIVATE_KEY: "",
+    FINAL_JUDO_FIREBASE_PROJECT_ID: "",
     FINAL_JUDO_VAPID_PUBLIC_KEY: "",
     FINAL_JUDO_VAPID_PRIVATE_KEY: "",
     FINAL_JUDO_VAPID_SUBJECT: "",
@@ -483,11 +491,9 @@ try {
   }
 
   const missingPushSecretsRun = await runPreflight(validFile, [], { FINAL_JUDO_PUSH_ENABLED: "1" });
-  assert.notEqual(missingPushSecretsRun.code, 0, "enabled production push without VAPID/cron secrets must fail");
+  assert.notEqual(missingPushSecretsRun.code, 0, "enabled production push without a provider or cron secret must fail");
   const missingPushCodes = blockerCodes(parseReport(missingPushSecretsRun.stdout));
-  assert(missingPushCodes.has("PUSH_VAPID_PUBLIC_KEY_MISSING"));
-  assert(missingPushCodes.has("PUSH_VAPID_PRIVATE_KEY_MISSING"));
-  assert(missingPushCodes.has("PUSH_VAPID_SUBJECT_INVALID"));
+  assert(missingPushCodes.has("PUSH_PROVIDER_MISSING"));
   assert(missingPushCodes.has("PUSH_CRON_SECRET_MISSING"));
 
   const configuredPushRun = await runPreflight(validFile, [], {
@@ -498,6 +504,24 @@ try {
     CRON_SECRET: "cron-secret-fixture-1234567890",
   });
   assert.equal(configuredPushRun.code, 0, configuredPushRun.stderr);
+
+  const configuredNativePushRun = await runPreflight(validFile, [], {
+    FINAL_JUDO_PUSH_ENABLED: "1",
+    FINAL_JUDO_APNS_ENVIRONMENT: "production",
+    FINAL_JUDO_APNS_KEY_ID: "FF3G2D5GMS",
+    FINAL_JUDO_APNS_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nNativeApnsFixture1234567890\\n-----END PRIVATE KEY-----",
+    FINAL_JUDO_APNS_TEAM_ID: "CA7A5SP5G5",
+    FINAL_JUDO_APNS_TOPIC: "kr.co.finaljudo.multigym",
+    FINAL_JUDO_FIREBASE_CLIENT_EMAIL: "firebase-adminsdk@final-judo.iam.gserviceaccount.com",
+    FINAL_JUDO_FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nNativeFcmFixture1234567890\\n-----END PRIVATE KEY-----",
+    FINAL_JUDO_FIREBASE_PROJECT_ID: "final-judo",
+    CRON_SECRET: "cron-secret-fixture-1234567890",
+  });
+  assert.equal(
+    configuredNativePushRun.code,
+    0,
+    `native APNs/FCM configuration must not require unused Web Push VAPID settings: ${configuredNativePushRun.stdout}`,
+  );
 
   const runtimePushDb = structuredClone(validDb);
   runtimePushDb.pushSubscriptions.push({
@@ -513,7 +537,11 @@ try {
   await writeFile(runtimePushFile, `${JSON.stringify(runtimePushDb, null, 2)}\n`, "utf8");
   const runtimePushMissingConfigRun = await runPreflight(runtimePushFile);
   assert.notEqual(runtimePushMissingConfigRun.code, 0, "active runtime subscriptions must require push secrets");
-  assert(blockerCodes(parseReport(runtimePushMissingConfigRun.stdout)).has("PUSH_CRON_SECRET_MISSING"));
+  const runtimePushMissingCodes = blockerCodes(parseReport(runtimePushMissingConfigRun.stdout));
+  assert(runtimePushMissingCodes.has("PUSH_VAPID_PUBLIC_KEY_MISSING"));
+  assert(runtimePushMissingCodes.has("PUSH_VAPID_PRIVATE_KEY_MISSING"));
+  assert(runtimePushMissingCodes.has("PUSH_VAPID_SUBJECT_INVALID"));
+  assert(runtimePushMissingCodes.has("PUSH_CRON_SECRET_MISSING"));
 
   const cliSecret = "postgresql://preflight_user:raw-secret-must-not-leak@localhost:5432/final_judo";
   const cliSecretRun = await runPreflight(validFile, [`--postgres-url=${cliSecret}`]);
@@ -548,7 +576,8 @@ try {
           "production demo-login flag blocks preflight",
           "production dev-reset flag blocks preflight",
           "production payment provider settings block preflight when missing",
-          "production push use requires VAPID and cron secrets",
+          "production push use requires at least one complete provider and cron secret",
+          "native APNs/FCM production push does not require unused Web Push VAPID settings",
           "runtime push state activates strict push preflight",
           "strict preflight rejects CLI Postgres secrets without echoing them",
         ],

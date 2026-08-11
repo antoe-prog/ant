@@ -194,6 +194,7 @@
     "test:ios-ipa-doctor": "node scripts/check-ios-ipa-doctor-test.mjs",
     "test:ios-provisioning-runbook": "node scripts/check-ios-provisioning-runbook.mjs",
     "ios:cap:add": "node node_modules/@capacitor/cli/bin/capacitor add ios",
+    "ios:web:build": "node scripts/build-ios-local-web.mjs",
     "ios:cap:sync": "node node_modules/@capacitor/cli/bin/capacitor sync ios",
     "ios:ipa:build": "node scripts/build-ios-ipa.mjs",
     "test:attendance-speed": "node scripts/smoke-attendance-speed.mjs",

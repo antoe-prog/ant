@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { canAdminManageUser } from "@/lib/admin-access";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -108,6 +109,10 @@ export async function POST(
 
     if (!targetUser) {
       return jsonError(404, "NOT_FOUND", "사용자를 찾을 수 없습니다.");
+    }
+
+    if (!canAdminManageUser(freshUser, targetUser)) {
+      return jsonError(403, "FORBIDDEN", "접근 가능한 지점의 사용자 비밀번호만 재발급할 수 있습니다.");
     }
 
     if (selectedScope.selectedBranchId && !targetUser.branchIds.includes(selectedScope.selectedBranchId)) {

@@ -127,9 +127,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const reconcile = isNativeMobileApp()
       ? Promise.all([
           initializeNativePushNotificationActions(),
-          connectCurrentNativePushRegistration({ requestPermission: false }),
+          connectCurrentNativePushRegistration({ requestPermission: false, userId: familyPushUserId }),
         ])
-      : connectCurrentBrowserPushSubscription({ requestPermission: false });
+      : connectCurrentBrowserPushSubscription({ requestPermission: false, userId: familyPushUserId });
     void reconcile.catch(() => {
       if (familyPushReconciledUserIdRef.current === familyPushUserId) {
         familyPushReconciledUserIdRef.current = null;
@@ -255,7 +255,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileAccountMenuPath(null);
 
     if (attendanceSync.queue.length === 0) {
-      signOut();
+      void signOut();
       return;
     }
 
@@ -263,10 +263,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLogoutDialogOpen(true);
   }, [attendanceSync.queue.length, signOut]);
 
-  function preserveQueueAndSignOut() {
-    setLogoutDialogOpen(false);
+  async function preserveQueueAndSignOut() {
+    logoutSyncPendingRef.current = true;
+    setLogoutSyncPending(true);
     setLogoutSyncError(null);
-    signOut();
+    const signedOut = await signOut();
+    logoutSyncPendingRef.current = false;
+    setLogoutSyncPending(false);
+
+    if (signedOut) {
+      setLogoutDialogOpen(false);
+      return;
+    }
+
+    setLogoutSyncError("서버에서 로그아웃을 확인하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.");
   }
 
   async function syncThenSignOut() {
@@ -280,8 +290,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLogoutSyncPending(false);
 
     if (synced) {
-      setLogoutDialogOpen(false);
-      signOut();
+      const signedOut = await signOut();
+
+      if (signedOut) {
+        setLogoutDialogOpen(false);
+        return;
+      }
+
+      setLogoutSyncError("출석은 저장했지만 서버에서 로그아웃을 확인하지 못했습니다. 다시 시도해 주세요.");
       return;
     }
 
@@ -700,7 +716,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
                   data-testid="attendance-preserve-and-logout"
                   disabled={logoutSyncPending}
-                  onClick={preserveQueueAndSignOut}
+                  onClick={() => void preserveQueueAndSignOut()}
                   type="button"
                 >
                   대기열 보존하고 로그아웃

@@ -1,16 +1,47 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAt": "TODO_ISO_TIMESTAMP",
   "production": {
     "origin": "https://TODO-PRODUCTION-HOST",
     "evidence": "TODO_PRODUCTION_ORIGIN_EVIDENCE_URI"
   },
-  "vapid": {
-    "publicKeyConfigured": false,
-    "privateKeySecretName": "FINAL_JUDO_VAPID_PRIVATE_KEY",
-    "privateKeyStored": false,
-    "subject": "mailto:TODO-PUSH-OWNER@example.com",
-    "evidence": "TODO_VAPID_SECRET_STORE_EVIDENCE_URI"
+  "providers": {
+    "apns": {
+      "enabled": true,
+      "environment": "production",
+      "keyIdConfigured": false,
+      "privateKeySecretName": "FINAL_JUDO_APNS_PRIVATE_KEY",
+      "privateKeyStored": false,
+      "teamIdConfigured": false,
+      "topicConfigured": false,
+      "evidence": "TODO_APNS_SECRET_STORE_EVIDENCE_URI"
+    },
+    "fcm": {
+      "clientEmailConfigured": false,
+      "enabled": true,
+      "privateKeySecretName": "FINAL_JUDO_FIREBASE_PRIVATE_KEY",
+      "privateKeyStored": false,
+      "projectIdConfigured": false,
+      "evidence": "TODO_FCM_SECRET_STORE_EVIDENCE_URI"
+    },
+    "web": {
+      "enabled": false,
+      "publicKeyConfigured": false,
+      "privateKeySecretName": "FINAL_JUDO_VAPID_PRIVATE_KEY",
+      "privateKeyStored": false,
+      "subject": "mailto:TODO-PUSH-OWNER@example.com",
+      "evidence": "TODO_VAPID_SECRET_STORE_EVIDENCE_URI"
+    }
+  },
+  "retryWorker": {
+    "endpoint": "/api/v1/internal/notification-outbox",
+    "authorizationSecretName": "CRON_SECRET",
+    "secretStored": false,
+    "scheduler": "TODO_RETRY_SCHEDULER",
+    "maxIntervalMinutes": 0,
+    "scheduleSupportedByPlan": false,
+    "invocationVerified": false,
+    "evidence": "TODO_RETRY_WORKER_EVIDENCE_URI"
   },
   "subscriptions": {
     "configEndpoint": "/api/v1/notifications/push-config",
@@ -23,14 +54,26 @@
     {
       "platform": "android",
       "device": "TODO_ANDROID_DEVICE",
-      "browser": "Chrome Android 또는 TWA",
-      "userEmail": "TODO_USER_EMAIL",
+      "browser": "Final Judo Android native app",
+      "userEmail": "TODO_ANDROID_USER_EMAIL",
       "permissionGranted": false,
       "subscriptionStored": false,
       "noticePushReceived": false,
       "clickOpenedNotices": false,
-      "installedMode": "standalone-or-browser",
+      "installedMode": "native",
       "evidence": "TODO_ANDROID_PUSH_EVIDENCE_URI"
+    },
+    {
+      "platform": "ios",
+      "device": "TODO_IOS_DEVICE",
+      "browser": "Final Judo iOS native app",
+      "userEmail": "TODO_IOS_USER_EMAIL",
+      "permissionGranted": false,
+      "subscriptionStored": false,
+      "noticePushReceived": false,
+      "clickOpenedNotices": false,
+      "installedMode": "native",
+      "evidence": "TODO_IOS_PUSH_EVIDENCE_URI"
     }
   ],
   "noticeDispatch": {

@@ -76,7 +76,7 @@ const requiredSnippets = [
   "npm run test:ios-provisioning-runbook",
   "npm run p1:readiness",
   "docs/IOS_IPA_PROVISIONING_RUNBOOK.md",
-  "FINAL_JUDO_IOS_SERVER_URL",
+  "FINAL_JUDO_IOS_API_ORIGIN",
   "iOS IPA는 Simulator 성공만으로 ready 처리하지 않는다",
   "선택한 export method에 맞는 provisioning profile과 archive/export 또는 업로드 성공 증빙 전까지 iOS IPA를 ready로 판단하지 않는다",
   "현재 상태:",

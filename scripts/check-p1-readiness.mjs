@@ -39,9 +39,9 @@ const requirements = [
     uploadEvidencePath: args.iosAppStoreUploadReport ? path.resolve(args.iosAppStoreUploadReport) : null,
     uploadEvidenceDirectory: defaultReportPath(path.join("mobile-builds", "ios", "app-store")),
     command:
-      "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md && APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:build -- --team-id=<TEAM_ID> --allow-provisioning-updates",
+      "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md && APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:build -- --team-id=<TEAM_ID> --allow-provisioning-updates",
     nextAction:
-      "배포 방식에 맞는 kr.co.finaljudo.multigym provisioning profile을 설치하고 `npm run ios:ipa:doctor`와 `npm run ios:ipa:build`를 실제 운영 HTTPS 웹앱 origin/Apple Team ID로 재실행합니다. App Store Connect 배포에는 테스트 기기 UDID가 필요하지 않으며, 성공한 업로드 리포트도 완료 증빙으로 사용할 수 있습니다.",
+      "배포 방식에 맞는 kr.co.finaljudo.multigym provisioning profile을 설치하고 `npm run ios:ipa:doctor`와 `npm run ios:ipa:build`를 서명된 로컬 UI 번들/실제 운영 HTTPS API origin/Apple Team ID로 재실행합니다. App Store Connect 배포에는 테스트 기기 UDID가 필요하지 않으며, 성공한 업로드 리포트도 완료 증빙으로 사용할 수 있습니다.",
   },
   {
     key: "paymentProvider",

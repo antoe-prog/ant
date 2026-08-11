@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
+import { getAdminAssignment, hasAdminAccessToBranchIds } from "@/lib/admin-access";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import { getUserAdministrationInputLimitError } from "@/lib/user-administration-input-policy";
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
       const invalidBranchId = branchIds.find(
         (branchId) =>
           !db.branches.some((branch) => branch.id === branchId) ||
-          (user.role === "owner" && !accessibleBranchIds.includes(branchId)),
+          !accessibleBranchIds.includes(branchId),
       );
 
       if (invalidBranchId) {
@@ -142,7 +143,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const assignedBranchIds = role === "admin" ? accessibleBranchIds : branchIds;
+    const adminAssignment = getAdminAssignment(
+      user,
+      role,
+      branchIds,
+      db.branches.map((branch) => branch.id),
+    );
+    const assignedBranchIds = role === "admin" ? adminAssignment.branchIds : branchIds;
+
+    if (user.role === "admin" && !hasAdminAccessToBranchIds(user, assignedBranchIds)) {
+      return jsonError(403, "FORBIDDEN", "접근 가능한 지점만 배정할 수 있습니다.");
+    }
 
     if (role !== "admin" && assignedBranchIds.length === 0) {
       return jsonError(422, "BUSINESS_RULE_FAILED", "총괄 어드민 외 역할은 최소 1개 지점이 필요합니다.");
@@ -156,6 +167,7 @@ export async function POST(request: NextRequest) {
       name,
       phone,
       role,
+      ...(role === "admin" ? { adminScope: adminAssignment.adminScope } : {}),
       title: `${name} 초대 대기`,
       branchIds: assignedBranchIds,
       invitationStatus: "pending",

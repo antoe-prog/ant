@@ -1,5 +1,128 @@
 import UIKit
+import AVFoundation
+import UserNotifications
 import Capacitor
+
+@objc(AppPermissionsPlugin)
+public class AppPermissionsPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AppPermissionsPlugin"
+    public let jsName = "AppPermissions"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "getPermissionStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openAppSettings", returnType: CAPPluginReturnPromise)
+    ]
+
+    private enum PermissionAlias {
+        case camera
+        case notifications
+
+        static func from(_ raw: String?) -> PermissionAlias? {
+            switch raw {
+            case "camera":
+                return .camera
+            case "notifications":
+                return .notifications
+            default:
+                return nil
+            }
+        }
+    }
+
+    private func permissionStatus(for alias: PermissionAlias, completion: @escaping (String) -> Void) {
+        switch alias {
+        case .camera:
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                completion("granted")
+            case .denied, .restricted:
+                completion("denied")
+            case .notDetermined:
+                completion("prompt")
+            @unknown default:
+                completion("prompt")
+            }
+        case .notifications:
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                let status: String
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    status = "granted"
+                case .denied:
+                    status = "denied"
+                case .notDetermined:
+                    status = "prompt"
+                @unknown default:
+                    status = "prompt"
+                }
+                completion(status)
+            }
+        }
+    }
+
+    private func resolvePermissionStatus(call: CAPPluginCall) {
+        permissionStatus(for: .camera) { camera in
+            self.permissionStatus(for: .notifications) { notifications in
+                let result = [
+                    "camera": camera,
+                    "notifications": notifications
+                ]
+                call.resolve(result)
+            }
+        }
+    }
+
+    @objc public func getPermissionStatus(_ call: CAPPluginCall) {
+        resolvePermissionStatus(call: call)
+    }
+
+    @objc public func requestPermission(_ call: CAPPluginCall) {
+        guard let permission = PermissionAlias.from(call.getString("permission")) else {
+            call.reject("Unknown app permission.")
+            return
+        }
+
+        switch permission {
+        case .camera:
+            AVCaptureDevice.requestAccess(for: .video) { _ in
+                self.resolvePermissionStatus(call: call)
+            }
+        case .notifications:
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+                if let error {
+                    call.reject(error.localizedDescription)
+                    return
+                }
+                _ = granted
+                self.resolvePermissionStatus(call: call)
+            }
+        }
+    }
+
+    @objc public func openAppSettings(_ call: CAPPluginCall) {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+            call.reject("App settings URL is unavailable.")
+            return
+        }
+
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened {
+                    call.resolve()
+                } else {
+                    call.reject("Unable to open app settings.")
+                }
+            }
+        }
+    }
+}
+
+@objc(FinalJudoBridgeViewController)
+class FinalJudoBridgeViewController: CAPBridgeViewController {
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(AppPermissionsPlugin())
+    }
+}
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {

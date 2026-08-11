@@ -1,5 +1,5 @@
 import * as webPush from "web-push";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type {
   AppUser,
   AuditLog,
@@ -7,20 +7,20 @@ import type {
   Notice,
   PushDispatchPayloadSnapshot,
   PushSubscriptionRecord,
-} from "@/lib/domain";
-import { getNoticeRecipients } from "@/lib/push-subscription-scope";
-import { createRuntimeId } from "@/server/runtime-id";
+} from "../lib/domain.ts";
+import { getNoticeRecipients } from "../lib/push-subscription-scope.ts";
+import { createRuntimeId } from "./runtime-id.ts";
 import {
   getNativePushProviderReadiness,
   sendApnsPush,
   sendFcmPush,
-} from "@/server/native-push-providers";
+} from "./native-push-providers.ts";
 
 export {
   getNoticePushSubscriptions,
   getNoticeRecipients,
   getVisibleActivePushSubscriptionCount,
-} from "@/lib/push-subscription-scope";
+} from "../lib/push-subscription-scope.ts";
 
 type WebPushSubscriptionInput = {
   endpoint?: unknown;
@@ -34,6 +34,10 @@ type WebPushSubscriptionInput = {
 type NativePushRegistrationInput = {
   platform?: unknown;
   token?: unknown;
+};
+
+type PushSubscriptionUpsertOptions = {
+  replacementSubscriptionId?: string;
 };
 
 export const pushEndpointMaxLength = 2_048;
@@ -59,6 +63,7 @@ export type PushDispatchSummary = {
   disabled: number;
   failed: number;
   sent: number;
+  unconfigured: number;
 };
 
 export type PushDeliveryResult =
@@ -69,6 +74,7 @@ export type PushDeliveryResult =
       errorCode: string;
       message: string;
       deliveryUncertain?: boolean;
+      retryAfterMs?: number;
     };
 
 type NoticePushDispatchAuditInput = {
@@ -95,7 +101,7 @@ export function getPushProviderTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
 }
 
 export async function runPushDeliveryWithTimeout(
-  deliver: () => Promise<PushDeliveryResult>,
+  deliver: (signal: AbortSignal) => Promise<PushDeliveryResult>,
   timeoutMs = getPushProviderTimeoutMs(),
 ): Promise<PushDeliveryResult> {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -103,6 +109,7 @@ export async function runPushDeliveryWithTimeout(
   }
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  const abortController = new AbortController();
   const timeoutResult = new Promise<PushDeliveryResult>((resolve) => {
     timeout = setTimeout(() => {
       resolve({
@@ -111,13 +118,14 @@ export async function runPushDeliveryWithTimeout(
         message: "알림 provider 응답 시간이 초과됐습니다.",
         deliveryUncertain: true,
       });
+      abortController.abort();
     }, timeoutMs);
   });
 
   try {
     return await Promise.race([
       Promise.resolve()
-        .then(deliver)
+        .then(() => deliver(abortController.signal))
         .catch(() => ({
           outcome: "failed" as const,
           errorCode: "PUSH_DELIVERY_EXCEPTION",
@@ -239,6 +247,24 @@ export function normalizePushSubscription(value: unknown) {
   };
 }
 
+export function hasMatchingWebPushCredential(
+  existing: PushSubscriptionRecord,
+  subscription: NonNullable<ReturnType<typeof normalizePushSubscription>>,
+) {
+  if (existing.transport !== "web" || existing.endpoint !== subscription.endpoint) {
+    return false;
+  }
+
+  const storedCredential = createHash("sha256")
+    .update(`${existing.keys.auth}\0${existing.keys.p256dh}`)
+    .digest();
+  const candidateCredential = createHash("sha256")
+    .update(`${subscription.keys.auth}\0${subscription.keys.p256dh}`)
+    .digest();
+
+  return timingSafeEqual(storedCredential, candidateCredential);
+}
+
 export function createEndpointHint(endpoint: string) {
   return endpoint.length <= 16 ? endpoint : `...${endpoint.slice(-16)}`;
 }
@@ -246,10 +272,11 @@ export function createEndpointHint(endpoint: string) {
 export async function sendPushPayloadToSubscription(
   subscription: PushSubscriptionRecord,
   payload: PushDispatchPayloadSnapshot,
+  signal?: AbortSignal,
 ): Promise<PushDeliveryResult> {
   if (subscription.transport === "fcm") {
     return subscription.deviceToken
-      ? sendFcmPush(subscription.deviceToken, payload)
+      ? sendFcmPush(subscription.deviceToken, payload, fetch, signal)
       : {
           outcome: "failed",
           errorCode: "FCM_TOKEN_MISSING",
@@ -258,7 +285,7 @@ export async function sendPushPayloadToSubscription(
   }
   if (subscription.transport === "apns") {
     return subscription.deviceToken
-      ? sendApnsPush(subscription.deviceToken, payload)
+      ? sendApnsPush(subscription.deviceToken, payload, { signal })
       : {
           outcome: "failed",
           errorCode: "APNS_TOKEN_MISSING",
@@ -340,7 +367,7 @@ export function createNoticePushDispatchMessage({
     return `대상 ${recipientCount}명 알림함에는 표시됩니다. 휴대폰 푸시를 받을 기기가 아직 없습니다.`;
   }
 
-  return `대상 ${recipientCount}명 알림함 표시, 휴대폰 푸시 ${summary.sent}건 발송, 실패 ${summary.failed}건입니다.`;
+  return `대상 ${recipientCount}명 알림함 표시, 휴대폰 푸시 ${summary.sent}건 발송, 실패 ${summary.failed}건${summary.unconfigured > 0 ? `, 제공자 설정 미완료 ${summary.unconfigured}건` : ""}입니다.`;
 }
 
 export function createNoticePushDispatchRequestAuditLog({
@@ -382,7 +409,11 @@ export function completeNoticePushDispatchAuditLog(
   const candidateCount = Number(requestAuditLog.after?.candidateCount ?? 0);
   const recipientCount = Number(requestAuditLog.after?.recipientCount ?? 0);
   const result: AuditLog["result"] =
-    !summary.configured || candidateCount === 0 ? "blocked" : summary.failed > 0 ? "failed" : "success";
+    !summary.configured || candidateCount === 0
+      ? "blocked"
+      : summary.failed > 0 || summary.unconfigured > 0
+        ? "failed"
+        : "success";
 
   return {
     ...requestAuditLog,
@@ -393,6 +424,7 @@ export function completeNoticePushDispatchAuditLog(
       attempted: summary.attempted,
       sent: summary.sent,
       failed: summary.failed,
+      unconfiguredCount: summary.unconfigured,
       disabled: summary.disabled,
       completedAt,
     },
@@ -406,9 +438,17 @@ export function upsertPushSubscription(
   user: AppUser,
   subscription: NonNullable<ReturnType<typeof normalizePushSubscription>>,
   userAgent?: string,
+  options: PushSubscriptionUpsertOptions = {},
 ) {
   const now = new Date().toISOString();
-  const existing = db.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
+  const existingByEndpoint = db.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
+  const replacement = db.pushSubscriptions.find((item) =>
+    item.id === options.replacementSubscriptionId &&
+    item.userId === user.id &&
+    !item.disabledAt &&
+    item.id !== existingByEndpoint?.id,
+  );
+  const existing = existingByEndpoint ?? replacement;
   const nextRecord: PushSubscriptionRecord = {
     id: existing?.id ?? createRuntimeId("push"),
     userId: user.id,
@@ -421,14 +461,31 @@ export function upsertPushSubscription(
     updatedAt: now,
   };
 
+  const retiredSubscriptionId = existingByEndpoint && replacement ? replacement.id : null;
+
   return {
     db: {
       ...db,
       pushSubscriptions: existing
-        ? db.pushSubscriptions.map((item) => (item.id === existing.id ? nextRecord : item))
+        ? db.pushSubscriptions.map((item) => {
+            if (item.id === existing.id) {
+              return nextRecord;
+            }
+            if (item.id === retiredSubscriptionId) {
+              return {
+                ...item,
+                deviceSessionHash: undefined,
+                disabledAt: now,
+                disabledReason: "token_rotated" as const,
+                updatedAt: now,
+              };
+            }
+            return item;
+          })
         : [nextRecord, ...db.pushSubscriptions],
     },
     record: nextRecord,
+    retiredSubscriptionId,
   };
 }
 
@@ -437,9 +494,17 @@ export function upsertNativePushRegistration(
   user: AppUser,
   registration: NonNullable<ReturnType<typeof normalizeNativePushRegistration>>,
   userAgent?: string,
+  options: PushSubscriptionUpsertOptions = {},
 ) {
   const now = new Date().toISOString();
-  const existing = db.pushSubscriptions.find((item) => item.endpoint === registration.endpoint);
+  const existingByEndpoint = db.pushSubscriptions.find((item) => item.endpoint === registration.endpoint);
+  const replacement = db.pushSubscriptions.find((item) =>
+    item.id === options.replacementSubscriptionId &&
+    item.userId === user.id &&
+    !item.disabledAt &&
+    item.id !== existingByEndpoint?.id,
+  );
+  const existing = existingByEndpoint ?? replacement;
   const nextRecord: PushSubscriptionRecord = {
     id: existing?.id ?? createRuntimeId("push"),
     userId: user.id,
@@ -453,14 +518,31 @@ export function upsertNativePushRegistration(
     updatedAt: now,
   };
 
+  const retiredSubscriptionId = existingByEndpoint && replacement ? replacement.id : null;
+
   return {
     db: {
       ...db,
       pushSubscriptions: existing
-        ? db.pushSubscriptions.map((item) => item.id === existing.id ? nextRecord : item)
+        ? db.pushSubscriptions.map((item) => {
+            if (item.id === existing.id) {
+              return nextRecord;
+            }
+            if (item.id === retiredSubscriptionId) {
+              return {
+                ...item,
+                deviceSessionHash: undefined,
+                disabledAt: now,
+                disabledReason: "token_rotated" as const,
+                updatedAt: now,
+              };
+            }
+            return item;
+          })
         : [nextRecord, ...db.pushSubscriptions],
     },
     record: nextRecord,
+    retiredSubscriptionId,
   };
 }
 

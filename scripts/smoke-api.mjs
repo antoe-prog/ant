@@ -38,7 +38,7 @@ function createSmokePhone(offset) {
 }
 
 function createClient() {
-  let cookie = "";
+  const cookies = new Map();
 
   return {
     async request(path, init = {}, options = {}) {
@@ -46,16 +46,32 @@ function createClient() {
         ...init,
         headers: {
           "Content-Type": "application/json",
-          ...(cookie ? { Cookie: cookie } : {}),
+          ...(cookies.size > 0
+            ? { Cookie: [...cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ") }
+            : {}),
           ...(init.headers ?? {}),
         },
       }).catch((error) => {
         throw new Error(`Cannot reach ${baseUrl}. Start the app with npm run dev before running smoke tests. ${error.message}`);
       });
-      const setCookie = response.headers.get("set-cookie");
+      const setCookies = response.headers.getSetCookie();
 
-      if (setCookie) {
-        cookie = setCookie.split(";")[0];
+      for (const setCookie of setCookies) {
+        const pair = setCookie.split(";", 1)[0];
+        const separatorIndex = pair.indexOf("=");
+
+        if (separatorIndex <= 0) {
+          continue;
+        }
+
+        const name = pair.slice(0, separatorIndex);
+        const value = pair.slice(separatorIndex + 1);
+
+        if (!value || /(?:^|;)\s*max-age=0(?:;|$)/i.test(setCookie)) {
+          cookies.delete(name);
+        } else {
+          cookies.set(name, value);
+        }
       }
 
       const payload = options.responseType === "text"
@@ -180,9 +196,42 @@ async function assertCsvExportBlockedForRole(client, role) {
   }
 }
 
-async function assertFamilyPushSubscriptionAlwaysOn(client, role, offset) {
+async function assertFamilyPushSubscriptionAlwaysOn(client, role, userId, offset) {
   const endpoint = `https://push.example.test/${role}-always-on-${stamp}-${offset}`;
   const oversizedEndpoint = `https://push.example.test/${"x".repeat(2_100)}`;
+
+  const initialConfig = await client.request("/api/v1/notifications/push-config");
+  const staleAccountRegistration = await client.request(
+    "/api/v1/notifications/subscriptions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expectedUserId: `stale-${role}-${stamp}`,
+        subscription: {
+          endpoint: `https://push.example.test/${role}-stale-account-${stamp}`,
+          keys: { auth: "valid-auth", p256dh: "valid-p256dh" },
+        },
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(staleAccountRegistration.response.status, 409, `${role} stale account push registration must be rejected`);
+  assert.equal(
+    staleAccountRegistration.payload.error?.code,
+    "AUTH_SESSION_CHANGED",
+    `${role} stale account push registration must expose a stable conflict code`,
+  );
+  const configAfterStaleAccount = await client.request("/api/v1/notifications/push-config");
+  assert.equal(
+    configAfterStaleAccount.payload.data.activeSubscriptionCount,
+    initialConfig.payload.data.activeSubscriptionCount,
+    `${role} stale account push registration must not mutate the active subscription count`,
+  );
+  assert.equal(
+    configAfterStaleAccount.payload.data.currentUserSubscribed,
+    initialConfig.payload.data.currentUserSubscribed,
+    `${role} stale account push registration must not mutate subscription state`,
+  );
 
   let result = await client.request(
     "/api/v1/notifications/subscriptions",
@@ -271,6 +320,7 @@ async function assertFamilyPushSubscriptionAlwaysOn(client, role, offset) {
           p256dh: `${role}-smoke-p256dh-key`,
         },
       },
+      expectedUserId: userId,
       userAgent: `${role}-smoke-api`,
     }),
   });
@@ -335,12 +385,32 @@ async function assertFamilyPushSubscriptionOwnershipTransfer({
       userAgent: "family-transfer-previous",
     }),
   });
+  const uncredentialedTransfer = await nextClient.request(
+    "/api/v1/notifications/subscriptions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        subscription: {
+          endpoint,
+          keys: { auth: "forged-transfer-auth", p256dh: "forged-transfer-p256dh" },
+        },
+        userAgent: "family-transfer-forged",
+        allowReactivation: true,
+      }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    uncredentialedTransfer.response.status,
+    409,
+    "a browser endpoint without its stored Web Push credentials must not transfer ownership",
+  );
   const transferredSubscription = await nextClient.request("/api/v1/notifications/subscriptions", {
     method: "POST",
     body: JSON.stringify({
       subscription: {
         endpoint,
-        keys: { auth: "transfer-next-auth", p256dh: "transfer-next-p256dh" },
+        keys: { auth: "transfer-previous-auth", p256dh: "transfer-previous-p256dh" },
       },
       userAgent: "family-transfer-next",
       allowReactivation: false,
@@ -373,7 +443,7 @@ async function assertFamilyPushSubscriptionOwnershipTransfer({
     body: JSON.stringify({
       subscription: {
         endpoint,
-        keys: { auth: "transfer-next-auth", p256dh: "transfer-next-p256dh" },
+        keys: { auth: "transfer-previous-auth", p256dh: "transfer-previous-p256dh" },
       },
       userAgent: "family-transfer-next",
       allowReactivation: false,
@@ -1326,7 +1396,7 @@ async function run() {
   result = await login(guardian, "guardian");
   const guardianUserId = result.user.id;
   await assertCsvExportBlockedForRole(guardian, "guardian");
-  await assertFamilyPushSubscriptionAlwaysOn(guardian, "guardian", 10);
+  await assertFamilyPushSubscriptionAlwaysOn(guardian, "guardian", guardianUserId, 10);
   assert(
     result.db.auditLogs.length === 0,
     "guardian bootstrap must not include internal audit logs",
@@ -2134,7 +2204,7 @@ async function run() {
   result = await login(memberClient, "member");
   const memberUserId = result.user.id;
   await assertCsvExportBlockedForRole(memberClient, "member");
-  await assertFamilyPushSubscriptionAlwaysOn(memberClient, "member", 20);
+  await assertFamilyPushSubscriptionAlwaysOn(memberClient, "member", memberUserId, 20);
   await assertFamilyPushSubscriptionOwnershipTransfer({
     adminClient: credentialClient,
     nextClient: memberClient,

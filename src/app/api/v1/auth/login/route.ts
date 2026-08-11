@@ -1,18 +1,26 @@
 import { NextRequest } from "next/server";
 import { getAuthInputLimitError } from "@/lib/auth-input-policy";
 import { userRoles, type AppUser, type AuditLog, type MockDatabase, type UserRole } from "@/lib/domain";
-import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
+import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, sessionCookieName } from "@/server/api";
 import { canUseDemoRoleLogin, createSessionCookieOptions } from "@/server/auth-policy";
 import { defaultPilotPassword, verifyAuthenticationPassword } from "@/server/auth-password";
 import {
-  authSecurityLockKey,
   createAuthSession,
   getAccountLoginThrottle,
   readUnmodifiedPassword,
   shouldRecordBlockedLoginAudit,
 } from "@/server/auth-session";
+import { withAuthAndNotificationStateLock } from "@/server/auth-notification-state-lock";
 import { samePhoneNumber } from "@/lib/phone";
+import { createEndpointHint } from "@/server/push-notifications";
+import {
+  createExpiredPushDeviceSubscriptionCookieOptions,
+  detachPushDeviceSubscriptionOnAccountSwitch,
+  getPushDeviceSubscriptionId,
+  pushDeviceSubscriptionCookieName,
+} from "@/server/push-device-session";
+import { createRuntimeId } from "@/server/runtime-id";
 
 export const runtime = "nodejs";
 
@@ -58,6 +66,7 @@ export async function POST(request: NextRequest) {
   const emailFallback = loginId.toLowerCase();
   const password = readUnmodifiedPassword(body?.password);
   const requestedDemoRole = body?.role;
+  const pushDeviceCookieValue = request.cookies.get(pushDeviceSubscriptionCookieName)?.value;
 
   if (loginId || password) {
     if (!loginId || !password) {
@@ -67,7 +76,7 @@ export async function POST(request: NextRequest) {
     return jsonError(400, "VALIDATION_ERROR", "휴대폰 번호 또는 역할을 선택해 주세요.");
   }
 
-  return withServerDbLock(authSecurityLockKey, async () => {
+  return withAuthAndNotificationStateLock(async () => {
     const db = await readServerDb();
 
     if (loginId || password) {
@@ -147,7 +156,7 @@ export async function POST(request: NextRequest) {
         return createInvalidCredentialResponse();
       }
 
-      return createLoginResponse(db, user, body?.keepSignedIn === true);
+      return createLoginResponse(db, user, body?.keepSignedIn === true, pushDeviceCookieValue);
     }
 
     if (!canUseDemoRoleLogin()) {
@@ -169,7 +178,7 @@ export async function POST(request: NextRequest) {
       return jsonError(404, "NOT_FOUND", "선택한 역할의 계정을 찾을 수 없습니다.");
     }
 
-    return createLoginResponse(db, user);
+    return createLoginResponse(db, user, false, pushDeviceCookieValue);
   });
 }
 
@@ -177,9 +186,45 @@ function createInvalidCredentialResponse() {
   return jsonError(401, "UNAUTHENTICATED", "휴대폰 번호 또는 비밀번호가 올바르지 않습니다.");
 }
 
-async function createLoginResponse(db: MockDatabase, user: AppUser, keepSignedIn = false) {
+async function createLoginResponse(
+  db: MockDatabase,
+  user: AppUser,
+  keepSignedIn = false,
+  pushDeviceCookieValue?: string,
+) {
+  const verifiedPushDeviceSubscriptionId = getPushDeviceSubscriptionId(
+    db,
+    pushDeviceCookieValue,
+  );
+  const switchedDevice = detachPushDeviceSubscriptionOnAccountSwitch(
+    db,
+    user,
+    pushDeviceCookieValue,
+  );
+  const notificationAuditLog: AuditLog | null = switchedDevice.record
+    ? {
+        id: createRuntimeId("audit"),
+        branchId: switchedDevice.record.branchIds[0] ?? null,
+        actorUserId: switchedDevice.record.userId,
+        action: "notification.unsubscribe",
+        targetType: "push_subscription",
+        targetId: switchedDevice.record.id,
+        before: {
+          endpointHint: createEndpointHint(switchedDevice.record.endpoint),
+          disabledAt: null,
+        },
+        after: {
+          endpointHint: createEndpointHint(switchedDevice.record.endpoint),
+          disabledAt: switchedDevice.record.disabledAt ?? null,
+          reason: "account_switch",
+        },
+        result: "success",
+        message: "현재 기기에서 다른 계정으로 로그인하여 이전 계정의 알림 연결을 해제했습니다.",
+        createdAt: switchedDevice.record.disabledAt ?? new Date().toISOString(),
+      }
+    : null;
   const auditLog: AuditLog = {
-    id: `audit-${Date.now()}-${db.auditLogs.length + 1}`,
+    id: createRuntimeId("audit"),
     branchId: null,
     actorUserId: user.id,
     action: "auth.login",
@@ -193,8 +238,12 @@ async function createLoginResponse(db: MockDatabase, user: AppUser, keepSignedIn
   };
   const cookieOptions = createSessionCookieOptions(process.env, { keepSignedIn });
   const issuedSession = createAuthSession({
-    ...db,
-    auditLogs: [auditLog, ...db.auditLogs],
+    ...switchedDevice.db,
+    auditLogs: [
+      auditLog,
+      ...(notificationAuditLog ? [notificationAuditLog] : []),
+      ...switchedDevice.db.auditLogs,
+    ],
   }, user.id, cookieOptions.maxAge);
   const nextDb = await writeServerDb(issuedSession.db);
   const sessionUser = nextDb.users.find((candidate) => candidate.id === user.id);
@@ -206,6 +255,13 @@ async function createLoginResponse(db: MockDatabase, user: AppUser, keepSignedIn
   const response = jsonOk(createBootstrapPayload(nextDb, sessionUser, null));
 
   response.cookies.set(sessionCookieName, issuedSession.token, cookieOptions);
+  if (switchedDevice.record || (pushDeviceCookieValue && !verifiedPushDeviceSubscriptionId)) {
+    response.cookies.set(
+      pushDeviceSubscriptionCookieName,
+      "",
+      createExpiredPushDeviceSubscriptionCookieOptions(),
+    );
+  }
 
   return response;
 }

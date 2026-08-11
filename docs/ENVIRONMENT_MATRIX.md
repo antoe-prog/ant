@@ -62,12 +62,20 @@ Provider event ID는 body의 `providerEventId` 또는 `x-final-judo-payment-even
 
 | 변수 | 개발 | 파일럿/운영 | 설명 |
 | --- | --- | --- | --- |
-| `FINAL_JUDO_VAPID_PUBLIC_KEY` | 비움 가능 | 필수 | 브라우저 PushSubscription용 public key. |
-| `FINAL_JUDO_VAPID_PRIVATE_KEY` | 비움 가능 | 필수 | 서버 푸시 발송용 private key. |
-| `FINAL_JUDO_VAPID_SUBJECT` | `mailto:ops@finaljudo.test` | 운영 연락처 | VAPID subject. |
+| `FINAL_JUDO_PUSH_ENABLED` | `0` | `1` | 푸시 사전 점검 활성화. 활성화 시 아래 제공자 중 하나 이상이 완전히 설정돼야 한다. |
+| `FINAL_JUDO_APNS_TEAM_ID`, `FINAL_JUDO_APNS_KEY_ID` | 비움 가능 | iOS 필수 | Apple Developer Team ID와 APNs Key ID. |
+| `FINAL_JUDO_APNS_TOPIC` | `kr.co.finaljudo.multigym` | bundle id | APNs topic. iOS bundle id와 일치해야 한다. |
+| `FINAL_JUDO_APNS_PRIVATE_KEY` | 비움 가능 | iOS secret | APNs `.p8` private key 내용. 원문은 secret store에만 둔다. |
+| `FINAL_JUDO_APNS_ENVIRONMENT` | `production` | `production` | 운영 빌드는 production APNs endpoint를 사용한다. |
+| `FINAL_JUDO_APNS_TTL_SECONDS` | `86400` | 선택 | iPhone이 오프라인일 때 APNs가 알림을 보관할 시간. 기본 24시간, 허용 범위 60초~30일이며 `0`은 저장하지 않고 한 번만 전달한다. |
+| `FINAL_JUDO_FIREBASE_PROJECT_ID`, `FINAL_JUDO_FIREBASE_CLIENT_EMAIL` | 비움 가능 | Android 필수 | Firebase service account project/client 식별자. |
+| `FINAL_JUDO_FIREBASE_PRIVATE_KEY` | 비움 가능 | Android secret | Firebase service account private key. 원문은 secret store에만 둔다. |
+| `FINAL_JUDO_VAPID_PUBLIC_KEY` | 비움 가능 | Web Push 선택 | 브라우저 PushSubscription용 public key. |
+| `FINAL_JUDO_VAPID_PRIVATE_KEY` | 비움 가능 | Web Push 선택 secret | 서버 Web Push 발송용 private key. |
+| `FINAL_JUDO_VAPID_SUBJECT` | 비움 가능 | Web Push 선택 | Web Push를 사용할 때의 `mailto:` VAPID subject. |
 | `CRON_SECRET` | 비움 가능 | 필수 | 푸시 outbox 재시도 endpoint를 보호하는 무작위 Bearer secret. 원문은 배포 플랫폼 secret store에만 둔다. |
 
-VAPID 키가 없으면 UI와 API는 `configured: false`를 보여주고 실제 push 발송 대신 구성 필요 상태를 기록한다. 공지 발행·재발송·대회 신청 검토 요청은 outbox 저장 후 응답하고, 응답 이후 최대 20건을 10개 worker로 처리한다. 예약 worker는 한 번에 최대 50건을 10개 worker로 처리한다. `vercel.json`의 일일 cron은 모든 Vercel 플랜에서 배포 가능한 안전한 기본값이며, 이 주기에서는 50건을 넘는 대기열이나 재시도 작업이 다음 날까지 남을 수 있다. 더 짧은 재시도 주기는 배포 시점의 플랜 제한을 확인한 뒤 조정한다.
+APNs, FCM, Web Push 중 대상 기기의 제공자 설정이 없으면 API는 해당 제공자를 `configured: false`로 표시하고 실제 발송 대신 구성 필요 상태를 기록한다. 사용하지 않는 Web Push의 VAPID 설정은 네이티브 APNs/FCM 배포를 차단하지 않는다. 일부 제공자만 설정된 발송은 완료 상태로 정산하되 감사 결과와 API 요약에 `제공자 설정 미완료`를 실패로 남긴다. 공지 발행·재발송·대회 신청 검토 요청은 outbox 저장 후 응답하고, 응답 이후 최대 20건을 10개 worker로 처리한다. 예약 worker는 한 번에 최대 50건을 10개 worker로 처리한다. `vercel.json`의 일일 cron은 모든 Vercel 플랜에서 배포 가능한 안전한 기본값이지만, 이 주기에서는 50건을 넘는 대기열이나 재시도 작업이 다음 날까지 남을 수 있다. 운영 push handoff는 `CRON_SECRET`으로 인증되고 배포 플랜 또는 외부 스케줄러가 지원하는 30분 이내 retry worker 호출 증빙이 있어야 ready로 판정한다.
 
 ## Test And Pilot Commands
 

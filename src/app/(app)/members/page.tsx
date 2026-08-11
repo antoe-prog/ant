@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ClientRedirect } from "@/components/routing/client-redirect";
 
 export default function MembersPage() {
-  redirect("/app/members");
+  return <ClientRedirect href="/app/members" />;
 }

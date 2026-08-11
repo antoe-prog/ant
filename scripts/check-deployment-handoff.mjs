@@ -5,7 +5,7 @@ const args = parseArgs(process.argv.slice(2));
 const handoffPath = path.resolve(args.file ?? ".data/deployment-handoff.json");
 const outPath = args.out ? path.resolve(args.out) : null;
 
-const requiredEnvironmentVariables = [
+const baseRequiredEnvironmentVariables = [
   ["NODE_ENV", "config", "production"],
   ["FINAL_JUDO_DB_DRIVER", "config", "postgres"],
   ["FINAL_JUDO_POSTGRES_URL", "secret", null],
@@ -16,10 +16,13 @@ const requiredEnvironmentVariables = [
   ["FINAL_JUDO_PAYMENT_PROVIDER", "config", "external"],
   ["FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL", "config", null],
   ["FINAL_JUDO_PAYMENT_WEBHOOK_SECRET", "secret", null],
+  ["CRON_SECRET", "secret", null],
+];
+
+const legacyWebPushEnvironmentVariables = [
   ["FINAL_JUDO_VAPID_PUBLIC_KEY", "config", null],
   ["FINAL_JUDO_VAPID_PRIVATE_KEY", "secret", null],
   ["FINAL_JUDO_VAPID_SUBJECT", "config", null],
-  ["CRON_SECRET", "secret", null],
 ];
 
 const evidenceReferencePattern = /^(https:\/\/|s3:\/\/|gs:\/\/|az:\/\/|drive:\/\/|sharepoint:\/\/|box:\/\/|file:\/\/).+/i;
@@ -241,6 +244,11 @@ function assertNoRawSecretValues(value, blockers, trail = []) {
 function validateEnvironmentVariables(document, blockers) {
   const variables = Array.isArray(document.environmentVariables) ? document.environmentVariables : [];
   const byKey = new Map(variables.map((entry) => [text(entry?.key), entry]));
+  const providers = Array.isArray(document.pushNotifications?.providers) ? document.pushNotifications.providers.map(text) : [];
+  const requiredEnvironmentVariables = [
+    ...baseRequiredEnvironmentVariables,
+    ...(document.schemaVersion === 1 || providers.includes("web") ? legacyWebPushEnvironmentVariables : []),
+  ];
 
   for (const [key, classification, expectedValue] of requiredEnvironmentVariables) {
     const entry = byKey.get(key);
@@ -301,9 +309,49 @@ function validateEnvironmentVariables(document, blockers) {
   }
 }
 
+function validatePushNotifications(document, blockers) {
+  const push = document.pushNotifications ?? {};
+
+  if (document.schemaVersion === 2) {
+    const providers = Array.isArray(push.providers) ? push.providers.map(text).filter(Boolean) : [];
+    const allowedProviders = new Set(["apns", "fcm", "web"]);
+
+    if (providers.length === 0 || providers.some((provider) => !allowedProviders.has(provider))) {
+      addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH_PROVIDERS", "push handoff must identify at least one enabled production provider.", {
+        providers,
+      });
+    }
+
+    if (push.providerHandoffVerified !== true || push.deviceSubscriptionVerified !== true || push.noticePushVerified !== true) {
+      addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH", "push notification handoff must verify provider custody, device subscription, and notice delivery.", {
+        providerHandoffVerified: push.providerHandoffVerified ?? null,
+        deviceSubscriptionVerified: push.deviceSubscriptionVerified ?? null,
+        noticePushVerified: push.noticePushVerified ?? null,
+      });
+    }
+
+    if (providers.includes("web") && !validateMailtoContact(push.subject)) {
+      addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH_SUBJECT", "enabled Web Push requires a real mailto subject.", { subject: push.subject ?? null });
+    }
+  } else {
+    if (push.vapidKeysStored !== true || push.deviceSubscriptionVerified !== true || push.noticePushVerified !== true) {
+      addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH", "push notification handoff must verify VAPID keys, device subscription, and notice push.", {
+        vapidKeysStored: push.vapidKeysStored ?? null,
+        deviceSubscriptionVerified: push.deviceSubscriptionVerified ?? null,
+        noticePushVerified: push.noticePushVerified ?? null,
+      });
+    }
+    if (!validateMailtoContact(push.subject)) {
+      addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH_SUBJECT", "push subject must be a real mailto contact.", { subject: push.subject ?? null });
+    }
+  }
+
+  validateEvidence(blockers, "DEPLOYMENT_HANDOFF_PUSH_EVIDENCE", "push notifications", push.evidence);
+}
+
 async function validateHandoff(document, blockers) {
-  if (document.schemaVersion !== 1) {
-    addIssue(blockers, "DEPLOYMENT_HANDOFF_SCHEMA_VERSION", "deployment handoff schemaVersion must be 1.", { schemaVersion: document.schemaVersion ?? null });
+  if (![1, 2].includes(document.schemaVersion)) {
+    addIssue(blockers, "DEPLOYMENT_HANDOFF_SCHEMA_VERSION", "deployment handoff schemaVersion must be 1 or 2.", { schemaVersion: document.schemaVersion ?? null });
   }
 
   const generatedAt = parseDateTime(document.generatedAt);
@@ -364,18 +412,7 @@ async function validateHandoff(document, blockers) {
   }
   validateEvidence(blockers, "DEPLOYMENT_HANDOFF_PAYMENT_EVIDENCE", "payment provider", payment.evidence);
 
-  const push = document.pushNotifications ?? {};
-  if (push.vapidKeysStored !== true || push.deviceSubscriptionVerified !== true || push.noticePushVerified !== true) {
-    addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH", "push notification handoff must verify VAPID keys, device subscription, and notice push.", {
-      vapidKeysStored: push.vapidKeysStored ?? null,
-      deviceSubscriptionVerified: push.deviceSubscriptionVerified ?? null,
-      noticePushVerified: push.noticePushVerified ?? null,
-    });
-  }
-  if (!validateMailtoContact(push.subject)) {
-    addIssue(blockers, "DEPLOYMENT_HANDOFF_PUSH_SUBJECT", "push subject must be a real mailto contact.", { subject: push.subject ?? null });
-  }
-  validateEvidence(blockers, "DEPLOYMENT_HANDOFF_PUSH_EVIDENCE", "push notifications", push.evidence);
+  validatePushNotifications(document, blockers);
 
   const checks = document.checks ?? {};
   validatePassedCheck(blockers, "envReadiness", checks.envReadiness, "npm run test:env-readiness");
@@ -464,7 +501,7 @@ const report = {
     "required production environment variables without raw secrets",
     "PostgreSQL runtime store and backup evidence",
     "external payment provider settings and evidence",
-    "VAPID push notification settings and device evidence",
+    "production push provider handoff and real-device evidence",
     "env readiness, production preflight, and release evidence",
     "final deployment signoff",
   ],

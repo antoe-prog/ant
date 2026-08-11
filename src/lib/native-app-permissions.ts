@@ -13,33 +13,46 @@ type AppPermissionsPlugin = {
 
 const AppPermissions = registerPlugin<AppPermissionsPlugin>("AppPermissions");
 
-export function isNativeAndroidApp() {
-  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+export function isNativeMobilePermissionBridge() {
+  const platform = Capacitor.getPlatform();
+  return Capacitor.isNativePlatform() && (platform === "android" || platform === "ios");
 }
 
 export async function getNativeAppPermissionStatus(permission: NativeAppPermission) {
-  if (!isNativeAndroidApp()) {
+  if (!isNativeMobilePermissionBridge()) {
     return null;
   }
 
-  const status = await AppPermissions.getPermissionStatus();
-  return status[permission];
+  try {
+    const status = await AppPermissions.getPermissionStatus();
+    return status[permission];
+  } catch {
+    return null;
+  }
 }
 
 export async function requestNativeAppPermission(permission: NativeAppPermission) {
-  if (!isNativeAndroidApp()) {
+  if (!isNativeMobilePermissionBridge()) {
     return null;
   }
 
-  const status = await AppPermissions.requestPermission({ permission });
-  return status[permission];
+  try {
+    const status = await AppPermissions.requestPermission({ permission });
+    return status[permission];
+  } catch {
+    return null;
+  }
 }
 
 export async function openNativeAppSettings() {
-  if (!isNativeAndroidApp()) {
+  if (!isNativeMobilePermissionBridge()) {
     return false;
   }
 
-  await AppPermissions.openAppSettings();
-  return true;
+  try {
+    await AppPermissions.openAppSettings();
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -31,10 +31,10 @@ const requirementMeta = [
     key: "iosIpa",
     label: "iOS IPA build/provisioning",
     lane: "iOS/Release",
-    requiredEvidence: "운영 HTTPS 웹앱 origin, Apple Team ID, 실제 iPhone UDID 등록, matching provisioning profile, IPA archive/export report",
+    requiredEvidence: "서명된 로컬 UI 번들, 운영 HTTPS API origin, Apple Team ID, matching provisioning profile, IPA archive/export report",
     evidenceDraft: ".data/mobile-builds/ios/ios-ipa-build-report.json",
     strictCommand:
-      "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
+      "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
   },
   {
     key: "paymentProvider",

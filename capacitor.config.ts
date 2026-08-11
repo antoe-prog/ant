@@ -4,6 +4,7 @@ const iosServerUrl = process.env.FINAL_JUDO_IOS_SERVER_URL?.trim();
 const androidServerUrl = process.env.FINAL_JUDO_ANDROID_SERVER_URL?.trim();
 const activeServerUrl = androidServerUrl ?? iosServerUrl;
 const allowLocalCleartext = activeServerUrl ? /^http:\/\//.test(activeServerUrl) : false;
+const iosLocalBundle = process.env.FINAL_JUDO_IOS_LOCAL_BUNDLE === "1";
 
 const config: CapacitorConfig = {
   appId: "kr.co.finaljudo.multigym",
@@ -16,6 +17,9 @@ const config: CapacitorConfig = {
     path: "mobile/android-cap",
   },
   plugins: {
+    CapacitorHttp: {
+      enabled: iosLocalBundle,
+    },
     PushNotifications: {
       presentationOptions: ["badge", "sound", "alert"],
     },

@@ -29,6 +29,7 @@ const authNotificationStateLock = readFileSync("src/server/auth-notification-sta
 const pushHelper = readFileSync("src/server/push-notifications.ts", "utf8");
 const nativePushProviders = readFileSync("src/server/native-push-providers.ts", "utf8");
 const iosAppDelegate = readFileSync("mobile/ios/App/App/AppDelegate.swift", "utf8");
+const iosStoryboard = readFileSync("mobile/ios/App/App/Base.lproj/Main.storyboard", "utf8");
 const iosEntitlements = readFileSync("mobile/ios/App/App/App.entitlements", "utf8");
 const iosProject = readFileSync("mobile/ios/App/App.xcodeproj/project.pbxproj", "utf8");
 const androidAppBuild = readFileSync("mobile/android-cap/app/build.gradle", "utf8");
@@ -37,6 +38,8 @@ const notificationOutboxRunner = readFileSync("src/server/notification-outbox-ru
 const notificationOutboxCron = readFileSync("src/app/api/v1/internal/notification-outbox/route.ts", "utf8");
 const pushConfigRoute = readFileSync("src/app/api/v1/notifications/push-config/route.ts", "utf8");
 const pushSubscriptionRoute = readFileSync("src/app/api/v1/notifications/subscriptions/route.ts", "utf8");
+const pushDeviceSession = readFileSync("src/server/push-device-session.ts", "utf8");
+const logoutRoute = readFileSync("src/app/api/v1/auth/logout/route.ts", "utf8");
 const adminUserRoute = readFileSync("src/app/api/v1/admin/users/[userId]/route.ts", "utf8");
 const adminUserRoleRoute = readFileSync("src/app/api/v1/admin/users/[userId]/roles/route.ts", "utf8");
 const noticeCreateRoute = readFileSync("src/app/api/v1/branches/[branchId]/notices/route.ts", "utf8");
@@ -214,14 +217,14 @@ for (const removedNoticeSettingsContract of [
 }
 assert(apiClient.includes("getPushConfig()"), "api client must keep push config API access for platform handoff");
 assert(
-  apiClient.includes("subscribeToPush(subscription: PushSubscriptionJSON, userAgent: string, allowReactivation: boolean)") &&
-    apiClient.includes("JSON.stringify({ allowReactivation, subscription, userAgent })"),
-  "api client must keep explicit push reactivation intent in its subscription API",
+  apiClient.includes("expectedUserId: string") &&
+    apiClient.includes("JSON.stringify({ allowReactivation, expectedUserId, subscription, userAgent })"),
+  "api client must bind explicit push reactivation intent to the account that initiated it",
 );
 assert(apiClient.includes("unsubscribeFromPush(endpoint: string)"), "api client must keep push unsubscribe API access");
 assert(apiClient.includes("dispatchNoticePush(branchId: string"), "api client must keep notice push dispatch API access");
 assert(
-  notificationsScreen.includes("connectCurrentBrowserPushSubscription({ requestPermission })") &&
+  notificationsScreen.includes("connectCurrentBrowserPushSubscription({ requestPermission, userId: context.user.id })") &&
     notificationsScreen.includes("connectFamilyPush({ requestPermission: true })"),
   "family notification inbox must request browser push permission only from its explicit action",
 );
@@ -243,14 +246,14 @@ assert(
 );
 assert(
   appShell.includes('familyPushUserRole !== "member" && familyPushUserRole !== "guardian"') &&
-    appShell.includes("connectCurrentBrowserPushSubscription({ requestPermission: false })") &&
+    appShell.includes("connectCurrentBrowserPushSubscription({ requestPermission: false, userId: familyPushUserId })") &&
     appShell.includes("familyPushReconciledUserIdRef.current === familyPushUserId") &&
     !appShell.includes("Notification.requestPermission()"),
   "family app entry must reconcile an approved browser endpoint once per account without opening a permission prompt",
 );
 assert(notificationsScreen.includes('data-testid="family-push-enable-action"'), "family push opt-in must keep an explicit mobile action");
 assert(
-  notificationsScreen.includes("connectCurrentNativePushRegistration({ requestPermission })") &&
+  notificationsScreen.includes("connectCurrentNativePushRegistration({ requestPermission, userId: context.user.id })") &&
     nativePushRegistration.includes("PushNotifications.requestPermissions()") &&
     nativePushRegistration.includes('permission.receive === "prompt-with-rationale"') &&
     nativePushRegistration.includes("PushNotifications.register()") &&
@@ -259,24 +262,56 @@ assert(
   "Capacitor notification opt-in must handle rationale re-prompts, reject listener failures, register a token, and persist the native device",
 );
 assert(
+  nativePushRegistration.includes("nativeTokenRegistrationPromise") &&
+    nativePushRegistration.includes("nativeSubscriptionPromises") &&
+    nativePushRegistration.includes("nativeSubscriptionPromises.get(connectionKey)") &&
+    nativePushRegistration.includes("nativeSubscriptionPromises.delete(connectionKey)"),
+  "concurrent native push reconciliation must share token registration and one matching server subscription request",
+);
+assert(
+  browserPushSubscription.includes("browserPushConnectionPromises") &&
+    browserPushSubscription.includes("browserPushConnectionPromises.get(connectionKey)") &&
+    browserPushSubscription.includes("browserPushConnectionPromises.delete(connectionKey)") &&
+    browserPushSubscription.includes("userId"),
+  "concurrent browser push reconciliation must share one account-bound connection request",
+);
+assert(
   notificationsScreen.includes("openNativeAppSettings") &&
-    notificationsScreen.includes('aria-label="FINAL 앱 알림 설정 열기"'),
-  "blocked Android notification permission must expose an app-settings recovery action",
+    notificationsScreen.includes('aria-label="FINAL 앱 알림 설정 열기"') &&
+    notificationsScreen.includes("isNativeMobileApp()"),
+  "blocked Android and iOS notification permission must expose an app-settings recovery action",
 );
 assert(
   notificationsScreen.includes('document.addEventListener("visibilitychange", refreshNativeNotificationPermission)'),
-  "notification permission state must refresh after returning from Android app settings",
+  "notification permission state must refresh after returning from native app settings",
 );
 assert(
   nativeAppPermissions.includes('registerPlugin<AppPermissionsPlugin>("AppPermissions")') &&
-    nativeAppPermissions.includes('export type NativeAppPermission = "camera" | "notifications"'),
-  "web app must keep a typed bridge to the native Android permission plugin",
+    nativeAppPermissions.includes('export type NativeAppPermission = "camera" | "notifications"') &&
+    nativeAppPermissions.includes('platform === "android" || platform === "ios"'),
+  "web app must keep a typed bridge to the Android and iOS permission plugin",
 );
 assert(
-  packageJson.dependencies?.["@capacitor/push-notifications"] &&
+  iosAppDelegate.includes("class AppPermissionsPlugin") &&
+    iosAppDelegate.includes("UIApplication.openSettingsURLString") &&
+    iosAppDelegate.includes("registerPluginInstance(AppPermissionsPlugin())") &&
+    iosStoryboard.includes('customClass="FinalJudoBridgeViewController"'),
+  "iOS must register an app-settings bridge for denied notification permission recovery",
+);
+assert(
+    packageJson.dependencies?.["@capacitor/push-notifications"] &&
     appShell.includes("initializeNativePushNotificationActions()") &&
-    appShell.includes("connectCurrentNativePushRegistration({ requestPermission: false })"),
+    appShell.includes("connectCurrentNativePushRegistration({ requestPermission: false, userId: familyPushUserId })"),
   "native app entry must include the official push plugin, notification action routing, and approved-token reconciliation",
+);
+const nativeActionInitializer = nativePushRegistration.slice(
+  nativePushRegistration.indexOf("export async function initializeNativePushNotificationActions"),
+);
+assert(
+  nativeActionInitializer.includes("actionListenerPromise") &&
+    nativeActionInitializer.indexOf('await PushNotifications.addListener("pushNotificationActionPerformed"') <
+      nativeActionInitializer.indexOf("actionListenerStarted = true"),
+  "native notification action routing must remain retryable until listener registration succeeds",
 );
 assert(
   iosAppDelegate.includes("capacitorDidRegisterForRemoteNotifications") &&
@@ -571,7 +606,10 @@ assert(notificationAlerts.includes('payment.collectionRequest?.status === "pendi
 assertExcludes(notificationAlerts, "isRequestNotificationCandidate", "shared notification alert policy deleted request alerts");
 assertExcludes(notificationAlerts, 'request.status === "pending"', "shared notification alert policy pending request alerts");
 assert(notificationsAliasRoute.includes("NotificationsScreen"), "notifications route must render the dedicated notification inbox");
-assert(noticesAliasRoute.includes('redirect("/app/notices")'), "legacy root notices route must redirect to the dedicated notices menu");
+assert(
+  noticesAliasRoute.includes('<ClientRedirect href="/app/notices" />'),
+  "legacy root notices route must use the static-export-compatible redirect to the dedicated notices menu",
+);
 assert(roles.includes('aliases: ["/app/notifications"]'), "notices route must own the legacy notifications alias");
 assert(roles.includes("isRouteActive"), "route helper must keep aliases active in app navigation");
 assert(appShell.includes("isRouteActive(route, pathname)"), "app shell must use route aliases for active navigation state");
@@ -621,6 +659,11 @@ assert(
     nativePushProviders.includes("FINAL_JUDO_APNS_TEAM_ID"),
   "push helper must dispatch native tokens through configured FCM and APNs providers",
 );
+assert(
+  nativePushProviders.includes("createApnsExpirationHeader") &&
+    nativePushProviders.includes('"apns-expiration": createApnsExpirationHeader()'),
+  "APNs alerts must use a bounded store-and-forward expiration instead of one-attempt delivery",
+);
 assert(pushHelper.includes("statusCode === 404 || statusCode === 410"), "push helper must disable expired subscriptions");
 assert(notificationOutbox.includes("[중요]"), "outbox payload snapshot must mark important notice push titles");
 assert(
@@ -667,16 +710,35 @@ assert(
 );
 assert(
   pushSubscriptionRoute.includes("pushUserAgentMaxLength") &&
-    pushSubscriptionRoute.includes('typeof body.userAgent !== "string"'),
-  "push subscription route must reject malformed or oversized user-agent metadata",
+    pushSubscriptionRoute.includes('typeof body.userAgent !== "string"') &&
+    pushSubscriptionRoute.includes("rejectChangedPushAccount(user.id, expectedUserId)") &&
+    pushSubscriptionRoute.includes('"AUTH_SESSION_CHANGED"'),
+  "push subscription route must reject malformed metadata and stale account-bound registration requests",
 );
 assert(pushSubscriptionRoute.includes("notification.subscribe"), "push subscription route must audit subscribe");
 assert(
-  pushSubscriptionRoute.includes("existing?.disabledAt && !allowReactivation") &&
+  pushSubscriptionRoute.includes("requiresExplicitReactivation(existing, allowReactivation)") &&
+    pushSubscriptionRoute.includes('existing.disabledReason !== "logout"') &&
+    pushSubscriptionRoute.includes('existing.disabledReason !== "account_switch"') &&
     pushSubscriptionRoute.includes("reactivationRequired: true") &&
     pushSubscriptionRoute.includes("body?.allowReactivation === true") &&
     /familyNotificationAlwaysOnRoles\.has\(user\.role\)[\s\S]*?if \(existing\.disabledAt\)/.test(pushSubscriptionRoute),
   "passive app entry must preserve security-disabled push credentials until explicit reactivation",
+);
+assert(
+  pushSubscriptionRoute.includes("attachPushDeviceCookie") &&
+    pushSubscriptionRoute.includes("issuePushDeviceSession") &&
+    pushDeviceSession.includes('pushDeviceSubscriptionCookieName = "final-judo-push-device"') &&
+    pushDeviceSession.includes("deviceSessionHash") &&
+    pushDeviceSession.includes("timingSafeEqual") &&
+    pushDeviceSession.includes("expiresAtSeconds <= Math.floor(now.getTime() / 1000)") &&
+    pushDeviceSession.includes("detachPushDeviceSubscriptionOnLogout") &&
+    pushDeviceSession.includes("detachPushDeviceSubscriptionOnAccountSwitch") &&
+    pushDeviceSession.includes('disabledReason: "logout"') &&
+    pushDeviceSession.includes('disabledReason: "account_switch"') &&
+    logoutRoute.includes("createExpiredPushDeviceSubscriptionCookieOptions") &&
+    logoutRoute.includes('action: "notification.unsubscribe"'),
+  "logout must detach only the current push device and preserve an audited reconnect path",
 );
 assert(pushSubscriptionRoute.includes("notification.unsubscribe"), "push subscription route must audit unsubscribe");
 assert(
@@ -704,9 +766,16 @@ assert(
 );
 assert(
   pushSubscriptionRoute.includes("hasInFlightPushDispatchForSubscription") &&
-    pushSubscriptionRoute.includes("if (existing && hasInFlightPushDispatchForSubscription(db, existing.id))") &&
+    pushSubscriptionRoute.includes("hasInFlightPushMutation(db, [existing, replacement])") &&
     pushSubscriptionRoute.includes('"PUSH_SUBSCRIPTION_UPDATE_PENDING"'),
-  "every push subscription mutation must wait while a provider call still uses the previous record",
+  "every push subscription mutation or credentialed token rotation must wait while a provider call still uses either record",
+);
+assert(
+  pushSubscriptionRoute.includes("findCredentialedReplacementSubscription") &&
+    pushSubscriptionRoute.includes("replacementSubscriptionId: replacement?.id") &&
+    pushSubscriptionRoute.includes("retiredSubscriptionId") &&
+    pushSubscriptionRoute.includes("cancelPushDispatchJobsForSubscriptions"),
+  "credentialed endpoint rotation must reuse or reconcile one device record and cancel work for a retired token",
 );
 assert(
   adminUserRoute.includes("preparePushDispatchJobsForUserDeletion") &&
@@ -777,6 +846,12 @@ assert(
     notificationOutbox.includes('"retry_scheduled"') &&
     notificationOutbox.includes('"dead"'),
   "notice dispatch must retain a durable requested marker and retry/dead states",
+);
+assert(
+  notificationOutbox.includes("isNonRetryablePushDispatchFailure") &&
+    notificationOutbox.includes('"APNS_PAYLOAD_TOO_LARGE"') &&
+    notificationOutbox.includes('"FCM_INVALID_ARGUMENT"'),
+  "deterministic provider payload failures must stop retrying without disabling the device subscription",
 );
 assert(!noticeCreateRoute.includes("dispatchNoticePushNotifications"), "notice create route must not send before durable outbox persistence");
 assertExcludes(noticeCreateRoute, "PUSH_DISPATCH_FAILED", "notice create response after durable persistence");

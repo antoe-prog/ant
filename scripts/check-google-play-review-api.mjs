@@ -224,9 +224,15 @@ try {
     assert.deepEqual(snapshot.branches.map((branch) => branch.id), [googlePlayReviewBranchId]);
     assert.equal(snapshot.members.every((member) => member.branchId === googlePlayReviewBranchId), true);
     assert.deepEqual(
-      snapshot.tournaments.map((tournament) => tournament.id),
-      ["tournament-google-play-review"],
-      `${role} review snapshot must not include real global tournaments`,
+      snapshot.tournaments.map((tournament) => tournament.id).sort(),
+      ["tournament-google-play-review", "tournament-real-global"].sort(),
+      `${role} account must receive the same global and branch tournaments as an ordinary branch user`,
+    );
+    assert.equal("accountPurpose" in sessions[role].payload.data.user, false);
+    assert.doesNotMatch(
+      JSON.stringify(snapshot),
+      /Google Play 검토|Play 검토|합성 검토|검토용|검토 지점|검토 매트|검토 체육관/i,
+      `${role} snapshot must not expose review-only labels`,
     );
   }
 
@@ -245,14 +251,29 @@ try {
     headers: { cookie: sessions.admin.cookie, "content-type": "application/json" },
     body: JSON.stringify({ name: "Blocked branch", district: "blocked", timezone: "Asia/Seoul" }),
   });
-  assert.equal(blockedAdminWrite.status, 403, "review admin must not mutate global admin resources");
+  assert.equal(blockedAdminWrite.status, 403, "branch-scoped admin must not mutate global admin resources");
+
+  const allowedBranchWrite = await fetch(
+    `${baseUrl}/api/v1/branches/${googlePlayReviewBranchId}/notices?selectedBranchId=${googlePlayReviewBranchId}`,
+    {
+      method: "POST",
+      headers: { cookie: sessions.admin.cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        audience: ["all"],
+        body: "일반 지점 총괄 권한으로 등록한 운영 공지입니다.",
+        targetType: "branch",
+        title: "지점 운영 공지",
+      }),
+    },
+  );
+  assert.equal(allowedBranchWrite.status, 200, "review metadata must not make the branch admin read-only");
 
   const blockedTournamentWrite = await fetch(`${baseUrl}/api/v1/tournaments/tournament-real-global`, {
     method: "PATCH",
     headers: { cookie: sessions.admin.cookie, "content-type": "application/json" },
     body: JSON.stringify({ title: "blocked" }),
   });
-  assert.equal(blockedTournamentWrite.status, 403, "review admin must remain read-only outside /api/v1/admin routes");
+  assert.equal(blockedTournamentWrite.status, 403, "branch-scoped admin must not edit a tournament outside the assigned branch");
 
   const crossBranchWrite = await fetch(
     `${baseUrl}/api/v1/branches/branch-gangnam/notices?selectedBranchId=branch-gangnam`,
@@ -270,7 +291,7 @@ try {
   assert.equal(forcedScope.status, 403, "review admin must not select a real branch by URL manipulation");
 
   assert.equal(serverErrors.includes("Error"), false, `review API server emitted errors: ${serverErrors}`);
-  console.log("Google Play review API checks passed: hidden public signup branch, five logins, isolated snapshots, blocked global writes, and forced branch scope.");
+  console.log("Google Play review API checks passed: five logins, generic branch mutations, isolated snapshots, blocked global writes, and forced branch scope.");
 } finally {
   await stopServer();
   await rm(dataDirectory, { force: true, recursive: true });

@@ -59,6 +59,11 @@ import {
   type TournamentSyncResult,
   type RecurringAgreementPayload,
 } from "@/lib/api-client";
+import { disconnectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
+import {
+  disconnectCurrentNativePushRegistration,
+  isNativeMobileApp,
+} from "@/lib/native-push-registration";
 
 const familySnapshotRefreshIntervalMs = 15_000;
 
@@ -176,7 +181,7 @@ type AppStore = AppState & {
   accessibleBranchIds: string[];
   attendanceSync: AppState["attendanceSync"];
   signIn: (payload: UserRole | LoginCredentials) => Promise<boolean>;
-  signOut: () => void;
+  signOut: () => Promise<boolean>;
   clearOperationError: () => void;
   selectBranch: (branchId: string | null) => Promise<boolean>;
   scanAttendanceQr: (memberId: string, payload: string) => Promise<AttendanceQrScanActionResult>;
@@ -897,18 +902,42 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [signedInUserId, state.attendanceSync.queue],
   );
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
+    setAuthPending(true);
+    setAuthError(null);
+
+    if (signedInUserId) {
+      persistPendingAttendanceQueue(signedInUserId, state.attendanceSync.queue);
+    }
+
+    try {
+      await apiClient.signOut();
+    } catch (error) {
+      setAuthError(toUserFacingErrorMessage(error, "로그아웃하지 못했습니다."));
+      reportOperationError(error, "로그아웃하지 못했습니다.");
+      setAuthPending(false);
+      return false;
+    }
+
+    try {
+      if (isNativeMobileApp()) {
+        await disconnectCurrentNativePushRegistration();
+      } else {
+        await disconnectCurrentBrowserPushSubscription();
+      }
+    } catch {
+      // The server-side device subscription is already disabled at this point.
+    }
+
     branchSelectionRequestRef.current += 1;
     branchSelectionPendingRef.current = false;
     confirmedBranchIdRef.current = null;
     setBranchSelectionPending(false);
-    if (signedInUserId) {
-      persistPendingAttendanceQueue(signedInUserId, state.attendanceSync.queue);
-    }
-    void apiClient.signOut().catch(() => undefined);
     persistSession(null);
     dispatch({ type: "logout" });
-  }, [signedInUserId, state.attendanceSync.queue]);
+    setAuthPending(false);
+    return true;
+  }, [reportOperationError, signedInUserId, state.attendanceSync.queue]);
 
   const selectBranch = useCallback(
     async (branchId: string | null) => {

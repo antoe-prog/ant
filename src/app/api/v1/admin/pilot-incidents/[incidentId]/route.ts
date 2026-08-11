@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import type { AuditLog, PilotIncidentStatus } from "@/lib/domain";
 import { exceedsPilotInputLimit, pilotOperationsInputLimits } from "@/lib/pilot-operations-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -44,7 +45,7 @@ export async function PATCH(
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈 상태를 변경할 수 있습니다.");
   }
 
@@ -92,7 +93,7 @@ export async function PATCH(
       return latestResponse;
     }
 
-    if (latestUser.role !== "admin") {
+    if (!hasGlobalAdminDataAccess(latestUser)) {
       return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈 상태를 변경할 수 있습니다.");
     }
 

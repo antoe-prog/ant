@@ -10,7 +10,7 @@ import type { ClassSession, Member } from "@/lib/domain";
 import { formatCompactTimeRange } from "@/lib/format";
 import {
   getNativeAppPermissionStatus,
-  isNativeAndroidApp,
+  isNativeMobilePermissionBridge,
   openNativeAppSettings,
   requestNativeAppPermission,
 } from "@/lib/native-app-permissions";
@@ -72,7 +72,7 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
 
     async function startScanner() {
       try {
-        if (isNativeAndroidApp()) {
+        if (isNativeMobilePermissionBridge()) {
           const currentPermission = await getNativeAppPermissionStatus("camera");
           const cameraPermission =
             currentPermission === "granted"
@@ -130,7 +130,7 @@ export function MemberAttendanceQrScannerCard({ member }: { member: Member }) {
 
         setCameraStarting(false);
         const permissionDenied = error instanceof DOMException && error.name === "NotAllowedError";
-        setCameraPermissionBlocked(permissionDenied && isNativeAndroidApp());
+        setCameraPermissionBlocked(permissionDenied && isNativeMobilePermissionBridge());
         setCameraError(permissionDenied
           ? "카메라 권한이 필요합니다. 기기 설정에서 카메라를 허용해 주세요."
           : "카메라를 열지 못했습니다. 다른 앱이 카메라를 사용 중인지 확인해 주세요.");

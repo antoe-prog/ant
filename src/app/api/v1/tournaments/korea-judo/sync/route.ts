@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
-import { hasGlobalAdminDataAccess } from "@/lib/google-play-review-access";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import {
   fetchKoreaJudoTournaments,
   koreaJudoAssociationTournamentSource,

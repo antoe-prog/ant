@@ -87,6 +87,58 @@ assert.equal(draft.pushNotifications.subject, "mailto:ops@finaljudo.kr");
 const handoffReport = await runScript("scripts/check-deployment-handoff.mjs", [`--file=${draftPath}`]);
 assert.equal(handoffReport.ok, true);
 
+const nativeDraftPath = path.join(directory, "deployment-handoff.native.json");
+const nativeSecretEnv = {
+  ...secretEnv,
+  FINAL_JUDO_VAPID_PUBLIC_KEY: "",
+  FINAL_JUDO_VAPID_PRIVATE_KEY: "",
+  FINAL_JUDO_VAPID_SUBJECT: "",
+  FINAL_JUDO_PUSH_ENABLED: "1",
+  FINAL_JUDO_APNS_TEAM_ID: "ABCDE12345",
+  FINAL_JUDO_APNS_KEY_ID: "FGHIJ67890",
+  FINAL_JUDO_APNS_TOPIC: "kr.co.finaljudo.multigym",
+  FINAL_JUDO_APNS_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnative-test-only\n-----END PRIVATE KEY-----",
+  FINAL_JUDO_APNS_ENVIRONMENT: "production",
+  FINAL_JUDO_FIREBASE_PROJECT_ID: "final-judo-production",
+  FINAL_JUDO_FIREBASE_CLIENT_EMAIL: "firebase-admin@final-judo-production.iam.gserviceaccount.com",
+  FINAL_JUDO_FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nfcm-test-only\n-----END PRIVATE KEY-----",
+};
+const nativeDraftReport = await runScript(
+  "scripts/create-deployment-handoff-draft.mjs",
+  [
+    `--out=${nativeDraftPath}`,
+    "--platform=Vercel production project",
+    "--production-origin=https://app.finaljudo.kr",
+    "--deployment-url=https://ops-finaljudo-prod.vercel.app",
+    "--commit-sha=abcdef1234567890",
+    "--deployment-evidence=https://evidence.finaljudo.kr/deployment/build-log",
+    `--preflight-report=${preflightReportPath}`,
+    "--env-evidence=https://evidence.finaljudo.kr/deployment/env",
+    "--secret-evidence=drive://final-judo/evidence/deployment/secrets",
+    "--database-evidence=drive://final-judo/evidence/deployment/database-handoff",
+    "--payment-evidence=https://evidence.finaljudo.kr/deployment/payment-provider",
+    "--push-evidence=https://evidence.finaljudo.kr/deployment/native-push-notifications",
+    "--env-readiness-evidence=https://github.com/antoe-prog/ant/actions/runs/200",
+    "--preflight-evidence=drive://final-judo/evidence/deployment/pilot-preflight-json",
+    "--release-evidence=https://github.com/antoe-prog/ant/actions/runs/201",
+    "--signed-off-by=정유진",
+    `--signed-off-at=${signedOffAt}`,
+    "--signoff-evidence=https://evidence.finaljudo.kr/deployment/signoff",
+  ],
+  nativeSecretEnv,
+);
+const nativeDraft = JSON.parse(await readFile(nativeDraftPath, "utf8"));
+const nativeDraftSource = JSON.stringify(nativeDraft);
+assert.equal(nativeDraft.schemaVersion, 2);
+assert.deepEqual(nativeDraft.pushNotifications.providers, ["apns", "fcm"]);
+assert(!nativeDraft.environmentVariables.some((entry) => entry.key.startsWith("FINAL_JUDO_VAPID_")));
+assert(nativeDraftReport.configuredSecrets.includes("FINAL_JUDO_APNS_PRIVATE_KEY"));
+assert(nativeDraftReport.configuredSecrets.includes("FINAL_JUDO_FIREBASE_PRIVATE_KEY"));
+assert(!nativeDraftSource.includes("native-test-only"));
+assert(!nativeDraftSource.includes("fcm-test-only"));
+const nativeHandoffReport = await runScript("scripts/check-deployment-handoff.mjs", [`--file=${nativeDraftPath}`]);
+assert.equal(nativeHandoffReport.ok, true, "native APNs/FCM draft should pass without Web Push VAPID settings");
+
 const missingDraftPath = path.join(directory, "deployment-handoff.missing.json");
 const missingDraftReport = await runScript("scripts/create-deployment-handoff-draft.mjs", [`--out=${missingDraftPath}`], {
   NODE_ENV: "",
@@ -108,6 +160,7 @@ console.log(
       checked: [
         "draft infers deployment config without writing raw secrets",
         "draft can pass strict deployment handoff when evidence is supplied",
+        "native APNs/FCM draft passes without Web Push VAPID",
         "missing secret/config placeholders remain blocked",
       ],
     },

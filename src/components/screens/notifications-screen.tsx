@@ -20,7 +20,6 @@ import { getAccessibleMemberIds } from "@/lib/mock-api";
 import { getChildSwitcherPresentation } from "@/lib/member-presentation";
 import { connectCurrentBrowserPushSubscription } from "@/lib/browser-push-subscription";
 import {
-  isNativeAndroidApp,
   openNativeAppSettings,
 } from "@/lib/native-app-permissions";
 import {
@@ -300,11 +299,11 @@ export function NotificationsScreen() {
     }
 
     if (isNativeMobileApp()) {
-      return connectCurrentNativePushRegistration({ requestPermission });
+      return connectCurrentNativePushRegistration({ requestPermission, userId: context.user.id });
     }
 
-    return connectCurrentBrowserPushSubscription({ requestPermission });
-  }, [familyNotificationsAlwaysOn]);
+    return connectCurrentBrowserPushSubscription({ requestPermission, userId: context.user.id });
+  }, [context.user.id, familyNotificationsAlwaysOn]);
 
   useEffect(() => {
     if (!familyNotificationsAlwaysOn) {
@@ -359,6 +358,17 @@ export function NotificationsScreen() {
 
     try {
       setFamilyPushStatus(await connectFamilyPush({ requestPermission: true }));
+    } catch {
+      setFamilyPushStatus("error");
+    }
+  }
+
+  async function handleOpenNativeSettings() {
+    try {
+      const opened = await openNativeAppSettings();
+      if (!opened) {
+        setFamilyPushStatus("error");
+      }
     } catch {
       setFamilyPushStatus("error");
     }
@@ -576,11 +586,11 @@ export function NotificationsScreen() {
                 <Bell className="h-4 w-4" aria-hidden />
                 <span>{familyPushStatus === "saving" ? "연결 중" : "알림 켜기"}</span>
               </Button>
-            ) : isNativeAndroidApp() ? (
+            ) : isNativeMobileApp() ? (
               <Button
                 aria-label="FINAL 앱 알림 설정 열기"
                 className="shrink-0"
-                onClick={() => void openNativeAppSettings()}
+                onClick={() => void handleOpenNativeSettings()}
                 size="sm"
                 variant="secondary"
               >

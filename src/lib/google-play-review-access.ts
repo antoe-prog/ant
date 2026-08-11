@@ -1,6 +1,5 @@
-import type { AppUser, Branch, MockDatabase, UserRole } from "./domain.ts";
+import type { Branch, MockDatabase, UserRole } from "./domain.ts";
 
-export const googlePlayReviewAccountPurpose = "google_play_review" as const;
 export const googlePlayReviewBranchId = "branch-google-play-review";
 
 export const googlePlayReviewUserIds = {
@@ -25,28 +24,8 @@ export const googlePlayReviewMemberIds = {
   guardian: "member-google-play-review-guardian",
 } as const;
 
-export function isGooglePlayReviewAccount(user: Pick<AppUser, "accountPurpose"> | null | undefined) {
-  return user?.accountPurpose === googlePlayReviewAccountPurpose;
-}
-
-export function isPublicSignupBranch(branch: Pick<Branch, "id" | "status">) {
-  return branch.status !== "inactive" && branch.id !== googlePlayReviewBranchId;
-}
-
-export function hasGlobalAdminDataAccess(user: Pick<AppUser, "accountPurpose" | "role">) {
-  return user.role === "admin" && !isGooglePlayReviewAccount(user);
-}
-
-export function shouldBlockGooglePlayReviewAdminMutation(
-  user: Pick<AppUser, "accountPurpose" | "role">,
-  method: string,
-) {
-  const normalizedMethod = method.toUpperCase();
-  const safeMethod = normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS";
-
-  return isGooglePlayReviewAccount(user) &&
-    user.role === "admin" &&
-    !safeMethod;
+export function isPublicSignupBranch(branch: Pick<Branch, "dataMode" | "status">) {
+  return branch.status !== "inactive" && branch.dataMode !== "demo";
 }
 
 type RelativeDateTime = {

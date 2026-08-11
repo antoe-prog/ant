@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ClientRedirect } from "@/components/routing/client-redirect";
 
 export default function NoticesAliasPage() {
-  redirect("/app/notices");
+  return <ClientRedirect href="/app/notices" />;
 }

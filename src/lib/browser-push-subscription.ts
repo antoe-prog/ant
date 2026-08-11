@@ -2,6 +2,8 @@ import { apiClient } from "@/lib/api-client";
 
 export type BrowserPushConnectionStatus = "blocked" | "hidden" | "prompt" | "ready";
 
+const browserPushConnectionPromises = new Map<string, Promise<BrowserPushConnectionStatus>>();
+
 function decodeVapidPublicKey(publicKey: string) {
   const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
   const base64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -12,8 +14,35 @@ function decodeVapidPublicKey(publicKey: string) {
 
 export async function connectCurrentBrowserPushSubscription({
   requestPermission,
+  userId,
 }: {
   requestPermission: boolean;
+  userId: string;
+}): Promise<BrowserPushConnectionStatus> {
+  const connectionKey = `${userId}\0${requestPermission ? "explicit" : "passive"}`;
+  const pendingConnection = browserPushConnectionPromises.get(connectionKey);
+  if (pendingConnection) {
+    return pendingConnection;
+  }
+
+  const connectionPromise = connectBrowserPushSubscription({ requestPermission, userId });
+  browserPushConnectionPromises.set(connectionKey, connectionPromise);
+
+  try {
+    return await connectionPromise;
+  } finally {
+    if (browserPushConnectionPromises.get(connectionKey) === connectionPromise) {
+      browserPushConnectionPromises.delete(connectionKey);
+    }
+  }
+}
+
+async function connectBrowserPushSubscription({
+  requestPermission,
+  userId,
+}: {
+  requestPermission: boolean;
+  userId: string;
 }): Promise<BrowserPushConnectionStatus> {
   if (
     typeof window === "undefined" ||
@@ -60,6 +89,7 @@ export async function connectCurrentBrowserPushSubscription({
     subscription.toJSON(),
     window.navigator.userAgent,
     requestPermission,
+    userId,
   );
 
   if (result.reactivationRequired || result.subscription.disabledAt) {
@@ -67,4 +97,21 @@ export async function connectCurrentBrowserPushSubscription({
   }
 
   return "ready";
+}
+
+export async function disconnectCurrentBrowserPushSubscription() {
+  if (
+    typeof window === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window)
+  ) {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  const subscription = await registration?.pushManager.getSubscription();
+
+  if (subscription) {
+    await subscription.unsubscribe();
+  }
 }

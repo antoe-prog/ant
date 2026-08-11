@@ -13,6 +13,11 @@ import {
 
 let baseUrl = process.env.SMOKE_BASE_URL?.trim() || null;
 const outDir = process.env.MOBILE_NOTIFICATION_INBOX_OUT_DIR ?? ".data/mobile-builds/ios/mobile-notification-inbox-20260701";
+const serverStartupTimeoutMs = (() => {
+  const configured = Number.parseInt(process.env.MOBILE_NOTIFICATION_INBOX_SERVER_TIMEOUT_MS ?? "", 10);
+
+  return Number.isFinite(configured) && configured >= 30_000 ? configured : 90_000;
+})();
 const chromeCandidates = [
   process.env.E2E_CHROME_EXECUTABLE,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -36,7 +41,7 @@ const familyCases = [
     hasExistingBrowserSubscription: false,
   },
 ];
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const nextBin = join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
 let managedAppServer = null;
 const managedAppServerLogs = [];
 let managedDistDir = null;
@@ -45,6 +50,23 @@ let smokeEnvironmentPlan = null;
 
 function findChromeExecutable() {
   return chromeCandidates.find((candidate) => existsSync(candidate));
+}
+
+function signalManagedAppServer(signal) {
+  if (!managedAppServer || managedAppServer.exitCode !== null) {
+    return;
+  }
+
+  if (process.platform !== "win32" && managedAppServer.pid) {
+    try {
+      process.kill(-managedAppServer.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct child when its process group has already exited.
+    }
+  }
+
+  managedAppServer.kill(signal);
 }
 
 function cleanupOrphanedManagedArtifacts() {
@@ -126,10 +148,11 @@ async function ensureLocalAppServer() {
   );
 
   managedAppServer = spawn(
-    npmCommand,
-    ["run", "dev", "--", "--webpack", "--hostname", hostname, "--port", port],
+    process.execPath,
+    [nextBin, "dev", "--webpack", "--hostname", hostname, "--port", port],
     {
       cwd: process.cwd(),
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         FINAL_JUDO_NEXT_DIST_DIR: managedDistDir,
@@ -149,7 +172,7 @@ async function ensureLocalAppServer() {
   managedAppServer.stderr.on("data", captureServerLog);
 
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 30_000) {
+  while (Date.now() - startedAt < serverStartupTimeoutMs) {
     if (await canReachAppServer()) {
       return "managed-next-dev-webpack";
     }
@@ -162,22 +185,31 @@ async function ensureLocalAppServer() {
   }
 
   throw new Error(
-    `Timed out waiting for mobile notification inbox server at ${baseUrl}.\n${managedAppServerLogs.slice(-40).join("\n")}`,
+    `Timed out after ${serverStartupTimeoutMs}ms waiting for mobile notification inbox server at ${baseUrl}.\n${managedAppServerLogs.slice(-40).join("\n")}`,
   );
 }
 
 async function cleanupLocalAppServer() {
   if (managedAppServer?.exitCode === null) {
     const closed = new Promise((resolve) => managedAppServer.once("close", resolve));
-    managedAppServer.kill("SIGINT");
+    signalManagedAppServer("SIGINT");
     await Promise.race([
       closed,
       sleep(5000).then(() => {
         if (managedAppServer?.exitCode === null) {
-          managedAppServer.kill("SIGTERM");
+          signalManagedAppServer("SIGTERM");
         }
       }),
     ]);
+
+    if (managedAppServer.exitCode === null) {
+      await Promise.race([closed, sleep(5000)]);
+    }
+
+    if (managedAppServer.exitCode === null) {
+      signalManagedAppServer("SIGKILL");
+      await Promise.race([closed, sleep(5000)]);
+    }
   }
 
   if (smokeEnvironmentPlan?.created) {
@@ -189,6 +221,32 @@ async function cleanupLocalAppServer() {
   }
   if (managedTsconfigPath) {
     rmSync(managedTsconfigPath, { force: true });
+  }
+}
+
+async function prewarmLocalAppRoutes() {
+  const routes = [
+    { path: "/login", statuses: [200] },
+    { path: "/app/dashboard", statuses: [200] },
+    { path: "/api/v1/me/bootstrap?optional=1", statuses: [200] },
+    {
+      path: "/api/v1/me/notices/prewarm/read",
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+      statuses: [401],
+    },
+  ];
+
+  for (const route of routes) {
+    const response = await fetch(new URL(route.path, baseUrl), { redirect: "manual", ...route.init });
+
+    assert(
+      route.statuses.includes(response.status),
+      `mobile notification inbox prewarm failed for ${route.path} with ${response.status}`,
+    );
   }
 }
 
@@ -510,6 +568,26 @@ async function verifyFamilyPushOwnershipAtAppEntry(browser) {
       );
     }
     await page.waitForURL("**/app/dashboard", { timeout: 30_000 });
+    try {
+      await page.waitForSelector('[data-testid="mobile-account-menu-toggle"]', { timeout: 60_000 });
+    } catch (error) {
+      const diagnosticState = await page.evaluate(() => ({
+        bodyText: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 500) ?? "",
+        testState: window.__finalPushAppEntryTestState,
+        url: window.location.href,
+      }));
+
+      throw new Error(
+        `Family app entry did not finish rendering: ${JSON.stringify({
+          diagnosticState,
+          managedAppServerLogs: managedAppServerLogs.slice(-60),
+          messages,
+          pushConfigRequestCount,
+          pushSubscriptionRequestCount: pushSubscriptionRequests.length,
+        })}`,
+        { cause: error },
+      );
+    }
     const requestDeadline = Date.now() + 20_000;
 
     while (pushSubscriptionRequests.length === 0 && Date.now() < requestDeadline) {
@@ -816,7 +894,21 @@ async function verifyFamilyCase(browser, testCase) {
     );
     assert.equal(afterPushState.scrollWidth, afterPushState.clientWidth, `${testCase.id} notifications must not overflow after push activation`);
 
+    const readResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        /\/api\/v1\/me\/notices\/[^/]+\/read$/.test(new URL(response.url()).pathname),
+      { timeout: 30_000 },
+    );
+
     await page.locator('[data-testid="notification-read-action"]').first().click();
+    const readResponse = await readResponsePromise;
+
+    assert.equal(
+      readResponse.ok(),
+      true,
+      `${testCase.id} notice read request must succeed: ${readResponse.status()} ${readResponse.statusText()}`,
+    );
     await page.waitForFunction(
       (previousReadActionCount) =>
         document.querySelectorAll('[data-testid="notification-read-action"]').length === previousReadActionCount - 1 &&
@@ -913,6 +1005,7 @@ async function main() {
   try {
     appServer = await ensureLocalAppServer();
     resetBefore = await resetDevData("before");
+    await prewarmLocalAppRoutes();
     browser = await chromium.launch({
       executablePath,
       headless: true,

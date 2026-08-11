@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import type { AuditLog, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import {
+  canAdminManageUser,
+  getAdminAssignment,
+  hasAdminAccessToBranchIds,
+} from "@/lib/admin-access";
+import {
   findAdultGuardianChildMemberIds,
   findInvalidFamilyMemberLinkIds,
   findNonAdultGuardianSelfMemberIds,
@@ -127,6 +132,10 @@ export async function PUT(
     return jsonError(404, "NOT_FOUND", "사용자를 찾을 수 없습니다.");
   }
 
+  if (!canAdminManageUser(user, targetUser)) {
+    return jsonError(403, "FORBIDDEN", "접근 가능한 지점의 사용자 역할만 변경할 수 있습니다.");
+  }
+
   if (selectedScope.selectedBranchId && !targetUser.branchIds.includes(selectedScope.selectedBranchId)) {
     return jsonError(403, "FORBIDDEN", "선택한 지점의 사용자 역할만 변경할 수 있습니다.");
   }
@@ -141,7 +150,17 @@ export async function PUT(
     return jsonError(422, "VALIDATION_ERROR", "변경할 역할의 담당 지점을 한 곳 이상 선택해 주세요.");
   }
 
-  const nextBranchIds = nextRole === "admin" ? db.branches.map((branch) => branch.id) : requestedBranchIds;
+  const assignment = nextRole === "admin" && targetUser.role === "admin" && targetUser.adminScope === "assigned_branches"
+    ? {
+        adminScope: "assigned_branches" as const,
+        branchIds: requestedBranchIds.length > 0 ? requestedBranchIds : targetUser.branchIds,
+      }
+    : getAdminAssignment(user, nextRole, requestedBranchIds, [...knownBranchIds]);
+  const nextBranchIds = assignment.branchIds;
+
+  if (!hasAdminAccessToBranchIds(user, nextBranchIds)) {
+    return jsonError(403, "FORBIDDEN", "접근 가능한 지점만 배정할 수 있습니다.");
+  }
   const ownerCoverageBlockers = findOwnerCoverageBlockers(targetUser, nextRole, nextBranchIds, db);
 
   if (ownerCoverageBlockers.length > 0) {
@@ -185,7 +204,12 @@ export async function PUT(
     }
   }
 
-  const nextTargetUser = { ...targetUser, role: nextRole, branchIds: nextBranchIds };
+  const nextTargetUser = {
+    ...targetUser,
+    role: nextRole,
+    branchIds: nextBranchIds,
+    ...(nextRole === "admin" ? { adminScope: assignment.adminScope } : { adminScope: undefined }),
+  };
 
   if (nextRole !== "member" && nextRole !== "guardian") {
     delete nextTargetUser.memberIds;

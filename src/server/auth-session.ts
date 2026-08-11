@@ -282,11 +282,19 @@ export function revokeUserSecurityAccess(db: MockDatabase, userId: string, now =
   );
   const nextDb: MockDatabase = {
     ...dbWithRevokedSessions,
-    pushSubscriptions: dbWithRevokedSessions.pushSubscriptions.map((subscription) =>
-      subscription.userId === userId && !subscription.disabledAt
-        ? { ...subscription, disabledAt, updatedAt: disabledAt }
-        : subscription,
-    ),
+    pushSubscriptions: dbWithRevokedSessions.pushSubscriptions.map((subscription) => {
+      if (subscription.userId !== userId) {
+        return subscription;
+      }
+
+      return {
+        ...subscription,
+        deviceSessionHash: undefined,
+        disabledAt: subscription.disabledAt ?? disabledAt,
+        disabledReason: "security_change" as const,
+        updatedAt: disabledAt,
+      };
+    }),
   };
 
   return cancelPushDispatchJobsForSubscriptions(nextDb, revokedSubscriptionIds, {

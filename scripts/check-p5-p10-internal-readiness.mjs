@@ -1728,7 +1728,7 @@ assertExcludes(sources.appShell, "requestAlertCount", "app shell must not count 
 assertIncludes(sources.appShell, "notificationActionableLabel", "top notification action uses typed actionable alert wording");
 assertIncludes(sources.notificationAlerts, "확인 필요 결제", "shared notification label names payment follow-ups");
 assertIncludes(sources.appShell, 'href="/app/notifications"', "top bell opens the notification inbox");
-assertIncludes(sources.noticesAliasRoute, 'redirect("/app/notices")', "legacy root notices route redirects to the app notices menu");
+assertIncludes(sources.noticesAliasRoute, '<ClientRedirect href="/app/notices" />', "legacy root notices route redirects to the app notices menu");
 assertIncludes(sources.roles, "mobileNavRouteIdsByRole", "role-specific mobile bottom navigation contract");
 assertIncludes(
   sources.roles,

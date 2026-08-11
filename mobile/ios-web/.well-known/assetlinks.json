@@ -1,0 +1,52 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym",
+      "sha256_cert_fingerprints": [
+        "C8:9C:B8:66:FE:3F:57:21:68:5A:BC:7F:F2:45:CE:11:EC:A5:5A:DC:9A:8F:7E:EA:A0:65:2A:36:15:2A:1C:11"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym.member",
+      "sha256_cert_fingerprints": [
+        "C8:9C:B8:66:FE:3F:57:21:68:5A:BC:7F:F2:45:CE:11:EC:A5:5A:DC:9A:8F:7E:EA:A0:65:2A:36:15:2A:1C:11"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym.guardian",
+      "sha256_cert_fingerprints": [
+        "C8:9C:B8:66:FE:3F:57:21:68:5A:BC:7F:F2:45:CE:11:EC:A5:5A:DC:9A:8F:7E:EA:A0:65:2A:36:15:2A:1C:11"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym.coach",
+      "sha256_cert_fingerprints": [
+        "C8:9C:B8:66:FE:3F:57:21:68:5A:BC:7F:F2:45:CE:11:EC:A5:5A:DC:9A:8F:7E:EA:A0:65:2A:36:15:2A:1C:11"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.finaljudo.multigym.owner",
+      "sha256_cert_fingerprints": [
+        "C8:9C:B8:66:FE:3F:57:21:68:5A:BC:7F:F2:45:CE:11:EC:A5:5A:DC:9A:8F:7E:EA:A0:65:2A:36:15:2A:1C:11"
+      ]
+    }
+  }
+]

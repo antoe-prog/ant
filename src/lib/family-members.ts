@@ -151,7 +151,6 @@ export function createFamilySafeReferencedUser(user: AppUser, visibleBranchIds: 
     branchIds: user.branchIds.filter((branchId) => visibleBranchIdSet.has(branchId)),
   };
 
-  delete safeUser.accountPurpose;
   delete safeUser.acceptedAt;
   delete safeUser.childMemberIds;
   delete safeUser.email;

@@ -91,6 +91,12 @@ function pushFeatureIsUsed(db) {
     process.env.FINAL_JUDO_PUSH_ENABLED?.trim().toLowerCase() ?? "",
   );
   const hasPushEnvironment = [
+    process.env.FINAL_JUDO_APNS_KEY_ID,
+    process.env.FINAL_JUDO_APNS_PRIVATE_KEY,
+    process.env.FINAL_JUDO_APNS_TEAM_ID,
+    process.env.FINAL_JUDO_FIREBASE_CLIENT_EMAIL,
+    process.env.FINAL_JUDO_FIREBASE_PRIVATE_KEY,
+    process.env.FINAL_JUDO_FIREBASE_PROJECT_ID,
     process.env.FINAL_JUDO_VAPID_PUBLIC_KEY,
     process.env.FINAL_JUDO_VAPID_PRIVATE_KEY,
     process.env.FINAL_JUDO_VAPID_SUBJECT,
@@ -104,22 +110,93 @@ function pushFeatureIsUsed(db) {
   return explicitlyEnabled || hasPushEnvironment || hasRuntimePushState;
 }
 
+function hasAnyConfiguredValue(names) {
+  return names.some((name) => Boolean(process.env[name]?.trim()));
+}
+
 function validatePushConfiguration(db, blockers) {
   if (process.env.NODE_ENV !== "production" || !pushFeatureIsUsed(db)) {
     return;
   }
 
-  if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PUBLIC_KEY, 16)) {
-    addIssue(blockers, "PUSH_VAPID_PUBLIC_KEY_MISSING", "푸시 기능 사용 중 VAPID 공개키가 없거나 placeholder입니다.");
-  }
-  if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PRIVATE_KEY, 16)) {
-    addIssue(blockers, "PUSH_VAPID_PRIVATE_KEY_MISSING", "푸시 기능 사용 중 VAPID 비공개키가 없거나 placeholder입니다.");
+  const activeTransports = new Set(
+    (db.pushSubscriptions ?? [])
+      .filter((subscription) => !subscription.disabledAt)
+      .map((subscription) => subscription.transport ?? "web"),
+  );
+  const webVariables = [
+    "FINAL_JUDO_VAPID_PUBLIC_KEY",
+    "FINAL_JUDO_VAPID_PRIVATE_KEY",
+    "FINAL_JUDO_VAPID_SUBJECT",
+  ];
+  const apnsVariables = [
+    "FINAL_JUDO_APNS_TEAM_ID",
+    "FINAL_JUDO_APNS_KEY_ID",
+    "FINAL_JUDO_APNS_PRIVATE_KEY",
+  ];
+  const fcmVariables = [
+    "FINAL_JUDO_FIREBASE_PROJECT_ID",
+    "FINAL_JUDO_FIREBASE_CLIENT_EMAIL",
+    "FINAL_JUDO_FIREBASE_PRIVATE_KEY",
+  ];
+  const validateWeb = activeTransports.has("web") || hasAnyConfiguredValue(webVariables);
+  const validateApns = activeTransports.has("apns") || hasAnyConfiguredValue(apnsVariables);
+  const validateFcm = activeTransports.has("fcm") || hasAnyConfiguredValue(fcmVariables);
+  const webConfigured = webVariables.every((name) => hasNonPlaceholderValue(process.env[name], name === "FINAL_JUDO_VAPID_SUBJECT" ? 1 : 16));
+  const apnsConfigured = apnsVariables.every((name) => hasNonPlaceholderValue(process.env[name], 8));
+  const fcmConfigured = fcmVariables.every((name) => hasNonPlaceholderValue(process.env[name], 8));
+
+  if (!webConfigured && !apnsConfigured && !fcmConfigured) {
+    addIssue(
+      blockers,
+      "PUSH_PROVIDER_MISSING",
+      "푸시 기능은 Web Push, APNs, FCM 중 하나 이상의 완전한 운영 설정이 필요합니다.",
+    );
   }
 
-  const subject = process.env.FINAL_JUDO_VAPID_SUBJECT?.trim() ?? "";
-  if (!hasNonPlaceholderValue(subject) || !/^mailto:[^@\s]+@[^@\s]+$/i.test(subject)) {
-    addIssue(blockers, "PUSH_VAPID_SUBJECT_INVALID", "푸시 기능 사용 중 VAPID subject가 유효한 mailto 주소가 아닙니다.");
+  if (validateWeb) {
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PUBLIC_KEY, 16)) {
+      addIssue(blockers, "PUSH_VAPID_PUBLIC_KEY_MISSING", "Web Push 사용 중 VAPID 공개키가 없거나 placeholder입니다.");
+    }
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_VAPID_PRIVATE_KEY, 16)) {
+      addIssue(blockers, "PUSH_VAPID_PRIVATE_KEY_MISSING", "Web Push 사용 중 VAPID 비공개키가 없거나 placeholder입니다.");
+    }
+
+    const subject = process.env.FINAL_JUDO_VAPID_SUBJECT?.trim() ?? "";
+    if (!hasNonPlaceholderValue(subject) || !/^mailto:[^@\s]+@[^@\s]+$/i.test(subject)) {
+      addIssue(blockers, "PUSH_VAPID_SUBJECT_INVALID", "Web Push 사용 중 VAPID subject가 유효한 mailto 주소가 아닙니다.");
+    }
   }
+
+  if (validateApns) {
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_APNS_TEAM_ID, 8)) {
+      addIssue(blockers, "PUSH_APNS_TEAM_ID_MISSING", "iPhone 앱 푸시용 APNs Team ID가 없거나 placeholder입니다.");
+    }
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_APNS_KEY_ID, 8)) {
+      addIssue(blockers, "PUSH_APNS_KEY_ID_MISSING", "iPhone 앱 푸시용 APNs Key ID가 없거나 placeholder입니다.");
+    }
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_APNS_PRIVATE_KEY, 16)) {
+      addIssue(blockers, "PUSH_APNS_PRIVATE_KEY_MISSING", "iPhone 앱 푸시용 APNs 비공개키가 없거나 placeholder입니다.");
+    }
+    const apnsEnvironment = process.env.FINAL_JUDO_APNS_ENVIRONMENT?.trim() || "production";
+    if (apnsEnvironment !== "production") {
+      addIssue(blockers, "PUSH_APNS_ENVIRONMENT_INVALID", "운영 사전 점검의 APNs 환경은 production이어야 합니다.");
+    }
+  }
+
+  if (validateFcm) {
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_FIREBASE_PROJECT_ID, 8)) {
+      addIssue(blockers, "PUSH_FCM_PROJECT_ID_MISSING", "Android 앱 푸시용 Firebase Project ID가 없거나 placeholder입니다.");
+    }
+    const clientEmail = process.env.FINAL_JUDO_FIREBASE_CLIENT_EMAIL?.trim() ?? "";
+    if (!hasNonPlaceholderValue(clientEmail, 8) || !/^[^@\s]+@[^@\s]+$/.test(clientEmail)) {
+      addIssue(blockers, "PUSH_FCM_CLIENT_EMAIL_INVALID", "Android 앱 푸시용 Firebase Client Email이 유효하지 않습니다.");
+    }
+    if (!hasNonPlaceholderValue(process.env.FINAL_JUDO_FIREBASE_PRIVATE_KEY, 16)) {
+      addIssue(blockers, "PUSH_FCM_PRIVATE_KEY_MISSING", "Android 앱 푸시용 Firebase 비공개키가 없거나 placeholder입니다.");
+    }
+  }
+
   if (!hasNonPlaceholderValue(process.env.CRON_SECRET, 16)) {
     addIssue(blockers, "PUSH_CRON_SECRET_MISSING", "푸시 재시도 worker용 CRON_SECRET이 없거나 너무 짧거나 placeholder입니다.");
   }
@@ -757,7 +834,7 @@ async function main() {
     warnings,
     checked: [
       "production demo-login/reset flags",
-      "production push VAPID/cron configuration when push is enabled or runtime push state exists",
+      "production push provider/cron configuration when push is enabled or runtime push state exists",
       "Postgres secret environment transport (no strict production --postgres-url)",
       "runtime DB readability",
       "required runtime collections",

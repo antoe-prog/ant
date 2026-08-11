@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, LoaderCircle, ShieldCheck } from "lucide-react";
 import { authInputLimits } from "@/lib/auth-input-policy";
 import { getDefaultRoute, roleLabels } from "@/lib/roles";
-import type { UserRole } from "@/lib/domain";
+import { userRoles, type UserRole } from "@/lib/domain";
 import { useAppStore } from "@/store/app-store";
 import { FinalWordmark } from "@/components/brand/final-wordmark";
 
@@ -39,10 +39,13 @@ function normalizePhoneQuery(value: string) {
   return value.replace(/[^\d]/g, "").slice(0, 11);
 }
 
+function getRequestedRole(value: string | null): UserRole | null {
+  return value && userRoles.includes(value as UserRole) ? value as UserRole : null;
+}
+
 export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | null }) {
   const router = useRouter();
   const { hydrated, user, signIn, signOut, authPending, authError } = useAppStore();
-  const requestedRole = initialRole;
   const [manualPhone, setManualPhone] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -50,6 +53,7 @@ export function LoginScreen({ initialRole = null }: { initialRole?: UserRole | n
   const autoLoginAttempted = useRef(false);
   const locationSearch = useSyncExternalStore(subscribeLocationSearch, getLocationSearch, getServerLocationSearch);
   const locationParams = new URLSearchParams(locationSearch);
+  const requestedRole = initialRole ?? getRequestedRole(locationParams.get("role"));
   const registered = locationParams.get("registered") === "1";
   const registeredPhone = normalizePhoneQuery(locationParams.get("phone") ?? "");
   const phone = manualPhone ?? registeredPhone;

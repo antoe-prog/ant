@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import type { AppUser, AuditLog, Member, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import {
+  canAdminManageUser,
+  getAdminAssignment,
+  hasAdminAccessToBranchIds,
+} from "@/lib/admin-access";
+import {
   findAdultGuardianChildMemberIds,
   findInvalidFamilyMemberLinkIds,
   findNonAdultGuardianSelfMemberIds,
@@ -283,6 +288,10 @@ export async function PATCH(
     return jsonError(404, "NOT_FOUND", "사용자를 찾을 수 없습니다.");
   }
 
+  if (!canAdminManageUser(user, targetUser)) {
+    return jsonError(403, "FORBIDDEN", "접근 가능한 지점의 사용자만 수정할 수 있습니다.");
+  }
+
   if (selectedScope.selectedBranchId && !targetUser.branchIds.includes(selectedScope.selectedBranchId)) {
     return jsonError(403, "FORBIDDEN", "선택한 지점의 사용자만 수정할 수 있습니다.");
   }
@@ -332,10 +341,19 @@ export async function PATCH(
   }
 
   const requestedBranchIds = body && "branchIds" in body ? cleanBranchIds(body.branchIds) : targetUser.branchIds;
-  const nextBranchIds =
-    nextRole === "admin"
-      ? db.branches.map((branch) => branch.id)
-      : requestedBranchIds.filter((branchId) => db.branches.some((branch) => branch.id === branchId));
+  const knownBranchIds = db.branches.map((branch) => branch.id);
+  const validRequestedBranchIds = requestedBranchIds.filter((branchId) => knownBranchIds.includes(branchId));
+  const assignment = nextRole === "admin" && targetUser.role === "admin" && targetUser.adminScope === "assigned_branches"
+    ? {
+        adminScope: "assigned_branches" as const,
+        branchIds: validRequestedBranchIds.length > 0 ? validRequestedBranchIds : targetUser.branchIds,
+      }
+    : getAdminAssignment(user, nextRole as UserRole, validRequestedBranchIds, knownBranchIds);
+  const nextBranchIds = assignment.branchIds;
+
+  if (!hasAdminAccessToBranchIds(user, nextBranchIds)) {
+    return jsonError(403, "FORBIDDEN", "접근 가능한 지점만 배정할 수 있습니다.");
+  }
 
   if (nextRole !== "admin" && nextBranchIds.length === 0) {
     return jsonError(422, "BUSINESS_RULE_FAILED", "총괄 어드민 외 역할은 최소 1개 지점이 필요합니다.");
@@ -508,6 +526,7 @@ export async function PATCH(
         }
       : {}),
     role: nextRole as UserRole,
+    ...(nextRole === "admin" ? { adminScope: assignment.adminScope } : { adminScope: undefined }),
     title: nextTitle,
   };
 
@@ -563,6 +582,7 @@ export async function PATCH(
 
   const authorizationContextChanged =
     nextRole !== targetUser.role ||
+    assignment.adminScope !== targetUser.adminScope ||
     canonicalIdList(nextBranchIds) !== canonicalIdList(targetUser.branchIds) ||
     canonicalIdList(nextMemberIds) !== canonicalIdList(targetUser.memberIds ?? []) ||
     canonicalIdList(nextChildMemberIds) !== canonicalIdList(targetUser.childMemberIds ?? []);
@@ -716,6 +736,10 @@ export async function DELETE(
 
   if (!targetUser) {
     return jsonError(404, "NOT_FOUND", "사용자를 찾을 수 없습니다.");
+  }
+
+  if (!canAdminManageUser(user, targetUser)) {
+    return jsonError(403, "FORBIDDEN", "접근 가능한 지점의 사용자만 삭제할 수 있습니다.");
   }
 
   if (selectedScope.selectedBranchId && !targetUser.branchIds.includes(selectedScope.selectedBranchId)) {

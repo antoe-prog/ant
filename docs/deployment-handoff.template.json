@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAt": "TODO_ISO_TIMESTAMP",
   "environment": "production",
   "deployment": {
@@ -91,28 +91,76 @@
       "evidence": "TODO_SECRET_EVIDENCE_URI"
     },
     {
-      "key": "FINAL_JUDO_VAPID_PUBLIC_KEY",
+      "key": "FINAL_JUDO_PUSH_ENABLED",
       "classification": "config",
       "storage": "deployment-platform-env",
       "configured": true,
-      "secretName": "FINAL_JUDO_VAPID_PUBLIC_KEY",
+      "expectedValue": "1",
       "evidence": "TODO_ENV_EVIDENCE_URI"
     },
     {
-      "key": "FINAL_JUDO_VAPID_PRIVATE_KEY",
+      "key": "FINAL_JUDO_APNS_TEAM_ID",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "TODO_APNS_TEAM_ID",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_APNS_KEY_ID",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "TODO_APNS_KEY_ID",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_APNS_TOPIC",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "kr.co.finaljudo.multigym",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_APNS_PRIVATE_KEY",
       "classification": "secret",
       "storage": "deployment-platform-secret-store",
       "configured": true,
-      "secretName": "FINAL_JUDO_VAPID_PRIVATE_KEY",
+      "secretName": "FINAL_JUDO_APNS_PRIVATE_KEY",
       "evidence": "TODO_SECRET_EVIDENCE_URI"
     },
     {
-      "key": "FINAL_JUDO_VAPID_SUBJECT",
+      "key": "FINAL_JUDO_APNS_ENVIRONMENT",
       "classification": "config",
       "storage": "deployment-platform-env",
       "configured": true,
-      "expectedValue": "mailto:ops@example.com",
+      "expectedValue": "production",
       "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_FIREBASE_PROJECT_ID",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "TODO_FIREBASE_PROJECT_ID",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_FIREBASE_CLIENT_EMAIL",
+      "classification": "config",
+      "storage": "deployment-platform-env",
+      "configured": true,
+      "expectedValue": "TODO_FIREBASE_CLIENT_EMAIL",
+      "evidence": "TODO_ENV_EVIDENCE_URI"
+    },
+    {
+      "key": "FINAL_JUDO_FIREBASE_PRIVATE_KEY",
+      "classification": "secret",
+      "storage": "deployment-platform-secret-store",
+      "configured": true,
+      "secretName": "FINAL_JUDO_FIREBASE_PRIVATE_KEY",
+      "evidence": "TODO_SECRET_EVIDENCE_URI"
     },
     {
       "key": "CRON_SECRET",
@@ -139,8 +187,8 @@
     "evidence": "TODO_PAYMENT_EVIDENCE_URI"
   },
   "pushNotifications": {
-    "vapidKeysStored": true,
-    "subject": "mailto:ops@example.com",
+    "providers": ["apns", "fcm"],
+    "providerHandoffVerified": true,
     "deviceSubscriptionVerified": true,
     "noticePushVerified": true,
     "evidence": "TODO_PUSH_EVIDENCE_URI"

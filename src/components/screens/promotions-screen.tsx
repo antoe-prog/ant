@@ -447,7 +447,7 @@ export function PromotionsScreen() {
                   <div className="mt-3 border-t border-zinc-100 pt-3">
                     <Link
                       className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-700 transition hover:bg-teal-100"
-                      href={`/app/promotions/${encodeURIComponent(promotion.id)}/certificate`}
+                      href={`/app/promotions/certificate?promotionId=${encodeURIComponent(promotion.id)}`}
                     >
                       <FileBadge className="h-4 w-4" aria-hidden />
                       승급 증서 보기

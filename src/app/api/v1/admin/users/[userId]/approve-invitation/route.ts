@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, MockDatabase, UserRole } from "@/lib/domain";
+import { canAdminManageUser } from "@/lib/admin-access";
 import { getAccessibleBranchIds } from "@/lib/mock-api";
 import { readServerDb, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -67,6 +68,10 @@ export async function POST(
     }
 
     const accessibleBranchIds = getAccessibleBranchIds(latestUser, latestDb);
+
+    if (latestUser.role === "admin" && !canAdminManageUser(latestUser, targetUser)) {
+      return jsonError(403, "FORBIDDEN", "접근 가능한 지점의 초대만 승인할 수 있습니다.");
+    }
 
     if (latestUser.role === "owner") {
       if (!ownerApprovableRoles.includes(targetUser.role)) {

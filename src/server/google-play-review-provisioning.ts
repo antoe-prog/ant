@@ -16,7 +16,6 @@ import type {
 } from "../lib/domain.ts";
 import { userRoles } from "../lib/domain.ts";
 import {
-  googlePlayReviewAccountPurpose,
   googlePlayReviewBranchId,
   googlePlayReviewMemberIds,
   googlePlayReviewPhones,
@@ -106,7 +105,7 @@ export function createGooglePlayReviewConsoleEntries(
         : role === "owner"
           ? "The account includes synthetic branch operations, payments, and notices."
           : role === "admin"
-            ? "The account provides a read-only system administration view of synthetic review data."
+            ? "The account provides branch-scoped administration of synthetic review data under the standard role policy."
             : "The account includes synthetic classes, attendance, payments, and notices.";
     const otherAccessInformation = [
       "Open the app and sign in with the phone number and password above.",
@@ -139,14 +138,14 @@ export function provisionGooglePlayReviewAccess(
   const passwordUpdatedAt = now.toISOString();
   const branch: Branch = {
     id: googlePlayReviewBranchId,
-    name: "Google Play 검토 지점",
-    district: "합성 검토 데이터",
+    name: "강서 중앙관",
+    district: "서울 강서구",
+    dataMode: "demo",
     settings: { attendanceEditRequiresReason: true },
     status: "active",
     timezone: "Asia/Seoul",
   };
   const commonUser = {
-    accountPurpose: googlePlayReviewAccountPurpose,
     branchIds: [googlePlayReviewBranchId],
     invitationStatus: "accepted" as const,
     passwordUpdatedAt,
@@ -155,55 +154,56 @@ export function provisionGooglePlayReviewAccess(
     {
       ...commonUser,
       id: googlePlayReviewUserIds.member,
-      email: "member@play-review.finaljudo.invalid",
-      name: "Play 검토 회원",
+      email: "member@demo.finaljudo.invalid",
+      name: "김민준",
       passwordHash: createRandomPasswordHash(passwords.member),
       phone: googlePlayReviewPhones.member,
       role: "member",
-      title: "합성 성인 회원",
+      title: "성인 회원",
       memberIds: [googlePlayReviewMemberIds.adult],
     },
     {
       ...commonUser,
       id: googlePlayReviewUserIds.guardian,
       childMemberIds: [googlePlayReviewMemberIds.child],
-      email: "guardian@play-review.finaljudo.invalid",
-      name: "Play 검토 학부모",
+      email: "guardian@demo.finaljudo.invalid",
+      name: "이서연",
       passwordHash: createRandomPasswordHash(passwords.guardian),
       phone: googlePlayReviewPhones.guardian,
       role: "guardian",
-      title: "합성 학부모·성인 회원",
+      title: "학부모·성인 회원",
       memberIds: [googlePlayReviewMemberIds.guardian],
     },
     {
       ...commonUser,
       id: googlePlayReviewUserIds.coach,
-      email: "coach@play-review.finaljudo.invalid",
-      name: "Play 검토 코치",
+      email: "coach@demo.finaljudo.invalid",
+      name: "박서준",
       passwordHash: createRandomPasswordHash(passwords.coach),
       phone: googlePlayReviewPhones.coach,
       role: "coach",
-      title: "합성 검토 수업 코치",
+      title: "수업 코치",
     },
     {
       ...commonUser,
       id: googlePlayReviewUserIds.owner,
-      email: "owner@play-review.finaljudo.invalid",
-      name: "Play 검토 대표",
+      email: "owner@demo.finaljudo.invalid",
+      name: "정유진",
       passwordHash: createRandomPasswordHash(passwords.owner),
       phone: googlePlayReviewPhones.owner,
       role: "owner",
-      title: "합성 검토 지점 대표",
+      title: "지점 대표",
     },
     {
       ...commonUser,
+      adminScope: "assigned_branches",
       id: googlePlayReviewUserIds.admin,
-      email: "admin@play-review.finaljudo.invalid",
-      name: "Play 검토 총괄",
+      email: "admin@demo.finaljudo.invalid",
+      name: "최도현",
       passwordHash: createRandomPasswordHash(passwords.admin),
       phone: googlePlayReviewPhones.admin,
       role: "admin",
-      title: "합성 데이터 전용 읽기 검토",
+      title: "지점 총괄",
     },
   ];
   const members: Member[] = [
@@ -217,7 +217,7 @@ export function provisionGooglePlayReviewAccess(
       emergencyContact: googlePlayReviewPhones.member,
       guardianIds: [],
       level: "중급",
-      name: "Play 검토 성인 회원",
+      name: "김민준",
       primaryCoachId: googlePlayReviewUserIds.coach,
       status: "active",
       statusChangedAt: createdAt,
@@ -232,7 +232,7 @@ export function provisionGooglePlayReviewAccess(
       emergencyContact: googlePlayReviewPhones.guardian,
       guardianIds: [],
       level: "초급",
-      name: "Play 검토 학부모 본인",
+      name: "이서연",
       primaryCoachId: googlePlayReviewUserIds.coach,
       status: "active",
       statusChangedAt: createdAt,
@@ -247,7 +247,7 @@ export function provisionGooglePlayReviewAccess(
       emergencyContact: googlePlayReviewPhones.guardian,
       guardianIds: [googlePlayReviewUserIds.guardian],
       level: "초급",
-      name: "Play 검토 자녀",
+      name: "김서윤",
       primaryCoachId: googlePlayReviewUserIds.coach,
       status: "active",
       statusChangedAt: createdAt,
@@ -264,7 +264,7 @@ export function provisionGooglePlayReviewAccess(
       endsAt: at(now, 0, 16, 50),
       level: "입문-초급",
       name: "유소년 유도 기초반",
-      room: "검토 매트 A",
+      room: "A 매트",
       startsAt: at(now, 0, 16),
     },
     {
@@ -277,7 +277,7 @@ export function provisionGooglePlayReviewAccess(
       endsAt: at(now, 0, 21),
       level: "초급-중급",
       name: "성인 직장인반",
-      room: "검토 매트 B",
+      room: "B 매트",
       startsAt: at(now, 0, 20),
     },
     {
@@ -290,7 +290,7 @@ export function provisionGooglePlayReviewAccess(
       endsAt: at(now, 1, 18, 50),
       level: "모두 가능",
       name: "공통 낙법 클리닉",
-      room: "검토 매트 A",
+      room: "A 매트",
       startsAt: at(now, 1, 18),
     },
   ];
@@ -337,7 +337,7 @@ export function provisionGooglePlayReviewAccess(
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -5, 12),
         event: "created",
-        reason: "Google Play 합성 검토 결제",
+        reason: "월 회비 납부 등록",
         status: "paid",
       }],
     },
@@ -355,7 +355,7 @@ export function provisionGooglePlayReviewAccess(
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -2, 12),
         event: "created",
-        reason: "Google Play 합성 미납 상태",
+        reason: "납부 기한 경과",
         status: "overdue",
       }],
     },
@@ -373,7 +373,7 @@ export function provisionGooglePlayReviewAccess(
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -1, 12),
         event: "created",
-        reason: "Google Play 합성 결제 예정",
+        reason: "다음 납부 일정 등록",
         status: "scheduled",
       }],
     },
@@ -382,13 +382,13 @@ export function provisionGooglePlayReviewAccess(
     {
       id: "notice-google-play-review",
       audience: ["all"],
-      body: "이 공지는 Google Play 심사용 합성 데이터입니다.",
+      body: "이번 주 토요일 합동 훈련은 오전 10시에 시작합니다.",
       branchId: googlePlayReviewBranchId,
       createdAt: at(now, -1, 12),
       createdByUserId: googlePlayReviewUserIds.owner,
       important: true,
       readByUserIds: [],
-      title: "검토 지점 수업 안내",
+      title: "합동 훈련 안내",
     },
   ];
   const promotions: BeltPromotion[] = [
@@ -412,13 +412,13 @@ export function provisionGooglePlayReviewAccess(
       branchId: googlePlayReviewBranchId,
       createdAt: now.toISOString(),
       createdByUserId: googlePlayReviewUserIds.owner,
-      description: "Google Play 검토용 합성 대회 안내",
+      description: "지점 회원 대상 교류전입니다.",
       eventDate: dateOnly(now, 30),
-      location: "검토 체육관",
+      location: "강서구민체육관",
       organizer: "파이널유도멀티짐",
       registrationDeadline: dateOnly(now, 14),
       scope: "branch",
-      title: "Google Play 검토 교류전",
+      title: "여름 합동 교류전",
       updatedAt: now.toISOString(),
     },
   ];
@@ -430,7 +430,7 @@ export function provisionGooglePlayReviewAccess(
     before: null,
     branchId: googlePlayReviewBranchId,
     createdAt: now.toISOString(),
-    message: "Google Play 검토용 합성 지점과 계정을 준비했습니다.",
+    message: "체험 지점과 역할별 계정을 준비했습니다.",
     result: "success",
     targetId: googlePlayReviewBranchId,
     targetType: "branch",
@@ -439,14 +439,21 @@ export function provisionGooglePlayReviewAccess(
   const reviewMemberIdSet = new Set<string>(Object.values(googlePlayReviewMemberIds));
   const existingBranch = db.branches.find((candidate) => candidate.id === googlePlayReviewBranchId);
 
-  if (existingBranch && (
-    existingBranch.name !== branch.name ||
-    existingBranch.district !== branch.district
-  )) {
+  const isKnownDemoBranch = existingBranch?.dataMode === "demo" || (
+    existingBranch?.name === "Google Play 검토 지점" &&
+    existingBranch.district === "합성 검토 데이터"
+  );
+
+  if (existingBranch && !isKnownDemoBranch) {
     throw new Error(`Refusing to replace non-review branch data with ID ${googlePlayReviewBranchId}.`);
   }
 
-  assertOwnedReplacementIds("user", db.users, users, (item) => item.accountPurpose === googlePlayReviewAccountPurpose);
+  assertOwnedReplacementIds(
+    "user",
+    db.users,
+    users,
+    (item) => item.branchIds.length === 1 && item.branchIds[0] === googlePlayReviewBranchId,
+  );
   assertOwnedReplacementIds("member", db.members, members, (item) => item.branchId === googlePlayReviewBranchId);
   assertOwnedReplacementIds("class", db.classes, classes, (item) => item.branchId === googlePlayReviewBranchId);
   assertOwnedReplacementIds(

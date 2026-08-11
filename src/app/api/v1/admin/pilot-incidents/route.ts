@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import type { AuditLog, PilotIncident, PilotIncidentSeverity, UserRole } from "@/lib/domain";
 import { userRoles } from "@/lib/domain";
 import { exceedsPilotInputLimit, pilotOperationsInputLimits } from "@/lib/pilot-operations-input-policy";
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈 로그를 조회할 수 있습니다.");
   }
 
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈를 기록할 수 있습니다.");
   }
 
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
       return latestResponse;
     }
 
-    if (latestUser.role !== "admin") {
+    if (!hasGlobalAdminDataAccess(latestUser)) {
       return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 이슈를 기록할 수 있습니다.");
     }
 

@@ -628,7 +628,6 @@ assert.deepEqual(
 const familySafeReferencedUser = familyMembers.createFamilySafeReferencedUser(
   {
     ...coach,
-    accountPurpose: "google_play_review",
     branchIds: ["branch-gangnam", "branch-songpa"],
     childMemberIds: ["member-seo"],
     email: "coach-private@example.com",
@@ -642,7 +641,6 @@ const familySafeReferencedUser = familyMembers.createFamilySafeReferencedUser(
 );
 assert.deepEqual(
   {
-    accountPurpose: familySafeReferencedUser.accountPurpose,
     branchIds: familySafeReferencedUser.branchIds,
     childMemberIds: familySafeReferencedUser.childMemberIds,
     email: familySafeReferencedUser.email,
@@ -653,7 +651,6 @@ assert.deepEqual(
     phone: familySafeReferencedUser.phone,
   },
   {
-    accountPurpose: undefined,
     branchIds: ["branch-gangnam"],
     childMemberIds: undefined,
     email: undefined,
@@ -869,6 +866,7 @@ const stalePushScopeDb = {
       branchIds: ["branch-gangnam"],
       endpoint: "https://push.example/member-stale-branch",
       keys: { auth: "auth", p256dh: "p256dh" },
+      deviceSessionHash: "a".repeat(64),
       createdAt: "2026-08-05T00:00:00.000Z",
       updatedAt: "2026-08-05T00:00:00.000Z",
     },
@@ -1018,14 +1016,34 @@ assert.equal(
   "security-context changes must disable the target user's active push delivery credentials",
 );
 assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-stale-branch")?.deviceSessionHash,
+  undefined,
+  "security-context changes must invalidate the target user's active opaque device credential",
+);
+assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-stale-branch")?.disabledReason,
+  "security_change",
+  "security-context changes must retain an explicit push revocation reason",
+);
+assert.equal(
   revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-already-disabled")?.disabledAt,
   "2026-08-04T23:00:00.000Z",
   "security-context changes must preserve an earlier push disable timestamp",
 );
 assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-member-already-disabled")?.deviceSessionHash,
+  undefined,
+  "security-context changes must invalidate already-disabled device credentials too",
+);
+assert.equal(
   revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-owner-active")?.disabledAt,
   undefined,
   "security-context changes must not disable another user's push subscription",
+);
+assert.equal(
+  revokedSecurityAccess.pushSubscriptions.find((subscription) => subscription.id === "push-owner-active")?.deviceSessionHash,
+  "a".repeat(64),
+  "security-context changes must preserve another user's opaque device credential",
 );
 assert.equal(
   revokedSecurityAccess.pushDispatchJobs.find((job) => job.id === "push-job-member-pending")?.status,

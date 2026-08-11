@@ -1,5 +1,5 @@
 import type { AppUser, Tournament } from "@/lib/domain";
-import { hasGlobalAdminDataAccess } from "./google-play-review-access.ts";
+import { hasGlobalAdminDataAccess } from "./admin-access.ts";
 
 export type TournamentAccess = {
   scope: "global" | "branch";
@@ -7,7 +7,7 @@ export type TournamentAccess = {
   createdByUserId: string | null;
 };
 
-type TournamentActor = Pick<AppUser, "accountPurpose" | "id" | "role">;
+type TournamentActor = Pick<AppUser, "adminScope" | "id" | "role">;
 
 export type TournamentCreateAccess =
   | { ok: false; status: 400 | 403; error: string }

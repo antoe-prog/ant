@@ -264,7 +264,7 @@ P1 완료는 다음이 모두 현재 증거로 확인될 때만 선언한다.
 - lint/build/unit/store/e2e/mobile-install/release docs를 유지한다.
 - Android doctor, role APK report, Android release handoff를 구분한다.
 - iOS Capacitor connection, iOS IPA doctor, IPA build report를 구분한다.
-- [docs/IOS_IPA_PROVISIONING_RUNBOOK.md](docs/IOS_IPA_PROVISIONING_RUNBOOK.md)와 `npm run test:ios-provisioning-runbook`으로 `FINAL_JUDO_IOS_SERVER_URL`, Team ID `CA7A5SP5G5`, bundle id `kr.co.finaljudo.multigym`, export method별 matching provisioning profile, App Store Connect 업로드 증빙, UDID·비밀정보 미기록 규칙을 검증한다.
+- [docs/IOS_IPA_PROVISIONING_RUNBOOK.md](docs/IOS_IPA_PROVISIONING_RUNBOOK.md)와 `npm run test:ios-provisioning-runbook`으로 로컬 UI 번들, release `server.url` 제거, `FINAL_JUDO_IOS_API_ORIGIN`, Team ID `CA7A5SP5G5`, bundle id `kr.co.finaljudo.multigym`, export method별 matching provisioning profile, App Store Connect 업로드 증빙, UDID·비밀정보 미기록 규칙을 검증한다.
 - p1:operator-status, p1:completion-evidence, p1:readiness, evidence intake, release package/archive/storage receipt 체인을 검증한다.
 - 문서의 npm run 명령이 package.json과 release runner에서 drift 나지 않게 한다.
 ```
@@ -325,7 +325,7 @@ iOS 현재 기준:
 - export method: app-store-connect
 - App Store Connect 업로드 성공 증빙: `.data/mobile-builds/ios/app-store/1.0-1/upload-result.md`
 - App Store Connect 배포 profile에는 테스트 기기 UDID가 필요하지 않지만 Development/Ad Hoc profile에는 등록 기기가 필요하다.
-- `https://api.finaljudo.co.kr` 같은 API-only `api.*` origin은 Android TWA/iOS IPA 앱 화면 origin으로 인정하지 않는다. 실제 웹앱도 함께 서빙한다는 운영자 확인이 있을 때만 `--allow-api-origin-webapp` 예외를 사용한다.
+- `https://api.finaljudo.co.kr` 같은 API-only `api.*` origin은 Android TWA의 앱 화면 origin으로 인정하지 않는다. iOS 로컬 번들에서는 UI가 앱에 포함되므로 검증된 HTTPS API origin으로 사용할 수 있다.
 
 P1 완료 기준:
 - npm run lint 통과

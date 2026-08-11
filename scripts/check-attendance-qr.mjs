@@ -159,7 +159,11 @@ assert(
 );
 assert(
   qrComponentSource.includes("openNativeAppSettings"),
-  "permanently denied camera access must offer an Android app-settings recovery path",
+  "permanently denied camera access must offer an app-settings recovery path",
+);
+assert(
+  qrComponentSource.includes("permissionDenied && isNativeMobilePermissionBridge()"),
+  "iOS and Android camera denial must both expose the native app-settings recovery action",
 );
 assert(qrComponentSource.includes("QRCode.toDataURL"), "coach card must render the class QR");
 assert(
@@ -181,6 +185,7 @@ console.log(
       "coach issue and member scan authorization guards",
       "guardian adult self scan without child proxy attendance",
       "issuer branch access revalidation",
+      "iOS and Android denied-camera settings recovery",
       "member scanner and coach class QR dashboard integration",
     ],
   }),

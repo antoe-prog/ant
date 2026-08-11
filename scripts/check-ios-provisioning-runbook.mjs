@@ -18,9 +18,10 @@ const requiredRunbookSnippets = [
   "mobile/ios/App/App.xcodeproj",
   "~/Library/MobileDevice/Provisioning Profiles",
   "~/Library/Developer/Xcode/UserData/Provisioning Profiles",
-  "FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin>",
-  "API 전용 origin",
-  "--allow-api-origin-webapp",
+  "FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin>",
+  "로컬 웹 UI",
+  "server.url",
+  "CapacitorHttp",
   "Apple Developer",
   "app-store-connect",
   "테스트 기기 UDID는 필요하지 않는다",
@@ -46,8 +47,8 @@ for (const snippet of requiredRunbookSnippets) {
 }
 
 assert(
-  !/FINAL_JUDO_IOS_SERVER_URL=http:\/\//.test(runbook),
-  `${runbookPath} must not suggest a non-HTTPS web app origin`,
+  !/FINAL_JUDO_IOS_API_ORIGIN=http:\/\//.test(runbook),
+  `${runbookPath} must not suggest a non-HTTPS API origin`,
 );
 assert(
   !/[0-9a-f]{40}/i.test(runbook),
@@ -68,7 +69,7 @@ assert(runbookIndex > doctorIndex, "test:release must run test:ios-provisioning-
 const requiredDocSnippets = [
   runbookPath,
   "npm run test:ios-provisioning-runbook",
-  "FINAL_JUDO_IOS_SERVER_URL",
+  "FINAL_JUDO_IOS_API_ORIGIN",
   "CA7A5SP5G5",
   "kr.co.finaljudo.multigym",
 ];
@@ -92,8 +93,8 @@ console.log(
         runbookPath,
         "iOS distribution and provisioning runbook references current Team ID/bundle id",
         "App Store Connect profiles are separated from device-bound development and Ad Hoc profiles",
-        "runbook requires HTTPS web app origin and avoids raw UDID storage",
-        "runbook separates API base URL from web app origin",
+        "runbook requires an HTTPS API origin and avoids raw UDID storage",
+        "runbook requires bundled UI without a release server.url",
         "release runner runs test:ios-provisioning-runbook after ios:ipa:doctor",
         "README/QA/release/team prompt docs reference the runbook gate",
       ],

@@ -123,8 +123,8 @@ assert(pendingAndroidPlayReleaseArtifact?.nextAction.includes("android:play:buil
 assert.equal(pendingAndroidRoleApksArtifact?.status, "missing");
 assert.equal(pendingAndroidRoleApksArtifact?.path.endsWith("role-apk-build-report.json"), true);
 assert.equal(pendingIosCapacitorConnectionArtifact?.status, "ready");
-assert.equal(pendingIosCapacitorConnectionArtifact?.releaseDecision, "production_connection_configured");
-assert.equal(pendingIosCapacitorConnectionArtifact?.mode, "production_https");
+assert.equal(pendingIosCapacitorConnectionArtifact?.releaseDecision, "bundled_ui_configured");
+assert.equal(pendingIosCapacitorConnectionArtifact?.mode, "bundled_local");
 assert.equal(pendingIosCapacitorConnectionArtifact?.path.endsWith("ios-capacitor-connection.json"), true);
 assert.equal(pendingIosIpaDoctorArtifact?.status, "blocked");
 assert.equal(pendingIosIpaDoctorArtifact?.path.endsWith("ios-ipa-doctor.json"), true);
@@ -346,12 +346,12 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "android-play-release
 });
 await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-capacitor-connection.json"), {
   ok: true,
-  releaseDecision: "simulator_connected_release_blocked",
+  releaseDecision: "bundled_ui_configured",
   generatedAt: "2026-07-15T03:00:50.000Z",
   bundleId: "kr.co.finaljudo.multigym",
   serviceRoute: "/app/dashboard",
   checks: {
-    generatedServerUrl: { ok: true, mode: "local_simulator", value: "http://127.0.0.1:3000/login?role=member&autoLogin=1&next=%2Fapp%2Fdashboard" },
+    generatedServerUrl: { ok: true, mode: "bundled_local", value: "No server.url; UI loads from the signed app bundle" },
   },
   blockers: [],
 });
@@ -396,7 +396,7 @@ await writeJson(path.join(readyWorkspace, "mobile-builds", "ios", "ios-ipa-docto
   blockers: [],
   resolutionHints: {
     rerun:
-      "APPLE_TEAM_ID=CA7A5SP5G5 FINAL_JUDO_IOS_SERVER_URL=https://app.finaljudo.kr npm run ios:ipa:doctor -- --team-id=CA7A5SP5G5 --strict",
+      "APPLE_TEAM_ID=CA7A5SP5G5 FINAL_JUDO_IOS_API_ORIGIN=https://app.finaljudo.kr npm run ios:ipa:doctor -- --team-id=CA7A5SP5G5 --strict",
   },
   nextActions: [],
 });
@@ -420,7 +420,7 @@ await writeFile(
     "",
     "### Environment",
     "",
-    "- export FINAL_JUDO_IOS_SERVER_URL=https://app.finaljudo.kr",
+    "- export FINAL_JUDO_IOS_API_ORIGIN=https://app.finaljudo.kr",
     "",
   ].join("\n"),
 );

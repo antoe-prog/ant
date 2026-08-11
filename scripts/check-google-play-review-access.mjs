@@ -6,9 +6,12 @@ import {
   googlePlayReviewBranchId,
   googlePlayReviewPhones,
   googlePlayReviewUserIds,
-  hasGlobalAdminDataAccess,
-  shouldBlockGooglePlayReviewAdminMutation,
 } from "../src/lib/google-play-review-access.ts";
+import {
+  canAdminManageUser,
+  hasAdminAccessToBranchIds,
+  hasGlobalAdminDataAccess,
+} from "../src/lib/admin-access.ts";
 import { verifyPassword } from "../src/server/auth-password.ts";
 import {
   createGooglePlayReviewConsoleEntries,
@@ -62,26 +65,25 @@ assert.equal(
 );
 assert.equal(hasGlobalAdminDataAccess(reviewAdmin), false, "review admin must not receive global admin data");
 assert.equal(hasGlobalAdminDataAccess(regularAdmin), true, "regular admin must retain global data access");
-assert.equal(
-  shouldBlockGooglePlayReviewAdminMutation(reviewAdmin, "POST"),
-  true,
-  "review admin must not mutate global administrator resources",
+assert.equal(reviewAdmin.adminScope, "assigned_branches", "review admin must use the generic branch-scoped admin policy");
+const equivalentBranchAdmin = {
+  ...reviewAdmin,
+  id: "user-branch-admin-contract-test",
+};
+assert.deepEqual(
+  getAccessibleBranchIds(reviewAdmin, provisioned),
+  getAccessibleBranchIds(equivalentBranchAdmin, provisioned),
+  "review metadata must not change the generic admin branch scope",
 );
-assert.equal(
-  shouldBlockGooglePlayReviewAdminMutation(reviewAdmin, "GET"),
-  false,
-  "review admin may inspect the scoped administration UI",
-);
-assert.equal(
-  shouldBlockGooglePlayReviewAdminMutation(reviewAdmin, "POST"),
-  true,
-  "review admin must remain read-only even for branch-scoped workflows",
-);
+assert.equal(hasAdminAccessToBranchIds(reviewAdmin, [googlePlayReviewBranchId]), true);
+assert.equal(hasAdminAccessToBranchIds(reviewAdmin, ["branch-gangnam"]), false);
+assert.equal(canAdminManageUser(reviewAdmin, provisioned.users.find((user) => user.id === googlePlayReviewUserIds.member)), true);
+assert.equal(canAdminManageUser(reviewAdmin, regularAdmin), false);
 
 for (const [role, userId] of Object.entries(googlePlayReviewUserIds)) {
   const user = provisioned.users.find((candidate) => candidate.id === userId);
   assert(user, `${role} review account must exist`);
-  assert.equal(user.accountPurpose, "google_play_review");
+  assert.equal("accountPurpose" in user, false, "review identity must not be stored on the user record");
   assert.deepEqual(user.branchIds, [googlePlayReviewBranchId]);
   assert.equal(user.phone, googlePlayReviewPhones[role]);
   assert.equal(verifyPassword(passwords[role], user.passwordHash), true, `${role} review password must verify`);
@@ -122,14 +124,45 @@ for (const entry of entries) {
 const serverApiSource = readFileSync("src/server/api.ts", "utf8");
 const serverDbSource = readFileSync("src/server/db.ts", "utf8");
 const provisionScriptSource = readFileSync("scripts/provision-google-play-review.mjs", "utf8");
+const reviewAccessSource = readFileSync("src/lib/google-play-review-access.ts", "utf8");
+const domainSource = readFileSync("src/lib/domain.ts", "utf8");
 
-assert(serverApiSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
+const visibleFixtureText = [
+  ...provisioned.branches
+    .filter((branch) => branch.id === googlePlayReviewBranchId)
+    .flatMap((branch) => [branch.name, branch.district]),
+  ...provisioned.users
+    .filter((user) => Object.values(googlePlayReviewUserIds).includes(user.id))
+    .flatMap((user) => [user.name, user.title, user.email ?? ""]),
+  ...provisioned.members
+    .filter((member) => member.branchId === googlePlayReviewBranchId)
+    .map((member) => member.name),
+  ...provisioned.classes
+    .filter((session) => session.branchId === googlePlayReviewBranchId)
+    .flatMap((session) => [session.name, session.room]),
+  ...provisioned.notices
+    .filter((notice) => notice.branchId === googlePlayReviewBranchId)
+    .flatMap((notice) => [notice.title, notice.body]),
+  ...provisioned.tournaments
+    .filter((tournament) => tournament.branchId === googlePlayReviewBranchId)
+    .flatMap((tournament) => [tournament.title, tournament.description ?? "", tournament.location ?? ""]),
+].join("\n");
+
 assert(serverApiSource.includes("hasGlobalAdminDataAccess"));
-assert(serverApiSource.includes("isGooglePlayReviewAccount(user) && accessibleBranchIds.length === 1"));
+assert(!serverApiSource.includes("isGooglePlayReviewAccount"));
+assert(!serverApiSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
+assert(!reviewAccessSource.includes("hasGlobalAdminDataAccess"));
+assert(!reviewAccessSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
+assert(!domainSource.includes("accountPurpose"), "review identity must not be part of the user domain contract");
+assert.doesNotMatch(
+  visibleFixtureText,
+  /Google Play|Play 검토|합성 검토|검토용|검토 지점|검토 매트|검토 체육관/i,
+  "review accounts must receive ordinary app-facing names and content",
+);
 assert(serverDbSource.includes("rollGooglePlayReviewDates"), "review dates must remain current in production");
 assert(provisionScriptSource.includes("FINAL_JUDO_INSTALLATION_ID"), "production provisioning must verify installation identity");
 assert(provisionScriptSource.includes("credentialsPrinted: false"), "provisioning output must not print passwords");
 assert(provisionScriptSource.includes("mode: 0o600"), "credential report must be owner-readable only");
 assert(!provisionScriptSource.includes("console.log(JSON.stringify(report"), "provisioning stdout must not expose Play credentials");
 
-console.log("Google Play review access checks passed: isolated role accounts, server scope, synthetic data, and secret handling.");
+console.log("Google Play review access checks passed: generic RBAC parity, isolated branch scope, synthetic data, and secret handling.");

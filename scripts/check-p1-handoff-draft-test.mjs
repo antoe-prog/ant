@@ -138,7 +138,7 @@ assert.equal(summary.reports.evidenceIntake.releaseDecision, "blocked");
 assert.equal(summary.reports.postgresDocker.releaseDecision, "blocked");
 assert.equal(summary.reports.postgresDocker.blockerCount, 1);
 assert(
-  ["simulator_connected_release_blocked", "production_connection_configured"].includes(
+  ["bundled_ui_configured", "simulator_connected_release_blocked", "production_connection_configured"].includes(
     summary.reports.iosCapacitorConnection.releaseDecision,
   ),
 );
@@ -183,7 +183,7 @@ const iosCapacitorConnectionMarkdown = await readFile(path.join(directory, "mobi
 assert.equal(iosCapacitorConnection.ok, true);
 assert.equal(iosCapacitorConnection.serviceRoute, "/app/dashboard");
 assert(
-  ["simulator_connected_release_blocked", "production_connection_configured"].includes(
+  ["bundled_ui_configured", "simulator_connected_release_blocked", "production_connection_configured"].includes(
     iosCapacitorConnection.releaseDecision,
   ),
 );
@@ -191,7 +191,9 @@ assert.equal(iosCapacitorConnection.checks.nativeBridge.ok, true);
 assert(iosCapacitorConnectionMarkdown.includes("# iOS Capacitor Service Connection"));
 assert(
   iosCapacitorConnectionMarkdown.includes(
-    iosCapacitorConnection.releaseDecision === "production_connection_configured"
+    ["bundled_ui_configured", "production_connection_configured"].includes(
+      iosCapacitorConnection.releaseDecision,
+    )
       ? "IOS_PROVISIONING_STILL_REQUIRED"
       : "IOS_SIMULATOR_CONNECTION_ONLY",
   ),
@@ -206,7 +208,7 @@ assert.equal(iosIpaDoctor.releaseDecision, "blocked");
 assert(iosIpaDoctor.blockers.length > 0);
 assert(iosIpaDoctorMarkdown.includes("# iOS IPA Doctor"));
 assert(iosIpaDoctorMarkdown.includes("## Provisioning Hints"));
-assert(iosIpaDoctorMarkdown.includes("FINAL_JUDO_IOS_SERVER_URL"));
+assert(iosIpaDoctorMarkdown.includes("FINAL_JUDO_IOS_API_ORIGIN"));
 assert(!iosIpaDoctorMarkdown.includes(rawPaymentSecret), "iOS IPA doctor Markdown must not contain raw payment webhook secret");
 assert(!iosIpaDoctorMarkdown.includes(rawVapidPrivateKey), "iOS IPA doctor Markdown must not contain raw VAPID private key");
 
@@ -383,8 +385,10 @@ assert.equal(issueRegistrationReport.summary.acknowledged, 0);
 
 const notificationDraft = await readJson("notification-push-handoff.json");
 assert.equal(notificationDraft.production.origin, "https://app.finaljudo.kr");
-assert.equal(notificationDraft.vapid.privateKeyStored, true);
-assert.equal(notificationDraft.vapid.privateKeySecretName, "FINAL_JUDO_VAPID_PRIVATE_KEY");
+assert.equal(notificationDraft.schemaVersion, 2);
+assert.equal(notificationDraft.providers.web.enabled, true);
+assert.equal(notificationDraft.providers.web.privateKeyStored, true);
+assert.equal(notificationDraft.providers.web.privateKeySecretName, "FINAL_JUDO_VAPID_PRIVATE_KEY");
 
 const paymentDraft = await readJson("payment-provider-handoff.json");
 assert.equal(paymentDraft.checkout.baseUrl, "https://pay.finaljudo.kr");

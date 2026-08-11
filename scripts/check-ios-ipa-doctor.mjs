@@ -14,7 +14,6 @@ import {
 
 function parseArgs(argv) {
   const args = {
-    allowApiOriginWebapp: process.env.FINAL_JUDO_ALLOW_API_ORIGIN_WEBAPP === "1",
     bundleId: null,
     exportMethod: null,
     releaseConfig: process.env.IOS_RELEASE_CONFIG ?? DEFAULT_IOS_RELEASE_CONFIG_PATH,
@@ -32,7 +31,7 @@ function parseArgs(argv) {
     }
 
     if (arg === "--allow-api-origin-webapp") {
-      args.allowApiOriginWebapp = true;
+      // Deprecated compatibility flag. The local bundle expects an API origin.
       continue;
     }
 
@@ -395,11 +394,11 @@ function isPlaceholderProductionHost(hostname) {
   );
 }
 
-function validateHttpsOrigin(origin, { allowApiOriginWebapp = false } = {}) {
+function validateHttpsOrigin(origin) {
   if (!origin) {
     return {
       ok: false,
-      reason: "missing --origin or FINAL_JUDO_IOS_SERVER_URL",
+      reason: "missing --origin or FINAL_JUDO_IOS_API_ORIGIN",
     };
   }
 
@@ -420,14 +419,6 @@ function validateHttpsOrigin(origin, { allowApiOriginWebapp = false } = {}) {
       };
     }
 
-    if (isLikelyApiOnlyHost(url.hostname) && !allowApiOriginWebapp) {
-      return {
-        ok: false,
-        reason:
-          "origin looks like an API host; use the web app origin that serves /login and /app/dashboard, or pass --allow-api-origin-webapp after verifying it serves the web app",
-      };
-    }
-
     return {
       ok: true,
       value: url.origin,
@@ -438,11 +429,6 @@ function validateHttpsOrigin(origin, { allowApiOriginWebapp = false } = {}) {
       reason: error instanceof Error ? error.message : "invalid origin",
     };
   }
-}
-
-function isLikelyApiOnlyHost(hostname) {
-  const host = String(hostname ?? "").toLowerCase();
-  return host === "api" || host.startsWith("api.") || host.includes(".api.");
 }
 
 function markdownCell(value) {
@@ -461,7 +447,7 @@ function firstNonEmptyString(values) {
   return values.find((value) => typeof value === "string" && value.trim())?.trim() ?? null;
 }
 
-function readDeployedWebAppOrigin() {
+function readDeployedApiOrigin() {
   const deploymentHandoff = readJsonFile(".data/deployment-handoff.report.json");
   const p1Readiness = readJsonFile(".data/p1-readiness.json");
 
@@ -475,19 +461,23 @@ function readDeployedWebAppOrigin() {
 }
 
 function resolveOriginValue(args) {
-  const explicitOrigin = firstNonEmptyString([args.origin, process.env.FINAL_JUDO_IOS_SERVER_URL]);
+  const explicitOrigin = firstNonEmptyString([
+    args.origin,
+    process.env.FINAL_JUDO_IOS_API_ORIGIN,
+    process.env.FINAL_JUDO_IOS_SERVER_URL,
+  ]);
 
   if (explicitOrigin) {
     return explicitOrigin;
   }
 
-  return args.useDeployedOrigin ? readDeployedWebAppOrigin() : null;
+  return args.useDeployedOrigin ? readDeployedApiOrigin() : null;
 }
 
 function createResolutionHints({ bundleId, exportMethod, teamId }) {
   const resolvedTeamId = teamId ?? "<APPLE_TEAM_ID>";
   const resolvedBundleId = bundleId ?? "<BUNDLE_ID>";
-  const productionOrigin = "https://<webapp-origin>";
+  const apiOrigin = "https://<api-origin>";
 
   return {
     appleDeveloper: [
@@ -502,13 +492,13 @@ function createResolutionHints({ bundleId, exportMethod, teamId }) {
     ],
     environment: [
       `export APPLE_TEAM_ID=${resolvedTeamId}`,
-      `export FINAL_JUDO_IOS_SERVER_URL=${productionOrigin}`,
-      "Use a web app origin that serves /login and /app/dashboard; API-only hosts are blocked by default.",
-      "If an api.* host intentionally serves the web app, rerun with --allow-api-origin-webapp after verifying those routes.",
-      "npm run ios:cap:sync",
+      `export FINAL_JUDO_IOS_API_ORIGIN=${apiOrigin}`,
+      "Use the real HTTPS API origin that serves the app's /api/v1 routes.",
+      "The release build embeds the web UI and must not contain a remote Capacitor server.url.",
+      "npm run ios:web:build && FINAL_JUDO_IOS_LOCAL_BUNDLE=1 npm run ios:cap:sync",
     ],
-    rerun: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_SERVER_URL=${productionOrigin} npm run ios:ipa:doctor -- --team-id=${resolvedTeamId} --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md`,
-    build: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_SERVER_URL=${productionOrigin} npm run ios:ipa:build -- --team-id=${resolvedTeamId} --xcode-export-method=${exportMethod} --allow-provisioning-updates`,
+    rerun: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_API_ORIGIN=${apiOrigin} npm run ios:ipa:doctor -- --team-id=${resolvedTeamId} --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md`,
+    build: `APPLE_TEAM_ID=${resolvedTeamId} FINAL_JUDO_IOS_API_ORIGIN=${apiOrigin} npm run ios:ipa:build -- --team-id=${resolvedTeamId} --xcode-export-method=${exportMethod} --allow-provisioning-updates`,
   };
 }
 
@@ -574,8 +564,8 @@ function createMarkdown(report) {
     "",
     "### IPA Ready Gate",
     "",
-    "- The IPA remains blocked until a real HTTPS web app production origin and a provisioning profile appropriate for the selected export method are present.",
-    "- API-only hosts such as `api.*` are not accepted as the app origin unless an operator explicitly verifies they also serve `/login` and `/app/dashboard`.",
+    "- The IPA remains blocked until a real HTTPS API origin and a provisioning profile appropriate for the selected export method are present.",
+    "- The UI must be embedded in the signed app bundle; the release Capacitor config must not contain `server.url`.",
     "- Keep the Simulator result as a runtime smoke signal only; do not mark IPA distribution ready from Simulator evidence.",
     "- App Store Connect profiles do not require registered devices; development and Ad Hoc profiles do. Rerun the strict doctor before `ios:ipa:build`.",
     "",
@@ -636,8 +626,8 @@ function createMarkdown(report) {
     "",
     "## Commands",
     "",
-    "- `FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:cap:sync`",
-    "- `FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:build -- --xcode-team-id=<TEAM_ID> --xcode-export-method=app-store-connect`",
+    "- `FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:web:build`",
+    "- `APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:build -- --xcode-team-id=<TEAM_ID> --xcode-export-method=app-store-connect`",
     "",
   );
 
@@ -657,7 +647,7 @@ const args = parseArgs(process.argv.slice(2));
 const releaseConfig = await readIosReleaseConfig(args.releaseConfig);
 const exportMethod = text(args.exportMethod) ?? text(releaseConfig.exportMethod) ?? "app-store-connect";
 const originValue = resolveOriginValue(args);
-const origin = validateHttpsOrigin(originValue, { allowApiOriginWebapp: args.allowApiOriginWebapp });
+const origin = validateHttpsOrigin(originValue);
 const codeSigningIdentity = codeSigningIdentityCheck();
 const requiresPushNotifications = await iosProjectRequiresPushNotifications();
 const capacitorBundleId = await capacitorAppId();
@@ -737,7 +727,7 @@ function nextActionsForBlockers(blockers, { bundleId, exportMethod }) {
   }
 
   if (blockerChecks.has("origin")) {
-    actions.push("Set FINAL_JUDO_IOS_SERVER_URL or --origin to the real HTTPS web app origin before sync/build.");
+    actions.push("Set FINAL_JUDO_IOS_API_ORIGIN or --origin to the real HTTPS API origin before the local web build.");
   }
 
   if (blockerChecks.has("appleTeamId")) {
@@ -776,7 +766,7 @@ const report = {
   resolutionHints: createResolutionHints({ bundleId, exportMethod, teamId }),
   nextActions:
     blockers.length === 0
-      ? ["Run Capacitor sync/build with production HTTPS origin and Apple signing options."]
+      ? ["Build the bundled web UI with the production HTTPS API origin, then archive/export with Apple signing options."]
       : nextActionsForBlockers(blockers, { bundleId, exportMethod }),
 };
 

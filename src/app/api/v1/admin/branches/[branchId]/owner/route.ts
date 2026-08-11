@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { AuditLog } from "@/lib/domain";
+import { hasAdminAccessToBranchIds } from "@/lib/admin-access";
 import { getBranchOwnerBodyError } from "@/lib/branch-input-policy";
 import { branchManagementStateLockKey } from "@/server/branch-management";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -24,6 +25,13 @@ async function requireBranchOwnerRequestContext(
     return {
       context: null,
       response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점 대표를 배정할 수 있습니다."),
+    };
+  }
+
+  if (!hasAdminAccessToBranchIds(user, [branchId])) {
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "접근 가능한 지점의 대표만 배정할 수 있습니다."),
     };
   }
 

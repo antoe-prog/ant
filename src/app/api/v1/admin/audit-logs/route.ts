@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import { isDuplicateAuditRead } from "@/lib/audit-read-deduplication";
 import { auditLogQueryLimits, isAuditDateRangeValid, parseAuditDateParam } from "@/lib/audit-log-query";
 import { auditActions, auditResults } from "@/lib/audit-log-presentation";
@@ -103,7 +104,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 변경 기록을 조회할 수 있습니다.");
   }
 
@@ -124,7 +125,7 @@ async function getAuditLogs(request: NextRequest, filters: AuditLogRequestFilter
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 변경 기록을 조회할 수 있습니다.");
   }
 

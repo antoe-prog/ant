@@ -61,7 +61,7 @@ async function writeWorkspace(workspace, { ready = false, secret = false } = {})
           requiredEvidence: ["운영 HTTPS 웹앱 origin", "Apple Team ID", "등록된 iPhone UDID", "matching provisioning profile"],
           path: path.join(workspace, "mobile-builds", "ios", "ios-ipa-build-report.json"),
           command:
-            "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
+            "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
           nextAction:
             "Register a real iPhone UDID in Apple Developer and create/download a provisioning profile for kr.co.finaljudo.multigym.",
         },

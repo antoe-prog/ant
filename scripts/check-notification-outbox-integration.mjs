@@ -47,9 +47,19 @@ assert(files.runner.includes("validateLeasedPushDispatchJob"));
 assert(files.runner.includes("createAttemptAuditLog"));
 assert(files.runner.includes("beginPushDispatchProviderCall"));
 assert(files.runner.includes("runPushDeliveryWithTimeout"));
+assert(
+  files.runner.includes("runPushDeliveryWithTimeout((signal) =>") &&
+    files.runner.includes("send(begun.subscription, begun.job.payloadSnapshot, signal)"),
+  "outbox timeout cancellation must reach the provider request",
+);
 assert(files.runner.includes("createRejectedSettlementAuditLog"));
 assert(files.runner.includes("claimedJob.deliveryMayHaveOccurred"));
 assert(files.runner.includes("currentJob?.deliveryMayHaveOccurred"));
+assert(
+  files.runner.includes("dispatchableCount: subscriptions.length") &&
+    files.outbox.includes("requestAudit?.after?.dispatchableCount"),
+  "mixed provider readiness must complete against dispatchable jobs rather than every stored subscription",
+);
 assert(files.outbox.includes('reason: "stale_revision"'));
 assert(files.outbox.includes("cancellationRequestedAt"));
 assert(files.domain.includes("deliveryMayHaveOccurred?: boolean"));
@@ -148,6 +158,7 @@ console.log(JSON.stringify({
     "revision fencing and leased cancellation boundary",
     "provider timeout and rejected stale-settlement audit",
     "provider timeout retains a bounded ownership fence before retry",
+    "mixed provider readiness excludes unavailable transports from completion accounting",
     "provider outcomes cannot settle before the provider-start fence",
     "cancelled settlement preserves truthful pre-provider and in-flight provider state",
     "timing-safe cron authorization",

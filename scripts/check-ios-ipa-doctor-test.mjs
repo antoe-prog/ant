@@ -98,7 +98,10 @@ await execFile(
     `--out=${reportPath}`,
     `--markdown=${markdownPath}`,
   ],
-  { cwd: process.cwd(), env: { ...process.env, FINAL_JUDO_IOS_SERVER_URL: "" } },
+  {
+    cwd: process.cwd(),
+    env: { ...process.env, FINAL_JUDO_IOS_API_ORIGIN: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+  },
 );
 
 const report = JSON.parse(await readFile(reportPath, "utf8"));
@@ -143,7 +146,7 @@ assert(
 );
 assert(
   report.blockers.some((blocker) => blocker.check === "origin"),
-  "doctor must block when FINAL_JUDO_IOS_SERVER_URL/--origin is missing",
+  "doctor must block when FINAL_JUDO_IOS_API_ORIGIN/--origin is missing",
 );
 
 await execFile(
@@ -188,8 +191,8 @@ assert.equal(
 assert.equal(report.releaseConfig.appleTeamIdConfigured, true, "doctor report must record configured Apple Team ID metadata");
 assert.equal(report.releaseConfig.bundleIdConfigured, true, "doctor report must record configured bundle id metadata");
 assert(
-  report.resolutionHints.environment.includes("export FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin>"),
-  "environment hints must include the production origin export",
+  report.resolutionHints.environment.includes("export FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin>"),
+  "environment hints must include the production API origin export",
 );
 assert(report.resolutionHints.rerun.includes("ios:ipa:doctor"), "doctor report must include a strict rerun command");
 assert(report.resolutionHints.rerun.includes("--strict"), "doctor rerun command must use strict mode");
@@ -228,7 +231,8 @@ assert(
 );
 assert(markdown.includes("### Apple Developer"), "doctor Markdown must include Apple Developer hints");
 assert(markdown.includes("### Xcode"), "doctor Markdown must include Xcode hints");
-assert(markdown.includes("FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin>"), "doctor Markdown must include origin setup");
+assert(markdown.includes("FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin>"), "doctor Markdown must include API origin setup");
+assert(markdown.includes("must not contain `server.url`"), "doctor Markdown must require a bundled UI without server.url");
 assert(markdown.includes("ios:ipa:build"), "doctor Markdown must include build command");
 assert(!markdown.includes("PRIVATE KEY"), "doctor Markdown must not expose secret-like signing material");
 assert(!markdown.includes("00008030"), "doctor Markdown must not expose raw device UDIDs");
@@ -243,18 +247,18 @@ await execFile(
     "--origin=https://api.finaljudo.co.kr",
     `--out=${apiOriginReportPath}`,
   ],
-  { cwd: process.cwd(), env: { ...process.env, FINAL_JUDO_IOS_SERVER_URL: "" } },
+  {
+    cwd: process.cwd(),
+    env: { ...process.env, FINAL_JUDO_IOS_API_ORIGIN: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+  },
 );
 const apiOriginReport = JSON.parse(await readFile(apiOriginReportPath, "utf8"));
-assert.equal(apiOriginReport.ok, false, "doctor must not accept an api.* origin as app-screen origin by default");
-assert(
+assert.equal(apiOriginReport.checks.origin.ok, true, "doctor must accept an HTTPS API origin for the bundled UI");
+assert.equal(apiOriginReport.checks.origin.value, "https://api.finaljudo.co.kr");
+assert.equal(
   apiOriginReport.blockers.some((blocker) => blocker.check === "origin"),
-  "api.* origin must remain an origin blocker unless explicitly verified",
-);
-assert.match(
-  apiOriginReport.checks.origin.reason,
-  /web app origin/,
-  "api.* origin blocker must explain that the app needs a web app origin",
+  false,
+  "an HTTPS API host must not be treated as a remote app-screen origin",
 );
 
 await execFile(
@@ -266,7 +270,14 @@ await execFile(
   ],
   {
     cwd: process.cwd(),
-    env: { ...process.env, APPLE_TEAM_ID: "", IOS_TEAM_ID: "", IOS_BUNDLE_ID: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+    env: {
+      ...process.env,
+      APPLE_TEAM_ID: "",
+      IOS_TEAM_ID: "",
+      IOS_BUNDLE_ID: "",
+      FINAL_JUDO_IOS_API_ORIGIN: "",
+      FINAL_JUDO_IOS_SERVER_URL: "",
+    },
   },
 );
 const defaultConfigReport = JSON.parse(await readFile(defaultConfigReportPath, "utf8"));
@@ -297,7 +308,10 @@ try {
       `--profiles-dir=${profilesDir}`,
       `--out-dir=${buildReportDir}`,
     ],
-    { cwd: process.cwd(), env: { ...process.env, FINAL_JUDO_IOS_SERVER_URL: "" } },
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, FINAL_JUDO_IOS_API_ORIGIN: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+    },
   );
 } catch (error) {
   buildDoctorExitCode = Number(error.code);
@@ -352,19 +366,19 @@ try {
       "--origin=https://api.finaljudo.co.kr",
       `--out-dir=${buildApiOriginReportDir}`,
     ],
-    { cwd: process.cwd(), env: { ...process.env, FINAL_JUDO_IOS_SERVER_URL: "" } },
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, FINAL_JUDO_IOS_API_ORIGIN: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+    },
   );
 } catch (error) {
   buildApiOriginExitCode = Number(error.code);
 }
 
-assert.equal(buildApiOriginExitCode, 1, "build doctor-only report must exit nonzero for api.* app origin");
+assert.equal(buildApiOriginExitCode, 0, "build doctor-only report must accept an HTTPS API origin for the bundled UI");
 const buildApiOriginReport = JSON.parse(await readFile(buildApiOriginReportPath, "utf8"));
-assert.equal(buildApiOriginReport.releaseDecision, "blocked", "build report must stay blocked for api.* app origin");
-assert(
-  buildApiOriginReport.blockers.some((blocker) => blocker.check === "origin"),
-  "build report must record api.* origin as an origin blocker",
-);
+assert.equal(buildApiOriginReport.checks.origin.ok, true, "build report must accept an HTTPS API origin");
+assert.equal(buildApiOriginReport.webDistribution, "bundled_web_ui");
 
 let buildDefaultConfigExitCode = 0;
 try {
@@ -378,7 +392,14 @@ try {
     ],
     {
       cwd: process.cwd(),
-      env: { ...process.env, APPLE_TEAM_ID: "", IOS_TEAM_ID: "", IOS_BUNDLE_ID: "", FINAL_JUDO_IOS_SERVER_URL: "" },
+      env: {
+        ...process.env,
+        APPLE_TEAM_ID: "",
+        IOS_TEAM_ID: "",
+        IOS_BUNDLE_ID: "",
+        FINAL_JUDO_IOS_API_ORIGIN: "",
+        FINAL_JUDO_IOS_SERVER_URL: "",
+      },
     },
   );
 } catch (error) {
@@ -410,7 +431,7 @@ console.log(
         "manual App Store signing configuration",
         "default iOS release config Apple Team ID fallback",
         "default iOS release config build doctor fallback",
-        "API-only-looking origin guard",
+        "bundled UI HTTPS API origin acceptance",
         "Apple Developer provisioning hints",
         "Xcode/manual profile hints",
         "environment and strict rerun commands",

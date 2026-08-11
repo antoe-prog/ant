@@ -7,6 +7,9 @@ export type NativePushConnectionStatus = BrowserPushConnectionStatus | "unavaila
 
 const registrationTimeoutMs = 15_000;
 let actionListenerStarted = false;
+let actionListenerPromise: Promise<void> | null = null;
+let nativeTokenRegistrationPromise: Promise<string> | null = null;
+const nativeSubscriptionPromises = new Map<string, Promise<NativePushConnectionStatus>>();
 
 export function isNativeMobileApp() {
   const platform = Capacitor.getPlatform();
@@ -28,7 +31,7 @@ function permissionState(status: PermissionStatus) {
   return "ready" as const;
 }
 
-async function waitForNativePushToken() {
+async function registerNativePushToken() {
   let resolveToken!: (token: string) => void;
   let rejectToken!: (error: Error) => void;
   const tokenPromise = new Promise<string>((resolve, reject) => {
@@ -77,10 +80,26 @@ async function waitForNativePushToken() {
   return tokenPromise;
 }
 
+async function waitForNativePushToken() {
+  if (nativeTokenRegistrationPromise) {
+    return nativeTokenRegistrationPromise;
+  }
+
+  nativeTokenRegistrationPromise = registerNativePushToken();
+
+  try {
+    return await nativeTokenRegistrationPromise;
+  } finally {
+    nativeTokenRegistrationPromise = null;
+  }
+}
+
 export async function connectCurrentNativePushRegistration({
   requestPermission,
+  userId,
 }: {
   requestPermission: boolean;
+  userId: string;
 }): Promise<NativePushConnectionStatus> {
   const platform = nativePlatform();
   if (!platform) {
@@ -101,20 +120,47 @@ export async function connectCurrentNativePushRegistration({
   }
 
   const token = await waitForNativePushToken();
-  const result = await apiClient.subscribeToNativePush(
-    token,
-    platform,
-    typeof navigator === "undefined" ? `Capacitor/${platform}` : `Capacitor/${platform} ${navigator.userAgent}`,
-    requestPermission,
-  );
-
-  if (result.reactivationRequired || result.subscription.disabledAt) {
-    return "prompt";
+  const connectionKey = `${userId}\0${platform}\0${requestPermission ? "explicit" : "passive"}\0${token}`;
+  const pendingSubscription = nativeSubscriptionPromises.get(connectionKey);
+  if (pendingSubscription) {
+    return pendingSubscription;
   }
 
-  const config = await apiClient.getPushConfig();
-  const providerReady = platform === "android" ? config.providers.fcm : config.providers.apns;
-  return providerReady ? "ready" : "unavailable";
+  const subscriptionPromise = (async () => {
+    const result = await apiClient.subscribeToNativePush(
+      token,
+      platform,
+      typeof navigator === "undefined" ? `Capacitor/${platform}` : `Capacitor/${platform} ${navigator.userAgent}`,
+      requestPermission,
+      userId,
+    );
+
+    if (result.reactivationRequired || result.subscription.disabledAt) {
+      return "prompt" as const;
+    }
+
+    const config = await apiClient.getPushConfig();
+    const providerReady = platform === "android" ? config.providers.fcm : config.providers.apns;
+    return providerReady ? "ready" as const : "unavailable" as const;
+  })();
+  nativeSubscriptionPromises.set(connectionKey, subscriptionPromise);
+
+  try {
+    return await subscriptionPromise;
+  } finally {
+    if (nativeSubscriptionPromises.get(connectionKey) === subscriptionPromise) {
+      nativeSubscriptionPromises.delete(connectionKey);
+    }
+  }
+}
+
+export async function disconnectCurrentNativePushRegistration() {
+  if (!isNativeMobileApp()) {
+    return;
+  }
+
+  await Promise.allSettled([PushNotifications.removeAllDeliveredNotifications()]);
+  await PushNotifications.unregister();
 }
 
 function openNotificationTarget(event: ActionPerformed) {
@@ -135,6 +181,18 @@ export async function initializeNativePushNotificationActions() {
     return;
   }
 
-  actionListenerStarted = true;
-  await PushNotifications.addListener("pushNotificationActionPerformed", openNotificationTarget);
+  if (actionListenerPromise) {
+    return actionListenerPromise;
+  }
+
+  actionListenerPromise = (async () => {
+    await PushNotifications.addListener("pushNotificationActionPerformed", openNotificationTarget);
+    actionListenerStarted = true;
+  })();
+
+  try {
+    await actionListenerPromise;
+  } finally {
+    actionListenerPromise = null;
+  }
 }

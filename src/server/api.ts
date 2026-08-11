@@ -7,7 +7,7 @@ import {
   getAccessibleMemberIds,
   getSelectedBranchIds,
 } from "@/lib/mock-api";
-import { canViewTournament, createFamilySafeTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
+import { canViewTournament, createFamilySafeTournament } from "@/lib/tournament-policy";
 import { getCurrentMemberPayment } from "@/lib/payment-lifecycle";
 import {
   createFamilySafeMember,
@@ -20,9 +20,7 @@ import { createFamilySafeNotice } from "@/lib/notices";
 import { createFamilySafePromotion } from "@/lib/promotions";
 import {
   hasGlobalAdminDataAccess,
-  isGooglePlayReviewAccount,
-  shouldBlockGooglePlayReviewAdminMutation,
-} from "@/lib/google-play-review-access";
+} from "@/lib/admin-access";
 import { formatDateKey } from "../lib/format.ts";
 import { findAuthSessionUser } from "@/server/auth-session";
 
@@ -106,17 +104,6 @@ export function requireSession(request: NextRequest, db: MockDatabase) {
     };
   }
 
-  if (shouldBlockGooglePlayReviewAdminMutation(user, request.method)) {
-    return {
-      user: null,
-      response: jsonError(
-        403,
-        "FORBIDDEN",
-        "Google Play 검토용 총괄 계정은 데이터를 변경할 수 없습니다.",
-      ),
-    };
-  }
-
   return { user, response: null };
 }
 
@@ -133,8 +120,7 @@ export function createSelectedBranchId(user: AppUser, db: MockDatabase, requeste
 export function requireSelectedBranchScope(request: NextRequest, user: AppUser, db: MockDatabase) {
   const accessibleBranchIds = getAccessibleBranchIds(user, db);
   const requestedBranchId = getSelectedBranchId(request);
-  const selectedBranchId = requestedBranchId ??
-    (isGooglePlayReviewAccount(user) && accessibleBranchIds.length === 1 ? accessibleBranchIds[0] : null);
+  const selectedBranchId = requestedBranchId ?? null;
 
   if (selectedBranchId && !accessibleBranchIds.includes(selectedBranchId)) {
     return {
@@ -324,14 +310,7 @@ export function createSafeSnapshot(db: MockDatabase, user: AppUser, selectedBran
     counselingNotes,
     promotions,
     tournaments: (db.tournaments ?? [])
-      .filter((tournament) => {
-        if (isGooglePlayReviewAccount(user)) {
-          const access = resolveTournamentAccess(tournament);
-          return access.scope === "branch" && access.branchId !== null && branchIds.includes(access.branchId);
-        }
-
-        return canViewTournament(tournament, branchIds);
-      })
+      .filter((tournament) => canViewTournament(tournament, branchIds))
       .map((tournament) =>
         user.role === "member" || user.role === "guardian"
           ? createFamilySafeTournament(tournament, allowedMemberIds)

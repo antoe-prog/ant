@@ -8,7 +8,7 @@ const args = parseArgs(process.argv.slice(2));
 const outPath = path.resolve(args.out ?? ".data/deployment-handoff.json");
 const evidenceReferencePattern = /^(https:\/\/|s3:\/\/|gs:\/\/|az:\/\/|drive:\/\/|sharepoint:\/\/|box:\/\/|file:\/\/).+/i;
 
-const envContracts = [
+const baseEnvContracts = [
   { key: "NODE_ENV", classification: "config", fallback: "production" },
   { key: "FINAL_JUDO_DB_DRIVER", classification: "config", fallback: "postgres" },
   { key: "FINAL_JUDO_POSTGRES_URL", classification: "secret" },
@@ -19,10 +19,31 @@ const envContracts = [
   { key: "FINAL_JUDO_PAYMENT_PROVIDER", classification: "config", fallback: "external" },
   { key: "FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL", classification: "config", arg: "paymentCheckoutBaseUrl" },
   { key: "FINAL_JUDO_PAYMENT_WEBHOOK_SECRET", classification: "secret" },
+  { key: "CRON_SECRET", classification: "secret" },
+];
+
+const nativePushEnvContracts = [
+  { key: "FINAL_JUDO_PUSH_ENABLED", classification: "config", fallback: "1" },
+];
+
+const apnsEnvContracts = [
+  { key: "FINAL_JUDO_APNS_TEAM_ID", classification: "config" },
+  { key: "FINAL_JUDO_APNS_KEY_ID", classification: "config" },
+  { key: "FINAL_JUDO_APNS_TOPIC", classification: "config" },
+  { key: "FINAL_JUDO_APNS_PRIVATE_KEY", classification: "secret" },
+  { key: "FINAL_JUDO_APNS_ENVIRONMENT", classification: "config", fallback: "production" },
+];
+
+const fcmEnvContracts = [
+  { key: "FINAL_JUDO_FIREBASE_PROJECT_ID", classification: "config" },
+  { key: "FINAL_JUDO_FIREBASE_CLIENT_EMAIL", classification: "config" },
+  { key: "FINAL_JUDO_FIREBASE_PRIVATE_KEY", classification: "secret" },
+];
+
+const webPushEnvContracts = [
   { key: "FINAL_JUDO_VAPID_PUBLIC_KEY", classification: "config", redactConfiguredValue: true },
   { key: "FINAL_JUDO_VAPID_PRIVATE_KEY", classification: "secret" },
   { key: "FINAL_JUDO_VAPID_SUBJECT", classification: "config", arg: "vapidSubject" },
-  { key: "CRON_SECRET", classification: "secret" },
 ];
 
 function parseArgs(argv) {
@@ -64,6 +85,31 @@ function isPlaceholder(value) {
     /<[^>]+>/.test(text(value))
   );
 }
+
+function hasConfiguredEnvironmentValue(key) {
+  const value = text(process.env[key]);
+  return Boolean(value && !isPlaceholder(value));
+}
+
+function providerRequested(contracts) {
+  return contracts.some((contract) => hasConfiguredEnvironmentValue(contract.key));
+}
+
+const apnsRequested = providerRequested(apnsEnvContracts);
+const fcmRequested = providerRequested(fcmEnvContracts);
+const webPushRequested = providerRequested(webPushEnvContracts);
+const pushProviders = [
+  ...(apnsRequested ? ["apns"] : []),
+  ...(fcmRequested ? ["fcm"] : []),
+  ...(webPushRequested ? ["web"] : []),
+];
+const envContracts = [
+  ...baseEnvContracts,
+  ...(apnsRequested || fcmRequested ? nativePushEnvContracts : []),
+  ...(apnsRequested ? apnsEnvContracts : []),
+  ...(fcmRequested ? fcmEnvContracts : []),
+  ...(webPushRequested ? webPushEnvContracts : []),
+];
 
 function evidenceReady(value) {
   const evidence = text(value);
@@ -157,12 +203,23 @@ const paymentEvidenceReady = evidenceReady(args.paymentEvidence);
 const pushEvidenceReady = evidenceReady(args.pushEvidence);
 const productionOrigin = args.productionOrigin ?? process.env.FINAL_JUDO_PRODUCTION_ORIGIN ?? "https://TODO-PRODUCTION-HOST";
 const paymentCheckoutBaseUrl = safeConfigValue(envContracts.find((contract) => contract.key === "FINAL_JUDO_PAYMENT_CHECKOUT_BASE_URL"));
-const vapidSubject = safeConfigValue(envContracts.find((contract) => contract.key === "FINAL_JUDO_VAPID_SUBJECT"));
+const vapidSubjectContract = envContracts.find((contract) => contract.key === "FINAL_JUDO_VAPID_SUBJECT");
+const vapidSubject = vapidSubjectContract ? safeConfigValue(vapidSubjectContract) : null;
 const signedOffBy = args.signedOffBy ?? "TODO_OWNER";
 const signedOffAt = args.signedOffAt ?? (signedOffBy === "TODO_OWNER" ? "TODO_ISO_TIMESTAMP" : new Date().toISOString());
+const providerContracts = {
+  apns: [...nativePushEnvContracts, ...apnsEnvContracts],
+  fcm: [...nativePushEnvContracts, ...fcmEnvContracts],
+  web: webPushEnvContracts,
+};
+const providerHandoffVerified = Boolean(
+  pushEvidenceReady &&
+    pushProviders.length > 0 &&
+    pushProviders.every((provider) => providerContracts[provider].every(isConfigured)),
+);
 
 const handoff = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   environment: "production",
   deployment: {
@@ -189,13 +246,9 @@ const handoff = {
     evidence: args.paymentEvidence ?? "TODO_PAYMENT_EVIDENCE",
   },
   pushNotifications: {
-    vapidKeysStored: Boolean(
-      text(process.env.FINAL_JUDO_VAPID_PUBLIC_KEY) &&
-        !isPlaceholder(process.env.FINAL_JUDO_VAPID_PUBLIC_KEY) &&
-        text(process.env.FINAL_JUDO_VAPID_PRIVATE_KEY) &&
-        !isPlaceholder(process.env.FINAL_JUDO_VAPID_PRIVATE_KEY),
-    ),
-    subject: vapidSubject,
+    providers: pushProviders,
+    providerHandoffVerified,
+    ...(webPushRequested ? { subject: vapidSubject } : {}),
     deviceSubscriptionVerified: pushEvidenceReady,
     noticePushVerified: pushEvidenceReady,
     evidence: args.pushEvidence ?? "TODO_PUSH_EVIDENCE",
@@ -241,7 +294,8 @@ console.log(
       inferred: {
         productionOrigin,
         paymentCheckoutBaseUrl,
-        vapidSubject,
+        pushProviders,
+        ...(webPushRequested ? { vapidSubject } : {}),
         preflightReady: preflightPassed,
       },
       configuredSecrets,

@@ -19,6 +19,20 @@ import {
   revokeUserAuthSessions,
   shouldRecordBlockedLoginAudit,
 } from "../src/server/auth-session.ts";
+import {
+  createExpiredPushDeviceSubscriptionCookieOptions,
+  createPushDeviceSubscriptionCookieOptions,
+  detachPushDeviceSubscriptionOnAccountSwitch,
+  detachPushDeviceSubscriptionOnLogout,
+  getPushDeviceSubscriptionId,
+  issuePushDeviceSession,
+} from "../src/server/push-device-session.ts";
+import {
+  hasMatchingWebPushCredential,
+  normalizeNativePushRegistration,
+  normalizePushSubscription,
+  upsertNativePushRegistration,
+} from "../src/server/push-notifications.ts";
 import { userAdministrationLockKey } from "../src/server/user-administration.ts";
 
 const now = new Date("2026-07-14T00:00:00.000Z");
@@ -47,6 +61,317 @@ const second = createAuthSession(first.db, user.id, 3600, now);
 const allRevoked = revokeUserAuthSessions(second.db, user.id, new Date("2026-07-14T00:20:00.000Z"));
 assert.equal(findAuthSessionUser(allRevoked, first.token, new Date("2026-07-14T00:20:01.000Z")), null);
 assert.equal(findAuthSessionUser(allRevoked, second.token, new Date("2026-07-14T00:20:01.000Z")), null);
+
+const logoutUser = db.users.find((candidate) => candidate.role === "member") ?? user;
+const otherUser = db.users.find((candidate) => candidate.id !== logoutUser.id);
+assert(otherUser);
+const logoutAt = new Date("2026-07-14T00:25:00.000Z");
+const basePushSubscription = {
+  userId: logoutUser.id,
+  branchIds: [...logoutUser.branchIds],
+  transport: "web",
+  endpoint: "https://push.example.test/current-device",
+  keys: { auth: "auth-key", p256dh: "p256dh-key" },
+  createdAt: now.toISOString(),
+  updatedAt: now.toISOString(),
+};
+const logoutDeviceDb = {
+  ...db,
+  pushSubscriptions: [
+    { ...basePushSubscription, id: "push-current-device" },
+    { ...basePushSubscription, id: "push-other-device", endpoint: "https://push.example.test/other-device" },
+    {
+      ...basePushSubscription,
+      id: "push-foreign-device",
+      userId: otherUser.id,
+      endpoint: "https://push.example.test/foreign-device",
+    },
+  ],
+  pushDispatchJobs: [
+    {
+      id: "push-job-current",
+      auditLogId: "audit-push-current",
+      branchId: logoutUser.branchIds[0] ?? "branch-gangnam",
+      noticeId: "notice-current",
+      subscriptionId: "push-current-device",
+      recipientUserId: logoutUser.id,
+      status: "pending",
+      revision: 0,
+      attemptCount: 0,
+      maxAttempts: 3,
+      nextAttemptAt: now.toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      payloadSnapshot: { title: "공지", body: "현재 기기", tag: "notice-current", url: "/app/notifications" },
+    },
+    {
+      id: "push-job-other",
+      auditLogId: "audit-push-other",
+      branchId: logoutUser.branchIds[0] ?? "branch-gangnam",
+      noticeId: "notice-other",
+      subscriptionId: "push-other-device",
+      recipientUserId: logoutUser.id,
+      status: "pending",
+      revision: 0,
+      attemptCount: 0,
+      maxAttempts: 3,
+      nextAttemptAt: now.toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      payloadSnapshot: { title: "공지", body: "다른 기기", tag: "notice-other", url: "/app/notifications" },
+    },
+  ],
+};
+const currentDeviceSession = issuePushDeviceSession(
+  logoutDeviceDb,
+  "push-current-device",
+  now,
+);
+const detachedLogoutDevice = detachPushDeviceSubscriptionOnLogout(
+  currentDeviceSession.db,
+  logoutUser,
+  currentDeviceSession.cookieValue,
+  logoutAt,
+);
+assert.equal(detachedLogoutDevice.record?.disabledReason, "logout");
+assert.equal(detachedLogoutDevice.record?.disabledAt, logoutAt.toISOString());
+assert.equal(
+  detachedLogoutDevice.db.pushSubscriptions.find((subscription) => subscription.id === "push-other-device")?.disabledAt,
+  undefined,
+  "logging out one device must preserve the same account's other device",
+);
+assert.equal(
+  detachedLogoutDevice.db.pushDispatchJobs.find((job) => job.id === "push-job-current")?.status,
+  "cancelled",
+  "logout must cancel queued delivery to the detached device",
+);
+assert.equal(
+  detachedLogoutDevice.db.pushDispatchJobs.find((job) => job.id === "push-job-other")?.status,
+  "pending",
+  "logout must preserve queued delivery to the account's other device",
+);
+const detachedExpiredSessionDevice = detachPushDeviceSubscriptionOnLogout(
+  currentDeviceSession.db,
+  null,
+  currentDeviceSession.cookieValue,
+  logoutAt,
+);
+assert.equal(
+  detachedExpiredSessionDevice.record?.disabledReason,
+  "logout",
+  "a valid device credential must detach the current device even after the login session expires",
+);
+assert.equal(
+  detachedExpiredSessionDevice.db.pushDispatchJobs.find((job) => job.id === "push-job-current")?.status,
+  "cancelled",
+  "expired-session logout must cancel queued delivery to the credentialed device",
+);
+const foreignDeviceSession = issuePushDeviceSession(
+  logoutDeviceDb,
+  "push-foreign-device",
+  now,
+);
+assert.equal(
+  detachPushDeviceSubscriptionOnLogout(
+    foreignDeviceSession.db,
+    logoutUser,
+    foreignDeviceSession.cookieValue,
+    logoutAt,
+  ).db,
+  foreignDeviceSession.db,
+  "a device cookie must not detach another account's subscription",
+);
+assert.equal(
+  getPushDeviceSubscriptionId(currentDeviceSession.db, currentDeviceSession.cookieValue, now),
+  "push-current-device",
+);
+assert.equal(getPushDeviceSubscriptionId(currentDeviceSession.db, "push-current-device"), null);
+const tamperedDeviceCookie = `${currentDeviceSession.cookieValue.slice(0, -1)}${
+  currentDeviceSession.cookieValue.endsWith("A") ? "B" : "A"
+}`;
+assert.equal(
+  getPushDeviceSubscriptionId(
+    currentDeviceSession.db,
+    tamperedDeviceCookie,
+    now,
+  ),
+  null,
+  "tampering with a device credential must fail closed",
+);
+assert.equal(
+  getPushDeviceSubscriptionId(
+    currentDeviceSession.db,
+    currentDeviceSession.cookieValue,
+    new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000),
+  ),
+  null,
+  "a copied device credential must expire on the server after the remembered-session window",
+);
+assert.match(
+  currentDeviceSession.db.pushSubscriptions.find((subscription) => subscription.id === "push-current-device")?.deviceSessionHash ?? "",
+  /^[a-f0-9]{64}$/,
+);
+assert.equal(
+  currentDeviceSession.db.pushSubscriptions.some((subscription) =>
+    subscription.deviceSessionHash && currentDeviceSession.cookieValue.includes(subscription.deviceSessionHash),
+  ),
+  false,
+  "the browser cookie must not expose the stored device-session hash",
+);
+assert.deepEqual(createPushDeviceSubscriptionCookieOptions({ NODE_ENV: "production" }), {
+  httpOnly: true,
+  maxAge: 60 * 60 * 24 * 30,
+  path: "/",
+  sameSite: "lax",
+  secure: true,
+});
+assert.equal(createExpiredPushDeviceSubscriptionCookieOptions({ NODE_ENV: "production" }).maxAge, 0);
+
+const originalNativeRegistration = normalizeNativePushRegistration({
+  platform: "ios",
+  token: "original-native-device-token-1234567890",
+});
+const rotatedNativeRegistration = normalizeNativePushRegistration({
+  platform: "ios",
+  token: "rotated-native-device-token-1234567890",
+});
+assert(originalNativeRegistration && rotatedNativeRegistration);
+
+const browserRegistration = normalizePushSubscription({
+  endpoint: "https://push.example.test/credentialed-browser-device",
+  keys: {
+    auth: "browser-auth-secret",
+    p256dh: "browser-p256dh-public-key",
+  },
+});
+assert(browserRegistration);
+const credentialedBrowserSubscription = {
+  ...basePushSubscription,
+  id: "push-browser-credentialed-device",
+  endpoint: browserRegistration.endpoint,
+  keys: browserRegistration.keys,
+};
+assert.equal(
+  hasMatchingWebPushCredential(credentialedBrowserSubscription, browserRegistration),
+  true,
+  "the current browser subscription credentials must authorize an account handoff",
+);
+assert.equal(
+  hasMatchingWebPushCredential(credentialedBrowserSubscription, {
+    ...browserRegistration,
+    keys: { ...browserRegistration.keys, auth: "attacker-auth-secret" },
+  }),
+  false,
+  "an endpoint without the stored Web Push auth secret must not authorize an account handoff",
+);
+assert.equal(
+  hasMatchingWebPushCredential(credentialedBrowserSubscription, {
+    ...browserRegistration,
+    keys: { ...browserRegistration.keys, p256dh: "attacker-p256dh-key" },
+  }),
+  false,
+  "an endpoint without the stored Web Push key must not authorize an account handoff",
+);
+const nativeRotationDb = {
+  ...db,
+  pushSubscriptions: [
+    {
+      ...basePushSubscription,
+      id: "push-native-current-device",
+      transport: "apns",
+      endpoint: originalNativeRegistration.endpoint,
+      keys: { auth: "", p256dh: "" },
+      deviceToken: originalNativeRegistration.token,
+      userAgent: "Final Judo iOS",
+    },
+  ],
+};
+const rotatedNativeDevice = upsertNativePushRegistration(
+  nativeRotationDb,
+  logoutUser,
+  rotatedNativeRegistration,
+  "Final Judo iOS",
+  { replacementSubscriptionId: "push-native-current-device" },
+);
+assert.equal(
+  rotatedNativeDevice.record.id,
+  "push-native-current-device",
+  "a credentialed native device must keep one stable subscription id when its provider token rotates",
+);
+assert.equal(
+  rotatedNativeDevice.db.pushSubscriptions.length,
+  1,
+  "native provider token rotation must not leave duplicate active subscriptions for one device",
+);
+assert.equal(rotatedNativeDevice.record.endpoint, rotatedNativeRegistration.endpoint);
+assert.equal(rotatedNativeDevice.record.deviceToken, rotatedNativeRegistration.token);
+
+const nativeRotationCollisionDb = {
+  ...nativeRotationDb,
+  pushSubscriptions: [
+    ...nativeRotationDb.pushSubscriptions,
+    {
+      ...nativeRotationDb.pushSubscriptions[0],
+      id: "push-native-previous-token-record",
+      endpoint: rotatedNativeRegistration.endpoint,
+      deviceToken: rotatedNativeRegistration.token,
+    },
+  ],
+};
+const reconciledNativeDevice = upsertNativePushRegistration(
+  nativeRotationCollisionDb,
+  logoutUser,
+  rotatedNativeRegistration,
+  "Final Judo iOS",
+  { replacementSubscriptionId: "push-native-current-device" },
+);
+assert.equal(reconciledNativeDevice.record.id, "push-native-previous-token-record");
+assert.equal(reconciledNativeDevice.retiredSubscriptionId, "push-native-current-device");
+assert.equal(
+  reconciledNativeDevice.db.pushSubscriptions.find((item) => item.id === "push-native-current-device")?.disabledReason,
+  "token_rotated",
+  "a prior token record must be retired when the rotated token already has a stored record",
+);
+assert.equal(
+  reconciledNativeDevice.db.pushSubscriptions.filter((item) => !item.disabledAt).length,
+  1,
+  "token reconciliation must leave only one active native subscription for the device",
+);
+
+assert.equal(
+  detachPushDeviceSubscriptionOnAccountSwitch(
+    logoutDeviceDb,
+    otherUser,
+    "push-current-device",
+    logoutAt,
+  ).db,
+  logoutDeviceDb,
+  "an unsigned subscription id must not authorize detaching another account's push device",
+);
+
+const switchedAccountDevice = detachPushDeviceSubscriptionOnAccountSwitch(
+  currentDeviceSession.db,
+  otherUser,
+  currentDeviceSession.cookieValue,
+  logoutAt,
+);
+assert.equal(switchedAccountDevice.record?.disabledReason, "account_switch");
+assert.equal(switchedAccountDevice.record?.disabledAt, logoutAt.toISOString());
+assert.equal(
+  switchedAccountDevice.db.pushDispatchJobs.find((job) => job.id === "push-job-current")?.status,
+  "cancelled",
+  "a successful account switch must cancel queued delivery for the previous account on this device",
+);
+assert.equal(
+  detachPushDeviceSubscriptionOnAccountSwitch(
+    currentDeviceSession.db,
+    logoutUser,
+    currentDeviceSession.cookieValue,
+    logoutAt,
+  ).db,
+  currentDeviceSession.db,
+  "logging back into the subscription owner must preserve the active device registration",
+);
 
 assert.equal(authSecurityLockKey, userAdministrationLockKey, "auth and user administration must share one lock key");
 assert.equal(readUnmodifiedPassword("  password with spaces  "), "  password with spaces  ");
@@ -339,13 +664,18 @@ const userRouteSource = readFileSync("src/app/api/v1/admin/users/[userId]/route.
 const resetRouteSource = readFileSync("src/app/api/v1/auth/password-reset/route.ts", "utf8");
 const registerRouteSource = readFileSync("src/app/api/v1/auth/register/route.ts", "utf8");
 const logoutRouteSource = readFileSync("src/app/api/v1/auth/logout/route.ts", "utf8");
+const apiClientSource = readFileSync("src/lib/api-client.ts", "utf8");
+const appStoreSource = readFileSync("src/store/app-store.tsx", "utf8");
+const browserPushSource = readFileSync("src/lib/browser-push-subscription.ts", "utf8");
+const nativePushSource = readFileSync("src/lib/native-push-registration.ts", "utf8");
+const pushSubscriptionRouteSource = readFileSync("src/app/api/v1/notifications/subscriptions/route.ts", "utf8");
 const authSessionSource = readFileSync("src/server/auth-session.ts", "utf8");
 const authNotificationStateLockSource = readFileSync("src/server/auth-notification-state-lock.ts", "utf8");
 
-assert(loginRouteSource.includes("withServerDbLock(authSecurityLockKey"));
+assert(loginRouteSource.includes("withAuthAndNotificationStateLock"));
 assert(loginRouteSource.includes("function isLoginBody(value: unknown)"));
 assert(loginRouteSource.indexOf("if (!isLoginBody(rawBody))") < loginRouteSource.indexOf("loginId ="));
-assert(loginRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < loginRouteSource.indexOf("const db = await readServerDb()"));
+assert(loginRouteSource.indexOf("withAuthAndNotificationStateLock") < loginRouteSource.indexOf("const db = await readServerDb()"));
 assert(loginRouteSource.indexOf("const throttle = user ? getAccountLoginThrottle") < loginRouteSource.indexOf("verifyAuthenticationPassword(password"));
 assert(loginRouteSource.includes("const canBypassAccountThrottle = passwordMatches && !usesBlockedSharedPassword;"));
 assert(loginRouteSource.indexOf("verifyAuthenticationPassword(password") < loginRouteSource.indexOf("if (user && throttle && !canBypassAccountThrottle)"));
@@ -362,8 +692,45 @@ assert(!throttledLoginBranch.includes("429"));
 assert(!throttledLoginBranch.includes("Retry-After"));
 assert(!loginRouteSource.includes("after: { phone:"), "login audits must not persist raw identifiers");
 assert(!/x-forwarded-for|x-real-ip|request\.ip/i.test(loginRouteSource), "login throttling must not persist request-origin identifiers");
-assert(logoutRouteSource.includes("withServerDbLock(authSecurityLockKey"));
-assert(logoutRouteSource.indexOf("withServerDbLock(authSecurityLockKey") < logoutRouteSource.indexOf("const db = await readServerDb()"));
+assert(loginRouteSource.includes("withAuthAndNotificationStateLock"));
+assert(loginRouteSource.includes("detachPushDeviceSubscriptionOnAccountSwitch"));
+assert(loginRouteSource.includes("createExpiredPushDeviceSubscriptionCookieOptions"));
+assert(loginRouteSource.includes('reason: "account_switch"'));
+assert(logoutRouteSource.includes("withAuthAndNotificationStateLock"));
+assert(logoutRouteSource.indexOf("withAuthAndNotificationStateLock") < logoutRouteSource.indexOf("const db = await readServerDb()"));
+assert(logoutRouteSource.includes("detachPushDeviceSubscriptionOnLogout"));
+assert(
+  !/if\s*\(user\)\s*\{[\s\S]*?detachPushDeviceSubscriptionOnLogout/.test(logoutRouteSource),
+  "logout must detach a credentialed current device even when its login session already expired",
+);
+assert(logoutRouteSource.includes("createExpiredPushDeviceSubscriptionCookieOptions"));
+assert(logoutRouteSource.includes('action: "notification.unsubscribe"'));
+assert(/signOut\(\)[\s\S]*?keepalive: true/.test(apiClientSource), "logout request must survive navigation and app backgrounding");
+assert(appStoreSource.includes("signOut: () => Promise<boolean>"));
+const clientSignOutBranch = appStoreSource.slice(
+  appStoreSource.indexOf("const signOut = useCallback"),
+  appStoreSource.indexOf("const selectBranch = useCallback"),
+);
+assert(clientSignOutBranch.includes("await apiClient.signOut()"));
+assert(
+  clientSignOutBranch.indexOf("await apiClient.signOut()") < clientSignOutBranch.indexOf("persistSession(null)"),
+  "local session removal must wait for server logout acknowledgement",
+);
+assert(clientSignOutBranch.includes('reportOperationError(error, "로그아웃하지 못했습니다."'));
+assert(browserPushSource.includes("disconnectCurrentBrowserPushSubscription"));
+assert(browserPushSource.includes("subscription.unsubscribe()"));
+assert(nativePushSource.includes("disconnectCurrentNativePushRegistration"));
+assert(nativePushSource.includes("PushNotifications.unregister()"));
+assert(
+  pushSubscriptionRouteSource.includes("replacementSubscriptionId") &&
+    pushSubscriptionRouteSource.includes("getPushDeviceSubscriptionId"),
+  "push registration must use the authenticated device credential to replace a rotated endpoint in place",
+);
+assert(
+  pushSubscriptionRouteSource.includes("hasMatchingWebPushCredential") &&
+    pushSubscriptionRouteSource.includes('"PUSH_SUBSCRIPTION_OWNERSHIP_CONFLICT"'),
+  "cross-account Web Push ownership changes must prove the stored browser subscription credentials",
+);
 assert(passwordRouteSource.includes("withAuthAndNotificationStateLock"));
 assert(passwordRouteSource.includes("const freshDb = await readServerDb()"));
 assert(passwordRouteSource.includes("readUnmodifiedPassword(body?.temporaryPassword)"));
@@ -420,7 +787,12 @@ console.log(JSON.stringify({
     "public signup burst, hourly, and daily quotas remain branch-scoped and exclude operator-created members",
     "barrier transition rejects stale password and session state",
     "post-transition login observes the latest role",
-    "login/logout use the auth lock and account security changes share ordered auth/push locks without raw identifier audit data",
+    "login, logout, and account security changes share ordered auth/push locks without raw identifier audit data",
+    "logout detaches only the current device after an active or expired login session, cancels its queued push, expires its cookie, and uses a keepalive request",
+    "account switching requires a hashed expiring device credential before detaching a prior-account push registration",
+    "credentialed native token rotation reuses one device record and retires a duplicate stored token",
+    "cross-account Web Push ownership transfer requires the stored auth and p256dh credentials",
+    "client logout waits for server acknowledgement and disconnects the local browser or native push token",
     "security-context changes cancel queued earlier-device push jobs and fence in-flight delivery uncertainty",
   ],
 }, null, 2));

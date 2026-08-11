@@ -1,15 +1,23 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
 import { PaymentCheckoutScreen } from "@/components/screens/payment-checkout-screen";
 
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+function subscribeLocationSearch() {
+  return () => undefined;
 }
 
-export default async function PaymentCheckoutPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ method?: string | string[] | undefined; paymentId?: string | string[] | undefined }>;
-}) {
-  const params = await searchParams;
+function getLocationSearch() {
+  return window.location.search;
+}
 
-  return <PaymentCheckoutScreen initialPaymentMethod={firstParam(params.method)} paymentId={firstParam(params.paymentId)} />;
+function getServerLocationSearch() {
+  return "";
+}
+
+export default function PaymentCheckoutPage() {
+  const locationSearch = useSyncExternalStore(subscribeLocationSearch, getLocationSearch, getServerLocationSearch);
+  const params = new URLSearchParams(locationSearch);
+
+  return <PaymentCheckoutScreen initialPaymentMethod={params.get("method") ?? ""} paymentId={params.get("paymentId") ?? ""} />;
 }

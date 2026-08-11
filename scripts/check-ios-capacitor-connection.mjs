@@ -79,9 +79,9 @@ function isLikelyApiOnlyHost(hostname) {
 function generatedServerUrlCheck(serverUrl) {
   if (!serverUrl) {
     return {
-      ok: false,
-      mode: "static_fallback",
-      reason: "generated iOS Capacitor config has no server.url",
+      ok: true,
+      mode: "bundled_local",
+      value: "No server.url; UI loads from the signed app bundle",
     };
   }
 
@@ -185,19 +185,30 @@ const args = parseArgs(process.argv.slice(2));
 const rootConfigPath = "capacitor.config.ts";
 const generatedConfigPath = path.join("mobile", "ios", "App", "App", "capacitor.config.json");
 const storyboardPath = path.join("mobile", "ios", "App", "App", "Base.lproj", "Main.storyboard");
-const fallbackIndexPath = path.join("mobile", "ios", "App", "App", "public", "index.html");
+const appDelegatePath = path.join("mobile", "ios", "App", "App", "AppDelegate.swift");
+const bundledIndexPath = path.join("mobile", "ios", "App", "App", "public", "index.html");
+const bundledLoginPath = path.join("mobile", "ios", "App", "App", "public", "login", "index.html");
+const bundledDashboardPath = path.join("mobile", "ios", "App", "App", "public", "app", "dashboard", "index.html");
 const dashboardRoutePath = path.join("src", "app", "(app)", "app", "dashboard", "page.tsx");
 
-const [rootConfig, generatedConfig, storyboard, fallbackIndex] = await Promise.all([
+const [rootConfig, generatedConfig, storyboard, appDelegate, bundledIndex] = await Promise.all([
   readText(rootConfigPath),
   readJson(generatedConfigPath),
   readText(storyboardPath),
-  readText(fallbackIndexPath),
+  readText(appDelegatePath),
+  readText(bundledIndexPath),
 ]);
 const generatedServer = generatedServerUrlCheck(generatedConfig?.server?.url);
-const serviceConnected = generatedServer.ok && ["local_simulator", "production_https"].includes(generatedServer.mode);
+const serviceConnected = generatedServer.ok && ["bundled_local", "local_simulator", "production_https"].includes(generatedServer.mode);
+const usesDefaultCapacitorBridge =
+  storyboard.includes('customClass="CAPBridgeViewController"') && storyboard.includes('customModule="Capacitor"');
+const usesRegisteredAppBridge =
+  storyboard.includes('customClass="FinalJudoBridgeViewController"') &&
+  storyboard.includes('customModule="App"') &&
+  appDelegate.includes("class FinalJudoBridgeViewController: CAPBridgeViewController") &&
+  appDelegate.includes("bridge?.registerPluginInstance(AppPermissionsPlugin())");
 const releaseBlockers =
-  generatedServer.mode === "production_https"
+  generatedServer.mode === "production_https" || generatedServer.mode === "bundled_local"
     ? [
         {
           code: "IOS_PROVISIONING_STILL_REQUIRED",
@@ -211,7 +222,7 @@ const releaseBlockers =
         },
         {
           code: "IOS_PRODUCTION_ORIGIN_REQUIRED",
-          message: "Set FINAL_JUDO_IOS_SERVER_URL or --origin to a real HTTPS production origin before Capacitor sync/build for IPA.",
+          message: "Set FINAL_JUDO_IOS_API_ORIGIN or --origin to a real HTTPS API origin before Capacitor sync/build for IPA.",
         },
       ];
 
@@ -228,11 +239,20 @@ const checks = {
     value: generatedConfigPath,
     ...(!generatedConfig ? { reason: "missing generated iOS capacitor.config.json; run npm run ios:cap:sync" } : {}),
   },
+  bundledNativeHttp: {
+    ok: generatedServer.mode !== "bundled_local" || generatedConfig?.plugins?.CapacitorHttp?.enabled === true,
+    value: "CapacitorHttp.enabled",
+    ...(generatedServer.mode === "bundled_local" && generatedConfig?.plugins?.CapacitorHttp?.enabled !== true
+      ? { reason: "bundled iOS UI must enable CapacitorHttp for remote API requests" }
+      : {}),
+  },
   nativeBridge: {
-    ok: storyboard.includes("CAPBridgeViewController") && storyboard.includes('customModule="Capacitor"'),
-    value: storyboardPath,
-    ...(!(storyboard.includes("CAPBridgeViewController") && storyboard.includes('customModule="Capacitor"'))
-      ? { reason: "Main.storyboard must use Capacitor CAPBridgeViewController" }
+    ok: usesDefaultCapacitorBridge || usesRegisteredAppBridge,
+    value: usesRegisteredAppBridge
+      ? `${storyboardPath} -> ${appDelegatePath}`
+      : storyboardPath,
+    ...(!(usesDefaultCapacitorBridge || usesRegisteredAppBridge)
+      ? { reason: "Main.storyboard must use the Capacitor bridge directly or an app bridge subclass that registers native plugins" }
       : {}),
   },
   serviceDashboardRoute: {
@@ -241,11 +261,21 @@ const checks = {
     ...(!existsSync(dashboardRoutePath) ? { reason: `missing Next route for ${expectedDashboardRoute}` } : {}),
   },
   generatedServerUrl: generatedServer,
-  fallbackExplainsProductionOrigin: {
-    ok: fallbackIndex.includes("FINAL_JUDO_IOS_SERVER_URL"),
-    value: fallbackIndexPath,
-    ...(!fallbackIndex.includes("FINAL_JUDO_IOS_SERVER_URL")
-      ? { reason: "static fallback must tell operators to set FINAL_JUDO_IOS_SERVER_URL" }
+  bundledWebUi: {
+    ok: generatedServer.mode !== "bundled_local" || (
+      existsSync(bundledLoginPath) &&
+      existsSync(bundledDashboardPath) &&
+      bundledIndex.includes("/_next/") &&
+      !bundledIndex.includes("FINAL_JUDO_IOS_SERVER_URL")
+    ),
+    value: bundledIndexPath,
+    ...(generatedServer.mode === "bundled_local" && !(
+      existsSync(bundledLoginPath) &&
+      existsSync(bundledDashboardPath) &&
+      bundledIndex.includes("/_next/") &&
+      !bundledIndex.includes("FINAL_JUDO_IOS_SERVER_URL")
+    )
+      ? { reason: "generated iOS public assets must contain the bundled login/dashboard UI, not the operator fallback" }
       : {}),
   },
 };
@@ -259,17 +289,22 @@ const blockers = Object.entries(checks)
 
 const report = {
   ok: blockers.length === 0 && serviceConnected,
-  releaseDecision: generatedServer.mode === "production_https" ? "production_connection_configured" : "simulator_connected_release_blocked",
+  releaseDecision: generatedServer.mode === "bundled_local"
+    ? "bundled_ui_configured"
+    : generatedServer.mode === "production_https"
+      ? "production_connection_configured"
+      : "simulator_connected_release_blocked",
   generatedAt: new Date().toISOString(),
   bundleId: expectedBundleId,
   serviceRoute: expectedDashboardRoute,
   checked: [
     "Capacitor root config bundle id and webDir",
     "generated iOS Capacitor config",
-    "CAPBridgeViewController native bridge",
+    "Capacitor native bridge or registered app bridge subclass",
     "Next service dashboard route",
-    "generated server.url service-screen target",
-    "static fallback production-origin guidance",
+    "release config contains no remote server.url",
+    "signed app bundle contains login and dashboard UI assets",
+    "native HTTP bridge is enabled for the production API",
     "Simulator connection separated from IPA distribution readiness",
   ],
   checks,
@@ -277,7 +312,7 @@ const report = {
   releaseBlockers,
   nextActions: [
     "Keep localhost simulator connection evidence separate from iOS IPA release readiness.",
-    "For IPA distribution, set FINAL_JUDO_IOS_SERVER_URL to the real HTTPS production origin and run npm run ios:cap:sync.",
+    "Build the local UI with FINAL_JUDO_IOS_API_ORIGIN set to the production API and run npm run ios:cap:sync with FINAL_JUDO_IOS_LOCAL_BUNDLE=1.",
     "Run npm run ios:ipa:doctor and npm run ios:ipa:build only after real iPhone registration/provisioning profile evidence is ready.",
   ],
 };

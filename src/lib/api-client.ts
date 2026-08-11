@@ -70,6 +70,15 @@ type ApiEnvelope<T> = {
 };
 
 const apiRequestTimeoutMs = 12_000;
+const configuredApiOrigin = (process.env.NEXT_PUBLIC_FINAL_JUDO_API_ORIGIN ?? "").trim().replace(/\/+$/, "");
+
+function resolveApiUrl(path: string) {
+  if (!configuredApiOrigin || /^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  return `${configuredApiOrigin}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 export class ApiClientError extends Error {
   status: number;
@@ -605,8 +614,8 @@ async function apiRequest<T>(path: string, init?: RequestInit) {
   }
 
   try {
-    response = await fetch(path, {
-      credentials: "same-origin",
+    response = await fetch(resolveApiUrl(path), {
+      credentials: configuredApiOrigin ? "include" : "same-origin",
       ...init,
       headers,
       signal: timeout.signal,
@@ -636,8 +645,8 @@ async function textRequest(path: string, init?: RequestInit) {
   const storedUserId = canSendStoredUserHeader() ? getStoredUserId() : null;
 
   try {
-    response = await fetch(path, {
-      credentials: "same-origin",
+    response = await fetch(resolveApiUrl(path), {
+      credentials: configuredApiOrigin ? "include" : "same-origin",
       headers: {
         ...(storedUserId ? { "x-user-id": storedUserId } : {}),
         ...(init?.headers ?? {}),
@@ -688,6 +697,7 @@ export const apiClient = {
     return apiRequest<{ ok: boolean }>("/api/v1/auth/logout", {
       method: "POST",
       body: JSON.stringify({}),
+      keepalive: true,
     });
   },
 
@@ -1373,17 +1383,28 @@ export const apiClient = {
     return apiRequest<PushConfigPayload>("/api/v1/notifications/push-config");
   },
 
-  subscribeToPush(subscription: PushSubscriptionJSON, userAgent: string, allowReactivation: boolean) {
+  subscribeToPush(
+    subscription: PushSubscriptionJSON,
+    userAgent: string,
+    allowReactivation: boolean,
+    expectedUserId: string,
+  ) {
     return apiRequest<PushSubscriptionPayload>("/api/v1/notifications/subscriptions", {
       method: "POST",
-      body: JSON.stringify({ allowReactivation, subscription, userAgent }),
+      body: JSON.stringify({ allowReactivation, expectedUserId, subscription, userAgent }),
     });
   },
 
-  subscribeToNativePush(token: string, platform: "android" | "ios", userAgent: string, allowReactivation: boolean) {
+  subscribeToNativePush(
+    token: string,
+    platform: "android" | "ios",
+    userAgent: string,
+    allowReactivation: boolean,
+    expectedUserId: string,
+  ) {
     return apiRequest<PushSubscriptionPayload>("/api/v1/notifications/subscriptions", {
       method: "POST",
-      body: JSON.stringify({ allowReactivation, nativeRegistration: { platform, token }, userAgent }),
+      body: JSON.stringify({ allowReactivation, expectedUserId, nativeRegistration: { platform, token }, userAgent }),
     });
   },
 

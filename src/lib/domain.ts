@@ -34,6 +34,7 @@ export type Branch = {
   id: string;
   name: string;
   district: string;
+  dataMode?: "live" | "demo";
   settings?: BranchSettings;
   status?: BranchStatus;
   timezone?: string;
@@ -41,7 +42,7 @@ export type Branch = {
 
 export type AppUser = {
   id: string;
-  accountPurpose?: "google_play_review";
+  adminScope?: "global" | "assigned_branches";
   email?: string;
   name: string;
   passwordHash?: string;
@@ -351,10 +352,12 @@ export type PushSubscriptionRecord = {
     p256dh: string;
   };
   deviceToken?: string;
+  deviceSessionHash?: string;
   userAgent?: string;
   createdAt: string;
   updatedAt: string;
   disabledAt?: string;
+  disabledReason?: "logout" | "account_switch" | "token_rotated" | "security_change" | "provider_invalid";
   lastSentAt?: string;
   lastFailureAt?: string;
   lastFailureReason?: string;

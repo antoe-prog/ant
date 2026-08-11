@@ -1,0 +1,2 @@
+# Next.js export artifacts are generated verbatim and may contain whitespace inside bundled templates.
+mobile/ios-web/** -whitespace

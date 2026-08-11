@@ -15,13 +15,17 @@ const report = JSON.parse(stdout);
 assert.equal(report.ok, true, "iOS Capacitor connection must load the service dashboard through the native bridge");
 assert.equal(report.bundleId, "kr.co.finaljudo.multigym");
 assert.equal(report.serviceRoute, "/app/dashboard");
-assert.equal(report.checks.nativeBridge.ok, true, "iOS Main.storyboard must use CAPBridgeViewController");
+assert.equal(report.checks.nativeBridge.ok, true, "iOS Main.storyboard must use a verified Capacitor bridge controller");
 assert.equal(report.checks.serviceDashboardRoute.ok, true, "Next /app/dashboard route must exist");
 assert.equal(report.checks.generatedServerUrl.ok, true, "generated iOS config must point at a service screen");
 assert(
-  ["local_simulator", "production_https"].includes(report.checks.generatedServerUrl.mode),
-  "generated iOS connection must be either local simulator or real production HTTPS",
+  ["bundled_local", "local_simulator", "production_https"].includes(report.checks.generatedServerUrl.mode),
+  "generated iOS connection must use bundled UI, local simulator, or real production HTTPS",
 );
+if (report.checks.generatedServerUrl.mode === "bundled_local") {
+  assert.equal(report.checks.bundledWebUi.ok, true, "bundled iOS login/dashboard assets must exist");
+  assert.equal(report.checks.bundledNativeHttp.ok, true, "bundled iOS UI must use the native HTTP bridge");
+}
 if (report.checks.generatedServerUrl.mode === "local_simulator") {
   assert.equal(
     report.checks.generatedServerUrl.simulatorRole,
@@ -69,8 +73,9 @@ console.log(
     {
       ok: true,
       checked: [
-        "iOS Capacitor native bridge uses CAPBridgeViewController",
-        "generated iOS config opens the real service dashboard route",
+        "iOS Capacitor native bridge uses a verified bridge controller",
+        "generated iOS config supports a signed local UI bundle without server.url",
+        "bundled login/dashboard assets and native HTTP bridge are present",
         "generated iOS config rejects unverified api.* service origin",
         "local Simulator connection is not treated as IPA release readiness",
         "production HTTPS/provisioning caveat remains visible",

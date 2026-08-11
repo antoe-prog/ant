@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AuditLog, BranchSettings, BranchStatus } from "@/lib/domain";
 import { normalizeBranchSettings } from "@/lib/domain";
+import { hasAdminAccessToBranchIds } from "@/lib/admin-access";
 import { getBranchUpdateBodyError, type BranchUpdateInput } from "@/lib/branch-input-policy";
 import { branchManagementStateLockKey } from "@/server/branch-management";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -31,6 +32,13 @@ async function requireBranchUpdateRequestContext(
     return {
       context: null,
       response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 수정할 수 있습니다."),
+    };
+  }
+
+  if (!hasAdminAccessToBranchIds(user, [branchId])) {
+    return {
+      context: null,
+      response: jsonError(403, "FORBIDDEN", "접근 가능한 지점의 정보만 수정할 수 있습니다."),
     };
   }
 

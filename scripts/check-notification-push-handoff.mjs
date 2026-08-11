@@ -241,7 +241,7 @@ function validateDevice(blockers, device, index) {
   validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_DEVICE_EVIDENCE", `device ${index + 1}`, device.evidence);
 }
 
-function validateDevices(blockers, devices) {
+function validateDevices(blockers, devices, providers = null) {
   if (!Array.isArray(devices) || devices.length === 0) {
     addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_DEVICE_MISSING", "notification push handoff must include at least one mobile device verification.");
     return;
@@ -249,15 +249,132 @@ function validateDevices(blockers, devices) {
 
   devices.forEach((device, index) => validateDevice(blockers, device, index));
 
-  const hasAndroid = devices.some((device) => text(device?.platform) === "android" && device?.noticePushReceived === true);
-  if (!hasAndroid) {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_ANDROID_DEVICE", "at least one Android device must receive and open a real notice push.");
+  const hasVerifiedPlatform = (platform) => devices.some((device) =>
+    text(device?.platform) === platform &&
+    device?.permissionGranted === true &&
+    device?.subscriptionStored === true &&
+    device?.noticePushReceived === true &&
+    device?.clickOpenedNotices === true
+  );
+
+  if (!providers) {
+    if (!hasVerifiedPlatform("android")) {
+      addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_ANDROID_DEVICE", "at least one Android device must receive and open a real notice push.");
+    }
+    return;
+  }
+
+  if (providers.apns?.enabled === true && !hasVerifiedPlatform("ios")) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_IOS_DEVICE", "enabled APNs delivery requires one iPhone device to receive and open a real notice push.");
+  }
+  if (providers.fcm?.enabled === true && !hasVerifiedPlatform("android")) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_ANDROID_DEVICE", "enabled FCM delivery requires one Android device to receive and open a real notice push.");
+  }
+  if (providers.web?.enabled === true && !devices.some((device) => device?.noticePushReceived === true)) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_WEB_DEVICE", "enabled Web Push delivery requires one installed browser device to receive and open a real notice push.");
   }
 }
 
+function validateVapidProvider(blockers, vapid) {
+  if (vapid.publicKeyConfigured !== true) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PUBLIC_KEY", "VAPID public key must be configured in production.");
+  }
+  if (text(vapid.privateKeySecretName) !== "FINAL_JUDO_VAPID_PRIVATE_KEY") {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PRIVATE_KEY_SECRET", "VAPID private key must be referenced by secret name only.", {
+      privateKeySecretName: vapid.privateKeySecretName ?? null,
+    });
+  }
+  if (vapid.privateKeyStored !== true) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PRIVATE_KEY_STORED", "VAPID private key must be stored in a deployment secret store.");
+  }
+  if (!validateMailtoContact(vapid.subject)) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_SUBJECT", "VAPID subject must be a mailto contact.", {
+      subject: vapid.subject ?? null,
+    });
+  }
+  validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_EVIDENCE", "VAPID configuration", vapid.evidence);
+}
+
+function validateNativeProviders(blockers, providers) {
+  if (!providers || typeof providers !== "object") {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_PROVIDERS_MISSING", "schemaVersion 2 requires push provider configuration.");
+    return;
+  }
+
+  const enabled = [providers.apns, providers.fcm, providers.web].filter((provider) => provider?.enabled === true);
+  if (enabled.length === 0) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_PROVIDER_DISABLED", "at least one production push provider must be enabled.");
+  }
+
+  const apns = providers.apns ?? {};
+  if (apns.enabled === true) {
+    if (text(apns.environment) !== "production") {
+      addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_APNS_ENVIRONMENT", "App Store delivery must use the production APNs environment.");
+    }
+    if (text(apns.privateKeySecretName) !== "FINAL_JUDO_APNS_PRIVATE_KEY" || apns.privateKeyStored !== true) {
+      addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_APNS_PRIVATE_KEY", "APNs private key must be referenced by its production secret name and stored in the deployment secret store.");
+    }
+    for (const key of ["keyIdConfigured", "teamIdConfigured", "topicConfigured"]) {
+      if (apns[key] !== true) {
+        addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_APNS_CONFIGURATION", "APNs key ID, team ID, and topic must be configured in production.", { key });
+      }
+    }
+    validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_APNS_EVIDENCE", "APNs configuration", apns.evidence);
+  }
+
+  const fcm = providers.fcm ?? {};
+  if (fcm.enabled === true) {
+    if (text(fcm.privateKeySecretName) !== "FINAL_JUDO_FIREBASE_PRIVATE_KEY" || fcm.privateKeyStored !== true) {
+      addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_FCM_PRIVATE_KEY", "Firebase private key must be referenced by its production secret name and stored in the deployment secret store.");
+    }
+    for (const key of ["clientEmailConfigured", "projectIdConfigured"]) {
+      if (fcm[key] !== true) {
+        addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_FCM_CONFIGURATION", "Firebase client email and project ID must be configured in production.", { key });
+      }
+    }
+    validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_FCM_EVIDENCE", "FCM configuration", fcm.evidence);
+  }
+
+  const web = providers.web ?? {};
+  if (web.enabled === true) {
+    validateVapidProvider(blockers, web);
+  }
+}
+
+function validateRetryWorker(blockers, retryWorker) {
+  if (!retryWorker || typeof retryWorker !== "object") {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_MISSING", "schemaVersion 2 requires retry worker configuration and evidence.");
+    return;
+  }
+
+  if (text(retryWorker.endpoint) !== "/api/v1/internal/notification-outbox") {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_ENDPOINT", "retry worker endpoint must match the implemented internal route.", {
+      endpoint: retryWorker.endpoint ?? null,
+    });
+  }
+  if (text(retryWorker.authorizationSecretName) !== "CRON_SECRET" || retryWorker.secretStored !== true) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_SECRET", "retry worker must use CRON_SECRET stored in the deployment secret store.");
+  }
+  if (isPlaceholder(retryWorker.scheduler)) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_SCHEDULER", "retry worker must identify the production scheduler.");
+  }
+  if (!Number.isSafeInteger(retryWorker.maxIntervalMinutes) || retryWorker.maxIntervalMinutes < 1 || retryWorker.maxIntervalMinutes > 30) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_INTERVAL", "retry worker must run at least once every 30 minutes.", {
+      maxIntervalMinutes: retryWorker.maxIntervalMinutes ?? null,
+    });
+  }
+  if (retryWorker.scheduleSupportedByPlan !== true) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_PLAN", "retry cadence must be supported by the deployment plan or an external scheduler.");
+  }
+  if (retryWorker.invocationVerified !== true) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_INVOCATION", "production retry worker authentication and invocation must be verified.");
+  }
+  validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_EVIDENCE", "push retry worker", retryWorker.evidence);
+}
+
 async function validateHandoff(document, blockers) {
-  if (document.schemaVersion !== 1) {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_SCHEMA_VERSION", "notification push handoff schemaVersion must be 1.", {
+  if (document.schemaVersion !== 1 && document.schemaVersion !== 2) {
+    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_SCHEMA_VERSION", "notification push handoff schemaVersion must be 1 or 2.", {
       schemaVersion: document.schemaVersion ?? null,
     });
   }
@@ -282,24 +399,14 @@ async function validateHandoff(document, blockers) {
   }
   validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_PRODUCTION_EVIDENCE", "production deployment", production.evidence);
 
-  const vapid = document.vapid ?? {};
-  if (vapid.publicKeyConfigured !== true) {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PUBLIC_KEY", "VAPID public key must be configured in production.");
+  const nativeProviderDocument = document.schemaVersion === 2;
+  const providers = nativeProviderDocument ? document.providers : null;
+  if (nativeProviderDocument) {
+    validateNativeProviders(blockers, providers);
+    validateRetryWorker(blockers, document.retryWorker);
+  } else {
+    validateVapidProvider(blockers, document.vapid ?? {});
   }
-  if (text(vapid.privateKeySecretName) !== "FINAL_JUDO_VAPID_PRIVATE_KEY") {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PRIVATE_KEY_SECRET", "VAPID private key must be referenced by secret name only.", {
-      privateKeySecretName: vapid.privateKeySecretName ?? null,
-    });
-  }
-  if (vapid.privateKeyStored !== true) {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_PRIVATE_KEY_STORED", "VAPID private key must be stored in a deployment secret store.");
-  }
-  if (!validateMailtoContact(vapid.subject)) {
-    addIssue(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_SUBJECT", "VAPID subject must be a mailto contact.", {
-      subject: vapid.subject ?? null,
-    });
-  }
-  validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_VAPID_EVIDENCE", "VAPID configuration", vapid.evidence);
 
   const subscriptions = document.subscriptions ?? {};
   if (text(subscriptions.configEndpoint) !== "/api/v1/notifications/push-config") {
@@ -317,7 +424,7 @@ async function validateHandoff(document, blockers) {
   }
   validateEvidence(blockers, "NOTIFICATION_PUSH_HANDOFF_SUBSCRIPTION_EVIDENCE", "push subscription", subscriptions.evidence);
 
-  validateDevices(blockers, document.devices);
+  validateDevices(blockers, document.devices, nativeProviderDocument ? (providers ?? {}) : null);
 
   const dispatch = document.noticeDispatch ?? {};
   if (isPlaceholder(dispatch.noticeId) || isPlaceholder(dispatch.noticeTitle)) {
@@ -412,6 +519,7 @@ try {
 }
 
 const partial = buildPartial(handoffDocument, blockers);
+const nativeProviderDocument = handoffDocument?.schemaVersion === 2;
 const report = {
   ok: blockers.length === 0,
   releaseDecision: blockers.length === 0 ? "ready" : "blocked",
@@ -419,10 +527,15 @@ const report = {
   source: handoffPath,
   ...(partial ? { partial } : {}),
   checked: [
-    "production HTTPS origin for web push",
-    "VAPID public key config and private key secret custody",
+    "production HTTPS application origin",
+    nativeProviderDocument
+      ? "APNs and FCM production provider custody"
+      : "VAPID public key config and private key secret custody",
+    ...(nativeProviderDocument ? ["authenticated push retry worker within 30 minutes"] : []),
     "push config and subscription endpoints",
-    "Android real-device push subscription and click-through",
+    nativeProviderDocument
+      ? "enabled provider real-device push subscription and click-through"
+      : "Android real-device push subscription and click-through",
     "targeted notice push dispatch evidence",
     "expired subscription and permission fallback handling",
     "notification readiness and smoke checks",
@@ -433,8 +546,12 @@ const report = {
     blockers.length === 0
       ? []
       : [
-          "운영 VAPID public/private key와 mailto subject를 배포 환경에 설정합니다.",
-          "Android Chrome 또는 TWA 설치형 앱에서 알림 권한 허용, 구독 저장, 공지 push 수신, 클릭 후 공지함 이동을 캡처합니다.",
+          nativeProviderDocument
+            ? "활성화한 APNs/FCM 공급자의 secret 보관 및 운영 설정 증빙을 채웁니다."
+            : "운영 VAPID public/private key와 mailto subject를 배포 환경에 설정합니다.",
+          nativeProviderDocument
+            ? "활성화한 iOS/Android 앱에서 알림 권한 허용, 구독 저장, 공지 push 수신, 클릭 후 공지함 이동을 캡처합니다."
+            : "Android Chrome 또는 TWA 설치형 앱에서 알림 권한 허용, 구독 저장, 공지 push 수신, 클릭 후 공지함 이동을 캡처합니다.",
           "`npm run notification-push:handoff -- --file=.data/notification-push-handoff.json --out=.data/notification-push-handoff.report.json`를 다시 실행합니다.",
         ],
 };

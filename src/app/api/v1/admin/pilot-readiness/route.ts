@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import type { AuditLog, PilotReadinessStatus } from "@/lib/domain";
 import { exceedsPilotInputLimit, pilotOperationsInputLimits } from "@/lib/pilot-operations-input-policy";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 준비 상태를 조회할 수 있습니다.");
   }
 
@@ -64,7 +65,7 @@ export async function PATCH(request: NextRequest) {
     return response;
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 준비 상태를 변경할 수 있습니다.");
   }
 
@@ -112,7 +113,7 @@ export async function PATCH(request: NextRequest) {
       return latestResponse;
     }
 
-    if (latestUser.role !== "admin") {
+    if (!hasGlobalAdminDataAccess(latestUser)) {
       return jsonError(403, "FORBIDDEN", "총괄 어드민만 운영 준비 상태를 변경할 수 있습니다.");
     }
 

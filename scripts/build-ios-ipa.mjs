@@ -14,7 +14,6 @@ import {
 
 function parseArgs(argv) {
   const args = {
-    allowApiOriginWebapp: process.env.FINAL_JUDO_ALLOW_API_ORIGIN_WEBAPP === "1",
     allowProvisioningUpdates: false,
     bundleId: null,
     configuration: "Release",
@@ -45,7 +44,7 @@ function parseArgs(argv) {
     }
 
     if (arg === "--allow-api-origin-webapp") {
-      args.allowApiOriginWebapp = true;
+      // Deprecated compatibility flag. The local bundle expects an API origin.
       continue;
     }
 
@@ -115,11 +114,11 @@ function isPlaceholderProductionHost(hostname) {
   );
 }
 
-function validateHttpsOrigin(originValue, { allowApiOriginWebapp = false } = {}) {
-  const origin = originValue ?? process.env.FINAL_JUDO_IOS_SERVER_URL;
+function validateHttpsOrigin(originValue) {
+  const origin = originValue ?? process.env.FINAL_JUDO_IOS_API_ORIGIN ?? process.env.FINAL_JUDO_IOS_SERVER_URL;
 
   if (!origin) {
-    return { ok: false, reason: "missing --origin or FINAL_JUDO_IOS_SERVER_URL" };
+    return { ok: false, reason: "missing --origin or FINAL_JUDO_IOS_API_ORIGIN" };
   }
 
   try {
@@ -132,23 +131,10 @@ function validateHttpsOrigin(originValue, { allowApiOriginWebapp = false } = {})
       return { ok: false, reason: "origin must be a real production host, not localhost/example/TODO" };
     }
 
-    if (isLikelyApiOnlyHost(url.hostname) && !allowApiOriginWebapp) {
-      return {
-        ok: false,
-        reason:
-          "origin looks like an API host; use the web app origin that serves /login and /app/dashboard, or pass --allow-api-origin-webapp after verifying it serves the web app",
-      };
-    }
-
     return { ok: true, value: url.origin };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : "invalid origin" };
   }
-}
-
-function isLikelyApiOnlyHost(hostname) {
-  const host = String(hostname ?? "").toLowerCase();
-  return host === "api" || host.startsWith("api.") || host.includes(".api.");
 }
 
 function commandCheck(command, args) {
@@ -596,7 +582,7 @@ function nextActionsForBlockers(blockers, { bundleId, exportMethod }) {
   }
 
   if (blockerChecks.has("origin")) {
-    actions.push("Set FINAL_JUDO_IOS_SERVER_URL or --origin to the real HTTPS web app origin before sync/build.");
+    actions.push("Set FINAL_JUDO_IOS_API_ORIGIN or --origin to the real HTTPS API origin before bundling and sync.");
   }
 
   if (blockerChecks.has("appleTeamId")) {
@@ -681,7 +667,7 @@ args.scheme = text(args.scheme) ?? text(releaseConfig.scheme) ?? "App";
 args.signingStyle = (text(args.signingStyle) ?? text(releaseConfig.signingStyle) ?? "automatic").toLowerCase();
 args.signingCertificate = text(args.signingCertificate) ?? text(releaseConfig.signingCertificate);
 args.provisioningProfile = text(args.provisioningProfile) ?? text(releaseConfig.provisioningProfile);
-const origin = validateHttpsOrigin(args.origin, { allowApiOriginWebapp: args.allowApiOriginWebapp });
+const origin = validateHttpsOrigin(args.origin);
 const outDir = path.resolve(args.outDir);
 const archivePath = path.resolve(args.archivePath ?? path.join(args.outDir, "final-judo.xcarchive"));
 const exportPath = path.resolve(path.join(args.outDir, "ipa"));
@@ -706,6 +692,7 @@ const baseReport = {
     bundleIdConfigured: Boolean(text(releaseConfig.bundleId)),
   },
   origin: origin.value ?? null,
+  webDistribution: "bundled_web_ui",
   outDir,
   archivePath,
   exportPath,
@@ -742,13 +729,29 @@ await mkdir(outDir, { recursive: true });
 
 try {
   if (!args.skipSync) {
+    await run(process.execPath, ["scripts/build-ios-local-web.mjs", `--api-origin=${origin.value}`], {
+      captureOutput: true,
+    });
     await run(process.execPath, capacitorCliArgs("sync", "ios"), {
       env: {
         ...process.env,
-        FINAL_JUDO_IOS_SERVER_URL: origin.value,
+        FINAL_JUDO_ANDROID_SERVER_URL: "",
+        FINAL_JUDO_IOS_API_ORIGIN: origin.value,
+        FINAL_JUDO_IOS_LOCAL_BUNDLE: "1",
+        FINAL_JUDO_IOS_SERVER_URL: "",
       },
       captureOutput: true,
     });
+
+    const generatedCapacitorConfig = JSON.parse(
+      await readFile(path.join("mobile", "ios", "App", "App", "capacitor.config.json"), "utf8"),
+    );
+    assert(!generatedCapacitorConfig.server?.url, "Release iOS config must not contain server.url.");
+    assert.equal(
+      generatedCapacitorConfig.plugins?.CapacitorHttp?.enabled,
+      true,
+      "Bundled iOS UI must use CapacitorHttp for the remote API origin.",
+    );
   }
 
   await writeFile(
@@ -826,7 +829,7 @@ try {
     nextActions: [
       "Add the Apple Developer account for the selected team in Xcode Settings > Accounts.",
       "Ensure the account can create or download provisioning profiles for kr.co.finaljudo.multigym.",
-      "Re-run with --allow-provisioning-updates, a real HTTPS origin, and the 10-character Apple Team ID.",
+      "Re-run with --allow-provisioning-updates, the real HTTPS API origin, and the 10-character Apple Team ID.",
     ],
   };
 

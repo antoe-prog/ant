@@ -84,10 +84,37 @@ async function stopServer(child) {
 }
 
 function createClient(baseUrl) {
-  let cookie = "";
+  const cookies = new Map();
+
+  function updateCookies(response) {
+    const setCookies = typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie")].filter(Boolean);
+
+    for (const setCookie of setCookies) {
+      const pair = setCookie.split(";", 1)[0];
+      const separatorIndex = pair.indexOf("=");
+
+      if (separatorIndex <= 0) {
+        continue;
+      }
+
+      const name = pair.slice(0, separatorIndex);
+      const value = pair.slice(separatorIndex + 1);
+
+      if (!value || /(?:^|;)\s*Max-Age=0(?:;|$)/i.test(setCookie)) {
+        cookies.delete(name);
+      } else {
+        cookies.set(name, value);
+      }
+    }
+  }
 
   return {
     async request(pathname, init = {}, options = {}) {
+      const cookie = [...cookies.entries()]
+        .map(([name, value]) => `${name}=${value}`)
+        .join("; ");
       const response = await fetch(`${baseUrl}${pathname}`, {
         ...init,
         headers: {
@@ -96,11 +123,7 @@ function createClient(baseUrl) {
           ...(init.headers ?? {}),
         },
       });
-      const setCookie = response.headers.get("set-cookie");
-
-      if (setCookie) {
-        cookie = setCookie.split(";")[0];
-      }
+      updateCookies(response);
 
       const payload = await response.json().catch(() => ({}));
 

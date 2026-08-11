@@ -27,7 +27,7 @@ import {
 } from "@/lib/domain";
 import { getFamilyMemberRelationLabel, getGuardianMemberRelation } from "@/lib/family-members";
 import { formatDate, formatDateKey, formatDateTime } from "@/lib/format";
-import { hasGlobalAdminDataAccess } from "@/lib/google-play-review-access";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import { canMutateTournament, canViewTournament, resolveTournamentAccess } from "@/lib/tournament-policy";
 import { useApiContext } from "@/hooks/use-api-context";
 import { useAppStore } from "@/store/app-store";

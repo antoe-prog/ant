@@ -135,6 +135,71 @@ function readyHandoff(overrides = {}) {
   };
 }
 
+function readyNativeHandoff(overrides = {}) {
+  const handoff = readyHandoff({
+    schemaVersion: 2,
+    providers: {
+      apns: {
+        enabled: true,
+        environment: "production",
+        keyIdConfigured: true,
+        privateKeySecretName: "FINAL_JUDO_APNS_PRIVATE_KEY",
+        privateKeyStored: true,
+        teamIdConfigured: true,
+        topicConfigured: true,
+        evidence: "drive://final-judo/evidence/push/apns-secret-store",
+      },
+      fcm: {
+        clientEmailConfigured: true,
+        enabled: true,
+        privateKeySecretName: "FINAL_JUDO_FIREBASE_PRIVATE_KEY",
+        privateKeyStored: true,
+        projectIdConfigured: true,
+        evidence: "drive://final-judo/evidence/push/fcm-secret-store",
+      },
+      web: { enabled: false },
+    },
+    retryWorker: {
+      endpoint: "/api/v1/internal/notification-outbox",
+      authorizationSecretName: "CRON_SECRET",
+      secretStored: true,
+      scheduler: "external",
+      maxIntervalMinutes: 5,
+      scheduleSupportedByPlan: true,
+      invocationVerified: true,
+      evidence: "drive://final-judo/evidence/push/retry-worker",
+    },
+    devices: [
+      {
+        platform: "android",
+        device: "Pixel 8 / Android 15",
+        browser: "Final Judo 1.0 native app",
+        userEmail: "coach@finaljudo.kr",
+        permissionGranted: true,
+        subscriptionStored: true,
+        noticePushReceived: true,
+        clickOpenedNotices: true,
+        installedMode: "native",
+        evidence: "https://evidence.finaljudo.kr/push/android-native-recording",
+      },
+      {
+        platform: "ios",
+        device: "iPhone 15 / iOS 18",
+        browser: "Final Judo 1.0 native app",
+        userEmail: "guardian@finaljudo.kr",
+        permissionGranted: true,
+        subscriptionStored: true,
+        noticePushReceived: true,
+        clickOpenedNotices: true,
+        installedMode: "native",
+        evidence: "https://evidence.finaljudo.kr/push/ios-native-recording",
+      },
+    ],
+  });
+  delete handoff.vapid;
+  return { ...handoff, ...overrides };
+}
+
 async function writeJson(name, value) {
   const filePath = outPath(name);
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -147,6 +212,63 @@ assert.equal(readyReport.ok, true);
 assert.equal(readyReport.releaseDecision, "ready");
 assert(readyReport.checked.includes("Android real-device push subscription and click-through"));
 await assertEvidenceUriTemplate("docs/notification-push-handoff.template.json");
+
+const readyNativeFile = await writeJson("notification-push-handoff.native-ready.json", readyNativeHandoff());
+const readyNativeReport = await runHandoff(readyNativeFile);
+assert.equal(readyNativeReport.ok, true, "native APNs/FCM handoff must not require disabled Web Push VAPID settings");
+assert.equal(readyNativeReport.releaseDecision, "ready");
+assert(!readyNativeReport.blockers.some((blocker) => blocker.code.includes("VAPID")));
+assert(readyNativeReport.checked.includes("APNs and FCM production provider custody"));
+assert(readyNativeReport.checked.includes("authenticated push retry worker within 30 minutes"));
+
+const nativeMissingRetryWorker = readyNativeHandoff();
+delete nativeMissingRetryWorker.retryWorker;
+const nativeMissingRetryWorkerFile = await writeJson(
+  "notification-push-handoff.native-missing-retry-worker.json",
+  nativeMissingRetryWorker,
+);
+const nativeMissingRetryWorkerReport = await expectHandoffFailure(nativeMissingRetryWorkerFile);
+assert(nativeMissingRetryWorkerReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_MISSING"));
+
+const nativeMissingProviders = readyNativeHandoff();
+delete nativeMissingProviders.providers;
+const nativeMissingProvidersFile = await writeJson(
+  "notification-push-handoff.native-missing-providers.json",
+  nativeMissingProviders,
+);
+const nativeMissingProvidersReport = await expectHandoffFailure(nativeMissingProvidersFile);
+assert(nativeMissingProvidersReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_PROVIDERS_MISSING"));
+assert(!nativeMissingProvidersReport.blockers.some((blocker) => blocker.code.includes("VAPID")));
+
+const nativeSlowRetryWorker = readyNativeHandoff();
+nativeSlowRetryWorker.retryWorker.maxIntervalMinutes = 1_440;
+nativeSlowRetryWorker.retryWorker.scheduleSupportedByPlan = false;
+const nativeSlowRetryWorkerFile = await writeJson(
+  "notification-push-handoff.native-slow-retry-worker.json",
+  nativeSlowRetryWorker,
+);
+const nativeSlowRetryWorkerReport = await expectHandoffFailure(nativeSlowRetryWorkerFile);
+assert(nativeSlowRetryWorkerReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_INTERVAL"));
+assert(nativeSlowRetryWorkerReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_RETRY_WORKER_PLAN"));
+
+const nativeMissingApnsCustody = readyNativeHandoff();
+nativeMissingApnsCustody.providers.apns.privateKeyStored = false;
+const nativeMissingApnsCustodyFile = await writeJson(
+  "notification-push-handoff.native-missing-apns-custody.json",
+  nativeMissingApnsCustody,
+);
+const nativeMissingApnsCustodyReport = await expectHandoffFailure(nativeMissingApnsCustodyFile);
+assert(nativeMissingApnsCustodyReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_APNS_PRIVATE_KEY"));
+assert(!nativeMissingApnsCustodyReport.blockers.some((blocker) => blocker.code.includes("VAPID")));
+
+const nativeMissingIosDevice = readyNativeHandoff();
+nativeMissingIosDevice.devices = nativeMissingIosDevice.devices.filter((device) => device.platform !== "ios");
+const nativeMissingIosDeviceFile = await writeJson(
+  "notification-push-handoff.native-missing-ios-device.json",
+  nativeMissingIosDevice,
+);
+const nativeMissingIosDeviceReport = await expectHandoffFailure(nativeMissingIosDeviceFile);
+assert(nativeMissingIosDeviceReport.blockers.some((blocker) => blocker.code === "NOTIFICATION_PUSH_HANDOFF_IOS_DEVICE"));
 
 const pendingFile = await writeJson(
   "notification-push-handoff.pending.json",
@@ -295,6 +417,9 @@ console.log(
       ok: true,
       checked: [
         "ready notification push handoff",
+        "native APNs/FCM handoff without disabled Web Push requirements",
+        "native APNs custody and iOS real-device evidence are required",
+        "native push retry worker secret, cadence, plan support, and invocation evidence are required",
         "template evidence URI placeholders",
         "pending production/VAPID blockers",
         "placeholder production origin and VAPID subject blockers",

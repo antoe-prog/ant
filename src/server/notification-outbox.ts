@@ -66,7 +66,14 @@ type SettlePushDispatchJobInput = {
   result:
     | { outcome: "sent" }
     | { outcome: "cancelled"; reason: string }
-    | { outcome: "failed"; statusCode?: number; errorCode?: string; message?: string; deliveryUncertain?: boolean };
+    | {
+        outcome: "failed";
+        statusCode?: number;
+        errorCode?: string;
+        message?: string;
+        deliveryUncertain?: boolean;
+        retryAfterMs?: number;
+      };
   retryPolicy?: NotificationOutboxRetryPolicy;
 };
 
@@ -242,10 +249,20 @@ function syncDispatchAudit(db: NotificationOutboxDatabase, auditLogId: string, n
     .sort((left, right) => left.localeCompare(right))[0];
   const requestAudit = db.auditLogs.find((auditLog) => auditLog.id === auditLogId);
   const candidateCount = Number(requestAudit?.after?.candidateCount ?? auditJobs.length);
-  const complete = pending === 0 && auditJobs.length >= candidateCount;
+  const configuredCandidateCount = Number(requestAudit?.after?.dispatchableCount);
+  const expectedJobCount = Number.isSafeInteger(configuredCandidateCount) && configuredCandidateCount >= 0
+    ? configuredCandidateCount
+    : candidateCount;
+  const recordedUnconfiguredCount = Number(requestAudit?.after?.unconfiguredCount);
+  const unconfigured = Number.isSafeInteger(recordedUnconfiguredCount) && recordedUnconfiguredCount >= 0
+    ? recordedUnconfiguredCount
+    : Number.isSafeInteger(candidateCount) && Number.isSafeInteger(expectedJobCount)
+      ? Math.max(candidateCount - expectedJobCount, 0)
+      : 0;
+  const complete = pending === 0 && auditJobs.length >= expectedJobCount;
   const result: AuditLog["result"] = !complete
     ? "blocked"
-    : dead > 0 || disabled > 0
+    : dead > 0 || disabled > 0 || unconfigured > 0
       ? "failed"
       : cancelled > 0
         ? "blocked"
@@ -271,7 +288,7 @@ function syncDispatchAudit(db: NotificationOutboxDatabase, auditLogId: string, n
       ? `휴대폰 푸시 ${sent}건 발송을 완료했습니다.`
       : result === "blocked"
         ? `휴대폰 푸시 ${sent}건 발송, ${cancelled}건 취소${deliveryUncertain > 0 ? `, 전달 가능성 확인 필요 ${deliveryUncertain}건` : ""}입니다.`
-        : `휴대폰 푸시 ${sent}건 발송, 만료 구독 ${disabled}건, 최종 실패 ${dead}건${cancelled > 0 ? `, 취소 ${cancelled}건` : ""}${deliveryUncertain > 0 ? `, 전달 가능성 확인 필요 ${deliveryUncertain}건` : ""}입니다.`;
+        : `휴대폰 푸시 ${sent}건 발송, 만료 구독 ${disabled}건, 최종 실패 ${dead}건${unconfigured > 0 ? `, 제공자 설정 미완료 ${unconfigured}건` : ""}${cancelled > 0 ? `, 취소 ${cancelled}건` : ""}${deliveryUncertain > 0 ? `, 전달 가능성 확인 필요 ${deliveryUncertain}건` : ""}입니다.`;
 
   return {
     ...db,
@@ -288,6 +305,7 @@ function syncDispatchAudit(db: NotificationOutboxDatabase, auditLogId: string, n
               sent,
               disabled,
               dead,
+              unconfiguredCount: unconfigured,
               cancelled,
               cancellationRequested,
               deliveryUncertain,
@@ -315,6 +333,9 @@ export function getNotificationOutboxDispatchSummary(db: NotificationOutboxDatab
     sent: auditJobs.filter((job) => job.status === "sent").length,
     disabled: auditJobs.filter((job) => job.status === "disabled").length,
     failed: auditJobs.filter((job) => job.status === "dead" || job.status === "disabled").length,
+    unconfigured: Number.isSafeInteger(Number(auditLog?.after?.unconfiguredCount))
+      ? Math.max(Number(auditLog?.after?.unconfiguredCount), 0)
+      : 0,
     pending,
     dead: auditJobs.filter((job) => job.status === "dead").length,
     cancelled: auditJobs.filter((job) => job.status === "cancelled").length,
@@ -449,8 +470,46 @@ export function calculateNotificationOutboxBackoffMs(
   return Math.min(resolved.maxDelayMs, resolved.baseDelayMs * 2 ** Math.min(attemptCount - 1, 30));
 }
 
-export function isPermanentPushSubscriptionFailure(statusCode: number | undefined) {
+export function isPermanentPushSubscriptionFailure(
+  statusCode: number | undefined,
+  errorCode?: string,
+) {
+  if (errorCode?.startsWith("APNS_")) {
+    return [
+      "APNS_BAD_DEVICE_TOKEN",
+      "APNS_DEVICE_TOKEN_NOT_FOR_TOPIC",
+      "APNS_EXPIRED_TOKEN",
+      "APNS_UNREGISTERED",
+    ].includes(errorCode);
+  }
+
+  if (errorCode?.startsWith("FCM_")) {
+    return [
+      "FCM_INVALID_REGISTRATION_TOKEN",
+      "FCM_SENDER_ID_MISMATCH",
+      "FCM_UNREGISTERED",
+    ].includes(errorCode);
+  }
+
   return statusCode === 404 || statusCode === 410;
+}
+
+const nonRetryablePushDispatchErrorCodes = new Set([
+  "APNS_FORBIDDEN",
+  "APNS_PAYLOAD_EMPTY",
+  "APNS_PAYLOAD_TOO_LARGE",
+  "FCM_INVALID_ARGUMENT",
+]);
+
+export function isNonRetryablePushDispatchFailure(
+  statusCode: number | undefined,
+  errorCode?: string,
+) {
+  if (errorCode && nonRetryablePushDispatchErrorCodes.has(errorCode)) {
+    return true;
+  }
+
+  return statusCode === 413;
 }
 
 const expiredPushSubscriptionReason = "알림 수신 등록이 만료되어 비활성화했습니다.";
@@ -751,7 +810,12 @@ export function settlePushDispatchJob(
   }
 
   const permanentSubscriptionFailure =
-    input.result.outcome === "failed" && isPermanentPushSubscriptionFailure(input.result.statusCode);
+    input.result.outcome === "failed" &&
+    isPermanentPushSubscriptionFailure(input.result.statusCode, input.result.errorCode);
+  const nonRetryableDispatchFailure =
+    input.result.outcome === "failed" &&
+    !permanentSubscriptionFailure &&
+    isNonRetryablePushDispatchFailure(input.result.statusCode, input.result.errorCode);
   let nextSubscriptions = db.pushSubscriptions;
   let nextJob: PushDispatchJob;
 
@@ -799,6 +863,7 @@ export function settlePushDispatchJob(
         ? {
             ...subscription,
             disabledAt: input.now,
+            disabledReason: "provider_invalid" as const,
             lastFailureAt: input.now,
             lastFailureReason: expiredPushSubscriptionReason,
             updatedAt: input.now,
@@ -815,17 +880,36 @@ export function settlePushDispatchJob(
       providerOutcome: "failed",
       lastFailureReason: expiredPushSubscriptionReason,
     };
+  } else if (nonRetryableDispatchFailure) {
+    nextJob = {
+      ...withoutProviderFence(withoutLease(job)),
+      status: "dead",
+      revision: revision(job) + 1,
+      updatedAt: input.now,
+      completedAt: input.now,
+      providerCallCompletedAt: input.now,
+      providerOutcome: "failed",
+      lastFailureReason: failureReason(input.result),
+    };
   } else {
     const exhausted = job.attemptCount >= job.maxAttempts;
-    const backoffAttemptAt = new Date(
-      timestamp(input.now, "now") + calculateNotificationOutboxBackoffMs(job.attemptCount, input.retryPolicy),
-    ).toISOString();
+    const nowMs = timestamp(input.now, "now");
+    const backoffAttemptAtMs = nowMs + calculateNotificationOutboxBackoffMs(job.attemptCount, input.retryPolicy);
+    const providerRetryAfterMs = Number.isSafeInteger(input.result.retryAfterMs) && input.result.retryAfterMs! > 0
+      ? input.result.retryAfterMs!
+      : 0;
+    const providerAttemptAtMs = nowMs + providerRetryAfterMs;
     const providerFenceExpiresAt = input.result.deliveryUncertain
       ? job.providerFenceExpiresAt ?? job.leaseExpiresAt
       : undefined;
-    const nextAttemptAt = providerFenceExpiresAt && timestamp(providerFenceExpiresAt, "providerFenceExpiresAt") > timestamp(backoffAttemptAt, "nextAttemptAt")
-      ? providerFenceExpiresAt
-      : backoffAttemptAt;
+    const providerFenceExpiresAtMs = providerFenceExpiresAt
+      ? timestamp(providerFenceExpiresAt, "providerFenceExpiresAt")
+      : 0;
+    const nextAttemptAtMs = Math.max(backoffAttemptAtMs, providerAttemptAtMs, providerFenceExpiresAtMs);
+    if (!Number.isFinite(nextAttemptAtMs) || nextAttemptAtMs > 8_640_000_000_000_000) {
+      throw new Error("nextAttemptAt exceeds the supported timestamp range.");
+    }
+    const nextAttemptAt = new Date(nextAttemptAtMs).toISOString();
     const failureBase = input.result.deliveryUncertain
       ? withoutLease(job)
       : withoutProviderFence(withoutLease(job));

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type { AuditLog, Branch } from "@/lib/domain";
 import { defaultBranchSettings } from "@/lib/domain";
 import { getBranchCreateBodyError, type BranchCreateInput } from "@/lib/branch-input-policy";
+import { hasGlobalAdminDataAccess } from "@/lib/admin-access";
 import { branchManagementStateLockKey } from "@/server/branch-management";
 import { readServerDb, withServerDbLock, writeServerDb } from "@/server/db";
 import { createBootstrapPayload, jsonError, jsonOk, requireSelectedBranchScope, requireSession } from "@/server/api";
@@ -40,7 +41,7 @@ async function requireBranchCreateRequestContext(request: NextRequest) {
     return { context: null, response };
   }
 
-  if (user.role !== "admin") {
+  if (!hasGlobalAdminDataAccess(user)) {
     return {
       context: null,
       response: jsonError(403, "FORBIDDEN", "총괄 어드민만 지점을 생성할 수 있습니다."),

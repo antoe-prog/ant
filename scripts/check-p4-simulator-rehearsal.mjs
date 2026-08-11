@@ -102,8 +102,8 @@ assert(
 
 assert.equal(
   iosCapacitorConnection.releaseDecision,
-  "simulator_connected_release_blocked",
-  "iOS Capacitor simulator connection must stay release blocked",
+  "bundled_ui_configured",
+  "iOS Capacitor must keep the signed local UI bundle without a remote server URL",
 );
 assert.equal(iosIpaDoctor.releaseDecision, "ready", "iOS IPA doctor must reflect the App Store profile");
 

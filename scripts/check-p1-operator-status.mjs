@@ -464,7 +464,7 @@ function summarizeIosCapacitorConnection(readResult) {
     key: "iosCapacitorConnection",
     label: "iOS Capacitor service connection",
     status: ready ? "ready" : "blocked",
-    releaseDecision: ready ? document?.releaseDecision ?? "simulator_connected_release_blocked" : "blocked",
+    releaseDecision: ready ? document?.releaseDecision ?? "bundled_ui_configured" : "blocked",
     generatedAt: document?.generatedAt ?? null,
     path: rel(artifactPaths.iosCapacitorConnection),
     blockerCount: Array.isArray(document?.blockers) ? document.blockers.length : ready ? 0 : 1,
@@ -484,7 +484,7 @@ function summarizeIosIpaDoctor(readResult) {
       path: rel(artifactPaths.iosIpaDoctor),
       blockerCount: 1,
       nextAction:
-        "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
+        "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --strict --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
     };
   }
 
@@ -547,7 +547,7 @@ function summarizeIosIpaDoctorMarkdown(readResult) {
       path: rel(artifactPaths.iosIpaDoctorMarkdown),
       blockerCount: 1,
       nextAction:
-        "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
+        "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
     };
   }
 
@@ -556,7 +556,7 @@ function summarizeIosIpaDoctorMarkdown(readResult) {
     source.includes("# iOS IPA Doctor") &&
     source.includes("| Check | Status | Detail |") &&
     source.includes("## Provisioning Hints") &&
-    source.includes("FINAL_JUDO_IOS_SERVER_URL");
+    source.includes("FINAL_JUDO_IOS_API_ORIGIN");
 
   return {
     key: "iosIpaDoctorMarkdown",
@@ -567,7 +567,7 @@ function summarizeIosIpaDoctorMarkdown(readResult) {
     blockerCount: valid ? 0 : 1,
     nextAction: valid
       ? ""
-      : "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_SERVER_URL=https://<webapp-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
+      : "APPLE_TEAM_ID=<TEAM_ID> FINAL_JUDO_IOS_API_ORIGIN=https://<api-origin> npm run ios:ipa:doctor -- --team-id=<TEAM_ID> --out=.data/mobile-builds/ios/ios-ipa-doctor.json --markdown=.data/mobile-builds/ios/ios-ipa-doctor.md",
   };
 }
 

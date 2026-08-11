@@ -156,6 +156,24 @@ assert.equal(validReport.partial.webDeployment.productionOrigin, validHandoff.de
 assert.equal(validReport.partial.webDeployment.deploymentUrl, new URL(validHandoff.deployment.deploymentUrl).href);
 assert.equal(JSON.parse(await readFile(validReportPath, "utf8")).ok, true);
 
+const validNativeHandoff = structuredClone(validHandoff);
+validNativeHandoff.schemaVersion = 2;
+validNativeHandoff.environmentVariables = validNativeHandoff.environmentVariables.filter(
+  (entry) => !entry.key.startsWith("FINAL_JUDO_VAPID_"),
+);
+validNativeHandoff.pushNotifications = {
+  providers: ["apns", "fcm"],
+  providerHandoffVerified: true,
+  deviceSubscriptionVerified: true,
+  noticePushVerified: true,
+  evidence: "https://evidence.finaljudo.kr/deployment/native-push-notifications",
+};
+const validNativePath = path.join(directory, "deployment-handoff.native-valid.json");
+await writeFile(validNativePath, `${JSON.stringify(validNativeHandoff, null, 2)}\n`);
+const validNativeReport = await runHandoff(validNativePath);
+assert.equal(validNativeReport.ok, true, "native APNs/FCM deployment handoff must not require Web Push VAPID settings");
+assert(!validNativeReport.blockers.some((blocker) => blocker.code.includes("VAPID")));
+
 const partialWebDeploymentPath = path.join(directory, "deployment-handoff.partial-web-deployment.json");
 const partialWebDeploymentHandoff = structuredClone(validHandoff);
 partialWebDeploymentHandoff.environmentVariables = [];
@@ -253,6 +271,7 @@ console.log(
       ok: true,
       checked: [
         "valid production deployment handoff",
+        "native APNs/FCM deployment handoff without Web Push VAPID",
         "report output",
         "partial web deployment evidence while strict handoff remains blocked",
         "placeholder production/payment/push origin blockers",
