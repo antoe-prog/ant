@@ -16,6 +16,7 @@ import { verifyPassword } from "../src/server/auth-password.ts";
 import {
   createGooglePlayReviewConsoleEntries,
   createGooglePlayReviewPasswords,
+  parseGooglePlayReviewPasswordsReport,
   provisionGooglePlayReviewAccess,
 } from "../src/server/google-play-review-provisioning.ts";
 import { inspectRuntimeStateIntegrity } from "../src/server/runtime-state-integrity.ts";
@@ -107,6 +108,26 @@ assert.equal(
 );
 
 const entries = createGooglePlayReviewConsoleEntries(passwords);
+assert.deepEqual(
+  parseGooglePlayReviewPasswordsReport({ accounts: entries }),
+  passwords,
+  "existing App Store review credentials must be reusable without password rotation",
+);
+assert.deepEqual(
+  parseGooglePlayReviewPasswordsReport({ consoleEntries: entries }),
+  passwords,
+  "existing Play Console review credentials must be reusable without password rotation",
+);
+assert.throws(
+  () => parseGooglePlayReviewPasswordsReport({ accounts: entries.slice(1) }),
+  /exactly 5 accounts/,
+);
+assert.throws(
+  () => parseGooglePlayReviewPasswordsReport({
+    accounts: entries.map((entry, index) => index === 0 ? { ...entry, username: "01000000000" } : entry),
+  }),
+  /username does not match/,
+);
 const generatedPasswords = createGooglePlayReviewPasswords();
 assert.equal(new Set(Object.values(generatedPasswords)).size, 5, "generated review passwords must be unique by role");
 for (const generatedPassword of Object.values(generatedPasswords)) {
@@ -161,6 +182,7 @@ assert.doesNotMatch(
 );
 assert(serverDbSource.includes("rollGooglePlayReviewDates"), "review dates must remain current in production");
 assert(provisionScriptSource.includes("FINAL_JUDO_INSTALLATION_ID"), "production provisioning must verify installation identity");
+assert(provisionScriptSource.includes("FINAL_JUDO_REVIEW_CREDENTIALS_FILE"), "production provisioning must support password-preserving repair");
 assert(provisionScriptSource.includes("credentialsPrinted: false"), "provisioning output must not print passwords");
 assert(provisionScriptSource.includes("mode: 0o600"), "credential report must be owner-readable only");
 assert(!provisionScriptSource.includes("console.log(JSON.stringify(report"), "provisioning stdout must not expose Play credentials");

@@ -34,6 +34,12 @@ export type GooglePlayReviewConsoleEntry = {
   username: string;
 };
 
+type ReviewCredentialEntry = {
+  password?: unknown;
+  role?: unknown;
+  username?: unknown;
+};
+
 export function createGooglePlayReviewPasswords(): GooglePlayReviewPasswords {
   return Object.fromEntries(
     userRoles.map((role) => [
@@ -41,6 +47,52 @@ export function createGooglePlayReviewPasswords(): GooglePlayReviewPasswords {
       `FJ-Play-${randomBytes(8).toString("hex")}-${randomBytes(8).toString("hex")}`,
     ]),
   ) as GooglePlayReviewPasswords;
+}
+
+export function parseGooglePlayReviewPasswordsReport(value: unknown): GooglePlayReviewPasswords {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Review credentials report must be a JSON object.");
+  }
+
+  const report = value as { accounts?: unknown; consoleEntries?: unknown };
+  const entries = Array.isArray(report.accounts)
+    ? report.accounts
+    : Array.isArray(report.consoleEntries)
+      ? report.consoleEntries
+      : null;
+
+  if (!entries || entries.length !== userRoles.length) {
+    throw new Error(`Review credentials report must contain exactly ${userRoles.length} accounts.`);
+  }
+
+  const passwords = {} as GooglePlayReviewPasswords;
+
+  for (const rawEntry of entries) {
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
+      throw new Error("Review credentials report contains an invalid account entry.");
+    }
+
+    const entry = rawEntry as ReviewCredentialEntry;
+    const role = entry.role;
+
+    if (typeof role !== "string" || !userRoles.includes(role as UserRole)) {
+      throw new Error("Review credentials report contains an invalid role.");
+    }
+    if (passwords[role as UserRole]) {
+      throw new Error(`Review credentials report contains a duplicate ${role} account.`);
+    }
+    if (entry.username !== googlePlayReviewPhones[role as UserRole]) {
+      throw new Error(`Review credentials report username does not match the fixed ${role} account.`);
+    }
+    if (typeof entry.password !== "string") {
+      throw new Error(`Review credentials report password is missing for ${role}.`);
+    }
+
+    passwords[role as UserRole] = entry.password;
+  }
+
+  assertPasswords(passwords);
+  return passwords;
 }
 
 const roleNames: Record<UserRole, string> = {

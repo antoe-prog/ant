@@ -150,6 +150,8 @@ function createSafeUser(
 
   delete safeUser.passwordHash;
   delete safeUser.invitationToken;
+  // Older persisted records may still contain the retired reviewer marker.
+  delete (safeUser as Record<string, unknown>).accountPurpose;
 
   if (viewerRole !== "admin") {
     delete safeUser.invitedAt;

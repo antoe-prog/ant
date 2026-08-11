@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Pool } from "pg";
 import { googlePlayReviewBranchId } from "../src/lib/google-play-review-access.ts";
@@ -7,6 +7,7 @@ import { inspectRuntimeStateIntegrity } from "../src/server/runtime-state-integr
 import {
   createGooglePlayReviewConsoleEntries,
   createGooglePlayReviewPasswords,
+  parseGooglePlayReviewPasswordsReport,
   provisionGooglePlayReviewAccess,
 } from "../src/server/google-play-review-provisioning.ts";
 
@@ -33,6 +34,7 @@ async function main() {
   const table = process.env.FINAL_JUDO_POSTGRES_TABLE?.trim() || "app_runtime_state";
   const origin = argValue("--origin", "https://final-judo.vercel.app");
   const outPath = path.resolve(argValue("--out", ".data/google-play-review-access.json"));
+  const credentialsFileValue = process.env.FINAL_JUDO_REVIEW_CREDENTIALS_FILE?.trim() || argValue("--credentials-file");
 
   if (!connectionString) {
     fail("FINAL_JUDO_POSTGRES_URL or DATABASE_URL is required.");
@@ -50,7 +52,20 @@ async function main() {
     max: 1,
   });
   const client = await pool.connect();
-  const passwords = createGooglePlayReviewPasswords();
+  const credentialsFile = credentialsFileValue ? path.resolve(credentialsFileValue) : null;
+  let passwords = createGooglePlayReviewPasswords();
+
+  if (credentialsFile) {
+    const credentialsMode = (await stat(credentialsFile)).mode & 0o777;
+
+    if ((credentialsMode & 0o077) !== 0) {
+      fail("Review credentials file must not be readable or writable by group or other users.");
+    }
+
+    passwords = parseGooglePlayReviewPasswordsReport(
+      JSON.parse(await readFile(credentialsFile, "utf8")),
+    );
+  }
   const entries = createGooglePlayReviewConsoleEntries(passwords);
   const report = {
     generatedAt: new Date().toISOString(),
@@ -94,6 +109,7 @@ async function main() {
         applied: false,
         branchId: googlePlayReviewBranchId,
         accountCount: entries.length,
+        credentialsReused: Boolean(credentialsFile),
         message: "Dry run passed. Re-run with --apply to update the verified production runtime.",
       }, null, 2));
       return;
@@ -120,6 +136,7 @@ async function main() {
       applied: true,
       branchId: googlePlayReviewBranchId,
       accountCount: entries.length,
+      credentialsReused: Boolean(credentialsFile),
       reportPath: outPath,
       credentialsPrinted: false,
     }, null, 2));

@@ -127,6 +127,11 @@ try {
     ...sourceDb.auditLogs,
   ];
   const db = provisionGooglePlayReviewAccess(sourceDb, passwords, new Date("2026-07-22T03:00:00.000Z"));
+  for (const user of db.users) {
+    if (Object.values(googlePlayReviewUserIds).includes(user.id)) {
+      user.accountPurpose = "google_play_review";
+    }
+  }
   await writeFile(path.join(dataDirectory, "final-judo-db.json"), `${JSON.stringify(db, null, 2)}\n`, "utf8");
   await writeFile(
     managedTsconfigPath,
