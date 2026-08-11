@@ -307,7 +307,7 @@ export function provisionGooglePlayReviewAccess(
   ];
   const classes: ClassSession[] = [
     {
-      id: "class-google-play-review-kids",
+      id: "class-demo-gangseo-kids",
       ageGroup: "kids",
       branchId: googlePlayReviewBranchId,
       capacity: 12,
@@ -320,7 +320,7 @@ export function provisionGooglePlayReviewAccess(
       startsAt: at(now, 0, 16),
     },
     {
-      id: "class-google-play-review-adult",
+      id: "class-demo-gangseo-adult",
       ageGroup: "adult",
       branchId: googlePlayReviewBranchId,
       capacity: 16,
@@ -333,7 +333,7 @@ export function provisionGooglePlayReviewAccess(
       startsAt: at(now, 0, 20),
     },
     {
-      id: "class-google-play-review-tomorrow",
+      id: "class-demo-gangseo-tomorrow",
       ageGroup: "all",
       branchId: googlePlayReviewBranchId,
       capacity: 20,
@@ -348,23 +348,23 @@ export function provisionGooglePlayReviewAccess(
   ];
   const attendance: AttendanceRecord[] = [
     {
-      id: "attendance-google-play-review-child",
+      id: "attendance-demo-gangseo-child",
       confirmedAt: at(now, 0, 16, 4),
       memberId: googlePlayReviewMemberIds.child,
-      sessionId: "class-google-play-review-kids",
+      sessionId: "class-demo-gangseo-kids",
       status: "present",
     },
     {
-      id: "attendance-google-play-review-adult",
+      id: "attendance-demo-gangseo-adult",
       confirmedAt: at(now, 0, 20, 6),
       memberId: googlePlayReviewMemberIds.adult,
-      sessionId: "class-google-play-review-adult",
+      sessionId: "class-demo-gangseo-adult",
       status: "absent",
     },
   ];
   const counselingNotes: CounselingNote[] = [
     {
-      id: "note-google-play-review-progress",
+      id: "note-demo-gangseo-progress",
       authorUserId: googlePlayReviewUserIds.coach,
       body: "낙법 동작이 안정되었고 다음 수업에서 발기술 연결을 연습합니다.",
       branchId: googlePlayReviewBranchId,
@@ -376,7 +376,7 @@ export function provisionGooglePlayReviewAccess(
   ];
   const payments: Payment[] = [
     {
-      id: "payment-google-play-review-child",
+      id: "payment-demo-gangseo-child",
       amount: 180000,
       branchId: googlePlayReviewBranchId,
       dueDate: dateOnly(now, 20),
@@ -385,7 +385,7 @@ export function provisionGooglePlayReviewAccess(
       planName: "유소년 주 3회 1개월",
       status: "paid",
       statusHistory: [{
-        id: "payment-history-google-play-review-child",
+        id: "payment-history-demo-gangseo-child",
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -5, 12),
         event: "created",
@@ -394,7 +394,7 @@ export function provisionGooglePlayReviewAccess(
       }],
     },
     {
-      id: "payment-google-play-review-adult",
+      id: "payment-demo-gangseo-adult",
       amount: 170000,
       branchId: googlePlayReviewBranchId,
       dueDate: dateOnly(now, -2),
@@ -403,7 +403,7 @@ export function provisionGooglePlayReviewAccess(
       planName: "성인 월 회비",
       status: "overdue",
       statusHistory: [{
-        id: "payment-history-google-play-review-adult",
+        id: "payment-history-demo-gangseo-adult",
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -2, 12),
         event: "created",
@@ -412,7 +412,7 @@ export function provisionGooglePlayReviewAccess(
       }],
     },
     {
-      id: "payment-google-play-review-guardian",
+      id: "payment-demo-gangseo-guardian",
       amount: 160000,
       branchId: googlePlayReviewBranchId,
       dueDate: dateOnly(now, 5),
@@ -421,7 +421,7 @@ export function provisionGooglePlayReviewAccess(
       planName: "성인 주 2회 1개월",
       status: "scheduled",
       statusHistory: [{
-        id: "payment-history-google-play-review-guardian",
+        id: "payment-history-demo-gangseo-guardian",
         actorUserId: googlePlayReviewUserIds.owner,
         changedAt: at(now, -1, 12),
         event: "created",
@@ -432,7 +432,7 @@ export function provisionGooglePlayReviewAccess(
   ];
   const notices: Notice[] = [
     {
-      id: "notice-google-play-review",
+      id: "notice-demo-gangseo-training",
       audience: ["all"],
       body: "이번 주 토요일 합동 훈련은 오전 10시에 시작합니다.",
       branchId: googlePlayReviewBranchId,
@@ -445,7 +445,7 @@ export function provisionGooglePlayReviewAccess(
   ];
   const promotions: BeltPromotion[] = [
     {
-      id: "promotion-google-play-review-child",
+      id: "promotion-demo-gangseo-child",
       branchId: googlePlayReviewBranchId,
       createdAt: now.toISOString(),
       createdByUserId: googlePlayReviewUserIds.coach,
@@ -460,7 +460,7 @@ export function provisionGooglePlayReviewAccess(
   ];
   const tournaments: Tournament[] = [
     {
-      id: "tournament-google-play-review",
+      id: "tournament-demo-gangseo-summer",
       branchId: googlePlayReviewBranchId,
       createdAt: now.toISOString(),
       createdByUserId: googlePlayReviewUserIds.owner,
@@ -475,7 +475,7 @@ export function provisionGooglePlayReviewAccess(
     },
   ];
   const auditLog: AuditLog = {
-    id: `audit-google-play-review-provision-${now.getTime()}`,
+    id: `audit-demo-gangseo-provision-${now.getTime()}`,
     action: "branch.create",
     actorUserId: googlePlayReviewUserIds.admin,
     after: { accountCount: users.length, branchId: googlePlayReviewBranchId, syntheticData: true },

@@ -100,7 +100,7 @@ for (const [userId, passwordHash] of originalUserHashes) {
 
 assert.equal(
   inspectRuntimeStateIntegrity(provisioned).filter((issue) =>
-    issue.targetId.includes("google-play-review") ||
+    issue.targetId.includes("demo-gangseo") ||
     ("branchId" in issue.details && issue.details.branchId === googlePlayReviewBranchId),
   ).length,
   0,

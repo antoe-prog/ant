@@ -230,7 +230,7 @@ try {
     assert.equal(snapshot.members.every((member) => member.branchId === googlePlayReviewBranchId), true);
     assert.deepEqual(
       snapshot.tournaments.map((tournament) => tournament.id).sort(),
-      ["tournament-google-play-review", "tournament-real-global"].sort(),
+      ["tournament-demo-gangseo-summer", "tournament-real-global"].sort(),
       `${role} account must receive the same global and branch tournaments as an ordinary branch user`,
     );
     assert.equal("accountPurpose" in sessions[role].payload.data.user, false);

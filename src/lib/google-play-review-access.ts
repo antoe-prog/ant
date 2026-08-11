@@ -1,13 +1,13 @@
 import type { Branch, MockDatabase, UserRole } from "./domain.ts";
 
-export const googlePlayReviewBranchId = "branch-google-play-review";
+export const googlePlayReviewBranchId = "branch-demo-gangseo-central";
 
 export const googlePlayReviewUserIds = {
-  admin: "user-google-play-review-admin",
-  coach: "user-google-play-review-coach",
-  guardian: "user-google-play-review-guardian",
-  member: "user-google-play-review-member",
-  owner: "user-google-play-review-owner",
+  admin: "user-demo-gangseo-admin",
+  coach: "user-demo-gangseo-coach",
+  guardian: "user-demo-gangseo-guardian",
+  member: "user-demo-gangseo-member",
+  owner: "user-demo-gangseo-owner",
 } as const satisfies Record<UserRole, string>;
 
 export const googlePlayReviewPhones = {
@@ -19,9 +19,9 @@ export const googlePlayReviewPhones = {
 } as const satisfies Record<UserRole, string>;
 
 export const googlePlayReviewMemberIds = {
-  adult: "member-google-play-review-adult",
-  child: "member-google-play-review-child",
-  guardian: "member-google-play-review-guardian",
+  adult: "member-demo-gangseo-adult",
+  child: "member-demo-gangseo-child",
+  guardian: "member-demo-gangseo-guardian",
 } as const;
 
 export function isPublicSignupBranch(branch: Pick<Branch, "dataMode" | "status">) {
@@ -51,13 +51,13 @@ export function rollGooglePlayReviewDates(db: MockDatabase, now = new Date()): M
   }
 
   const classTimes = new Map([
-    ["class-google-play-review-kids", { startsAt: at({ dayOffset: 0, hour: 16 }, now), endsAt: at({ dayOffset: 0, hour: 16, minute: 50 }, now) }],
-    ["class-google-play-review-adult", { startsAt: at({ dayOffset: 0, hour: 20 }, now), endsAt: at({ dayOffset: 0, hour: 21 }, now) }],
-    ["class-google-play-review-tomorrow", { startsAt: at({ dayOffset: 1, hour: 18 }, now), endsAt: at({ dayOffset: 1, hour: 18, minute: 50 }, now) }],
+    ["class-demo-gangseo-kids", { startsAt: at({ dayOffset: 0, hour: 16 }, now), endsAt: at({ dayOffset: 0, hour: 16, minute: 50 }, now) }],
+    ["class-demo-gangseo-adult", { startsAt: at({ dayOffset: 0, hour: 20 }, now), endsAt: at({ dayOffset: 0, hour: 21 }, now) }],
+    ["class-demo-gangseo-tomorrow", { startsAt: at({ dayOffset: 1, hour: 18 }, now), endsAt: at({ dayOffset: 1, hour: 18, minute: 50 }, now) }],
   ]);
   const attendanceTimes = new Map([
-    ["attendance-google-play-review-child", at({ dayOffset: 0, hour: 16, minute: 4 }, now)],
-    ["attendance-google-play-review-adult", at({ dayOffset: 0, hour: 20, minute: 6 }, now)],
+    ["attendance-demo-gangseo-child", at({ dayOffset: 0, hour: 16, minute: 4 }, now)],
+    ["attendance-demo-gangseo-adult", at({ dayOffset: 0, hour: 20, minute: 6 }, now)],
   ]);
 
   return {
@@ -71,34 +71,34 @@ export function rollGooglePlayReviewDates(db: MockDatabase, now = new Date()): M
       return times ? { ...session, ...times } : session;
     }),
     counselingNotes: db.counselingNotes.map((note) =>
-      note.id === "note-google-play-review-progress"
+      note.id === "note-demo-gangseo-progress"
         ? { ...note, createdAt: at({ dayOffset: -1, hour: 18 }, now) }
         : note,
     ),
     notices: db.notices.map((notice) =>
-      notice.id === "notice-google-play-review"
+      notice.id === "notice-demo-gangseo-training"
         ? { ...notice, createdAt: at({ dayOffset: -1, hour: 12 }, now) }
         : notice,
     ),
     payments: db.payments.map((payment) => {
-      if (payment.id === "payment-google-play-review-child") {
+      if (payment.id === "payment-demo-gangseo-child") {
         return { ...payment, dueDate: dateOnly(20, now), expiresAt: dateOnly(35, now) };
       }
-      if (payment.id === "payment-google-play-review-adult") {
+      if (payment.id === "payment-demo-gangseo-adult") {
         return { ...payment, dueDate: dateOnly(-2, now), expiresAt: dateOnly(5, now) };
       }
-      if (payment.id === "payment-google-play-review-guardian") {
+      if (payment.id === "payment-demo-gangseo-guardian") {
         return { ...payment, dueDate: dateOnly(5, now), expiresAt: dateOnly(12, now) };
       }
       return payment;
     }),
     promotions: db.promotions.map((promotion) =>
-      promotion.id === "promotion-google-play-review-child"
+      promotion.id === "promotion-demo-gangseo-child"
         ? { ...promotion, examDate: dateOnly(14, now) }
         : promotion,
     ),
     tournaments: db.tournaments.map((tournament) =>
-      tournament.id === "tournament-google-play-review"
+      tournament.id === "tournament-demo-gangseo-summer"
         ? {
             ...tournament,
             eventDate: dateOnly(30, now),
