@@ -5,7 +5,6 @@ import { createDefaultPilotReadinessChecks, createMockData } from "@/lib/mock-da
 import { defaultPilotPasswordHash } from "@/server/auth-password";
 import { assertProductionRuntimeEnvironment } from "@/lib/production-runtime-policy";
 import { rollSeededDemoDates } from "@/server/demo-date-roll";
-import { rollGooglePlayReviewDates } from "@/lib/google-play-review-access";
 import { createJsonStore } from "@/server/json-store";
 import { createPostgresJsonStore } from "@/server/postgres-store";
 import { mergeRuntimeState } from "@/server/runtime-state-merge";
@@ -211,7 +210,7 @@ function validateMockDatabase(value: unknown) {
   }
 
   return validateRuntimeStateIntegrity(
-    rollGooglePlayReviewDates(sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase))),
+    sanitizeDatabaseAuditLogs(rollSeededDemoDates(upgraded as MockDatabase)),
   );
 }
 

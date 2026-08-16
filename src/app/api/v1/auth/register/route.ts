@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthInputLimitError } from "@/lib/auth-input-policy";
 import type { AppUser, AuditLog, Member, MockDatabase } from "@/lib/domain";
-import { isPublicSignupBranch } from "@/lib/google-play-review-access";
+import { isPublicSignupBranch } from "@/lib/branch-signup-policy";
 import { isValidKoreanMobileNumber, normalizePhoneNumber, samePhoneNumber } from "@/lib/phone";
 import {
   createRandomPasswordHash,

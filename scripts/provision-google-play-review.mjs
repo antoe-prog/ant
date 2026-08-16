@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Pool } from "pg";
-import { googlePlayReviewBranchId } from "../src/lib/google-play-review-access.ts";
+import { demoAccessBranchId as googlePlayReviewBranchId } from "../src/server/demo-access-identity.ts";
 import { inspectRuntimeStateIntegrity } from "../src/server/runtime-state-integrity.ts";
 import {
   createGooglePlayReviewConsoleEntries,

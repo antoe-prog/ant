@@ -7,6 +7,19 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
 import sharp from "sharp";
+import { createMockData } from "../src/lib/mock-data.ts";
+import {
+  demoAccessPhones,
+} from "../src/server/demo-access-identity.ts";
+import { provisionGooglePlayReviewAccess } from "../src/server/google-play-review-provisioning.ts";
+
+const appStoreCapturePasswords = {
+  admin: "FJ-AppStore-admin-capture",
+  coach: "FJ-AppStore-coach-capture",
+  guardian: "FJ-AppStore-guardian-capture",
+  member: "FJ-AppStore-member-capture",
+  owner: "FJ-AppStore-owner-capture",
+};
 
 const captureProfiles = {
   phone: {
@@ -37,10 +50,21 @@ const captureProfiles = {
     userAgent:
       "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
   },
+  iphone65: {
+    label: "iphone65",
+    outputDirectory: "mobile/ios/app-store/iphone-6.5-inch",
+    viewport: { width: 414, height: 896 },
+    deviceScaleFactor: 3,
+    dimensions: { width: 1242, height: 2688 },
+    expectedMobileNavigationCount: null,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  },
 };
 const profileArgument = process.argv.find((argument) => argument.startsWith("--profile="));
 const profileId = profileArgument?.slice("--profile=".length) || "tablet";
 const captureProfile = captureProfiles[profileId];
+const isAppStoreProfile = profileId === "ipad13" || profileId === "iphone65";
 
 assert(captureProfile, `unknown screenshot profile: ${profileId}`);
 
@@ -204,9 +228,23 @@ async function captureScreenshot(baseUrl, screenshot, context, hasSession) {
     consoleMessages.push(`pageerror: ${error instanceof Error ? error.message : String(error)}`);
   });
 
-  const targetUrl = new URL(hasSession ? screenshot.route : "/login", baseUrl);
+  const targetUrl = new URL(hasSession || isAppStoreProfile ? screenshot.route : "/login", baseUrl);
 
-  if (!hasSession) {
+  if (!hasSession && isAppStoreProfile) {
+    await page.goto(new URL("/login", baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: 90_000 });
+    const loginResult = await page.evaluate(async ({ password, phone }) => {
+      const response = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepSignedIn: true, password, phone }),
+      });
+      return { ok: response.ok, status: response.status };
+    }, {
+      password: appStoreCapturePasswords[screenshot.role],
+      phone: demoAccessPhones[screenshot.role],
+    });
+    assert.equal(loginResult.ok, true, `${screenshot.role} App Store capture account must log in (${loginResult.status})`);
+  } else if (!hasSession) {
     targetUrl.searchParams.set("role", screenshot.role);
     targetUrl.searchParams.set("autoLogin", "1");
     targetUrl.searchParams.set("next", screenshot.route);
@@ -276,6 +314,43 @@ async function captureScreenshot(baseUrl, screenshot, context, hasSession) {
   };
 }
 
+async function createContactSheet(results) {
+  const columns = 3;
+  const gap = 16;
+  const padding = 16;
+  const thumbnailWidth = 300;
+  const thumbnailHeight = Math.round(
+    captureProfile.dimensions.height * (thumbnailWidth / captureProfile.dimensions.width),
+  );
+  const rows = Math.ceil(results.length / columns);
+  const width = padding * 2 + columns * thumbnailWidth + (columns - 1) * gap;
+  const height = padding * 2 + rows * thumbnailHeight + (rows - 1) * gap;
+  const composite = [];
+
+  for (const [index, result] of results.entries()) {
+    composite.push({
+      input: await sharp(path.join(outputDirectory, result.file))
+        .resize({ width: thumbnailWidth, height: thumbnailHeight, fit: "fill" })
+        .png()
+        .toBuffer(),
+      left: padding + (index % columns) * (thumbnailWidth + gap),
+      top: padding + Math.floor(index / columns) * (thumbnailHeight + gap),
+    });
+  }
+
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: "#f4f4f5",
+    },
+  })
+    .composite(composite)
+    .png()
+    .toFile(path.join(outputDirectory, "contact-sheet.png"));
+}
+
 async function main() {
   const executablePath = findChromeExecutable();
 
@@ -284,8 +359,17 @@ async function main() {
   await mkdir(dataDirectory, { recursive: true });
   await mkdir(outputDirectory, { recursive: true });
 
+  if (isAppStoreProfile) {
+    const db = provisionGooglePlayReviewAccess(
+      createMockData(),
+      appStoreCapturePasswords,
+      new Date("2026-08-17T00:00:00+09:00"),
+    );
+    await writeFile(path.join(dataDirectory, "final-judo-db.json"), `${JSON.stringify(db, null, 2)}\n`, "utf8");
+  }
+
   for (const file of await readdir(outputDirectory)) {
-    if (/^\d{2}-.*\.png$/.test(file) || file === "manifest.json") {
+    if (/^\d{2}-.*\.png$/.test(file) || file === "contact-sheet.png" || file === "manifest.json") {
       await rm(path.join(outputDirectory, file), { force: true });
     }
   }
@@ -302,9 +386,9 @@ async function main() {
       env: {
         ...process.env,
         FINAL_JUDO_DATA_DIR: dataDirectory,
-        FINAL_JUDO_ENABLE_DEMO_LOGIN: "1",
+        FINAL_JUDO_ENABLE_DEMO_LOGIN: isAppStoreProfile ? "0" : "1",
         FINAL_JUDO_ENABLE_DEV_RESET: "0",
-        FINAL_JUDO_ROLL_DEMO_DATES: "1",
+        FINAL_JUDO_ROLL_DEMO_DATES: isAppStoreProfile ? "0" : "1",
         NEXT_TELEMETRY_DISABLED: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -346,12 +430,12 @@ async function main() {
   }
 
   const storeRequirements =
-    profileId === "ipad13"
+    isAppStoreProfile
       ? {
           appStoreRequirements: {
             maxCount: 10,
             maxFileSizeBytes: 8 * 1024 * 1024,
-            orientation: "portrait 3:4",
+            orientation: profileId === "ipad13" ? "portrait 3:4" : "portrait",
             dimensions: `${captureProfile.dimensions.width}x${captureProfile.dimensions.height}`,
           },
         }
@@ -365,12 +449,15 @@ async function main() {
         };
   const manifest = {
     generatedAt: new Date().toISOString(),
-    source: "isolated local demo data",
+    source: isAppStoreProfile
+      ? "isolated fixed demo tenant using ordinary role authentication"
+      : "isolated local demo data",
     profile: profileId,
     ...storeRequirements,
     screenshots: results,
   };
 
+  await createContactSheet(results);
   await writeFile(path.join(outputDirectory, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(`Created ${results.length} Play Store ${captureProfile.label} screenshots in ${outputDirectory}`);
   for (const result of results) {

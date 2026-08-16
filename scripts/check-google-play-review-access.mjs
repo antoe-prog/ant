@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { createMockData } from "../src/lib/mock-data.ts";
 import { getAccessibleBranchIds } from "../src/lib/mock-api.ts";
 import {
-  googlePlayReviewBranchId,
-  googlePlayReviewPhones,
-  googlePlayReviewUserIds,
-} from "../src/lib/google-play-review-access.ts";
+  demoAccessBranchId as googlePlayReviewBranchId,
+  demoAccessPhones as googlePlayReviewPhones,
+  demoAccessUserIds as googlePlayReviewUserIds,
+} from "../src/server/demo-access-identity.ts";
 import {
   canAdminManageUser,
   hasAdminAccessToBranchIds,
@@ -32,9 +32,46 @@ const now = new Date("2026-07-22T03:00:00.000Z");
 const original = createMockData();
 const originalUserHashes = new Map(original.users.map((user) => [user.id, user.passwordHash]));
 const provisioned = provisionGooglePlayReviewAccess(original, passwords, now);
+const provisionedLater = provisionGooglePlayReviewAccess(
+  original,
+  passwords,
+  new Date("2026-09-22T03:00:00.000Z"),
+);
 const reprovisioned = provisionGooglePlayReviewAccess(provisioned, passwords, now);
 const reviewAdmin = provisioned.users.find((user) => user.id === googlePlayReviewUserIds.admin);
 const regularAdmin = provisioned.users.find((user) => user.id === "user-admin");
+
+function visibleDemoDates(db) {
+  return {
+    attendance: db.attendance
+      .filter((record) => record.id.includes("demo-gangseo"))
+      .map(({ confirmedAt, id }) => ({ confirmedAt, id })),
+    classes: db.classes
+      .filter((session) => session.branchId === googlePlayReviewBranchId)
+      .map(({ endsAt, id, startsAt }) => ({ endsAt, id, startsAt })),
+    counselingNotes: db.counselingNotes
+      .filter((note) => note.branchId === googlePlayReviewBranchId)
+      .map(({ createdAt, id }) => ({ createdAt, id })),
+    notices: db.notices
+      .filter((notice) => notice.branchId === googlePlayReviewBranchId)
+      .map(({ createdAt, id }) => ({ createdAt, id })),
+    payments: db.payments
+      .filter((payment) => payment.branchId === googlePlayReviewBranchId)
+      .map(({ dueDate, expiresAt, id, statusHistory }) => ({ dueDate, expiresAt, id, statusHistory })),
+    promotions: db.promotions
+      .filter((promotion) => promotion.branchId === googlePlayReviewBranchId)
+      .map(({ createdAt, examDate, id }) => ({ createdAt, examDate, id })),
+    tournaments: db.tournaments
+      .filter((tournament) => tournament.branchId === googlePlayReviewBranchId)
+      .map(({ createdAt, eventDate, id, registrationDeadline, updatedAt }) => ({
+        createdAt,
+        eventDate,
+        id,
+        registrationDeadline,
+        updatedAt,
+      })),
+  };
+}
 
 assert(reviewAdmin, "review admin must be provisioned");
 assert(regularAdmin, "regular admin must remain available");
@@ -42,6 +79,11 @@ assert.equal(provisioned.branches.length, original.branches.length + 1, "provisi
 assert.equal(provisioned.users.length, original.users.length + 5, "provisioning must add five role accounts");
 assert.equal(reprovisioned.branches.length, provisioned.branches.length, "reprovisioning must not duplicate the review branch");
 assert.equal(reprovisioned.users.length, provisioned.users.length, "reprovisioning must not duplicate review accounts");
+assert.deepEqual(
+  visibleDemoDates(provisionedLater),
+  visibleDemoDates(provisioned),
+  "demo tenant content must stay fixed when provisioning runs on another date",
+);
 assert.throws(
   () => provisionGooglePlayReviewAccess({
     ...original,
@@ -145,7 +187,7 @@ for (const entry of entries) {
 const serverApiSource = readFileSync("src/server/api.ts", "utf8");
 const serverDbSource = readFileSync("src/server/db.ts", "utf8");
 const provisionScriptSource = readFileSync("scripts/provision-google-play-review.mjs", "utf8");
-const reviewAccessSource = readFileSync("src/lib/google-play-review-access.ts", "utf8");
+const demoAccessSource = readFileSync("src/server/demo-access-identity.ts", "utf8");
 const domainSource = readFileSync("src/lib/domain.ts", "utf8");
 
 const visibleFixtureText = [
@@ -172,15 +214,16 @@ const visibleFixtureText = [
 assert(serverApiSource.includes("hasGlobalAdminDataAccess"));
 assert(!serverApiSource.includes("isGooglePlayReviewAccount"));
 assert(!serverApiSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
-assert(!reviewAccessSource.includes("hasGlobalAdminDataAccess"));
-assert(!reviewAccessSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
+assert(!demoAccessSource.includes("hasGlobalAdminDataAccess"));
+assert(!demoAccessSource.includes("shouldBlockGooglePlayReviewAdminMutation"));
 assert(!domainSource.includes("accountPurpose"), "review identity must not be part of the user domain contract");
 assert.doesNotMatch(
   visibleFixtureText,
   /Google Play|Play 검토|합성 검토|검토용|검토 지점|검토 매트|검토 체육관/i,
   "review accounts must receive ordinary app-facing names and content",
 );
-assert(serverDbSource.includes("rollGooglePlayReviewDates"), "review dates must remain current in production");
+assert(!serverDbSource.includes("rollGooglePlayReviewDates"), "runtime DB reads must not rewrite demo dates");
+assert(!serverDbSource.includes("google-play-review-access"), "runtime DB validation must not import review access logic");
 assert(provisionScriptSource.includes("FINAL_JUDO_INSTALLATION_ID"), "production provisioning must verify installation identity");
 assert(provisionScriptSource.includes("FINAL_JUDO_REVIEW_CREDENTIALS_FILE"), "production provisioning must support password-preserving repair");
 assert(provisionScriptSource.includes("credentialsPrinted: false"), "provisioning output must not print passwords");

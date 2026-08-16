@@ -197,6 +197,8 @@
     "ios:web:build": "node scripts/build-ios-local-web.mjs",
     "ios:cap:sync": "node node_modules/@capacitor/cli/bin/capacitor sync ios",
     "ios:ipa:build": "node scripts/build-ios-ipa.mjs",
+    "ios:app-store:screenshots:iphone": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/capture-play-store-tablet-screenshots.mjs --profile=iphone65",
+    "ios:app-store:screenshots:ipad": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/capture-play-store-tablet-screenshots.mjs --profile=ipad13",
     "test:attendance-speed": "node scripts/smoke-attendance-speed.mjs",
     "test:a11y-static": "node scripts/check-a11y-static.mjs",
     "test:auth-production-guard": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-auth-production-guard.mjs",

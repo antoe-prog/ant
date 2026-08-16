@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-08-16T16:39:39.397Z",
+  "source": "isolated fixed demo tenant using ordinary role authentication",
+  "profile": "iphone65",
+  "appStoreRequirements": {
+    "maxCount": 10,
+    "maxFileSizeBytes": 8388608,
+    "orientation": "portrait",
+    "dimensions": "1242x2688"
+  },
+  "screenshots": [
+    {
+      "file": "01-member-home.png",
+      "label": "회원 홈",
+      "role": "member",
+      "route": "/app/dashboard",
+      "width": 1242,
+      "height": 2688,
+      "sizeBytes": 102891,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "02-member-classes.png",
+      "label": "회원 수업 달력",
+      "role": "member",
+      "route": "/app/classes",
+      "width": 1242,
+      "height": 2688,
+      "sizeBytes": 88748,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "03-guardian-home.png",
+      "label": "학부모 홈",
+      "role": "guardian",
+      "route": "/app/dashboard",
+      "width": 1242,
+      "height": 2688,
+      "sizeBytes": 177239,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "04-guardian-payments.png",
+      "label": "학부모 결제",
+      "role": "guardian",
+      "route": "/app/payments",
+      "width": 1242,
+      "height": 2688,
+      "sizeBytes": 84822,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    },
+    {
+      "file": "05-guardian-notifications.png",
+      "label": "학부모 알림",
+      "role": "guardian",
+      "route": "/app/notifications",
+      "width": 1242,
+      "height": 2688,
+      "sizeBytes": 106427,
+      "horizontalOverflow": 0,
+      "consoleErrors": []
+    }
+  ]
+}

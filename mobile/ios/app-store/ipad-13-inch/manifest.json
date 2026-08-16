@@ -1,6 +1,13 @@
 {
-  "generatedAt": "2026-08-06T07:19:42.724Z",
-  "source": "isolated local demo data",
+  "generatedAt": "2026-08-16T16:41:17.088Z",
+  "source": "isolated fixed demo tenant using ordinary role authentication",
+  "profile": "ipad13",
+  "appStoreRequirements": {
+    "maxCount": 10,
+    "maxFileSizeBytes": 8388608,
+    "orientation": "portrait 3:4",
+    "dimensions": "2064x2752"
+  },
   "screenshots": [
     {
       "file": "01-member-home.png",
@@ -9,7 +16,7 @@
       "route": "/app/dashboard",
       "width": 2064,
       "height": 2752,
-      "sizeBytes": 110428,
+      "sizeBytes": 115844,
       "horizontalOverflow": 0,
       "consoleErrors": []
     },
@@ -20,7 +27,7 @@
       "route": "/app/classes",
       "width": 2064,
       "height": 2752,
-      "sizeBytes": 113142,
+      "sizeBytes": 106242,
       "horizontalOverflow": 0,
       "consoleErrors": []
     },
@@ -31,7 +38,7 @@
       "route": "/app/dashboard",
       "width": 2064,
       "height": 2752,
-      "sizeBytes": 191100,
+      "sizeBytes": 198070,
       "horizontalOverflow": 0,
       "consoleErrors": []
     },
@@ -42,7 +49,7 @@
       "route": "/app/payments",
       "width": 2064,
       "height": 2752,
-      "sizeBytes": 101557,
+      "sizeBytes": 107128,
       "horizontalOverflow": 0,
       "consoleErrors": []
     },
@@ -53,16 +60,9 @@
       "route": "/app/notifications",
       "width": 2064,
       "height": 2752,
-      "sizeBytes": 215083,
+      "sizeBytes": 120262,
       "horizontalOverflow": 0,
       "consoleErrors": []
     }
-  ],
-  "profile": "ipad13",
-  "appStoreRequirements": {
-    "maxCount": 10,
-    "maxFileSizeBytes": 8388608,
-    "orientation": "portrait 3:4",
-    "dimensions": "2064x2752"
-  }
+  ]
 }

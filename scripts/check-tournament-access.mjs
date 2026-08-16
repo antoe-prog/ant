@@ -852,12 +852,25 @@ async function main() {
 
     const executablePath = chromeCandidates.find(existsSync);
     assert(executablePath, "Chrome is required for tournament mobile deletion verification");
+
+    // Compile every route the tested screens load before opening the browser.
+    // A late Next dev compilation triggers Fast Refresh and can erase transient UI feedback.
+    for (const path of ["/app/dashboard", "/app/tournaments", "/api/v1/notifications/push-config"]) {
+      const response = await fetch(`${baseUrl}${path}`, {
+        headers: { "x-user-id": "user-coach" },
+        signal: AbortSignal.timeout(300_000),
+      });
+      assert.equal(response.status, 200, `${path} must compile before browser verification`);
+      await response.arrayBuffer();
+    }
+
     browser = await chromium.launch({ executablePath, headless: true });
     const browserContext = await browser.newContext({
       extraHTTPHeaders: { "x-user-id": "user-coach" },
       viewport: { width: 390, height: 844 },
     });
     const page = await browserContext.newPage();
+    page.setDefaultTimeout(120_000);
     await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "networkidle" });
     const dashboardTournamentQueueLink = page.getByRole("link", { name: /대회 신청/ });
     await dashboardTournamentQueueLink.waitFor({ state: "visible" });
@@ -948,6 +961,7 @@ async function main() {
       viewport: { width: 390, height: 844 },
     });
     const memberPage = await memberBrowserContext.newPage();
+    memberPage.setDefaultTimeout(120_000);
     await memberPage.goto(`${baseUrl}/app/tournaments`, { waitUntil: "networkidle" });
     const registrationButton = memberPage.getByTestId("tournament-registration-open-tournament-global");
     await registrationButton.waitFor({ state: "visible" });

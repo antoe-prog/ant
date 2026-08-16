@@ -16,12 +16,11 @@ import type {
 } from "../lib/domain.ts";
 import { userRoles } from "../lib/domain.ts";
 import {
-  googlePlayReviewBranchId,
-  googlePlayReviewMemberIds,
-  googlePlayReviewPhones,
-  googlePlayReviewUserIds,
-  rollGooglePlayReviewDates,
-} from "../lib/google-play-review-access.ts";
+  demoAccessBranchId as googlePlayReviewBranchId,
+  demoAccessMemberIds as googlePlayReviewMemberIds,
+  demoAccessPhones as googlePlayReviewPhones,
+  demoAccessUserIds as googlePlayReviewUserIds,
+} from "./demo-access-identity.ts";
 import { createRandomPasswordHash } from "./auth-password.ts";
 
 export type GooglePlayReviewPasswords = Record<UserRole, string>;
@@ -103,15 +102,15 @@ const roleNames: Record<UserRole, string> = {
   owner: "Branch Owner",
 };
 
-function at(now: Date, dayOffset: number, hour: number, minute = 0) {
-  const value = new Date(now);
-  value.setHours(hour, minute, 0, 0);
-  value.setDate(value.getDate() + dayOffset);
-  return value.toISOString();
+const demoFixtureAnchorMs = Date.parse("2026-08-17T00:00:00+09:00");
+const dayMs = 24 * 60 * 60 * 1000;
+
+function fixtureAt(dayOffset: number, hour: number, minute = 0) {
+  return new Date(demoFixtureAnchorMs + dayOffset * dayMs + (hour * 60 + minute) * 60 * 1000).toISOString();
 }
 
-function dateOnly(now: Date, dayOffset: number) {
-  return at(now, dayOffset, 9).slice(0, 10);
+function fixtureDate(dayOffset: number) {
+  return fixtureAt(dayOffset, 9).slice(0, 10);
 }
 
 function replaceById<T extends { id: string }>(current: T[], replacements: T[]) {
@@ -186,7 +185,7 @@ export function provisionGooglePlayReviewAccess(
 ): MockDatabase {
   assertPasswords(passwords);
 
-  const createdAt = at(now, -30, 10);
+  const createdAt = fixtureAt(-30, 10);
   const passwordUpdatedAt = now.toISOString();
   const branch: Branch = {
     id: googlePlayReviewBranchId,
@@ -313,11 +312,11 @@ export function provisionGooglePlayReviewAccess(
       capacity: 12,
       coachId: googlePlayReviewUserIds.coach,
       enrolledMemberIds: [googlePlayReviewMemberIds.child],
-      endsAt: at(now, 0, 16, 50),
+      endsAt: fixtureAt(0, 16, 50),
       level: "입문-초급",
       name: "유소년 유도 기초반",
       room: "A 매트",
-      startsAt: at(now, 0, 16),
+      startsAt: fixtureAt(0, 16),
     },
     {
       id: "class-demo-gangseo-adult",
@@ -326,11 +325,11 @@ export function provisionGooglePlayReviewAccess(
       capacity: 16,
       coachId: googlePlayReviewUserIds.coach,
       enrolledMemberIds: [googlePlayReviewMemberIds.adult, googlePlayReviewMemberIds.guardian],
-      endsAt: at(now, 0, 21),
+      endsAt: fixtureAt(0, 21),
       level: "초급-중급",
       name: "성인 직장인반",
       room: "B 매트",
-      startsAt: at(now, 0, 20),
+      startsAt: fixtureAt(0, 20),
     },
     {
       id: "class-demo-gangseo-tomorrow",
@@ -339,24 +338,24 @@ export function provisionGooglePlayReviewAccess(
       capacity: 20,
       coachId: googlePlayReviewUserIds.coach,
       enrolledMemberIds: Object.values(googlePlayReviewMemberIds),
-      endsAt: at(now, 1, 18, 50),
+      endsAt: fixtureAt(1, 18, 50),
       level: "모두 가능",
       name: "공통 낙법 클리닉",
       room: "A 매트",
-      startsAt: at(now, 1, 18),
+      startsAt: fixtureAt(1, 18),
     },
   ];
   const attendance: AttendanceRecord[] = [
     {
       id: "attendance-demo-gangseo-child",
-      confirmedAt: at(now, 0, 16, 4),
+      confirmedAt: fixtureAt(0, 16, 4),
       memberId: googlePlayReviewMemberIds.child,
       sessionId: "class-demo-gangseo-kids",
       status: "present",
     },
     {
       id: "attendance-demo-gangseo-adult",
-      confirmedAt: at(now, 0, 20, 6),
+      confirmedAt: fixtureAt(0, 20, 6),
       memberId: googlePlayReviewMemberIds.adult,
       sessionId: "class-demo-gangseo-adult",
       status: "absent",
@@ -368,7 +367,7 @@ export function provisionGooglePlayReviewAccess(
       authorUserId: googlePlayReviewUserIds.coach,
       body: "낙법 동작이 안정되었고 다음 수업에서 발기술 연결을 연습합니다.",
       branchId: googlePlayReviewBranchId,
-      createdAt: at(now, -1, 18),
+      createdAt: fixtureAt(-1, 18),
       memberId: googlePlayReviewMemberIds.child,
       noteType: "progress",
       visibility: "guardian_visible",
@@ -379,15 +378,15 @@ export function provisionGooglePlayReviewAccess(
       id: "payment-demo-gangseo-child",
       amount: 180000,
       branchId: googlePlayReviewBranchId,
-      dueDate: dateOnly(now, 20),
-      expiresAt: dateOnly(now, 35),
+      dueDate: fixtureDate(20),
+      expiresAt: fixtureDate(35),
       memberId: googlePlayReviewMemberIds.child,
       planName: "유소년 주 3회 1개월",
       status: "paid",
       statusHistory: [{
         id: "payment-history-demo-gangseo-child",
         actorUserId: googlePlayReviewUserIds.owner,
-        changedAt: at(now, -5, 12),
+        changedAt: fixtureAt(-5, 12),
         event: "created",
         reason: "월 회비 납부 등록",
         status: "paid",
@@ -397,15 +396,15 @@ export function provisionGooglePlayReviewAccess(
       id: "payment-demo-gangseo-adult",
       amount: 170000,
       branchId: googlePlayReviewBranchId,
-      dueDate: dateOnly(now, -2),
-      expiresAt: dateOnly(now, 5),
+      dueDate: fixtureDate(-2),
+      expiresAt: fixtureDate(5),
       memberId: googlePlayReviewMemberIds.adult,
       planName: "성인 월 회비",
       status: "overdue",
       statusHistory: [{
         id: "payment-history-demo-gangseo-adult",
         actorUserId: googlePlayReviewUserIds.owner,
-        changedAt: at(now, -2, 12),
+        changedAt: fixtureAt(-2, 12),
         event: "created",
         reason: "납부 기한 경과",
         status: "overdue",
@@ -415,15 +414,15 @@ export function provisionGooglePlayReviewAccess(
       id: "payment-demo-gangseo-guardian",
       amount: 160000,
       branchId: googlePlayReviewBranchId,
-      dueDate: dateOnly(now, 5),
-      expiresAt: dateOnly(now, 12),
+      dueDate: fixtureDate(5),
+      expiresAt: fixtureDate(12),
       memberId: googlePlayReviewMemberIds.guardian,
       planName: "성인 주 2회 1개월",
       status: "scheduled",
       statusHistory: [{
         id: "payment-history-demo-gangseo-guardian",
         actorUserId: googlePlayReviewUserIds.owner,
-        changedAt: at(now, -1, 12),
+        changedAt: fixtureAt(-1, 12),
         event: "created",
         reason: "다음 납부 일정 등록",
         status: "scheduled",
@@ -436,7 +435,7 @@ export function provisionGooglePlayReviewAccess(
       audience: ["all"],
       body: "이번 주 토요일 합동 훈련은 오전 10시에 시작합니다.",
       branchId: googlePlayReviewBranchId,
-      createdAt: at(now, -1, 12),
+      createdAt: fixtureAt(-1, 12),
       createdByUserId: googlePlayReviewUserIds.owner,
       important: true,
       readByUserIds: [],
@@ -447,10 +446,10 @@ export function provisionGooglePlayReviewAccess(
     {
       id: "promotion-demo-gangseo-child",
       branchId: googlePlayReviewBranchId,
-      createdAt: now.toISOString(),
+      createdAt: fixtureAt(0, 10),
       createdByUserId: googlePlayReviewUserIds.coach,
       evaluatorUserId: googlePlayReviewUserIds.coach,
-      examDate: dateOnly(now, 14),
+      examDate: fixtureDate(14),
       fromBelt: "노란띠",
       memberId: googlePlayReviewMemberIds.child,
       note: "낙법과 기본 잡기 항목 확인",
@@ -462,16 +461,16 @@ export function provisionGooglePlayReviewAccess(
     {
       id: "tournament-demo-gangseo-summer",
       branchId: googlePlayReviewBranchId,
-      createdAt: now.toISOString(),
+      createdAt: fixtureAt(0, 11),
       createdByUserId: googlePlayReviewUserIds.owner,
       description: "지점 회원 대상 교류전입니다.",
-      eventDate: dateOnly(now, 30),
+      eventDate: fixtureDate(30),
       location: "강서구민체육관",
       organizer: "파이널유도멀티짐",
-      registrationDeadline: dateOnly(now, 14),
+      registrationDeadline: fixtureDate(14),
       scope: "branch",
       title: "여름 합동 교류전",
-      updatedAt: now.toISOString(),
+      updatedAt: fixtureAt(0, 11),
     },
   ];
   const auditLog: AuditLog = {
@@ -520,7 +519,7 @@ export function provisionGooglePlayReviewAccess(
   assertOwnedReplacementIds("promotion", db.promotions, promotions, (item) => item.branchId === googlePlayReviewBranchId);
   assertOwnedReplacementIds("tournament", db.tournaments, tournaments, (item) => item.branchId === googlePlayReviewBranchId);
 
-  return rollGooglePlayReviewDates({
+  return {
     ...db,
     attendance: replaceById(db.attendance, attendance),
     attendanceQrChallenges: db.attendanceQrChallenges.filter(
@@ -541,5 +540,5 @@ export function provisionGooglePlayReviewAccess(
     ),
     tournaments: replaceById(db.tournaments, tournaments),
     users: replaceById(db.users, users),
-  }, now);
+  };
 }

@@ -6,10 +6,10 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createMockData } from "../src/lib/mock-data.ts";
 import {
-  googlePlayReviewBranchId,
-  googlePlayReviewPhones,
-  googlePlayReviewUserIds,
-} from "../src/lib/google-play-review-access.ts";
+  demoAccessBranchId as googlePlayReviewBranchId,
+  demoAccessPhones as googlePlayReviewPhones,
+  demoAccessUserIds as googlePlayReviewUserIds,
+} from "../src/server/demo-access-identity.ts";
 import { provisionGooglePlayReviewAccess } from "../src/server/google-play-review-provisioning.ts";
 
 const passwords = {
@@ -79,6 +79,16 @@ async function login(baseUrl, role) {
   const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
   assert(cookie, `${role} review login must set a session cookie`);
   return { cookie, payload };
+}
+
+async function bootstrap(baseUrl, cookie, headers) {
+  const response = await fetch(`${baseUrl}/api/v1/me/bootstrap`, {
+    headers: { cookie, ...headers },
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, "demo account bootstrap must succeed");
+  return payload.data;
 }
 
 async function stopServer() {
@@ -240,6 +250,22 @@ try {
       `${role} snapshot must not expose review-only labels`,
     );
   }
+
+  const memberIphoneSnapshot = await bootstrap(baseUrl, sessions.member.cookie, {
+    "user-agent": "FinalJudo/1.0 (iPhone; iOS 18.6)",
+    "x-testflight": "true",
+    "x-vercel-ip-country": "KR",
+  });
+  const memberIpadSnapshot = await bootstrap(baseUrl, sessions.member.cookie, {
+    "user-agent": "FinalJudo/1.0 (iPad; iPadOS 18.6)",
+    "x-testflight": "false",
+    "x-vercel-ip-country": "US",
+  });
+  assert.deepEqual(
+    memberIpadSnapshot,
+    memberIphoneSnapshot,
+    "bootstrap data must not vary by device, TestFlight, or region headers",
+  );
 
   const adminSnapshot = sessions.admin.payload.data.db;
   assert.equal(adminSnapshot.users.length, 5, "review admin must only receive synthetic branch users");
