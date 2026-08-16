@@ -18,9 +18,9 @@
 - 갭 하락하면 스톱선보다 한참 아래에서 체결된다. 손실은 설정값보다 커질 수 있다.
 - 봇이 죽어 있으면 아무것도 안 걸린다.
 
-백테스트도 정확히 같은 모델(관측 종가로 판정, 다음 봉 시가에 체결)을 쓰므로
-백테스트 결과와 실제 동작이 어긋나지 않는다. 거래소 stop order를 쓰는 것보다
-보수적으로 봐야 하는 구조다.
+백테스트도 관측 종가로 판정하고 다음 봉 시가의 PaperBroker 체결로 근사한다.
+실거래는 현재 호가·주문 생명주기·호가 잔량의 영향을 받으므로 결과가 어긋날 수
+있다. 둘 다 거래소 stop order가 아니며, 백테스트 체결은 보수성의 보장이 아니다.
 """
 
 from __future__ import annotations
@@ -132,6 +132,11 @@ class StopManager:
                 continue
             price = marks.get(symbol, position.avg_price)
             row = self._store.load_tracking(symbol)
+            blocked_until = (
+                datetime.fromisoformat(row["blocked_until"])
+                if row and row["blocked_until"]
+                else None
+            )
 
             if row is None or not row["opened_at"]:
                 # 새로 관측된 포지션. 봇이 재시작됐거나 외부에서 산 경우도
@@ -141,7 +146,7 @@ class StopManager:
                     symbol,
                     high_water=max(price, position.avg_price),
                     opened_at=now,
-                    blocked_until=row["blocked_until"] if row else None,
+                    blocked_until=blocked_until,
                 )
                 continue
 
@@ -151,7 +156,7 @@ class StopManager:
                     symbol,
                     high_water=price,
                     opened_at=datetime.fromisoformat(row["opened_at"]),
-                    blocked_until=row["blocked_until"],
+                    blocked_until=blocked_until,
                 )
 
         # 포지션이 사라졌는데 추적만 남아 있으면(외부 매도 등) 정리한다.

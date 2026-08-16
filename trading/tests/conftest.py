@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from hashlib import sha256
 
 import pytest
 
 from tossquant.config import Settings
 from tossquant.store import Store
+
+
+@pytest.fixture(autouse=True)
+def isolate_live_lease_root(tmp_path, monkeypatch) -> None:
+    """Keep durable live-account bindings inside one test's temp directory."""
+    state_base = tmp_path / "live-state"
+    monkeypatch.setattr(
+        Store,
+        "_live_state_base",
+        staticmethod(lambda: state_base),
+    )
+
 
 @pytest.fixture
 def store(tmp_path) -> Store:
@@ -16,10 +29,11 @@ def store(tmp_path) -> Store:
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
+    account_suffix = sha256(str(tmp_path).encode("utf-8")).hexdigest()[:16]
     return Settings(
         client_id="test-id",
         client_secret="test-secret",
-        account_id="test-account",
+        account_id=f"test-account-{account_suffix}",
         symbols=["AAPL"],
         paper_cash=Decimal("10000"),
         paper_slippage_bps=Decimal("0"),

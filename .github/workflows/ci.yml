@@ -6,6 +6,118 @@ on:
     branches: [main]
 
 jobs:
+  trading-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12.13"]
+    defaults:
+      run:
+        working-directory: trading
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            trading/pyproject.toml
+            trading/evidence/requirements-build.txt
+            trading/evidence/requirements-measurement.txt
+            trading/tests/requirements-lower-bounds.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r evidence/requirements-build.txt
+          if [ "${{ matrix.python-version }}" = "3.12.13" ]; then
+            pip install -r evidence/requirements-measurement.txt
+            pip install -e . --no-deps --no-build-isolation
+          else
+            pip install -e '.[dev]' --no-build-isolation
+          fi
+      - name: Run tests
+        run: pytest -q
+      - name: Verify recorded measurement runtime
+        if: matrix.python-version == '3.12.13'
+        env:
+          TOSSQUANT_ASSERT_EVIDENCE_RUNTIME: "1"
+        run: pytest -q tests/test_evidence.py
+      - name: Verify tracked evidence bundle
+        if: matrix.python-version == '3.12.13'
+        run: |
+          python -I scripts/build_plotly_evidence.py \
+            --output-dir evidence \
+            --manifest evidence/plotly-verified-splits.csv \
+            --readme README.md \
+            --artifact-version v5 \
+            --check
+      - name: Compile source and scripts
+        run: python -m compileall -q src scripts
+      - name: Build and install wheel smoke test
+        run: |
+          current_wheel_dir="$RUNNER_TEMP/tossquant-current-wheel-${{ matrix.python-version }}"
+          clean_venv="$RUNNER_TEMP/tossquant-clean-venv-${{ matrix.python-version }}"
+          python -m pip wheel . --no-deps --no-build-isolation --wheel-dir "$current_wheel_dir"
+          python -m venv "$clean_venv"
+          "$clean_venv/bin/python" -m pip install -r evidence/requirements-measurement.txt
+          "$clean_venv/bin/python" -m pip install --no-deps "$current_wheel_dir"/tossquant-*.whl
+          . "$clean_venv/bin/activate"
+          PYTHONTZPATH="" tossquant --help
+          PYTHONTZPATH="" python -c "from zoneinfo import ZoneInfo; ZoneInfo('America/New_York'); ZoneInfo('Asia/Seoul')"
+          python -c "import importlib.metadata, tossquant; assert importlib.metadata.version('tossquant') == tossquant.__version__ == '0.2.0'"
+      - name: Upgrade old wheel without force reinstall
+        run: |
+          current_wheel_dir="$RUNNER_TEMP/tossquant-current-wheel-${{ matrix.python-version }}"
+          old_wheel_dir="$RUNNER_TEMP/tossquant-old-wheel-${{ matrix.python-version }}"
+          upgrade_venv="$RUNNER_TEMP/tossquant-upgrade-venv-${{ matrix.python-version }}"
+          python -m pip wheel tests/fixtures/tossquant_0_1_0 --no-deps --no-build-isolation --wheel-dir "$old_wheel_dir"
+          python -m venv "$upgrade_venv"
+          "$upgrade_venv/bin/python" -m pip install -r evidence/requirements-measurement.txt
+          "$upgrade_venv/bin/python" -m pip install --no-deps "$old_wheel_dir"/tossquant-*.whl
+          "$upgrade_venv/bin/python" -c "import importlib.metadata; assert importlib.metadata.version('tossquant') == '0.1.0'"
+          "$upgrade_venv/bin/python" -m pip install --no-deps "$current_wheel_dir"/tossquant-*.whl
+          . "$upgrade_venv/bin/activate"
+          python -c "import importlib.metadata, tossquant; from tossquant.store import Store; assert importlib.metadata.version('tossquant') == tossquant.__version__ == '0.2.0'; assert hasattr(Store, 'claim_live_intent')"
+          tossquant --help
+      - name: Verify project lower bounds
+        run: |
+          current_wheel_dir="$RUNNER_TEMP/tossquant-current-wheel-${{ matrix.python-version }}"
+          lower_venv="$RUNNER_TEMP/tossquant-lower-venv-${{ matrix.python-version }}"
+          python -m venv "$lower_venv"
+          "$lower_venv/bin/python" -m pip install -r tests/requirements-lower-bounds.txt
+          "$lower_venv/bin/python" -m pip install --no-deps "$current_wheel_dir"/tossquant-*.whl
+          . "$lower_venv/bin/activate"
+          python -m pip check
+          python -c "import importlib.metadata; assert importlib.metadata.version('typer') == '0.16.0'; assert importlib.metadata.version('click') == '8.4.2'"
+          PYTHONTZPATH="" tossquant --help
+
+  windows-wheel-smoke:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: trading
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.13"
+      - name: Build and install Windows wheel without a system timezone database
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r evidence/requirements-build.txt
+          $wheelDir = Join-Path $env:RUNNER_TEMP "tossquant-windows-wheel"
+          $venv = Join-Path $env:RUNNER_TEMP "tossquant-windows-venv"
+          python -m pip wheel . --no-deps --no-build-isolation --wheel-dir $wheelDir
+          python -m venv $venv
+          $python = Join-Path $venv "Scripts/python.exe"
+          $wheel = Get-ChildItem (Join-Path $wheelDir "tossquant-*.whl") | Select-Object -First 1
+          & $python -m pip install $wheel.FullName
+          $env:PYTHONTZPATH = ""
+          & $python -c "from zoneinfo import ZoneInfo; import tossquant.cli; ZoneInfo('America/New_York'); ZoneInfo('Asia/Seoul')"
+          & (Join-Path $venv "Scripts/tossquant.exe") --help
+
   gateway-tests:
     runs-on: ubuntu-latest
     defaults:

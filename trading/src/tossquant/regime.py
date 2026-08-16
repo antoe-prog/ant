@@ -10,12 +10,12 @@
 빠져나오지 못하게 막는 건 정확히 반대로 가는 짓이다. `risk.py`의 일일 손실
 한도와 같은 원칙이다.
 
-## 판단할 수 없으면 통과시킨다 (fail-open)
+## 판단할 수 없으면 신규 진입을 막는다
 
-지수 캔들이 모자라거나 조회에 실패하면 필터를 적용하지 않고 로그만 남긴다.
-막아버리면 봇이 매수를 멈춘 이유가 화면 어디에도 드러나지 않아서, 데이터 문제
-하나로 몇 주를 날릴 수 있다. 이 필터는 안전장치가 아니라 성과 개선 장치이고,
-안전장치는 `stops.py`와 `risk.py`가 따로 맡고 있다.
+사용자가 필터를 켠 상태에서 지수 캔들이 모자라거나 조회·평가에 실패하면 그
+상태는 위험도 정상도 아닌 UNKNOWN이다. UNKNOWN은 신규 진입을 막고 오류 알림을
+내지만, 보유 포지션 청산은 계속 허용한다. 필터를 명시적으로 끈 경우에만 데이터
+없이 진입을 허용한다.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class RegimeState:
     risk_on: bool
+    known: bool = True
     price: Decimal | None = None
     average: Decimal | None = None
     reason: str = ""
@@ -60,19 +61,26 @@ class RegimeFilter:
 
         if not candles:
             log.warning(
-                "%s 지수 캔들이 없어 국면 필터를 건너뜁니다 (매수 허용)", self.symbol
+                "%s 지수 캔들이 없어 국면을 판단할 수 없습니다 (매수 차단)",
+                self.symbol,
             )
-            return RegimeState(risk_on=True, reason=f"{self.symbol} 데이터 없음")
+            return RegimeState(
+                risk_on=False,
+                known=False,
+                reason=f"{self.symbol} 데이터 없음",
+            )
 
         closes = [c.close for c in candles]
         average = sma(closes, self.ma_bars)
         if average is None:
             log.warning(
-                "%s 캔들 부족(%d개, 필요 %d개) — 국면 필터를 건너뜁니다 (매수 허용)",
+                "%s 캔들 부족(%d개, 필요 %d개) — 국면 판단 불가 (매수 차단)",
                 self.symbol, len(closes), self.ma_bars,
             )
             return RegimeState(
-                risk_on=True, reason=f"{self.symbol} 캔들 부족 {len(closes)}/{self.ma_bars}"
+                risk_on=False,
+                known=False,
+                reason=f"{self.symbol} 캔들 부족 {len(closes)}/{self.ma_bars}",
             )
 
         price = closes[-1]

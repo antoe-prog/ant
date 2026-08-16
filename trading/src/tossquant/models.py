@@ -63,10 +63,32 @@ class OrderRequest:
     client_order_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def __post_init__(self) -> None:
-        if self.quantity <= 0:
-            raise ValueError(f"quantity must be positive, got {self.quantity}")
-        if self.order_type is OrderType.LIMIT and self.limit_price is None:
-            raise ValueError("limit_price is required for LIMIT orders")
+        if not isinstance(self.symbol, str) or not self.symbol.strip():
+            raise ValueError("symbol must not be blank")
+        if not isinstance(self.client_order_id, str) or not self.client_order_id.strip():
+            raise ValueError("client_order_id must not be blank")
+        if not isinstance(self.side, Side):
+            raise ValueError(f"side must be a Side enum, got {self.side!r}")
+        if not isinstance(self.order_type, OrderType):
+            raise ValueError(
+                f"order_type must be an OrderType enum, got {self.order_type!r}"
+            )
+        if type(self.quantity) is not int or self.quantity <= 0:
+            raise ValueError(
+                f"quantity must be a positive integer, got {self.quantity!r}"
+            )
+        if self.order_type is OrderType.MARKET:
+            if self.limit_price is not None:
+                raise ValueError("MARKET order must not include limit_price")
+            return
+        if (
+            not isinstance(self.limit_price, Decimal)
+            or not self.limit_price.is_finite()
+            or self.limit_price <= 0
+        ):
+            raise ValueError(
+                "LIMIT limit_price must be a finite positive Decimal"
+            )
 
 
 @dataclass(frozen=True)
@@ -125,3 +147,32 @@ class Signal:
     ref_price: Decimal
     # 전략이 아니라 보호 장치(손절 등)가 낸 신호. 청산 후 쿨다운 대상이 된다.
     protective: bool = False
+
+    def __post_init__(self) -> None:
+        self.assert_valid()
+
+    def assert_valid(self) -> None:
+        """Validate the runtime boundary, not merely the type annotations.
+
+        Strategies are replaceable Python code.  A lookalike string such as
+        ``"ENTER_LONG"`` must never reach identity-based order routing where it
+        would be interpreted as a sell.
+        """
+        if not isinstance(self.symbol, str) or not self.symbol.strip():
+            raise ValueError("signal symbol must be a nonblank string")
+        if not isinstance(self.action, SignalAction):
+            raise ValueError(
+                f"signal action must be a SignalAction enum, got {self.action!r}"
+            )
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("signal reason must be a nonblank string")
+        if (
+            not isinstance(self.ref_price, Decimal)
+            or not self.ref_price.is_finite()
+            or self.ref_price <= 0
+        ):
+            raise ValueError(
+                "signal ref_price must be a finite positive Decimal"
+            )
+        if type(self.protective) is not bool:
+            raise ValueError("signal protective must be an actual bool")

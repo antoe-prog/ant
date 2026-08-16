@@ -191,6 +191,20 @@ def test_protective_exit_blocks_reentry(store):
     assert stops.is_blocked("AAPL", NOW + timedelta(days=4)) is False
 
 
+def test_persisted_cooldown_is_parsed_when_position_still_exists(store):
+    """미확정 청산 뒤 포지션이 남아도 문자열 시각 때문에 루프가 죽으면 안 된다."""
+    stops = manager(store, stop_loss="0.08", cooldown=3)
+    stops.on_exit("AAPL", NOW, protective=True)
+
+    signals = stops.exits(held(), mark("100"), NOW + timedelta(minutes=1))
+    stops.exits(held(), mark("110"), NOW + timedelta(minutes=2))
+
+    assert signals == []
+    row = store.load_tracking("AAPL")
+    assert row is not None
+    assert row["blocked_until"] == (NOW + timedelta(days=3)).isoformat()
+
+
 def test_strategy_exit_does_not_block(store):
     stops = manager(store, stop_loss="0.08", cooldown=3)
     stops.exits(held(), mark("100"), NOW)

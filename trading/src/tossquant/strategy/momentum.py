@@ -26,8 +26,16 @@ class MomentumStrategy(Strategy):
         entry_threshold: Decimal,
         exit_threshold: Decimal,
     ) -> None:
+        if type(lookback) is not int:
+            raise ValueError(f"lookback은 integer여야 합니다: {lookback!r}")
         if lookback <= 0:
             raise ValueError(f"lookback은 1 이상이어야 합니다: {lookback}")
+        for name, value in (
+            ("entry_threshold", entry_threshold),
+            ("exit_threshold", exit_threshold),
+        ):
+            if not isinstance(value, Decimal) or not value.is_finite():
+                raise ValueError(f"{name}은 유한한 Decimal이어야 합니다: {value!r}")
         if exit_threshold > entry_threshold:
             raise ValueError(
                 f"청산 임계({exit_threshold})가 진입 임계({entry_threshold})보다 크면 "

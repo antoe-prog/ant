@@ -39,6 +39,23 @@ def test_fast_must_be_below_slow():
         SmaCrossStrategy(fast=5, slow=5)
 
 
+@pytest.mark.parametrize(
+    ("fast", "slow"),
+    [
+        (0, 5),
+        (-1, 5),
+        (1, 0),
+        (1, -1),
+        (1.5, 5),
+        (1, 5.5),
+        (True, 5),
+    ],
+)
+def test_strategy_windows_must_both_be_positive(fast, slow):
+    with pytest.raises(ValueError, match="positive|integer|1 이상|window|fast|slow"):
+        SmaCrossStrategy(fast=fast, slow=slow)
+
+
 def test_golden_cross_enters_when_flat():
     strategy = SmaCrossStrategy(fast=2, slow=4)
     # 하락 후 급반등 → 단기선이 장기선을 상향 돌파

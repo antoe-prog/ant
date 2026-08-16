@@ -1,0 +1,3237 @@
+{
+  "preparation_schema_version": 5,
+  "preparation_tool_version": "prepare_plotly_data/5",
+  "preparation_tool_sha256": "6ae736fa28d7a351721dd7734e5067cf3a7ee6e6beb87afadde77e234b5dfc86",
+  "backtest_data_module": "tossquant.backtest.data",
+  "backtest_data_sha256": "dc3f7d0e7dfe27ff705b2884b97bba2974bcacc3d0bb9caaf7b46b66bd5a3c7d",
+  "candle_model_module": "tossquant.models",
+  "candle_model_sha256": "b1afaa8569993bd33deb9bccc95cd5c9229288a44efbbc1b4146cb25530decdd",
+  "python_version": "3.12.13",
+  "source_kind": "plotly_pinned",
+  "source_url": "https://raw.githubusercontent.com/plotly/datasets/0c447c47b757ad74edecab31f0d72f849d2e67c2/all_stocks_5yr.csv",
+  "source_commit": "0c447c47b757ad74edecab31f0d72f849d2e67c2",
+  "source_path": null,
+  "source_sha256": "6aea253cd19de60b568143991aaf1fa482456565c389205658d236e595e716cf",
+  "input_rows": 619040,
+  "written_rows": 619017,
+  "dropped_rows": [
+    {
+      "line": 53004,
+      "symbol": "AOS",
+      "date": "2014-05-19",
+      "invalid": "all_stocks_5yr.csv:53004: OHLCV 파싱 실패 (open='23.89', high='23.595', low='23.85', close='24.445', volume='1944854'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 78686,
+      "symbol": "BBY",
+      "date": "2016-03-14",
+      "invalid": "all_stocks_5yr.csv:78686: OHLCV 파싱 실패 (open='33.55', high='33.75', low='33.08', close='32.72', volume='6037794'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 82951,
+      "symbol": "BHF",
+      "date": "2017-07-26",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 113364,
+      "symbol": "CHD",
+      "date": "2014-05-19",
+      "invalid": "all_stocks_5yr.csv:113364: OHLCV 파싱 실패 (open='18.77', high='33.9525', low='33.695', close='33.895', volume='1078888'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 114652,
+      "symbol": "CHK",
+      "date": "2014-06-30",
+      "invalid": "all_stocks_5yr.csv:114652: OHLCV 파싱 실패 (open='30.43', high='31.1', low='30.37', close='29.39', volume='8132836'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 165573,
+      "symbol": "DHR",
+      "date": "2014-11-06",
+      "invalid": "all_stocks_5yr.csv:165573: OHLCV 파싱 실패 (open='78.47', high='81.305', low='80.49', close='81.26', volume='1614419'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 165736,
+      "symbol": "DHR",
+      "date": "2015-07-17",
+      "missing": [
+        "open"
+      ]
+    },
+    {
+      "line": 165859,
+      "symbol": "DHR",
+      "date": "2016-01-12",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 205078,
+      "symbol": "ES",
+      "date": "2015-07-17",
+      "missing": [
+        "open"
+      ]
+    },
+    {
+      "line": 239834,
+      "symbol": "FTV",
+      "date": "2016-07-01",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 303086,
+      "symbol": "IP",
+      "date": "2014-07-01",
+      "invalid": "all_stocks_5yr.csv:303086: OHLCV 파싱 실패 (open='50.85', high='51.07', low='50.57', close='50.09', volume='5624981'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 349478,
+      "symbol": "LNT",
+      "date": "2016-05-19",
+      "invalid": "all_stocks_5yr.csv:349478: OHLCV 파싱 실패 (open='35.19', high='35.785', low='35.085', close='17.87', volume='1231722'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 434168,
+      "symbol": "O",
+      "date": "2014-08-27",
+      "invalid": "all_stocks_5yr.csv:434168: OHLCV 파싱 실패 (open='44.675', high='44.7', low='44.66', close='44.5272', volume='185518'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 434218,
+      "symbol": "O",
+      "date": "2014-11-06",
+      "invalid": "all_stocks_5yr.csv:434218: OHLCV 파싱 실패 (open='44.74', high='47.57', low='46.73', close='46.86', volume='1803132'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 434381,
+      "symbol": "O",
+      "date": "2015-07-17",
+      "missing": [
+        "open"
+      ]
+    },
+    {
+      "line": 434504,
+      "symbol": "O",
+      "date": "2016-01-12",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 478596,
+      "symbol": "REGN",
+      "date": "2015-06-09",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 516106,
+      "symbol": "SPG",
+      "date": "2014-05-28",
+      "invalid": "all_stocks_5yr.csv:516106: OHLCV 파싱 실패 (open='176.23', high='176.6', low='174.5', close='165.42', volume='1383759'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 558215,
+      "symbol": "UA",
+      "date": "2016-04-07",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 558260,
+      "symbol": "UA",
+      "date": "2016-06-10",
+      "invalid": "all_stocks_5yr.csv:558260: OHLCV 파싱 실패 (open='35.75', high='36.41', low='35.7', close='35.54', volume='616887'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    },
+    {
+      "line": 581908,
+      "symbol": "VRTX",
+      "date": "2015-05-12",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 598238,
+      "symbol": "WRK",
+      "date": "2015-06-26",
+      "missing": [
+        "open",
+        "high",
+        "low"
+      ]
+    },
+    {
+      "line": 598460,
+      "symbol": "WRK",
+      "date": "2016-05-13",
+      "invalid": "all_stocks_5yr.csv:598460: OHLCV 파싱 실패 (open='42.45', high='42.89', low='41.82', close='38.39', volume='2153541'): OHLC 범위가 모순됩니다 (low <= open/close <= high 필요)"
+    }
+  ],
+  "symbols": 505,
+  "symbol_rows": {
+    "A": 1259,
+    "AAL": 1259,
+    "AAP": 1259,
+    "AAPL": 1259,
+    "ABBV": 1259,
+    "ABC": 1259,
+    "ABT": 1259,
+    "ACN": 1259,
+    "ADBE": 1259,
+    "ADI": 1259,
+    "ADM": 1259,
+    "ADP": 1259,
+    "ADS": 1259,
+    "ADSK": 1259,
+    "AEE": 1259,
+    "AEP": 1259,
+    "AES": 1259,
+    "AET": 1259,
+    "AFL": 1259,
+    "AGN": 1259,
+    "AIG": 1259,
+    "AIV": 1259,
+    "AIZ": 1259,
+    "AJG": 1259,
+    "AKAM": 1259,
+    "ALB": 1259,
+    "ALGN": 1259,
+    "ALK": 1259,
+    "ALL": 1259,
+    "ALLE": 1063,
+    "ALXN": 1259,
+    "AMAT": 1259,
+    "AMD": 1259,
+    "AME": 1259,
+    "AMG": 1259,
+    "AMGN": 1259,
+    "AMP": 1259,
+    "AMT": 1259,
+    "AMZN": 1259,
+    "ANDV": 1259,
+    "ANSS": 1259,
+    "ANTM": 1259,
+    "AON": 1259,
+    "AOS": 1258,
+    "APA": 1259,
+    "APC": 1259,
+    "APD": 1259,
+    "APH": 1259,
+    "APTV": 44,
+    "ARE": 1259,
+    "ARNC": 1259,
+    "ATVI": 1259,
+    "AVB": 1259,
+    "AVGO": 1259,
+    "AVY": 1259,
+    "AWK": 1259,
+    "AXP": 1259,
+    "AYI": 1259,
+    "AZO": 1259,
+    "BA": 1259,
+    "BAC": 1259,
+    "BAX": 1259,
+    "BBT": 1259,
+    "BBY": 1258,
+    "BDX": 1259,
+    "BEN": 1259,
+    "BF.B": 1259,
+    "BHF": 142,
+    "BHGE": 152,
+    "BIIB": 1259,
+    "BK": 1259,
+    "BLK": 1259,
+    "BLL": 1259,
+    "BMY": 1257,
+    "BRK.B": 1259,
+    "BSX": 1259,
+    "BWA": 1259,
+    "BXP": 1259,
+    "C": 1259,
+    "CA": 1259,
+    "CAG": 1259,
+    "CAH": 1259,
+    "CAT": 1259,
+    "CB": 1259,
+    "CBG": 1259,
+    "CBOE": 1259,
+    "CBS": 1259,
+    "CCI": 1259,
+    "CCL": 1259,
+    "CDNS": 1259,
+    "CELG": 1259,
+    "CERN": 1259,
+    "CF": 1259,
+    "CFG": 850,
+    "CHD": 1258,
+    "CHK": 1258,
+    "CHRW": 1259,
+    "CHTR": 1259,
+    "CI": 1259,
+    "CINF": 1259,
+    "CL": 1259,
+    "CLX": 1259,
+    "CMA": 1259,
+    "CMCSA": 1259,
+    "CME": 1259,
+    "CMG": 1259,
+    "CMI": 1259,
+    "CMS": 1259,
+    "CNC": 1259,
+    "CNP": 1259,
+    "COF": 1259,
+    "COG": 1259,
+    "COL": 1259,
+    "COO": 1259,
+    "COP": 1259,
+    "COST": 1259,
+    "COTY": 1173,
+    "CPB": 1259,
+    "CRM": 1259,
+    "CSCO": 1259,
+    "CSRA": 561,
+    "CSX": 1259,
+    "CTAS": 1259,
+    "CTL": 1259,
+    "CTSH": 1259,
+    "CTXS": 1259,
+    "CVS": 1259,
+    "CVX": 1259,
+    "CXO": 1259,
+    "D": 1259,
+    "DAL": 1259,
+    "DE": 1259,
+    "DFS": 1259,
+    "DG": 1259,
+    "DGX": 1259,
+    "DHI": 1259,
+    "DHR": 1240,
+    "DIS": 1259,
+    "DISCA": 1259,
+    "DISCK": 1259,
+    "DISH": 1259,
+    "DLR": 1259,
+    "DLTR": 1259,
+    "DOV": 1259,
+    "DPS": 1259,
+    "DRE": 1259,
+    "DRI": 1259,
+    "DTE": 1259,
+    "DUK": 1259,
+    "DVA": 1259,
+    "DVN": 1259,
+    "DWDP": 109,
+    "DXC": 215,
+    "EA": 1259,
+    "EBAY": 1259,
+    "ECL": 1259,
+    "ED": 1259,
+    "EFX": 1259,
+    "EIX": 1259,
+    "EL": 1259,
+    "EMN": 1259,
+    "EMR": 1259,
+    "EOG": 1259,
+    "EQIX": 1259,
+    "EQR": 1259,
+    "EQT": 1259,
+    "ES": 1248,
+    "ESRX": 1259,
+    "ESS": 1259,
+    "ETFC": 1259,
+    "ETN": 1259,
+    "ETR": 1259,
+    "EVHC": 297,
+    "EW": 1259,
+    "EXC": 1259,
+    "EXPD": 1259,
+    "EXPE": 1259,
+    "EXR": 1259,
+    "F": 1259,
+    "FAST": 1259,
+    "FB": 1259,
+    "FBHS": 1259,
+    "FCX": 1259,
+    "FDX": 1259,
+    "FE": 1259,
+    "FFIV": 1259,
+    "FIS": 1259,
+    "FISV": 1259,
+    "FITB": 1259,
+    "FL": 1259,
+    "FLIR": 1259,
+    "FLR": 1259,
+    "FLS": 1259,
+    "FMC": 1259,
+    "FOX": 1169,
+    "FOXA": 1169,
+    "FRT": 1259,
+    "FTI": 1259,
+    "FTV": 403,
+    "GD": 1259,
+    "GE": 1259,
+    "GGP": 1259,
+    "GILD": 1259,
+    "GIS": 1259,
+    "GLW": 1259,
+    "GM": 1259,
+    "GOOG": 975,
+    "GOOGL": 1259,
+    "GPC": 1259,
+    "GPN": 1259,
+    "GPS": 1259,
+    "GRMN": 1259,
+    "GS": 1259,
+    "GT": 1259,
+    "GWW": 1259,
+    "HAL": 1259,
+    "HAS": 1259,
+    "HBAN": 1259,
+    "HBI": 1259,
+    "HCA": 1259,
+    "HCN": 1259,
+    "HCP": 1259,
+    "HD": 1259,
+    "HES": 1259,
+    "HIG": 1259,
+    "HII": 1259,
+    "HLT": 276,
+    "HOG": 1259,
+    "HOLX": 1259,
+    "HON": 1259,
+    "HP": 1259,
+    "HPE": 581,
+    "HPQ": 581,
+    "HRB": 1259,
+    "HRL": 1259,
+    "HRS": 1259,
+    "HSIC": 1259,
+    "HST": 1259,
+    "HSY": 1259,
+    "HUM": 1259,
+    "IBM": 1259,
+    "ICE": 1254,
+    "IDXX": 1259,
+    "IFF": 1259,
+    "ILMN": 1259,
+    "INCY": 1259,
+    "INFO": 917,
+    "INTC": 1259,
+    "INTU": 1259,
+    "IP": 1258,
+    "IPG": 1259,
+    "IQV": 1197,
+    "IR": 1259,
+    "IRM": 1259,
+    "ISRG": 1259,
+    "IT": 1259,
+    "ITW": 1259,
+    "IVZ": 1259,
+    "JBHT": 1259,
+    "JCI": 1259,
+    "JEC": 1259,
+    "JNJ": 1259,
+    "JNPR": 1259,
+    "JPM": 1259,
+    "JWN": 1259,
+    "K": 1259,
+    "KEY": 1259,
+    "KHC": 655,
+    "KIM": 1259,
+    "KLAC": 1259,
+    "KMB": 1259,
+    "KMI": 1259,
+    "KMX": 1259,
+    "KO": 1259,
+    "KORS": 1259,
+    "KR": 1259,
+    "KSS": 1259,
+    "KSU": 1259,
+    "L": 1259,
+    "LB": 1259,
+    "LEG": 1259,
+    "LEN": 1259,
+    "LH": 1259,
+    "LKQ": 1259,
+    "LLL": 1259,
+    "LLY": 1259,
+    "LMT": 1259,
+    "LNC": 1259,
+    "LNT": 1258,
+    "LOW": 1259,
+    "LRCX": 1259,
+    "LUK": 1259,
+    "LUV": 1259,
+    "LYB": 1259,
+    "M": 1259,
+    "MA": 1259,
+    "MAA": 1259,
+    "MAC": 1259,
+    "MAR": 1259,
+    "MAS": 1259,
+    "MAT": 1259,
+    "MCD": 1259,
+    "MCHP": 1259,
+    "MCK": 1259,
+    "MCO": 1259,
+    "MDLZ": 1259,
+    "MDT": 1259,
+    "MET": 1259,
+    "MGM": 1259,
+    "MHK": 1259,
+    "MKC": 1259,
+    "MLM": 1259,
+    "MMC": 1259,
+    "MMM": 1259,
+    "MNST": 1259,
+    "MO": 1259,
+    "MON": 1259,
+    "MOS": 1259,
+    "MPC": 1259,
+    "MRK": 1259,
+    "MRO": 1259,
+    "MS": 1259,
+    "MSFT": 1259,
+    "MSI": 1259,
+    "MTB": 1259,
+    "MTD": 1259,
+    "MU": 1259,
+    "MYL": 1259,
+    "NAVI": 960,
+    "NBL": 1259,
+    "NCLH": 1259,
+    "NDAQ": 1259,
+    "NEE": 1259,
+    "NEM": 1259,
+    "NFLX": 1259,
+    "NFX": 1259,
+    "NI": 1259,
+    "NKE": 1259,
+    "NLSN": 1259,
+    "NOC": 1259,
+    "NOV": 1259,
+    "NRG": 1259,
+    "NSC": 1259,
+    "NTAP": 1259,
+    "NTRS": 1259,
+    "NUE": 1259,
+    "NVDA": 1259,
+    "NWL": 1259,
+    "NWS": 1169,
+    "NWSA": 1169,
+    "O": 1239,
+    "OKE": 1259,
+    "OMC": 1259,
+    "ORCL": 1257,
+    "ORLY": 1259,
+    "OXY": 1259,
+    "PAYX": 1259,
+    "PBCT": 1259,
+    "PCAR": 1259,
+    "PCG": 1259,
+    "PCLN": 1259,
+    "PDCO": 1259,
+    "PEG": 1259,
+    "PEP": 1259,
+    "PFE": 1259,
+    "PFG": 1259,
+    "PG": 1259,
+    "PGR": 1259,
+    "PH": 1259,
+    "PHM": 1259,
+    "PKG": 1259,
+    "PKI": 1259,
+    "PLD": 1259,
+    "PM": 1259,
+    "PNC": 1259,
+    "PNR": 1259,
+    "PNW": 1259,
+    "PPG": 1259,
+    "PPL": 1259,
+    "PRGO": 1259,
+    "PRU": 1259,
+    "PSA": 1259,
+    "PSX": 1259,
+    "PVH": 1259,
+    "PWR": 1259,
+    "PX": 1259,
+    "PXD": 1259,
+    "PYPL": 655,
+    "QCOM": 1259,
+    "QRVO": 781,
+    "RCL": 1259,
+    "RE": 1259,
+    "REG": 1259,
+    "REGN": 1258,
+    "RF": 1259,
+    "RHI": 1259,
+    "RHT": 1259,
+    "RJF": 1259,
+    "RL": 1259,
+    "RMD": 1259,
+    "ROK": 1259,
+    "ROP": 1259,
+    "ROST": 1259,
+    "RRC": 1259,
+    "RSG": 1259,
+    "RTN": 1259,
+    "SBAC": 1259,
+    "SBUX": 1259,
+    "SCG": 1259,
+    "SCHW": 1259,
+    "SEE": 1259,
+    "SHW": 1259,
+    "SIG": 1259,
+    "SJM": 1259,
+    "SLB": 1259,
+    "SLG": 1259,
+    "SNA": 1259,
+    "SNI": 1259,
+    "SNPS": 1259,
+    "SO": 1259,
+    "SPG": 1258,
+    "SPGI": 1259,
+    "SRCL": 1259,
+    "SRE": 1259,
+    "STI": 1259,
+    "STT": 1259,
+    "STX": 1259,
+    "STZ": 1259,
+    "SWK": 1259,
+    "SWKS": 1259,
+    "SYF": 888,
+    "SYK": 1259,
+    "SYMC": 1259,
+    "SYY": 1259,
+    "T": 1259,
+    "TAP": 1259,
+    "TDG": 1259,
+    "TEL": 1259,
+    "TGT": 1259,
+    "TIF": 1259,
+    "TJX": 1259,
+    "TMK": 1259,
+    "TMO": 1259,
+    "TPR": 1259,
+    "TRIP": 1259,
+    "TROW": 1259,
+    "TRV": 1259,
+    "TSCO": 1259,
+    "TSN": 1259,
+    "TSS": 1259,
+    "TWX": 1259,
+    "TXN": 1259,
+    "TXT": 1259,
+    "UA": 462,
+    "UAA": 1259,
+    "UAL": 1259,
+    "UDR": 1259,
+    "UHS": 1259,
+    "ULTA": 1259,
+    "UNH": 1259,
+    "UNM": 1259,
+    "UNP": 1259,
+    "UPS": 1259,
+    "URI": 1259,
+    "USB": 1259,
+    "UTX": 1259,
+    "V": 1259,
+    "VAR": 1259,
+    "VFC": 1259,
+    "VIAB": 1259,
+    "VLO": 1259,
+    "VMC": 1259,
+    "VNO": 1259,
+    "VRSK": 1259,
+    "VRSN": 1259,
+    "VRTX": 1258,
+    "VTR": 1259,
+    "VZ": 1259,
+    "WAT": 1259,
+    "WBA": 1259,
+    "WDC": 1259,
+    "WEC": 1259,
+    "WFC": 1259,
+    "WHR": 1259,
+    "WLTW": 528,
+    "WM": 1259,
+    "WMB": 1259,
+    "WMT": 1259,
+    "WRK": 660,
+    "WU": 1259,
+    "WY": 1259,
+    "WYN": 1259,
+    "WYNN": 1259,
+    "XEC": 1259,
+    "XEL": 1259,
+    "XL": 1259,
+    "XLNX": 1259,
+    "XOM": 1259,
+    "XRAY": 1259,
+    "XRX": 1259,
+    "XYL": 1259,
+    "YUM": 1259,
+    "ZBH": 1259,
+    "ZION": 1259,
+    "ZTS": 1259
+  },
+  "timestamp_digest_algorithm": "sha256-iso-utc-timestamp-newline-v1",
+  "symbol_timestamp_sha256": {
+    "A": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AAL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AAP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AAPL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ABBV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ABC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ABT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ACN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADBE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ADSK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AEE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AEP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AES": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AET": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AFL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AGN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AIG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AIV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AIZ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AJG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AKAM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ALB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ALGN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ALK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ALL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ALLE": "bb2f35aad4c3ac7a0ff4334db779774b1c9521ce16b2240ef9b60c75ee514eb1",
+    "ALXN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMAT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AME": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMGN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AMZN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ANDV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ANSS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ANTM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AON": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AOS": "1d761004ca9f95b363d25df008bc7993463094071518e5454e867e08dc17765a",
+    "APA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "APC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "APD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "APH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "APTV": "e07979df6ee9ab25d7999f5e94259b8d11dcc06a9f1ac04fdc7ce20f67731adf",
+    "ARE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ARNC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ATVI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AVB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AVGO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AVY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AWK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AXP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AYI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "AZO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BAC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BAX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BBT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BBY": "dcc42e17f9c3b9776c17eb17a52e263ae0363385a78f6bdc4cea55a873b96600",
+    "BDX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BEN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BF.B": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BHF": "f8c3d62e86b7c5f9833dae5c5f703ce4a805d9882342851a7edc9c2fe25accb9",
+    "BHGE": "fbb4645eba6076aef3150ba82213d363ec0c7fddbc8c24ad7d8b1bc5b7a88afc",
+    "BIIB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BLK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BLL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BMY": "b48faccc381afc7633e525b7051f231ea776f663702d7a27adf553a6a0b331f7",
+    "BRK.B": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BSX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BWA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "BXP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "C": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CAG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CAH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CAT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CBG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CBOE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CBS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CCI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CCL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CDNS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CELG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CERN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CFG": "ae3e9dbf6d069acc5667aa7d8ab07f0262d9ebe2bae5a04450458716ba17185c",
+    "CHD": "1d761004ca9f95b363d25df008bc7993463094071518e5454e867e08dc17765a",
+    "CHK": "2517d3422ae944463f113add6c6470753d8e9ee881f91a57da813fc7a40cfe03",
+    "CHRW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CHTR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CINF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CLX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CMA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CMCSA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CME": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CMG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CMI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CMS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CNC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CNP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COST": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "COTY": "e6831371c5e029c9e5e391cc71e2184b89b804fb619a1c5eeead57a97d9636ea",
+    "CPB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CRM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CSCO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CSRA": "5639dcca3200e6051504c343e0674b91ab0d44945b6c37edd0bad77f15ad2f33",
+    "CSX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CTAS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CTL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CTSH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CTXS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CVS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CVX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "CXO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "D": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DAL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DFS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DGX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DHI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DHR": "5ed3af2ba38ff545f4de4a0f80d090b27cd62cbfbcb610dce7689e160060b7c1",
+    "DIS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DISCA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DISCK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DISH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DLR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DLTR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DOV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DPS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DRE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DRI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DTE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DUK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DVA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DVN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "DWDP": "53edc1eac28e259885b1b5cabe42ad224ce71965efb0412cd4b4b28e61473ca8",
+    "DXC": "778ed5949d696703cd5fccb6c739277905f34a8ed7b0918114bb897e4115afaa",
+    "EA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EBAY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ECL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ED": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EFX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EIX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EMN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EMR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EOG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EQIX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EQR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EQT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ES": "9342ffe32e3cb114bb3be866220074a47fbdfeb58a0babb697a0dff8b6edb7ce",
+    "ESRX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ESS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ETFC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ETN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ETR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EVHC": "64e85205a1eca2dbe32103ed2761bfdca12e35a8ffd123dd8bcad2b2b1c22dac",
+    "EW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EXC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EXPD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EXPE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "EXR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "F": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FAST": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FBHS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FCX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FDX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FFIV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FIS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FISV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FITB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FLIR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FLR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FLS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FMC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FOX": "401c40b139d46eccc0fd2372316b4b5f4699740ef0af5d3d1a03c51ce7713433",
+    "FOXA": "401c40b139d46eccc0fd2372316b4b5f4699740ef0af5d3d1a03c51ce7713433",
+    "FRT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FTI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "FTV": "81efdb884891c612b16e1b1d6ed3bf8d068f8e78ffa3e0047ed42910e6282b96",
+    "GD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GGP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GILD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GIS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GLW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GOOG": "9fa37ef57f6d180ca4056c1db2af68794c43cd0a6126796d663d832a2bad4dd1",
+    "GOOGL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GPC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GPN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GPS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GRMN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "GWW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HAL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HAS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HBAN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HBI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HCA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HCN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HCP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HES": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HIG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HII": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HLT": "11fc7164e29dc2219a19ec86cdafbf9064860bbf8fc875e2a601d57445ea84c1",
+    "HOG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HOLX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HON": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HPE": "1d8948f502007f55728eded5dc9f016453ca6067c77f90a33b3a8abd01ab31f2",
+    "HPQ": "1d8948f502007f55728eded5dc9f016453ca6067c77f90a33b3a8abd01ab31f2",
+    "HRB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HRL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HRS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HSIC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HST": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HSY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "HUM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IBM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ICE": "e55a78369625c7bd606036d88f758a76157bca23602187ef97795ad8825f97e6",
+    "IDXX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IFF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ILMN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "INCY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "INFO": "47540f31241653168433bc87413eada7b44cb41066155cc6e7ed750d879dfb9a",
+    "INTC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "INTU": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IP": "eccfcbbc532e8dc6c9de2eba8be957e2d1604d7d02b106675f4664ad04164797",
+    "IPG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IQV": "1ddefed5ba65a7fce5f316c18ca82dbf854464f820ffe2fe9bda942ac5e5280a",
+    "IR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IRM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ISRG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ITW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "IVZ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JBHT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JCI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JEC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JNJ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JNPR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JPM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "JWN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "K": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KEY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KHC": "8832a60dc2f77e7ec49d4c034bac2d985ff937f82814dabb85d6797dfed37b51",
+    "KIM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KLAC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KMB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KMI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KMX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KORS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KSS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "KSU": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "L": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LEG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LEN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LKQ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LLL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LLY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LMT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LNC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LNT": "78b69c483ddfc652c342665b8ade9921f6c7629b4d398c6f48500ccf8746aa34",
+    "LOW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LRCX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LUK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LUV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "LYB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "M": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MAA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MAC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MAR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MAS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MAT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MCD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MCHP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MCK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MCO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MDLZ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MDT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MET": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MGM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MHK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MKC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MLM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MMC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MMM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MNST": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MON": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MOS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MPC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MRK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MRO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MSFT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MSI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MTB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MTD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MU": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "MYL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NAVI": "b919b7cc88c25e5ca0c2f3d6a1eeaad5e85abc43edd7a451b3870cd05ff67ac4",
+    "NBL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NCLH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NDAQ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NEE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NEM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NFLX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NFX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NKE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NLSN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NOC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NOV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NRG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NSC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NTAP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NTRS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NUE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NVDA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NWL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "NWS": "401c40b139d46eccc0fd2372316b4b5f4699740ef0af5d3d1a03c51ce7713433",
+    "NWSA": "401c40b139d46eccc0fd2372316b4b5f4699740ef0af5d3d1a03c51ce7713433",
+    "O": "e37a01d30119382e8740aecb33c078218e796a5774f0b58c98133953ac9dfeb4",
+    "OKE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "OMC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ORCL": "12286330f73ae75a83739ebfe4919bdbe06a75717682b52a239ba65a9f9fbde2",
+    "ORLY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "OXY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PAYX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PBCT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PCAR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PCG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PCLN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PDCO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PEG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PEP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PFE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PFG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PGR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PHM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PKG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PKI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PLD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PNC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PNR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PNW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PPG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PPL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PRGO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PRU": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PSA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PSX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PVH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PWR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PXD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "PYPL": "8832a60dc2f77e7ec49d4c034bac2d985ff937f82814dabb85d6797dfed37b51",
+    "QCOM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "QRVO": "9bb9dc59c5bade0e99837a9b12e5eb890333d4bcf943a2686f9b50a7e84829b5",
+    "RCL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "REG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "REGN": "3a0e90dd77a6bcda7800d490cee661fbf74d391c6ea5f181f69ab7dccc3cffda",
+    "RF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RHI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RHT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RJF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RMD": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ROK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ROP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ROST": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RRC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RSG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "RTN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SBAC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SBUX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SCG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SCHW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SEE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SHW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SIG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SJM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SLB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SLG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SNA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SNI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SNPS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SPG": "b571340252cf586139d84b20bda3f4dd295666ff63626f66c821f3efaae0e0ae",
+    "SPGI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SRCL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SRE": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "STI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "STT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "STX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "STZ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SWK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SWKS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SYF": "168217fca4d21819d88e1eae01b02388774bc748efbbfa7508d07b6df93002d8",
+    "SYK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SYMC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "SYY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "T": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TAP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TDG": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TEL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TGT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TIF": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TJX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TMK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TMO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TPR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TRIP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TROW": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TRV": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TSCO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TSN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TSS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TWX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TXN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "TXT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UA": "0956abedf3947e3851f507ed1f8f0df9bcbc927cbb13f91c1d8557ebef6e7a17",
+    "UAA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UAL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UDR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UHS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ULTA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UNH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UNM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UNP": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UPS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "URI": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "USB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "UTX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "V": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VAR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VFC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VIAB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VLO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VMC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VNO": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VRSK": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VRSN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VRTX": "8ec92f7011f35ba763d6996b15dab89d8611556db412785b45f4cfc0ee5febd9",
+    "VTR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "VZ": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WAT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WBA": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WDC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WEC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WFC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WHR": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WLTW": "4bc5f781ba35bbe028bc8a86bb57c82b00264b6fdb9d133605793169baa01100",
+    "WM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WMB": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WMT": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WRK": "0f60a17b7b6ff635e063534b95f56793d550fe4d09e6419f9570cf75df01688c",
+    "WU": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WYN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "WYNN": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XEC": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XEL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XLNX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XOM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XRAY": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XRX": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "XYL": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "YUM": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ZBH": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ZION": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064",
+    "ZTS": "2f1b0bffcd0dec4f770ae01553d28ed6b21462c69c48fe04cd6201d70eea1064"
+  },
+  "symbol_timestamp_bounds": {
+    "A": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AAL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AAP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AAPL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ABBV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ABC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ABT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ACN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADBE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ADSK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AEE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AEP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AES": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AET": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AFL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AGN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AIG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AIV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AIZ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AJG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AKAM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALGN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALLE": {
+      "first": "2013-11-18T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ALXN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMAT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AME": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMGN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AMZN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ANDV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ANSS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ANTM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AON": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AOS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "APA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "APC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "APD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "APH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "APTV": {
+      "first": "2017-12-05T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ARE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ARNC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ATVI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AVB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AVGO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AVY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AWK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AXP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AYI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "AZO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BAC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BAX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BBT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BBY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BDX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BEN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BF.B": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BHF": {
+      "first": "2017-07-17T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BHGE": {
+      "first": "2017-07-03T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BIIB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BLK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BLL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BMY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BRK.B": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BSX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BWA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "BXP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "C": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CAG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CAH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CAT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CBG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CBOE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CBS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CCI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CCL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CDNS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CELG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CERN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CFG": {
+      "first": "2014-09-24T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CHD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CHK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CHRW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CHTR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CINF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CLX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CMA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CMCSA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CME": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CMG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CMI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CMS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CNC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CNP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COST": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "COTY": {
+      "first": "2013-06-13T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CPB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CRM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CSCO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CSRA": {
+      "first": "2015-11-16T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CSX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CTAS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CTL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CTSH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CTXS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CVS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CVX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "CXO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "D": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DAL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DFS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DGX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DHI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DHR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DIS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DISCA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DISCK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DISH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DLR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DLTR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DOV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DPS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DRE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DRI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DTE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DUK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DVA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DVN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DWDP": {
+      "first": "2017-09-01T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "DXC": {
+      "first": "2017-04-03T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EBAY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ECL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ED": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EFX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EIX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EMN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EMR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EOG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EQIX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EQR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EQT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ES": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ESRX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ESS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ETFC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ETN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ETR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EVHC": {
+      "first": "2016-12-02T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EXC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EXPD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EXPE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "EXR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "F": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FAST": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FBHS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FCX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FDX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FFIV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FIS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FISV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FITB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FLIR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FLR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FLS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FMC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FOX": {
+      "first": "2013-06-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FOXA": {
+      "first": "2013-06-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FRT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FTI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "FTV": {
+      "first": "2016-07-05T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GGP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GILD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GIS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GLW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GOOG": {
+      "first": "2014-03-27T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GOOGL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GPC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GPN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GPS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GRMN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "GWW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HAL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HAS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HBAN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HBI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HCA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HCN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HCP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HES": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HIG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HII": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HLT": {
+      "first": "2017-01-04T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HOG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HOLX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HON": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HPE": {
+      "first": "2015-10-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HPQ": {
+      "first": "2015-10-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HRB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HRL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HRS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HSIC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HST": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HSY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "HUM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IBM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ICE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IDXX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IFF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ILMN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "INCY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "INFO": {
+      "first": "2014-06-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "INTC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "INTU": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IPG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IQV": {
+      "first": "2013-05-09T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IRM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ISRG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ITW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "IVZ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JBHT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JCI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JEC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JNJ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JNPR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JPM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "JWN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "K": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KEY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KHC": {
+      "first": "2015-07-06T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KIM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KLAC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KMB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KMI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KMX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KORS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KSS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "KSU": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "L": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LEG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LEN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LKQ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LLL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LLY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LMT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LNC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LNT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LOW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LRCX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LUK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LUV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "LYB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "M": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MAA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MAC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MAR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MAS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MAT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MCD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MCHP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MCK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MCO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MDLZ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MDT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MET": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MGM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MHK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MKC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MLM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MMC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MMM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MNST": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MON": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MOS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MPC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MRK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MRO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MSFT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MSI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MTB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MTD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MU": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "MYL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NAVI": {
+      "first": "2014-04-17T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NBL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NCLH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NDAQ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NEE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NEM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NFLX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NFX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NKE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NLSN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NOC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NOV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NRG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NSC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NTAP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NTRS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NUE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NVDA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NWL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NWS": {
+      "first": "2013-06-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "NWSA": {
+      "first": "2013-06-19T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "O": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "OKE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "OMC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ORCL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ORLY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "OXY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PAYX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PBCT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PCAR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PCG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PCLN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PDCO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PEG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PEP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PFE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PFG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PGR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PHM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PKG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PKI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PLD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PNC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PNR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PNW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PPG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PPL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PRGO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PRU": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PSA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PSX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PVH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PWR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PXD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "PYPL": {
+      "first": "2015-07-06T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "QCOM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "QRVO": {
+      "first": "2015-01-02T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RCL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "REG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "REGN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RHI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RHT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RJF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RMD": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ROK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ROP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ROST": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RRC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RSG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "RTN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SBAC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SBUX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SCG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SCHW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SEE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SHW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SIG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SJM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SLB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SLG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SNA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SNI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SNPS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SPG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SPGI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SRCL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SRE": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "STI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "STT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "STX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "STZ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SWK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SWKS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SYF": {
+      "first": "2014-07-31T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SYK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SYMC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "SYY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "T": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TAP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TDG": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TEL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TGT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TIF": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TJX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TMK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TMO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TPR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TRIP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TROW": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TRV": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TSCO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TSN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TSS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TWX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TXN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "TXT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UA": {
+      "first": "2016-04-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UAA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UAL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UDR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UHS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ULTA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UNH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UNM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UNP": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UPS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "URI": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "USB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "UTX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "V": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VAR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VFC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VIAB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VLO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VMC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VNO": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VRSK": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VRSN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VRTX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VTR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "VZ": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WAT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WBA": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WDC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WEC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WFC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WHR": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WLTW": {
+      "first": "2016-01-05T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WMB": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WMT": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WRK": {
+      "first": "2015-06-24T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WU": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WYN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "WYNN": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XEC": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XEL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XLNX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XOM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XRAY": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XRX": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "XYL": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "YUM": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ZBH": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ZION": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    },
+    "ZTS": {
+      "first": "2013-02-08T00:00:00+00:00",
+      "last": "2018-02-07T00:00:00+00:00"
+    }
+  },
+  "output_digest_algorithm": "sha256-filename-size-content-v1",
+  "output_sha256": "63e3d9d0bf1c71c5d5a330506a22db6b46589a6b8b99ecc12d1c498f4bd912ef",
+  "report_digest_algorithm": "sha256-canonical-json-v1",
+  "report_sha256": "e489735b5a05ff4a40100b00ab9df5734f837af00cfdb1b116a7e5e39b7b0688"
+}

@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from tossquant.config import Settings
+from tossquant.params import ParamGrid
 from tossquant.strategy import registry
 from tossquant.strategy.base import Strategy
 
@@ -41,6 +42,34 @@ def test_factory_accepts_every_combination_in_its_grid(name):
     factory = registry.factory(name)
     for params in registry.default_grid(name).combinations():
         assert isinstance(factory(params), Strategy)
+
+
+@pytest.mark.parametrize(
+    ("name", "grid"),
+    [
+        (
+            "sma_cross",
+            ParamGrid(values={"fast": [5.5], "slow": [40]}),
+        ),
+        (
+            "momentum",
+            ParamGrid(values={"lookback": [20], "entry": [float("inf")]}),
+        ),
+    ],
+)
+def test_grid_contract_rejects_combinations_the_factory_cannot_build(name, grid):
+    with pytest.raises(ValueError, match="grid|격자|조합|parameter"):
+        registry.validate_grid(name, grid)
+
+
+def test_grid_contract_rejects_a_grid_with_no_valid_combinations():
+    grid = ParamGrid(
+        values={"fast": [100], "slow": [40]},
+        valid=lambda params: params["fast"] < params["slow"],
+    )
+
+    with pytest.raises(ValueError, match="grid|격자|조합"):
+        registry.validate_grid("sma_cross", grid)
 
 
 @pytest.mark.parametrize("name", registry.NAMES)

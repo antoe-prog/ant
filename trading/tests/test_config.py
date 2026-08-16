@@ -9,6 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from tossquant.config import Mode, Settings
 
@@ -46,9 +47,177 @@ def test_symbols_parse_from_comma_string():
     assert settings.symbols == ["AAPL", "MSFT", "NVDA"]
 
 
+def test_symbol_fields_are_canonical_for_list_and_regime_inputs():
+    settings = Settings(
+        _env_file=None,
+        symbols=[" aapl ", "Spy"],
+        regime_symbol=" spy ",
+    )
+
+    assert settings.symbols == ["AAPL", "SPY"]
+    assert settings.regime_symbol == "SPY"
+
+
+def test_blank_regime_symbol_is_rejected():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, regime_symbol="   ")
+
+
 def test_sma_slow_must_exceed_fast():
     with pytest.raises(ValueError):
         Settings(_env_file=None, sma_fast=60, sma_slow=20)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("sma_fast", 0), ("sma_fast", -1), ("sma_slow", 0), ("sma_slow", -1)],
+)
+def test_sma_windows_must_be_positive(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("sma_fast", 80), ("sma_slow", 10)]
+)
+def test_failed_sma_assignment_preserves_the_original_pair(field, value):
+    settings = Settings(_env_file=None, sma_fast=20, sma_slow=60)
+
+    with pytest.raises(ValidationError):
+        setattr(settings, field, value)
+
+    assert (settings.sma_fast, settings.sma_slow) == (20, 60)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("stop_loss_pct", "-0.01"),
+        ("stop_loss_pct", "1"),
+        ("trailing_stop_pct", "-0.01"),
+        ("trailing_stop_pct", "1"),
+        ("max_daily_loss_pct", "-0.01"),
+        ("max_daily_loss_pct", "1"),
+        ("max_position_pct", "0"),
+        ("max_position_pct", "1.01"),
+        ("take_profit_pct", "-0.01"),
+        ("request_timeout", 0),
+        ("poll_seconds", 0),
+        ("paper_cash", "0"),
+        ("paper_slippage_bps", "-0.01"),
+        ("paper_slippage_bps", "10000"),
+        ("paper_commission_bps", "-0.01"),
+        ("backtest_spread_bps", "-0.01"),
+        ("backtest_spread_bps", "20000"),
+        ("regime_ma_bars", 0),
+        ("momentum_lookback", 0),
+        ("breakout_entry_bars", 0),
+        ("breakout_exit_bars", 0),
+        ("meanrev_lookback", 1),
+        ("max_positions", 0),
+        ("max_order_notional", "0"),
+        ("max_holding_days", -1),
+        ("stop_cooldown_days", -1),
+    ],
+)
+def test_rejects_numeric_values_outside_operational_domains(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "paper_cash",
+        "paper_slippage_bps",
+        "paper_commission_bps",
+        "backtest_spread_bps",
+        "max_position_pct",
+        "max_daily_loss_pct",
+        "max_order_notional",
+        "stop_loss_pct",
+        "trailing_stop_pct",
+        "take_profit_pct",
+        "momentum_entry",
+        "momentum_exit",
+        "meanrev_entry_z",
+        "meanrev_exit_z",
+    ],
+)
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_rejects_non_finite_decimal_settings(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_rejects_non_finite_request_timeout(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, request_timeout=value)
+
+
+def test_risk_percentage_boundaries_and_large_profit_target_are_valid():
+    settings = Settings(
+        _env_file=None,
+        stop_loss_pct="0",
+        trailing_stop_pct="0.999",
+        max_daily_loss_pct="0",
+        max_position_pct="1",
+        take_profit_pct="2",
+    )
+
+    assert settings.trailing_stop_pct == Decimal("0.999")
+    assert settings.max_position_pct == Decimal("1")
+    assert settings.take_profit_pct == Decimal("2")
+
+
+def test_assignment_cannot_bypass_numeric_domain_validation(defaults):
+    with pytest.raises(ValidationError):
+        defaults.stop_loss_pct = Decimal("2")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"momentum_entry": "0.01", "momentum_exit": "0.02"},
+        {"meanrev_entry_z": "0", "meanrev_exit_z": "0"},
+        {"meanrev_entry_z": "-2", "meanrev_exit_z": "-3"},
+    ],
+)
+def test_rejects_strategy_thresholds_that_cannot_generate_a_coherent_cycle(values):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("momentum_entry", Decimal("-1")),
+        ("momentum_exit", Decimal("1")),
+        ("meanrev_entry_z", Decimal("0")),
+        ("meanrev_exit_z", Decimal("-3")),
+    ],
+)
+def test_failed_strategy_threshold_assignment_preserves_prior_values(
+    defaults, field, value
+):
+    before = defaults.model_dump()
+
+    with pytest.raises(ValidationError):
+        setattr(defaults, field, value)
+
+    assert defaults.model_dump() == before
+
+
+def test_execution_cost_boundaries_keep_positive_prices():
+    settings = Settings(
+        _env_file=None,
+        paper_slippage_bps="9999.999",
+        backtest_spread_bps="19999.999",
+    )
+
+    assert settings.paper_slippage_bps == Decimal("9999.999")
+    assert settings.backtest_spread_bps == Decimal("19999.999")
 
 
 def test_require_credentials_names_missing_keys():

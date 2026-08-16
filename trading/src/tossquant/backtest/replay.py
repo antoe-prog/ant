@@ -63,6 +63,13 @@ class ReplayMarket(MarketData):
         시장 국면 판정용 지수가 그렇다. 같은 정렬을 타야 커서가 어긋나지 않고,
         무엇보다 지수도 `get_candles`의 커서 제한을 받아 **미래를 못 본다.**
         """
+        if (
+            not isinstance(spread_bps, Decimal)
+            or not spread_bps.is_finite()
+            or spread_bps < 0
+            or spread_bps >= BPS * 2
+        ):
+            raise ValueError("spread_bps는 0 이상 20000 미만의 유한 Decimal이어야 합니다")
         self._history = align(history)
         self._data_only = frozenset(s.upper() for s in data_only)
         if not self._history:
@@ -121,6 +128,31 @@ class ReplayMarket(MarketData):
         """현재 봉 종가 기준 평가용 가격. 매매 대상만."""
         return {symbol: self.close_price(symbol) for symbol in self.symbols}
 
+    def open_marks(self) -> dict[str, Decimal]:
+        """현재 봉 시가 기준 평가 가격. 세션 시작 평가액 고정용."""
+        return {
+            symbol: self._history[symbol][self._cursor].open
+            for symbol in self.symbols
+        }
+
+    def next_open_marks(self) -> dict[str, Decimal]:
+        """다음 봉 시가 기준 평가 가격. 다음 세션 주문 전 기준선용."""
+        if not self.has_next():
+            raise IndexError("다음 봉이 없어 시가 평가액을 계산할 수 없습니다")
+        return {
+            symbol: self._history[symbol][self._cursor + 1].open
+            for symbol in self.symbols
+        }
+
+    def current_quote(self, symbol: str) -> Quote:
+        """현재 봉 종가에 같은 스프레드를 적용한 결정 시점 호가.
+
+        주문 예약액은 아직 보이지 않는 다음 봉 시가가 아니라 이 호가로 고정한다.
+        실제 체결용 :meth:`get_quote`와 정보 경계를 명시적으로 분리한다.
+        """
+        candle = self._history[symbol][self._cursor]
+        return self._quote(symbol, candle.close, candle.ts)
+
     # --- MarketData ---------------------------------------------------------
 
     def get_candles(self, symbol: str, interval: str, count: int) -> list[Candle]:
@@ -139,11 +171,14 @@ class ReplayMarket(MarketData):
             reference = candles[self._cursor]
             price = reference.close
 
+        return self._quote(symbol, price, reference.ts)
+
+    def _quote(self, symbol: str, price: Decimal, ts: datetime) -> Quote:
         half = price * self._spread / 2
         return Quote(
             symbol=symbol,
             last=price,
             bid=price - half,
             ask=price + half,
-            ts=reference.ts,
+            ts=ts,
         )

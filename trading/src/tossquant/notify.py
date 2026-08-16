@@ -61,25 +61,29 @@ class Notifier(ABC):
 
     def notify(self, notification: Notification) -> bool:
         """전송 성공 여부. 예외는 절대 밖으로 나가지 않는다."""
-        if self._throttled(notification.dedup_key):
-            log.debug("알림 스로틀됨: %s", notification.dedup_key)
-            return False
+        key = notification.dedup_key
+        if key is None or self.throttle_seconds <= 0:
+            return self._deliver_safely(notification)
+
+        # 같은 키의 확인과 전달 성공 기록을 한 임계구역에 둔다. 실패한 시도를
+        # 먼저 기록하면 일시적인 채널 장애 한 번이 이후 재시도까지 막아 버린다.
+        with self._lock:
+            now = time.monotonic()
+            last = self._last_sent.get(key)
+            if last is not None and now - last < self.throttle_seconds:
+                log.debug("알림 스로틀됨: %s", key)
+                return False
+            if not self._deliver_safely(notification):
+                return False
+            self._last_sent[key] = time.monotonic()
+            return True
+
+    def _deliver_safely(self, notification: Notification) -> bool:
         try:
             self._deliver(notification)
             return True
         except Exception as exc:  # 알림 실패로 매매가 멈추면 안 된다
             log.warning("알림 전송 실패 (%s): %s", type(self).__name__, exc)
-            return False
-
-    def _throttled(self, key: str | None) -> bool:
-        if key is None or self.throttle_seconds <= 0:
-            return False
-        now = time.monotonic()
-        with self._lock:
-            last = self._last_sent.get(key)
-            if last is not None and now - last < self.throttle_seconds:
-                return True
-            self._last_sent[key] = now
             return False
 
     @abstractmethod

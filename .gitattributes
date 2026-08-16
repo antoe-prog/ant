@@ -1,0 +1,17 @@
+# Evidence hashes are byte-level contracts. Keep every hash-bound text input and
+# output stable across checkout platforms, including core.autocrlf=true.
+trading/pyproject.toml text eol=lf
+trading/README.md text eol=lf
+trading/scripts/build_plotly_evidence.py text eol=lf
+trading/scripts/prepare_plotly_data.py text eol=lf
+trading/scripts/sweep.py text eol=lf
+trading/src/tossquant/**/*.py text eol=lf
+trading/evidence/README.md text eol=lf
+trading/evidence/requirements-*.txt text eol=lf
+trading/evidence/plotly-*.txt text eol=lf
+trading/evidence/plotly-*.json text eol=lf
+trading/evidence/disck-issuer-citation.json text eol=lf
+trading/evidence/plotly-verified-splits.csv text eol=lf
+
+# This fixture's CRLF bytes are part of the recorded one-file dataset digest.
+trading/evidence/plotly-DISCK.csv -text

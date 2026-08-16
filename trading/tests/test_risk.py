@@ -45,6 +45,7 @@ def test_sizes_to_position_pct(risk):
     # 10000 * 0.25 = 2500 예산 → 25주
     assert decision.approved
     assert decision.quantity == 25
+    assert decision.cash_budget == Decimal("2500.00")
 
 
 def test_capped_by_max_order_notional(store):
@@ -71,6 +72,23 @@ def test_capped_by_available_cash(risk):
     assert decision.approved
     # 현금 300에 CASH_BUFFER(0.99)가 걸려 예산은 297 → 2주.
     assert decision.quantity == 2
+
+
+def test_reserved_cash_limits_budget_without_reducing_economic_equity(risk):
+    account = Account(cash=Decimal("1000"), positions={})
+
+    decision = risk.evaluate(
+        enter(),
+        account,
+        {"AAPL": Decimal("100")},
+        NOW,
+        available_cash=Decimal("200"),
+    )
+
+    # 경제적 평가액은 1,000으로 유지되지만 예약 후 가용 현금 200의 99%가 적용된다.
+    assert decision.approved
+    assert decision.cash_budget == Decimal("198.00")
+    assert decision.quantity == 1
 
 
 def test_cash_buffer_leaves_headroom_for_fees_and_slippage(risk):
@@ -130,6 +148,7 @@ def test_exit_returns_full_position(risk):
     decision = risk.evaluate(exit_signal(), account, {"AAPL": Decimal("90")}, NOW)
     assert decision.approved
     assert decision.quantity == 13
+    assert decision.cash_budget is None
 
 
 def test_exit_without_position_rejected(risk):
@@ -148,6 +167,20 @@ def test_daily_loss_limit_blocks_new_entries(risk):
 
     assert not decision.approved
     assert decision.reason == "일일 손실 한도 초과"
+
+
+def test_zero_daily_loss_limit_disables_the_guard(risk):
+    risk.max_daily_loss_pct = Decimal("0")
+    marks = {"AAPL": Decimal("100")}
+    risk.evaluate(
+        enter(), Account(cash=Decimal("10000"), positions={}), marks, NOW
+    )
+
+    decision = risk.evaluate(
+        enter(), Account(cash=Decimal("9000"), positions={}), marks, NOW
+    )
+
+    assert decision.approved
 
 
 def test_daily_loss_limit_still_allows_exit(risk):

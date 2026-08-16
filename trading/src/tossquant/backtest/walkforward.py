@@ -24,8 +24,9 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
@@ -138,20 +139,27 @@ class WalkForwardResult:
     folds: list[FoldResult]
     curve: list[EquityPoint]
     metrics: Metrics
+    # 각 fold가 같은 초기자본으로 독립 실행된 원본 거래가 아니라, 이어붙인 OOS
+    # 곡선의 fold별 자본 배율로 가격·손익을 정규화한 비변형 clone이다. 따라서
+    # avg/PF 같은 금액 통계가 복리 curve와 같은 자본 단위를 쓴다.
     trades: list[Trade]
     grid_size: int
 
     @property
-    def retention(self) -> float:
+    def retention(self) -> float | None:
         """성과 유지율 = 평균 OOS 점수 / 평균 IS 점수.
 
         1에 가까울수록 인샘플 성과가 밖에서도 유지됐다는 뜻이다. 0.5면 절반은
-        과거에 맞춘 것이었고, 음수면 인샘플에서 좋았던 게 밖에선 손해였다.
+        과거에 맞춘 것이었고, 양수 IS 대비 음수면 밖에서 손해였다는 뜻이다.
+        IS 평균이 0 이하거나 유한하지 않으면 비율의 부호와 크기가
+        해석을 뒤집거나 정의되지 않으므로 유지율도 정의하지 않는다.
         """
         train_mean = sum(f.train_score for f in self.folds) / len(self.folds)
         test_mean = sum(f.test_score for f in self.folds) / len(self.folds)
-        if train_mean == 0:
-            return 0.0
+        # zero-risk 곡선의 Sharpe/Sortino는 signed infinity다. 무한 IS를
+        # 분모로 둔 유지율이나 +∞/-∞가 섞여 생긴 NaN은 해석할 수 없다.
+        if train_mean <= 0 or not math.isfinite(train_mean) or math.isnan(test_mean):
+            return None
         return test_mean / train_mean
 
     @property
@@ -169,42 +177,68 @@ class WalkForwardResult:
         return sum(1 for f in self.folds if f.test.metrics.total_return > 0)
 
 
-def stitch(fold_results: list[FoldResult], start_cash: Decimal) -> list[EquityPoint]:
+def _stitch_with_scales(
+    fold_results: list[FoldResult],
+    start_cash: Decimal,
+) -> tuple[list[EquityPoint], list[Decimal | None]]:
     """평가 구간들의 수익률을 이어붙여 하나의 곡선으로 만든다.
 
     각 구간은 같은 자본으로 새로 시작하므로 절대금액을 그냥 잇지 못한다. 구간별
-    수익률을 복리로 누적한다.
+    수익률을 복리로 누적한다. 인접 평가 구간은 앞 구간의 마지막 시각을 다음
+    구간의 기준점으로 공유하므로 그 점은 한 번만 남긴다. 중복 기준점을 수익률
+    표본으로 세면 0% 수익률이 인위적으로 추가돼 Sharpe·변동성·노출이 달라진다.
     """
     curve: list[EquityPoint] = []
     equity = start_cash
+    scales: list[Decimal | None] = []
 
     for result in fold_results:
         fold_curve = result.test.curve
         if not fold_curve:
+            scales.append(None)
             continue
         base = fold_curve[0].equity
         if base <= 0:
+            scales.append(None)
             continue
-        for point in fold_curve:
-            ratio = point.equity / base
-            scaled = equity * ratio
-            # 현금/투자 비중은 그대로 유지해야 시장 노출 지표가 살아남는다.
-            share = point.invested / point.equity if point.equity > 0 else Decimal("0")
+        scale = equity / base
+        scales.append(scale)
+        for point_index, point in enumerate(fold_curve):
+            if curve and point.ts <= curve[-1].ts:
+                if point_index == 0 and point.ts == curve[-1].ts:
+                    # 연속 fold가 공유하는 OOS 기준점. 이전 fold의 끝점이 이미
+                    # 같은 누적 자본을 담고 있으므로 다시 내보내지 않는다.
+                    continue
+                raise ValueError("워크포워드 평가 곡선의 timestamp가 겹치거나 역행합니다")
+            scaled = point.equity * scale
+            # 투자액을 같은 자본 배율로 옮기고 현금은 차이로 계산해 회계항등을
+            # 정확히 유지한다. 두 항을 따로 곱하면 Decimal 반올림으로 합이 어긋날
+            # 수 있다.
+            scaled_invested = point.invested * scale
             curve.append(
                 EquityPoint(
                     ts=point.ts,
                     equity=scaled,
-                    cash=scaled * (1 - share),
-                    invested=scaled * share,
+                    cash=scaled - scaled_invested,
+                    invested=scaled_invested,
                 )
             )
         equity = curve[-1].equity
 
+    return curve, scales
+
+
+def stitch(fold_results: list[FoldResult], start_cash: Decimal) -> list[EquityPoint]:
+    """평가 곡선만 공개한다. fold별 자본 배율은 거래 정규화에 내부 사용한다."""
+    curve, _ = _stitch_with_scales(fold_results, start_cash)
     return curve
 
 
 def _score(result: BacktestResult, objective: str) -> float:
-    return OBJECTIVES[objective](result.metrics)
+    score = OBJECTIVES[objective](result.metrics)
+    if math.isnan(score):
+        raise ValueError(f"목적함수 {objective} 점수가 NaN입니다")
+    return score
 
 
 def _slice(
@@ -245,15 +279,27 @@ def run(
     for fold in folds:
         best = _optimize(aligned, settings, fold, grid, factory, objective, min_trades)
         if best is None:
-            log.warning("구간 %d: 유효한 조합이 없어 건너뜁니다", fold.index)
-            continue
+            raise ValueError(
+                f"워크포워드 구간 {fold.index + 1}에 유효한 결과가 없어 "
+                "불완전한 OOS 집계를 만들 수 없습니다"
+            )
         results.append(best)
 
     if not results:
         raise ValueError("어떤 구간에서도 유효한 결과를 얻지 못했습니다")
 
-    curve = stitch(results, settings.paper_cash)
-    trades = [t for r in results for t in r.test.trades]
+    curve, fold_scales = _stitch_with_scales(results, settings.paper_cash)
+    trades = [
+        replace(
+            trade,
+            entry_price=trade.entry_price * scale,
+            exit_price=trade.exit_price * scale,
+            pnl=trade.pnl * scale,
+        )
+        for result, scale in zip(results, fold_scales)
+        if scale is not None
+        for trade in result.test.trades
+    ]
 
     return WalkForwardResult(
         objective=objective,
@@ -283,7 +329,12 @@ def _optimize(
     for params in grid.combinations():
         strategy = factory(params)
         try:
-            result = Backtester(train_history, strategy, settings).run()
+            result = Backtester(
+                train_history,
+                strategy,
+                settings,
+                liquidate_at_end=True,
+            ).run()
         except ValueError as exc:
             # 워밍업이 학습 구간보다 긴 조합 등. 조용히 건너뛴다.
             log.debug("구간 %d %s 학습 실패: %s", fold.index, params, exc)
@@ -300,17 +351,33 @@ def _optimize(
     traded = [s for s in scored if s[2].metrics.trades >= min_trades]
     pool = traded or scored
 
-    best_score, best_params, train_result, _ = max(pool, key=lambda s: s[0])
+    # 같은 점수에서는 입력 grid 순서가 아니라 정규화된 파라미터 라벨로 고른다.
+    # zero-risk 성과의 signed infinity끼리 동점이어도 선택이 재현 가능해야 한다.
+    best_score = max(item[0] for item in pool)
+    best_score, best_params, train_result, _ = min(
+        (item for item in pool if item[0] == best_score),
+        key=lambda item: _label(item[1]),
+    )
 
     # 평가 구간 앞에 워밍업 봉을 붙여준다. 안 그러면 평가 구간 초반이 통째로
     # 신호 없이 지나간다.
     strategy = factory(best_params)
     warmup = strategy.warmup_bars
+    regime_symbol = settings.regime_symbol.upper()
+    if settings.regime_enabled and regime_symbol in aligned:
+        # Backtester도 같은 유효 워밍업을 쓰므로, OOS 슬라이스 역시 국면
+        # 이동평균을 채울 만큼 앞 구간을 붙여야 평가 시작부터 필터가 작동한다.
+        warmup = max(warmup, settings.regime_ma_bars)
     test_history = _slice(
         aligned, max(0, fold.test_start - warmup), fold.test_end
     )
     try:
-        test_result = Backtester(test_history, strategy, settings).run()
+        test_result = Backtester(
+            test_history,
+            strategy,
+            settings,
+            liquidate_at_end=True,
+        ).run()
     except ValueError as exc:
         log.warning("구간 %d 평가 실패: %s", fold.index, exc)
         return None

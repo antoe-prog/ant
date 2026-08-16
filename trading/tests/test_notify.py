@@ -41,6 +41,20 @@ class Recorder(Notifier):
         self.sent.append(notification)
 
 
+class FailOnceRecorder(Recorder):
+    """첫 전달만 실패하고 다음 전달은 기록하는 채널."""
+
+    def __init__(self, throttle_seconds: int = 0) -> None:
+        super().__init__(throttle_seconds)
+        self.attempts = 0
+
+    def _deliver(self, notification: Notification) -> None:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("transient")
+        self.sent.append(notification)
+
+
 # --- 실패 격리 ---------------------------------------------------------------
 
 
@@ -53,6 +67,16 @@ def test_delivery_success_returns_true():
     notifier = Recorder()
     assert notifier.notify(Notification(title="t")) is True
     assert len(notifier.sent) == 1
+
+
+def test_failed_delivery_does_not_consume_dedup_throttle():
+    notifier = FailOnceRecorder(throttle_seconds=300)
+    notification = Notification(title="err", dedup_key="cycle")
+
+    assert notifier.notify(notification) is False
+    assert notifier.notify(notification) is True
+    assert notifier.attempts == 2
+    assert notifier.sent == [notification]
 
 
 @respx.mock

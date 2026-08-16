@@ -90,6 +90,26 @@ def test_momentum_rejects_zero_lookback():
         MomentumStrategy(0, Decimal("0.05"), Decimal("0"))
 
 
+def test_momentum_rejects_non_integer_lookback():
+    with pytest.raises(ValueError, match="integer|정수"):
+        MomentumStrategy(5.5, Decimal("0.05"), Decimal("0"))
+
+
+@pytest.mark.parametrize(
+    ("entry", "exit"),
+    [
+        (0.05, Decimal("0")),
+        (Decimal("0.05"), 0),
+        (Decimal("NaN"), Decimal("0")),
+        (Decimal("Infinity"), Decimal("0")),
+        (Decimal("0.05"), Decimal("-Infinity")),
+    ],
+)
+def test_momentum_rejects_non_decimal_or_non_finite_thresholds(entry, exit):
+    with pytest.raises(ValueError, match="Decimal|finite|유한"):
+        MomentumStrategy(20, entry, exit)
+
+
 # --- 돌파 --------------------------------------------------------------------
 
 
@@ -135,6 +155,12 @@ def test_breakout_warmup_covers_the_longer_window():
 def test_breakout_rejects_zero_windows():
     with pytest.raises(ValueError):
         BreakoutStrategy(0, 10)
+
+
+@pytest.mark.parametrize(("entry", "exit"), [(20.5, 10), (20, 10.5), (True, 10)])
+def test_breakout_rejects_non_integer_windows(entry, exit):
+    with pytest.raises(ValueError, match="integer|정수"):
+        BreakoutStrategy(entry, exit)
 
 
 # --- 평균회귀 ----------------------------------------------------------------
@@ -188,3 +214,23 @@ def test_mean_reversion_rejects_positive_entry_z():
 def test_mean_reversion_rejects_exit_below_entry():
     with pytest.raises(ValueError, match="회귀를 못 기다립니다"):
         MeanReversionStrategy(20, Decimal("-2"), Decimal("-3"))
+
+
+def test_mean_reversion_rejects_non_integer_lookback():
+    with pytest.raises(ValueError, match="integer|정수"):
+        MeanReversionStrategy(20.5, Decimal("-2"), Decimal("0"))
+
+
+@pytest.mark.parametrize(
+    ("entry", "exit"),
+    [
+        (-2.0, Decimal("0")),
+        (Decimal("-2"), 0),
+        (Decimal("NaN"), Decimal("0")),
+        (Decimal("-Infinity"), Decimal("0")),
+        (Decimal("-2"), Decimal("Infinity")),
+    ],
+)
+def test_mean_reversion_rejects_non_decimal_or_non_finite_thresholds(entry, exit):
+    with pytest.raises(ValueError, match="Decimal|finite|유한"):
+        MeanReversionStrategy(20, entry, exit)

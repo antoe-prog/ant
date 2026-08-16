@@ -3,8 +3,8 @@
 가장 중요한 두 가지:
 1. **청산은 절대 막지 않는다.** 하락장에서 못 빠져나오게 막으면 정확히 반대로
    가는 짓이다.
-2. **판단 불가는 통과(fail-open)다.** 막아버리면 봇이 매수를 멈춘 이유가 화면
-   어디에도 안 드러나서 데이터 문제 하나로 몇 주를 날린다.
+2. **판단 불가는 신규 진입을 막는다.** UNKNOWN을 위험/정상으로 꾸미지 않고
+   알림으로 원인을 드러내며, 청산은 그대로 통과시킨다.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ def index_bars(closes) -> list[Candle]:
 
 def test_risk_on_above_the_average():
     state = RegimeFilter("SPY", 5).evaluate(index_bars([100, 100, 100, 100, 120]))
+    assert state.known is True
     assert state.risk_on is True
     assert "SPY" in state.reason
 
@@ -52,8 +53,10 @@ def test_equal_to_average_is_risk_off():
 
 def test_disabled_filter_always_allows():
     filter_ = RegimeFilter("SPY", 200, enabled=False)
-    assert filter_.evaluate(index_bars([100] * 4 + [1])).risk_on is True
-    assert filter_.evaluate(None).risk_on is True
+    with_data = filter_.evaluate(index_bars([100] * 4 + [1]))
+    without_data = filter_.evaluate(None)
+    assert with_data.known is True and with_data.risk_on is True
+    assert without_data.known is True and without_data.risk_on is True
 
 
 def test_empty_symbol_disables_the_filter():
@@ -69,19 +72,20 @@ def test_rejects_nonpositive_window():
         RegimeFilter("SPY", 0)
 
 
-# --- fail-open ---------------------------------------------------------------
+# --- UNKNOWN -----------------------------------------------------------------
 
 
-def test_missing_candles_allow_entries():
+def test_missing_candles_are_unknown_and_block_entries():
     state = RegimeFilter("SPY", 200).evaluate(None)
-    assert state.risk_on is True
+    assert state.known is False
+    assert state.risk_on is False
     assert "데이터 없음" in state.reason
 
 
-def test_insufficient_candles_allow_entries():
-    """지수 캔들이 워밍업에 못 미쳐도 매매를 멈추면 안 된다."""
+def test_insufficient_candles_are_unknown_and_block_entries():
     state = RegimeFilter("SPY", 200).evaluate(index_bars([100] * 10))
-    assert state.risk_on is True
+    assert state.known is False
+    assert state.risk_on is False
     assert "부족" in state.reason
 
 
@@ -240,6 +244,7 @@ def test_risk_off_blocks_entries_in_backtest(settings):
 
     assert result.trades == []
     assert result.rejections["regime_risk_off"] > 0
+    assert result.rejections["regime_unknown"] == 0
     assert result.curve[-1].invested == 0
 
 
@@ -254,18 +259,20 @@ def test_risk_on_allows_entries_in_backtest(settings):
     result = Backtester(history, AlwaysEnter(), regime_settings(settings)).run()
 
     assert result.rejections["regime_risk_off"] == 0
+    assert result.rejections["regime_unknown"] == 0
     assert result.curve[-1].invested > 0
 
 
-def test_missing_index_falls_back_to_no_filter(settings):
-    """지수 캔들이 없으면 필터 없이 진행한다 (fail-open)."""
+def test_missing_index_blocks_backtest_entries(settings):
+    """켜진 필터의 지수 데이터가 없으면 UNKNOWN으로 진입을 막는다."""
     from tossquant.backtest.simulator import Backtester
 
     history = {"A": trading_bars("A", [100] * 12)}
     result = Backtester(history, AlwaysEnter(), regime_settings(settings)).run()
 
+    assert result.rejections["regime_unknown"] > 0
     assert result.rejections["regime_risk_off"] == 0
-    assert result.curve[-1].invested > 0
+    assert result.curve[-1].invested == 0
 
 
 def test_protection_summary_mentions_the_filter(settings):

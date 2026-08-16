@@ -24,8 +24,13 @@ class MeanReversionStrategy(Strategy):
     def __init__(
         self, lookback: int, entry_z: Decimal, exit_z: Decimal
     ) -> None:
+        if type(lookback) is not int:
+            raise ValueError(f"lookback은 integer여야 합니다: {lookback!r}")
         if lookback <= 1:
             raise ValueError(f"lookback은 2 이상이어야 합니다: {lookback}")
+        for name, value in (("entry_z", entry_z), ("exit_z", exit_z)):
+            if not isinstance(value, Decimal) or not value.is_finite():
+                raise ValueError(f"{name}은 유한한 Decimal이어야 합니다: {value!r}")
         if entry_z >= 0:
             raise ValueError(
                 f"진입 z는 음수여야 합니다(과매도에서 매수): {entry_z}"

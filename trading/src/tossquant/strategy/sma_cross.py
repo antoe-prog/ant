@@ -22,6 +22,14 @@ class SmaCrossStrategy(Strategy):
     name = "sma_cross"
 
     def __init__(self, fast: int, slow: int) -> None:
+        if type(fast) is not int or type(slow) is not int:
+            raise ValueError(
+                f"fast와 slow는 integer window여야 합니다: fast={fast!r}, slow={slow!r}"
+            )
+        if fast <= 0 or slow <= 0:
+            raise ValueError(
+                f"fast와 slow는 positive window여야 합니다: fast={fast}, slow={slow}"
+            )
         if fast >= slow:
             raise ValueError(f"fast({fast}) must be smaller than slow({slow})")
         self.fast = fast

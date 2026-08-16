@@ -22,6 +22,11 @@ class BreakoutStrategy(Strategy):
     name = "breakout"
 
     def __init__(self, entry_bars: int, exit_bars: int) -> None:
+        if type(entry_bars) is not int or type(exit_bars) is not int:
+            raise ValueError(
+                "진입·청산 창은 integer여야 합니다: "
+                f"entry={entry_bars!r}, exit={exit_bars!r}"
+            )
         if entry_bars <= 0 or exit_bars <= 0:
             raise ValueError("진입·청산 창은 1 이상이어야 합니다")
         self.entry_bars = entry_bars

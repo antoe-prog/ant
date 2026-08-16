@@ -79,6 +79,48 @@ def _check(name: str) -> None:
         )
 
 
+def validate_grid(name: str, grid: ParamGrid) -> ParamGrid:
+    """Fail before data loading if any advertised combination cannot be built."""
+    _check(name)
+    expected_axes = set(GRIDS[name]().values)
+    actual_axes = set(grid.values)
+    if actual_axes != expected_axes:
+        missing = sorted(expected_axes - actual_axes)
+        unknown = sorted(actual_axes - expected_axes)
+        raise ValueError(
+            f"{name} grid 축이 정확하지 않습니다: "
+            f"missing={missing}, unknown={unknown}"
+        )
+
+    for axis, axis_values in grid.values.items():
+        unique: list[Any] = []
+        for value in axis_values:
+            if value in unique:
+                raise ValueError(
+                    f"{name} grid 축 {axis}에 중복 값 {value!r}이 있습니다"
+                )
+            unique.append(value)
+
+    produced = 0
+    params: dict[str, Any] | None = None
+    try:
+        for params in grid.combinations():
+            strategy = FACTORIES[name](params)
+            if not isinstance(strategy, Strategy):
+                raise ValueError(
+                    f"factory returned {type(strategy).__name__}, not Strategy"
+                )
+            produced += 1
+    except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
+        context = params if params is not None else "combination generation"
+        raise ValueError(
+            f"{name} grid 조합 {context!r}을 전략으로 만들 수 없습니다: {exc}"
+        ) from exc
+    if produced == 0:
+        raise ValueError(f"{name} grid에 유효한 조합이 없습니다")
+    return grid
+
+
 def build(name: str, settings: Settings) -> Strategy:
     """설정값으로 전략 인스턴스를 만든다."""
     _check(name)
@@ -93,4 +135,4 @@ def factory(name: str) -> Callable[[dict[str, Any]], Strategy]:
 
 def default_grid(name: str) -> ParamGrid:
     _check(name)
-    return GRIDS[name]()
+    return validate_grid(name, GRIDS[name]())

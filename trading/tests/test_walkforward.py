@@ -7,12 +7,17 @@
 
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 from decimal import Decimal
+from io import StringIO
 
 import pytest
+from rich.console import Console
 
-from tossquant.backtest.metrics import EquityPoint
+import tossquant.backtest.walkforward as walkforward_module
+from tossquant.backtest.metrics import EquityPoint, Trade
+from tossquant.backtest.report import _render_verdict
 from tossquant.backtest.walkforward import (
     OBJECTIVES,
     Fold,
@@ -26,7 +31,7 @@ from tossquant.backtest.walkforward import (
 )
 from tossquant.models import Candle
 
-from test_backtest import START, bars, flat_bars
+from test_backtest import START, AlwaysIn, bars, flat_bars
 
 
 def wave(n: int, period: int = 40, amplitude: float = 20.0, base: float = 100.0):
@@ -127,9 +132,9 @@ def test_optimizer_never_sees_the_test_window(wf_settings, monkeypatch):
     real_backtester = wf.Backtester
 
     class Spy(real_backtester):
-        def __init__(self, hist, strategy, settings):
+        def __init__(self, hist, strategy, settings, **kwargs):
             seen_ends.append(max(c.ts for candles in hist.values() for c in candles))
-            super().__init__(hist, strategy, settings)
+            super().__init__(hist, strategy, settings, **kwargs)
 
     monkeypatch.setattr(wf, "Backtester", Spy)
 
@@ -166,6 +171,48 @@ def test_test_window_includes_warmup_but_not_beyond(wf_settings):
     all_bars = history["A"]
     for item in result.folds:
         assert item.test.curve[-1].ts == all_bars[item.fold.test_end - 1].ts
+
+
+def test_test_window_prepends_the_longer_regime_warmup(wf_settings):
+    """OOS 시작부터 국면 필터가 판단 가능해야 한다."""
+    history = wave_history(600)
+    history["SPY"] = flat_bars("SPY", [100 + i / 100 for i in range(600)])
+    wf_settings.regime_enabled = True
+    wf_settings.regime_symbol = "SPY"
+    wf_settings.regime_ma_bars = 50
+
+    result = run(
+        history,
+        wf_settings,
+        grid=sma_grid([5], [20]),
+        train_bars=200,
+        test_bars=100,
+        min_trades=0,
+    )
+
+    all_bars = history["A"]
+    for item in result.folds:
+        assert item.test.curve[0].ts == all_bars[item.fold.test_start - 1].ts
+        assert item.test.curve[-1].ts == all_bars[item.fold.test_end - 1].ts
+
+
+def test_regime_warmup_larger_than_test_window_keeps_every_fold(wf_settings):
+    history = wave_history(500)
+    history["SPY"] = flat_bars("SPY", [100 + i / 100 for i in range(500)])
+    wf_settings.regime_enabled = True
+    wf_settings.regime_symbol = "SPY"
+    wf_settings.regime_ma_bars = 200
+
+    result = run(
+        history,
+        wf_settings,
+        grid=sma_grid([5], [20]),
+        train_bars=250,
+        test_bars=60,
+        min_trades=0,
+    )
+
+    assert len(result.folds) == len(make_folds(500, 250, 60))
 
 
 # --- 실행 --------------------------------------------------------------------
@@ -242,10 +289,59 @@ def test_winning_params_have_the_best_train_score(wf_settings):
         assert item.train_score == pytest.approx(max(item.candidate_scores.values()))
 
 
+def test_equal_scores_choose_the_same_params_independent_of_grid_order(wf_settings):
+    history = {"A": flat_bars("A", [100] * 30)}
+
+    forward = run(
+        history,
+        wf_settings,
+        grid=sma_grid([1, 2], [3]),
+        train_bars=12,
+        test_bars=6,
+        min_trades=0,
+    )
+    reversed_ = run(
+        history,
+        wf_settings,
+        grid=sma_grid([2, 1], [3]),
+        train_bars=12,
+        test_bars=6,
+        min_trades=0,
+    )
+
+    assert [item.params for item in forward.folds] == [
+        item.params for item in reversed_.folds
+    ]
+    assert all(item.params == {"fast": 1, "slow": 3} for item in forward.folds)
+
+
+def test_run_fails_closed_instead_of_aggregating_around_a_missing_fold(
+    monkeypatch, wf_settings
+):
+    real_optimize = walkforward_module._optimize
+
+    def omit_middle_fold(aligned, settings, fold, *args, **kwargs):
+        if fold.index == 1:
+            return None
+        return real_optimize(aligned, settings, fold, *args, **kwargs)
+
+    monkeypatch.setattr(walkforward_module, "_optimize", omit_middle_fold)
+
+    with pytest.raises(ValueError, match=r"구간 2|fold 2|불완전|집계"):
+        run(
+            wave_history(500),
+            wf_settings,
+            grid=sma_grid([5], [20]),
+            train_bars=200,
+            test_bars=100,
+            min_trades=0,
+        )
+
+
 # --- 이어붙이기 --------------------------------------------------------------
 
 
-def fold_result(equities: list[float]) -> FoldResult:
+def fold_result(equities: list[float], *, start_day: int = 0) -> FoldResult:
     """test.curve만 채운 최소 FoldResult."""
 
     class FakeResult:
@@ -255,7 +351,7 @@ def fold_result(equities: list[float]) -> FoldResult:
 
     curve = [
         EquityPoint(
-            ts=START + timedelta(days=i),
+            ts=START + timedelta(days=start_day + i),
             equity=Decimal(str(v)),
             cash=Decimal("0"),
             invested=Decimal(str(v)),
@@ -275,7 +371,11 @@ def fold_result(equities: list[float]) -> FoldResult:
 def test_stitch_compounds_fold_returns():
     # 구간1에서 +10%, 구간2에서 +10% → 총 +21%
     stitched = stitch(
-        [fold_result([100, 110]), fold_result([100, 110])], Decimal("1000")
+        [
+            fold_result([100, 110], start_day=0),
+            fold_result([100, 110], start_day=1),
+        ],
+        Decimal("1000"),
     )
 
     assert stitched[0].equity == Decimal("1000")
@@ -284,9 +384,30 @@ def test_stitch_compounds_fold_returns():
 
 def test_stitch_handles_losses():
     stitched = stitch(
-        [fold_result([100, 50]), fold_result([100, 50])], Decimal("1000")
+        [
+            fold_result([100, 50], start_day=0),
+            fold_result([100, 50], start_day=1),
+        ],
+        Decimal("1000"),
     )
     assert stitched[-1].equity == pytest.approx(Decimal("250"))
+
+
+def test_stitch_emits_shared_fold_boundary_once_and_strictly_increases_time():
+    stitched = stitch(
+        [
+            fold_result([100, 110], start_day=0),
+            fold_result([100, 110], start_day=1),
+        ],
+        Decimal("1000"),
+    )
+
+    assert [point.ts for point in stitched] == [
+        START,
+        START + timedelta(days=1),
+        START + timedelta(days=2),
+    ]
+    assert all(left.ts < right.ts for left, right in zip(stitched, stitched[1:]))
 
 
 def test_stitch_preserves_exposure_ratio():
@@ -298,6 +419,65 @@ def test_stitch_preserves_exposure_ratio():
 def test_stitch_skips_empty_folds():
     stitched = stitch([fold_result([]), fold_result([100, 110])], Decimal("1000"))
     assert len(stitched) == 2
+
+
+def test_run_scales_trade_money_with_each_compounded_fold_without_mutation(
+    monkeypatch, wf_settings
+):
+    wf_settings.paper_cash = Decimal("100")
+    first = fold_result([100, 200], start_day=0)
+    second = fold_result([100, 50], start_day=1)
+    first_trade = Trade(
+        "A",
+        START,
+        START + timedelta(days=1),
+        1,
+        Decimal("100"),
+        Decimal("200"),
+        Decimal("100"),
+        1,
+    )
+    second_trade = Trade(
+        "A",
+        START + timedelta(days=1),
+        START + timedelta(days=2),
+        1,
+        Decimal("100"),
+        Decimal("50"),
+        Decimal("-50"),
+        1,
+    )
+    first.test.trades = [first_trade]
+    second.test.trades = [second_trade]
+    queued = [first, second]
+
+    def fake_optimize(*args, **kwargs):
+        result = queued.pop(0)
+        result.fold = args[2]
+        return result
+
+    monkeypatch.setattr(walkforward_module, "_optimize", fake_optimize)
+    result = run(
+        {"A": flat_bars("A", [100] * 6)},
+        wf_settings,
+        grid=sma_grid([1], [2]),
+        train_bars=2,
+        test_bars=2,
+    )
+
+    assert [point.equity for point in result.curve] == [
+        Decimal("100"),
+        Decimal("200"),
+        Decimal("100"),
+    ]
+    assert result.metrics.total_return == 0
+    assert result.metrics.profit_factor == pytest.approx(1.0)
+    assert result.metrics.avg_loss == Decimal("-100")
+    assert result.trades[1].entry_price == Decimal("200")
+    assert result.trades[1].exit_price == Decimal("100")
+    assert result.trades[1].pnl == Decimal("-100")
+    assert first.test.trades == [first_trade]
+    assert second.test.trades == [second_trade]
 
 
 # --- 진단 지표 ---------------------------------------------------------------
@@ -338,8 +518,66 @@ def test_retention_is_negative_when_oos_loses_money():
     assert scored_result([(2.0, -1.0), (2.0, -1.0)]).retention < 0
 
 
-def test_retention_of_zero_train_is_zero():
-    assert scored_result([(0.0, 1.0)]).retention == 0.0
+def test_retention_of_zero_train_is_undefined():
+    assert scored_result([(0.0, 1.0)]).retention is None
+
+
+@pytest.mark.parametrize(
+    ("train", "test"),
+    [(-1.0, 1.0), (-1.0, -0.5)],
+)
+def test_retention_is_undefined_when_mean_train_score_is_nonpositive(
+    train, test
+):
+    assert scored_result([(train, test)]).retention is None
+
+
+def test_undefined_retention_is_rendered_without_reversed_loss_claim():
+    result = scored_result([(-1.0, 1.0)])
+    output = StringIO()
+
+    _render_verdict(
+        result,
+        Console(file=output, force_terminal=False, width=120),
+    )
+
+    rendered = output.getvalue()
+    assert "정의 불가" in rendered
+    assert "밖에서는 손해" not in rendered
+
+
+def test_infinite_in_sample_score_makes_retention_explicitly_undefined():
+    result = scored_result([(math.inf, math.inf)])
+
+    assert result.retention is None
+
+    output = StringIO()
+    _render_verdict(
+        result,
+        Console(file=output, force_terminal=False, width=120),
+    )
+    assert "정의 불가" in output.getvalue()
+
+
+def test_walkforward_liquidates_each_independent_fold_before_stitching(
+    wf_settings,
+):
+    wf_settings.paper_cash = Decimal("1000")
+    wf_settings.max_order_notional = Decimal("1000")
+    wf_settings.paper_commission_bps = Decimal("100")
+    result = run(
+        {"A": flat_bars("A", [100] * 14)},
+        wf_settings,
+        grid=ParamGrid(values={"unused": [1]}),
+        factory=lambda _: AlwaysIn(),
+        train_bars=6,
+        test_bars=4,
+    )
+
+    assert all(item.train.curve[-1].invested == 0 for item in result.folds)
+    assert all(item.test.curve[-1].invested == 0 for item in result.folds)
+    assert len(result.trades) == len(result.folds)
+    assert all(trade.pnl < 0 for trade in result.trades)
 
 
 def test_param_stability_is_one_when_always_same():

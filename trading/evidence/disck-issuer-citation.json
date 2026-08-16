@@ -1,0 +1,54 @@
+{
+  "citation_schema_version": 1,
+  "issuer": "Discovery Communications, Inc.",
+  "canonical_page": {
+    "url": "https://ir.wbd.com/stock-information/cost-basis-and-debt-information/series-c-dividend/default.aspx",
+    "page_title": "Warner Bros. Discovery - Stock Information - Cost Basis & Debt Information - Series C Dividend",
+    "retrieved_on": "2026-08-08",
+    "direct_fetch_status": "cloudflare_challenge",
+    "raw_content_archived": false,
+    "raw_content_sha256": null
+  },
+  "fetched_content": {
+    "url": "https://s201.q4cdn.com/336605034/files/doc_downloads/Form-8937-%28Executed%29.pdf",
+    "page_title": "Form 8937 Report of Organizational Actions Affecting Basis of Securities",
+    "retrieved_on": "2026-08-08",
+    "media_type": "application/pdf",
+    "fetch_method": "curl -fsSL --max-time 30 -A tossquant-evidence-audit/1.0 -H 'Accept-Encoding: identity'",
+    "fetch_count": 2,
+    "repeat_fetches_byte_identical": true,
+    "byte_length": 1255915,
+    "sha256": "bd7ce36068b8e2be3a9713e9818997fa0282b164d0efba12bc3353c5da796060",
+    "content_archived": false
+  },
+  "facts": {
+    "source": "fetched_content",
+    "record_date": "2014-07-28",
+    "distribution_date": "2014-08-06",
+    "first_post_distribution_trading_date": "2014-08-07",
+    "same_class_distribution": {
+      "held_class": "Series C common stock",
+      "held_symbol": "DISCK",
+      "shares_held": 1,
+      "distributed_class": "Series C common stock",
+      "distributed_symbol": "DISCK",
+      "shares_distributed": 1
+    },
+    "basis_allocation": {
+      "status": "illustrative_example",
+      "method": "volume-weighted average prices on 2014-08-07",
+      "existing_series_c": "50.00",
+      "distributed_series_c": "50.00"
+    }
+  },
+  "adjustment_ratio_derivation": {
+    "old_shares": 1,
+    "new_shares": 2,
+    "formula": "old_shares / new_shares",
+    "ratio": "0.5"
+  },
+  "limitations": [
+    "The canonical live page is mutable; its direct fetch returned a Cloudflare challenge, so its raw content is not archived or hashed.",
+    "The issuer PDF is not archived in this repository and its URL remains mutable; the SHA-256 identifies only the bytes fetched on 2026-08-08."
+  ]
+}

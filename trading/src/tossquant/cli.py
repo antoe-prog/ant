@@ -2,20 +2,48 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib.metadata
 import json
 import logging
+import platform
+import shutil
+import sys
+import tempfile
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+
+PACKAGE_CODE_DIGEST_ALGORITHM = "sha256-package-relative-path-content-v1"
+
+
+def _package_code_sha256() -> str:
+    root = Path(__file__).resolve().parent
+    paths = sorted(root.rglob("*.py"))
+    aggregate = hashlib.sha256()
+    aggregate.update(PACKAGE_CODE_DIGEST_ALGORITHM.encode("ascii") + b"\0")
+    aggregate.update(len(paths).to_bytes(8, "big"))
+    for path in paths:
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        aggregate.update(len(relative).to_bytes(4, "big"))
+        aggregate.update(relative)
+        aggregate.update(hashlib.sha256(path.read_bytes()).digest())
+    return aggregate.hexdigest()
+
+
+# Package modules must not be imported before the source bytes they will execute
+# have been fixed.  A second check immediately after the imports closes that
+# import window; scan-data rechecks the same startup digest before success.
+STARTUP_CODE_SHA256 = _package_code_sha256()
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from .backtest.corporate import detect
+from .backtest.corporate import detect, load_verified_splits
 from .backtest.data import CandleCache, CsvSource, TossSource, load_history
 from .backtest import walkforward as walkforward_mod
-from .backtest.report import export, render, render_walkforward
+from .backtest.report import ExportError, export, render, render_walkforward
 from .backtest.simulator import Backtester
 from .broker.base import BrokerError, CredentialsRejected, IPNotAllowed
 from .broker.paper import PaperBroker
@@ -26,11 +54,98 @@ from . import notify
 from .engine import TradingEngine
 from .notify import Notification, Notifier, NullNotifier
 from .risk import RiskManager
-from .store import Store
+from .store import Store, StoreConflict
 from .strategy import registry
+
+if _package_code_sha256() != STARTUP_CODE_SHA256:
+    raise RuntimeError("TossQuant 코드가 import 중 변경됐습니다")
 
 app = typer.Typer(help="토스증권 Open API 기반 미국주식 자동매매", no_args_is_help=True)
 console = Console()
+CSV_DATASET_DIGEST_ALGORITHM = "sha256-filename-size-content-v1"
+SCAN_RESULT_SCHEMA_VERSION = 1
+SCAN_RESULT_PREFIX = "scan_result="
+
+
+def _assert_package_code_unchanged() -> str:
+    current = _package_code_sha256()
+    if current != STARTUP_CODE_SHA256:
+        raise ValueError(
+            "스캔 중 TossQuant 코드가 변경됐습니다: "
+            f"startup={STARTUP_CODE_SHA256} current={current}"
+        )
+    return STARTUP_CODE_SHA256
+
+
+def _csv_dataset_sha256(files: list[Path]) -> str:
+    aggregate = hashlib.sha256()
+    aggregate.update(CSV_DATASET_DIGEST_ALGORITHM.encode("ascii") + b"\0")
+    aggregate.update(len(files).to_bytes(8, "big"))
+    for path in files:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"CSV 입력은 일반 파일이어야 합니다: {path}")
+        name = path.name.encode("utf-8")
+        content = hashlib.sha256()
+        size = 0
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                size += len(chunk)
+                content.update(chunk)
+        aggregate.update(len(name).to_bytes(4, "big"))
+        aggregate.update(name)
+        aggregate.update(size.to_bytes(8, "big"))
+        aggregate.update(content.digest())
+    return aggregate.hexdigest()
+
+
+def _print_scan_provenance(
+    context: dict[str, object],
+    input_sha256: str | None = None,
+    code_sha256: str | None = None,
+) -> None:
+    console.print(
+        "scan_context="
+        + json.dumps(context, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
+    if input_sha256 is not None:
+        console.print(f"scan_input={input_sha256}")
+    if code_sha256 is not None:
+        console.print(f"scan_code={code_sha256}")
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _scan_break_result(symbol: str, item) -> dict[str, object]:
+    return {
+        "symbol": symbol,
+        "index": item.index,
+        "timestamp": item.ts.isoformat(),
+        "previous_close": str(item.prev_close),
+        "close": str(item.close),
+        "observed_ratio": str(item.ratio),
+        "change_percent": str(item.change_pct),
+        "matched_split_ratio": (
+            str(item.split_ratio) if item.split_ratio is not None else None
+        ),
+        "volume_confirms": item.volume_confirms,
+        "persists": item.persists,
+        "round_trip": item.round_trip,
+        "looks_like_split": item.looks_like_split,
+        "looks_like_bad_bar": item.looks_like_bad_bar,
+        "distorts_backtest": item.distorts_backtest,
+        "description": item.describe(),
+    }
 
 
 def _setup_logging(verbose: bool, quiet_level: int = logging.INFO) -> None:
@@ -69,7 +184,7 @@ def _build(settings: Settings) -> tuple[TradingEngine, Store, Notifier]:
 
 @app.command()
 def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
-    """자격증명·계좌·시세 엔드포인트를 실제로 두드려 응답을 그대로 출력한다.
+    """자격증명·계좌·시세 엔드포인트를 실제로 두드려 파싱 결과를 출력한다.
 
     엔드포인트 경로나 응답 필드명이 문서와 다르면 여기서 먼저 드러난다.
     처음 설정할 때 반드시 이 명령부터 돌릴 것.
@@ -119,6 +234,8 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         console.print(f"[red]실패[/red] {exc}")
         raise typer.Exit(1) from None
 
+    failed = False
+
     console.rule("2. 계좌 목록")
     try:
         accounts = client.list_accounts()
@@ -130,6 +247,7 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
             )
     except BrokerError as exc:
         console.print(f"[red]실패[/red] {exc}")
+        failed = True
 
     symbol = settings.symbols[0] if settings.symbols else "AAPL"
 
@@ -138,6 +256,7 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         console.print(client.get_quote(symbol))
     except BrokerError as exc:
         console.print(f"[red]실패[/red] {exc}")
+        failed = True
 
     console.rule(f"4. 캔들 ({symbol}, {settings.candle_interval})")
     try:
@@ -147,6 +266,7 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
             console.print(candle)
     except BrokerError as exc:
         console.print(f"[red]실패[/red] {exc}")
+        failed = True
 
     if settings.account_id:
         console.rule("5. 잔고")
@@ -154,8 +274,11 @@ def verify(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
             console.print(client.get_account())
         except BrokerError as exc:
             console.print(f"[red]실패[/red] {exc}")
+            failed = True
 
     client.close()
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -346,31 +469,54 @@ def _parse_grid(spec: str, strategy: str) -> walkforward_mod.ParamGrid:
     if not spec:
         return registry.default_grid(strategy)
 
+    base = registry.default_grid(strategy)
+    allowed = set(base.values)
     values: dict[str, list] = {}
     for part in spec.split(";"):
         if not part.strip():
-            continue
-        key, _, raw = part.partition("=")
-        if not raw:
+            console.print("[red]--grid에 빈 축이 있습니다[/red]")
+            raise typer.Exit(1)
+        key, separator, raw = part.partition("=")
+        key = key.strip()
+        if not separator or not key or not raw.strip():
             console.print(f"[red]--grid 형식 오류: '{part}' (key=v1,v2 이어야 합니다)[/red]")
+            raise typer.Exit(1)
+        if key not in allowed:
+            console.print(
+                f"[red]{strategy} 전략에 알 수 없는 --grid 축 '{key}' "
+                f"(가능: {', '.join(sorted(allowed))})[/red]"
+            )
+            raise typer.Exit(1)
+        if key in values:
+            console.print(f"[red]--grid 축 '{key}'이 두 번 지정됐습니다[/red]")
             raise typer.Exit(1)
         parsed = []
         for token in raw.split(","):
             token = token.strip()
             if not token:
-                continue
+                console.print(f"[red]--grid 축 '{key}'에 빈 값이 있습니다[/red]")
+                raise typer.Exit(1)
             try:
-                parsed.append(int(token) if "." not in token else float(token))
+                value = int(token) if "." not in token else float(token)
             except ValueError:
                 console.print(f"[red]--grid 값이 숫자가 아닙니다: '{token}'[/red]")
                 raise typer.Exit(1) from None
-        values[key.strip()] = parsed
+            if value in parsed:
+                console.print(
+                    f"[red]--grid 축 '{key}'에 중복 값 {token}이 있습니다[/red]"
+                )
+                raise typer.Exit(1)
+            parsed.append(value)
+        values[key] = parsed
 
-    base = registry.default_grid(strategy)
     # 지정하지 않은 축은 기본 격자의 값을 그대로 쓴다.
     merged = {**base.values, **values}
-    return walkforward_mod.ParamGrid(values=merged, valid=base.valid)
-
+    grid = walkforward_mod.ParamGrid(values=merged, valid=base.valid)
+    try:
+        return registry.validate_grid(strategy, grid)
+    except ValueError as exc:
+        console.print(f"[red]--grid 값이 유효하지 않습니다: {exc}[/red]")
+        raise typer.Exit(1) from None
 
 
 def _apply_regime(settings: Settings, symbol: str, ma_bars: int) -> None:
@@ -379,14 +525,84 @@ def _apply_regime(settings: Settings, symbol: str, ma_bars: int) -> None:
     'off'로 명시적으로 끌 수 있어야 .env에 켜둔 상태에서도 비교 실행이 된다.
     """
     if symbol:
-        if symbol.lower() == "off":
+        normalized = symbol.strip()
+        if not normalized:
+            console.print("[red]--regime 값은 비어 있을 수 없습니다[/red]")
+            raise typer.Exit(1)
+        if normalized.lower() == "off":
             settings.regime_enabled = False
         else:
+            settings.regime_symbol = normalized
             settings.regime_enabled = True
-            settings.regime_symbol = symbol.upper()
+    if ma_bars < 0:
+        console.print("[red]--regime-ma 값은 1 이상이어야 합니다[/red]")
+        raise typer.Exit(1)
     if ma_bars > 0:
         settings.regime_ma_bars = ma_bars
 
+
+def _apply_decimal_override(
+    settings: Settings,
+    field: str,
+    raw: float,
+    option: str,
+    *,
+    unspecified: Decimal,
+) -> None:
+    """유한 CLI 실수를 Decimal 설정에 적용하고 도메인 오류를 한 줄로 보인다."""
+    value = Decimal(str(raw))
+    if not value.is_finite():
+        console.print(f"[red]{option} 값은 유한해야 합니다[/red]")
+        raise typer.Exit(1)
+    if value == unspecified:
+        return
+    try:
+        setattr(settings, field, value)
+    except ValueError as exc:
+        errors = getattr(exc, "errors", lambda: [])()
+        detail = errors[0].get("msg", str(exc)) if errors else str(exc)
+        console.print(f"[red]{option} 값이 유효하지 않습니다: {detail}[/red]")
+        raise typer.Exit(1) from None
+
+
+def _apply_sma_overrides(settings: Settings, fast: int, slow: int) -> Settings:
+    """SMA 두 값을 완성된 쌍으로 검증해 중간의 잘못된 상태를 만들지 않는다."""
+    if fast == 0 and slow == 0:
+        return settings
+    values = settings.model_dump()
+    if fast != 0:
+        values["sma_fast"] = fast
+    if slow != 0:
+        values["sma_slow"] = slow
+    option = (
+        "--fast/--slow"
+        if fast != 0 and slow != 0
+        else "--fast" if fast else "--slow"
+    )
+    try:
+        return type(settings).model_validate(values)
+    except ValueError as exc:
+        errors = getattr(exc, "errors", lambda: [])()
+        detail = errors[0].get("msg", str(exc)) if errors else str(exc)
+        console.print(f"[red]{option} 값이 유효하지 않습니다: {detail}[/red]")
+        raise typer.Exit(1) from None
+
+
+def _apply_max_holding(settings: Settings, days: int) -> None:
+    if days < -1:
+        console.print("[red]--max-holding 값은 -1 또는 0 이상이어야 합니다[/red]")
+        raise typer.Exit(1)
+    if days >= 0:
+        settings.max_holding_days = days
+
+
+def _history_symbols(settings: Settings) -> list[str]:
+    """국면 심볼을 대소문자와 무관하게 한 번만, 마지막 data-only로 둔다."""
+    wanted = list(settings.symbols)
+    if not settings.regime_enabled:
+        return wanted
+    regime_symbol = settings.regime_symbol
+    return [s for s in wanted if s.upper() != regime_symbol] + [regime_symbol]
 
 
 def _resolve_count(count: int, source: str, toss_default: int) -> int:
@@ -396,6 +612,12 @@ def _resolve_count(count: int, source: str, toss_default: int) -> int:
     상한이 걸리면 파일에 5년치가 있어도 조용히 뒷부분만 잘라 쓰게 된다.
     실제로 이 함정에 걸려 1259봉짜리 데이터로 440봉만 백테스트했다.
     """
+    if count < -1:
+        raise ValueError("--count는 -1(기본값) 또는 0 이상의 개수여야 합니다")
+    if count == 0 and source == "toss":
+        raise ValueError(
+            "Toss 소스는 전체 이력 완전성을 검증하지 못해 --count 0을 지원하지 않습니다"
+        )
     if count >= 0:
         return count
     return 0 if source == "csv" else toss_default
@@ -416,7 +638,7 @@ def backtest(
     end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
     count: int = typer.Option(
         -1, "--count",
-        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 500. 0도 전체.",
+        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 500. 0은 csv만 전체.",
     ),
     fast: int = typer.Option(0, "--fast", help="SMA 단기 (0이면 .env 설정)"),
     slow: int = typer.Option(0, "--slow", help="SMA 장기 (0이면 .env 설정)"),
@@ -429,7 +651,13 @@ def backtest(
     regime_ma: int = typer.Option(0, "--regime-ma", help="국면 판정 이동평균 봉 수"),
     on_break: str = typer.Option(
         "warn", "--on-break",
-        help="가격 불연속 처리: ignore | warn(기본) | adjust",
+        help="가격 불연속 처리: ignore | warn(기본) | adjust(검증 매니페스트 필수)",
+    ),
+    verified_splits_file: Path = typer.Option(
+        None,
+        "--verified-splits",
+        help=("adjust에 필수인 검증된 동일종목 승수 CSV "
+              "(symbol,date,ratio,event_type,source)"),
     ),
     trailing: float = typer.Option(-1.0, "--trailing", help="트레일링 스톱 비율"),
     take_profit: float = typer.Option(-1.0, "--take-profit", help="익절 비율"),
@@ -443,8 +671,8 @@ def backtest(
 ) -> None:
     """과거 캔들로 전략을 검증한다.
 
-    신호는 봉 종가에서 나오고 체결은 다음 봉 시가에 일어난다 — 실시간 운용과
-    같은 전략·리스크·체결 코드를 그대로 탄다.
+    신호는 봉 종가에서 나오고 체결은 다음 봉 시가로 모델링한다. 라이브와 같은
+    전략·리스크 코드를 쓰지만, 체결 모델은 라이브와 다릅니다.
     """
     _setup_logging(verbose, quiet_level=logging.WARNING)
     # 보호 청산은 라이브에선 WARNING이 맞지만, 백테스트에선 수백 건이 쏟아지고
@@ -457,26 +685,38 @@ def backtest(
         settings.symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     if interval:
         settings.candle_interval = interval
-    if fast:
-        settings.sma_fast = fast
-    if slow:
-        settings.sma_slow = slow
-    if cash:
-        settings.paper_cash = Decimal(str(cash))
+    settings = _apply_sma_overrides(settings, fast, slow)
+    _apply_decimal_override(
+        settings, "paper_cash", cash, "--cash", unspecified=Decimal("0")
+    )
     _select_strategy(settings, strategy)
     if settings.strategy == "sma_cross" and settings.sma_fast >= settings.sma_slow:
         console.print("[red]--fast 는 --slow 보다 작아야 합니다[/red]")
         raise typer.Exit(1)
 
     # -1 = 지정 안 함(.env 값 유지). 0은 '끄기'라는 유효한 값이라 구분이 필요하다.
-    if stop_loss >= 0:
-        settings.stop_loss_pct = Decimal(str(stop_loss))
-    if trailing >= 0:
-        settings.trailing_stop_pct = Decimal(str(trailing))
-    if take_profit >= 0:
-        settings.take_profit_pct = Decimal(str(take_profit))
-    if max_holding >= 0:
-        settings.max_holding_days = max_holding
+    _apply_decimal_override(
+        settings,
+        "stop_loss_pct",
+        stop_loss,
+        "--stop-loss",
+        unspecified=Decimal("-1"),
+    )
+    _apply_decimal_override(
+        settings,
+        "trailing_stop_pct",
+        trailing,
+        "--trailing",
+        unspecified=Decimal("-1"),
+    )
+    _apply_decimal_override(
+        settings,
+        "take_profit_pct",
+        take_profit,
+        "--take-profit",
+        unspecified=Decimal("-1"),
+    )
+    _apply_max_holding(settings, max_holding)
     _apply_regime(settings, regime, regime_ma)
     if no_stops:
         settings.stop_loss_pct = Decimal("0")
@@ -500,10 +740,12 @@ def backtest(
         return datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     try:
-        wanted = list(settings.symbols)
-        if settings.regime_enabled and settings.regime_symbol not in wanted:
-            # 지수는 매매 대상이 아니지만 캔들은 같이 받아와야 한다.
-            wanted.append(settings.regime_symbol)
+        verified_splits = (
+            load_verified_splits(verified_splits_file)
+            if verified_splits_file is not None
+            else None
+        )
+        wanted = _history_symbols(settings)
         history = load_history(
             wanted,
             settings.candle_interval,
@@ -514,11 +756,12 @@ def backtest(
             cache=cache,
             refresh=refresh,
             on_break=on_break,
+            verified_splits=verified_splits,
         )
         result = Backtester(
             history, registry.build(settings.strategy, settings), settings
         ).run()
-    except (ValueError, FileNotFoundError) as exc:
+    except (BrokerError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from None
     finally:
@@ -528,7 +771,11 @@ def backtest(
     render(result, console, show_trades=trades)
 
     if export_dir is not None:
-        written = export(result, export_dir)
+        try:
+            written = export(result, export_dir)
+        except ExportError as exc:
+            console.print(f"[red]내보내기 실패: {exc}[/red]")
+            raise typer.Exit(1) from None
         console.print("\n" + "\n".join(f"기록: {path}" for path in written))
 
 
@@ -541,7 +788,7 @@ def walkforward(
     end: str = typer.Option("", "--to", help="종료일 YYYY-MM-DD"),
     count: int = typer.Option(
         -1, "--count",
-        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 1000. 0도 전체.",
+        help="사용할 봉 개수. 생략하면 csv는 전체, toss는 1000. 0은 csv만 전체.",
     ),
     train_bars: int = typer.Option(250, "--train-bars", help="학습 구간 봉 수"),
     test_bars: int = typer.Option(60, "--test-bars", help="평가 구간 봉 수"),
@@ -560,6 +807,21 @@ def walkforward(
         help="탐색 격자 `fast=5,10;slow=40,60`. 비우면 전략별 기본 격자.",
     ),
     cash: float = typer.Option(0.0, "--cash"),
+    regime: str = typer.Option(
+        "", "--regime",
+        help="시장 국면 필터 지수 심볼 (예: SPY). 'off'면 끈다.",
+    ),
+    regime_ma: int = typer.Option(0, "--regime-ma", help="국면 판정 이동평균 봉 수"),
+    on_break: str = typer.Option(
+        "warn", "--on-break",
+        help="가격 불연속 처리: ignore | warn(기본) | adjust(검증 매니페스트 필수)",
+    ),
+    verified_splits_file: Path = typer.Option(
+        None,
+        "--verified-splits",
+        help=("adjust에 필수인 검증된 동일종목 승수 CSV "
+              "(symbol,date,ratio,event_type,source)"),
+    ),
     cache_path: Path = typer.Option(Path("candles.db"), "--cache"),
     refresh: bool = typer.Option(False, "--refresh"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -578,8 +840,10 @@ def walkforward(
 
     if symbols:
         settings.symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    if cash:
-        settings.paper_cash = Decimal(str(cash))
+    _apply_decimal_override(
+        settings, "paper_cash", cash, "--cash", unspecified=Decimal("0")
+    )
+    _apply_regime(settings, regime, regime_ma)
 
     _select_strategy(settings, strategy)
     grid = _parse_grid(grid_spec, settings.strategy)
@@ -605,8 +869,14 @@ def walkforward(
         )
 
     try:
+        verified_splits = (
+            load_verified_splits(verified_splits_file)
+            if verified_splits_file is not None
+            else None
+        )
+        wanted = _history_symbols(settings)
         history = load_history(
-            settings.symbols,
+            wanted,
             settings.candle_interval,
             history_source,
             count=_resolve_count(count, source, 1000),
@@ -615,6 +885,7 @@ def walkforward(
             cache=cache,
             refresh=refresh,
             on_break=on_break,
+            verified_splits=verified_splits,
         )
         with console.status("구간별 최적화 중…"):
             result = walkforward_mod.run(
@@ -627,7 +898,7 @@ def walkforward(
                 objective=objective,
                 anchored=anchored,
             )
-    except (ValueError, FileNotFoundError) as exc:
+    except (BrokerError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from None
     finally:
@@ -641,6 +912,9 @@ def walkforward(
 def scan_data(
     csv_dir: Path = typer.Option(Path("data"), "--csv-dir"),
     threshold: float = typer.Option(0.25, "--threshold", help="불연속 판정 기준 (0.25 = 25%)"),
+    strict: bool = typer.Option(
+        False, "--strict", help="읽지 못한 CSV가 하나라도 있으면 실패 종료"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """CSV 폴더 전체에서 가격 불연속을 찾아 분류한다.
@@ -650,38 +924,129 @@ def scan_data(
     것처럼 보인다. 백테스트를 믿기 전에 이걸 먼저 돌릴 것.
     """
     _setup_logging(verbose, quiet_level=logging.ERROR)
-    files = sorted(csv_dir.glob("*.csv"))
+    scan_context = {
+        "argv": list(sys.argv),
+        "cwd": str(Path.cwd()),
+    }
+    input_sha256: str | None = None
+    code_sha256 = STARTUP_CODE_SHA256
+    try:
+        files = sorted(csv_dir.glob("*.csv"))
+    except OSError as exc:
+        console.print(f"[red]CSV 목록 조회 실패: {exc}[/red]")
+        _print_scan_provenance(scan_context, code_sha256=code_sha256)
+        console.print("scan_exit_status=1")
+        raise typer.Exit(1) from None
     if not files:
         console.print(f"[red]{csv_dir} 에 CSV가 없습니다[/red]")
+        _print_scan_provenance(scan_context, code_sha256=code_sha256)
+        console.print("scan_exit_status=1")
         raise typer.Exit(1)
 
-    source = CsvSource(csv_dir)
+    threshold_decimal = Decimal(str(threshold))
+    if not threshold_decimal.is_finite() or threshold_decimal <= 0:
+        console.print("[red]--threshold는 0보다 큰 유한값이어야 합니다[/red]")
+        _print_scan_provenance(scan_context, code_sha256=code_sha256)
+        console.print("scan_exit_status=1")
+        raise typer.Exit(1)
+    try:
+        input_sha256 = _csv_dataset_sha256(files)
+        _assert_package_code_unchanged()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]스캔 입력 provenance 계산 실패: {exc}[/red]")
+        _print_scan_provenance(scan_context, input_sha256, code_sha256)
+        console.print("scan_exit_status=1")
+        raise typer.Exit(1) from None
+    _print_scan_provenance(scan_context, input_sha256, code_sha256)
+
     buckets: dict[str, list[tuple[str, object]]] = {
         "split": [], "bad": [], "unknown": [], "real": []
     }
-    for path in files:
+    processed = 0
+    skipped: list[str] = []
+    original_names = [path.name for path in files]
+    with tempfile.TemporaryDirectory(prefix="tossquant-scan-snapshot-") as raw:
+        snapshot_dir = Path(raw)
         try:
-            candles = source.fetch(path.stem, "1d", 0)
-        except (ValueError, FileNotFoundError) as exc:
-            console.print(f"[yellow]{path.name} 건너뜀: {exc}[/yellow]")
-            continue
-        for item in detect(candles, Decimal(str(threshold))):
-            key = (
-                "split" if item.looks_like_split
-                else "bad" if item.looks_like_bad_bar
-                else "unknown" if item.distorts_backtest
-                else "real"
-            )
-            buckets[key].append((path.stem, item))
+            for path in files:
+                shutil.copyfile(path, snapshot_dir / path.name)
+            snapshot_files = [snapshot_dir / name for name in original_names]
+            snapshot_input_sha256 = _csv_dataset_sha256(snapshot_files)
+            files_after_copy = sorted(csv_dir.glob("*.csv"))
+            input_after_copy_sha256 = _csv_dataset_sha256(files_after_copy)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]스캔 입력 스냅샷 실패: {exc}[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1) from None
+        if [path.name for path in files_after_copy] != original_names:
+            console.print("[red]스캔 중 CSV 파일 목록이 변경됐습니다[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1)
+        if (
+            snapshot_input_sha256 != input_sha256
+            or input_after_copy_sha256 != input_sha256
+        ):
+            console.print("[red]스캔 중 CSV 입력 내용이 변경됐습니다[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1)
 
+        source = CsvSource(snapshot_dir)
+        for path in snapshot_files:
+            try:
+                candles = source.fetch(path.stem, "1d", 0)
+                if not candles:
+                    raise ValueError("캔들이 없습니다")
+                breaks = detect(candles, threshold_decimal)
+            except (OSError, ValueError) as exc:
+                console.print(f"[yellow]{path.name} 건너뜀: {exc}[/yellow]")
+                skipped.append(path.name)
+                continue
+            processed += 1
+            for item in breaks:
+                key = (
+                    "split" if item.looks_like_split
+                    else "bad" if item.looks_like_bad_bar
+                    else "unknown" if item.distorts_backtest
+                    else "real"
+                )
+                buckets[key].append((path.stem, item))
+
+        if processed == 0:
+            console.print("[red]읽을 수 있는 CSV가 없습니다[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1)
+
+        try:
+            final_files = sorted(csv_dir.glob("*.csv"))
+            final_input_sha256 = _csv_dataset_sha256(final_files)
+            _assert_package_code_unchanged()
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]스캔 완료 provenance 계산 실패: {exc}[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1) from None
+        if [path.name for path in final_files] != original_names:
+            console.print("[red]스캔 중 CSV 파일 목록이 변경됐습니다[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1)
+        if final_input_sha256 != input_sha256:
+            console.print("[red]스캔 중 CSV 입력 내용이 변경됐습니다[/red]")
+            console.print("scan_exit_status=1")
+            raise typer.Exit(1)
     total = sum(len(v) for v in buckets.values())
-    console.print(f"[bold]{len(files)}개 파일 · 불연속 {total}건[/bold] (기준 {threshold * 100:g}%)\n")
+    console.print(
+        f"[bold]{processed}개 처리 · {len(skipped)}개 건너뜀 · "
+        f"불연속 {total}건[/bold] (기준 {threshold * 100:g}%)\n"
+    )
 
     sections = [
-        ("split", "분할로 추정 — `--on-break adjust` 로 보정 가능", "green"),
-        ("bad", "데이터 오류 의심 — 원본을 고치거나 해당 종목을 빼세요", "yellow"),
-        ("unknown", "원인 불명 하락 갭 — 분사일 가능성. 백테스트가 왜곡됩니다", "red"),
-        ("real", "원인 불명 상승 갭 — 대개 실적·임상 등 실제 뉴스", "dim"),
+        ("split", "분할비 후보 — 외부 공시 확인 전 자동 조정 금지", "green"),
+        ("bad", "왕복·일시 불연속 — 실제 움직임인지 원본 오류인지 확인", "yellow"),
+        (
+            "unknown",
+            "미확인 하락 갭 — 기업행동·원본 오류 여부 수동 확인 필요",
+            "red",
+        ),
+        ("real", "원인 불명 상승 갭 — 자동 제외하지 않음", "dim"),
     ]
     for key, title, colour in sections:
         rows = buckets[key]
@@ -696,10 +1061,80 @@ def scan_data(
 
     if buckets["unknown"]:
         console.print(
-            f"\n[red]원인 불명 {len(buckets['unknown'])}건이 있습니다.[/red] "
-            "분사라면 손절이 가짜 급락에서 발동해 전략 성과가 부풀려집니다.\n"
-            "해당 종목을 제외하고 다시 측정하는 것을 권합니다."
+            f"\n[red]미확인 하락 갭 {len(buckets['unknown'])}건이 있습니다.[/red] "
+            "기업행동이나 원본 오류라면 손절·벤치마크가 왜곡될 수 있으므로 "
+            "원자료와 공시를 수동 확인하세요.\n"
+            "종목 전체 제외는 미래의 갭까지 미리 보는 사후 전체기간 민감도 "
+            "분석이며, 편향 없는 정제 결과가 아닙니다."
         )
+
+    if strict and skipped:
+        console.print(
+            f"\n[red]strict 모드: {len(skipped)}개 CSV를 읽지 못했습니다.[/red]"
+        )
+        console.print("scan_exit_status=1")
+        raise typer.Exit(1)
+
+    result_categories = {
+        "candidate_adjustments": [
+            _scan_break_result(symbol, item)
+            for symbol, item in sorted(buckets["split"], key=lambda row: row[0])
+        ],
+        "transient_or_roundtrip": [
+            _scan_break_result(symbol, item)
+            for symbol, item in sorted(buckets["bad"], key=lambda row: row[0])
+        ],
+        "unknown_down": [
+            _scan_break_result(symbol, item)
+            for symbol, item in sorted(buckets["unknown"], key=lambda row: row[0])
+        ],
+        "unknown_up": [
+            _scan_break_result(symbol, item)
+            for symbol, item in sorted(buckets["real"], key=lambda row: row[0])
+        ],
+    }
+    result = {
+        "schema_version": SCAN_RESULT_SCHEMA_VERSION,
+        "kind": "tossquant.scan_result",
+        "reported_exit_status": 0,
+        "invocation": scan_context,
+        "request": {
+            "strict": strict,
+            "threshold": str(threshold_decimal),
+        },
+        "input": {
+            "digest_algorithm": CSV_DATASET_DIGEST_ALGORITHM,
+            "sha256": input_sha256,
+        },
+        "code": {
+            "digest_algorithm": PACKAGE_CODE_DIGEST_ALGORITHM,
+            "sha256": code_sha256,
+        },
+        "runtime": {
+            "python": platform.python_version(),
+            "pydantic": importlib.metadata.version("pydantic"),
+            "pydantic_settings": importlib.metadata.version(
+                "pydantic-settings"
+            ),
+        },
+        "processed": processed,
+        "skipped_files": sorted(skipped),
+        "break_count": total,
+        "categories": result_categories,
+    }
+    try:
+        _assert_package_code_unchanged()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]스캔 종료 provenance 계산 실패: {exc}[/red]")
+        console.print("scan_exit_status=1")
+        raise typer.Exit(1) from None
+    console.print("scan_exit_status=0")
+    console.print(
+        SCAN_RESULT_PREFIX + _canonical_json(result),
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
 
 
 @app.command()
@@ -713,8 +1148,11 @@ def reset(
         raise typer.Exit(1)
     if not yes:
         typer.confirm(f"{settings.db_path} 의 페이퍼 상태를 모두 지울까요?", abort=True)
-    if settings.db_path.exists():
-        settings.db_path.unlink()
+    try:
+        Store.reset_paper_database(settings.db_path)
+    except StoreConflict as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
     console.print("초기화 완료")
 
 
