@@ -183,4 +183,21 @@ export const META = {
   ],
 };
 
-export const SAVE_VERSION = 3;
+// ============================================================
+// 터치 조작 기본값.
+// 손 크기·그립·기기 크기는 사람마다 다르므로 전부 설정으로 조절 가능해야 한다.
+// 여기 값은 "기본값"일 뿐 정답이 아니다.
+// ============================================================
+export const TOUCH_DEFAULTS = {
+  stickRadius: 58,      // 스틱을 최대로 기울이는 거리(px). 작을수록 민감
+  stickDead: 6,         // 데드존(px). 작을수록 미세 입력이 먹지만 손떨림에 반응
+  slidingStick: true,   // 엄지가 반경을 넘으면 원점이 따라온다 (스틱이 '떨어지지' 않게)
+  aimAssist: 0.55,      // 조준 보정 강도 0~1 (가까운 적 방향으로 끌어당김)
+  assistCone: 42,       // 이 각도(°) 안의 적에게만 보정이 걸린다
+  tapToAttack: true,    // 오른쪽을 짧게 톡 치면 가장 가까운 적을 공격
+  buttonScale: 1.0,     // 버튼 크기 배율
+  leftHanded: false,    // 좌우 반전 (왼손잡이)
+  haptics: true,        // 진동 피드백
+};
+
+export const SAVE_VERSION = 4;

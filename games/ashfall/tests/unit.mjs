@@ -7,7 +7,8 @@ import { buildLoadout, availableDuos, slotsUsed } from '../src/sim/loadout.js';
 import { applyStatus, updateStatuses, damageEnemy, damagePlayer, healPlayer, staggerEnemy as staggerFn } from '../src/sim/combat.js';
 import { updatePlayer as updatePlayerFn, corpseHasteMult as corpseHasteFn } from '../src/sim/player.js';
 import { updateProjectiles as updateProjectilesFn, updateEnemies as updateEnemiesFn } from '../src/sim/enemyAI.js';
-import { STATUS, SIM, PLAYER, RUN, ARENA } from '../src/data/balance.js';
+import { STATUS, SIM, PLAYER, RUN, ARENA, TOUCH_DEFAULTS } from '../src/data/balance.js';
+import { touchButtons as touchButtonsFn } from '../src/core/touch.js';
 import { WEAPONS } from '../src/data/weapons.js';
 import { BOONS, WEAPON_BOONS, DUO_BOONS, ALL_BOONS, scaleValues } from '../src/data/boons.js';
 import { ENEMIES, BOSSES, MINIBOSSES, ELITE_AFFIXES, BIOMES, ENEMY_COST } from '../src/data/enemies.js';
@@ -709,6 +710,47 @@ test('손상된 세이브는 초기화되고 백업된다', () => {
   const l = loadSave();
   eq(l.ash, 0);
   assert(store.has('ashfall.save.corrupt'), '손상 세이브 백업 없음');
+});
+
+test('v3 세이브가 터치 설정(v4)으로 마이그레이션된다', () => {
+  store.clear();
+  store.set('ashfall.save', JSON.stringify({
+    version: 3, ash: 40, upgrades: { vigor: 2 },
+    stats: { runs: 3, wins: 1, kills: 10, bestTime: null, deepest: '2-1' },
+    lastWeapon: 'twinfangs',
+  }));
+  const l = loadSave();
+  eq(l.version, 4, '버전 갱신 실패');
+  eq(l.ash, 40, '기존 진행이 사라짐');
+  eq(l.upgrades.vigor, 2, '기존 강화가 사라짐');
+  assert(l.touch && typeof l.touch.stickRadius === 'number', '터치 설정 기본값이 채워지지 않음');
+  eq(l.touch.aimAssist, TOUCH_DEFAULTS.aimAssist, '기본값 불일치');
+});
+
+test('손상된 터치 설정 값은 안전 범위로 보정된다', () => {
+  store.clear();
+  store.set('ashfall.save', JSON.stringify({
+    version: 4, ash: 0, upgrades: {}, stats: {},
+    touch: { stickRadius: 99999, stickDead: -5, aimAssist: 7, buttonScale: 'x', slidingStick: 'yes' },
+  }));
+  const l = loadSave();
+  assert(l.touch.stickRadius <= 110 && l.touch.stickRadius >= 30, `반경 보정 실패: ${l.touch.stickRadius}`);
+  assert(l.touch.stickDead >= 0, `데드존 보정 실패: ${l.touch.stickDead}`);
+  assert(l.touch.aimAssist <= 1, `보정 강도 실패: ${l.touch.aimAssist}`);
+  eq(typeof l.touch.buttonScale, 'number', '숫자 아닌 값이 남음');
+  eq(typeof l.touch.slidingStick, 'boolean', '불리언 아닌 값이 남음');
+});
+
+test('터치 버튼 배치는 왼손잡이 설정을 따른다', () => {
+  const right = touchButtonsFn(800, 600, { ...TOUCH_DEFAULTS, leftHanded: false });
+  const left = touchButtonsFn(800, 600, { ...TOUCH_DEFAULTS, leftHanded: true });
+  const rd = right.find((b) => b.id === 'dash');
+  const ld = left.find((b) => b.id === 'dash');
+  assert(rd.x > 400, '기본 배치가 오른쪽이어야 함');
+  assert(ld.x < 400, '왼손잡이 배치가 왼쪽이어야 함');
+  // 버튼 크기 배율
+  const big = touchButtonsFn(800, 600, { ...TOUCH_DEFAULTS, buttonScale: 1.5 });
+  assert(big.find((b) => b.id === 'dash').r > rd.r, '버튼 크기 배율이 반영되지 않음');
 });
 
 test('메타 강화가 실제 효과로 환산된다', () => {

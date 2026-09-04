@@ -10,7 +10,7 @@
 // ============================================================
 
 import { WEAPONS } from '../data/weapons.js';
-import { RARITY, META, SHOP } from '../data/balance.js';
+import { RARITY, META, SHOP, TOUCH_DEFAULTS } from '../data/balance.js';
 import { GODS, SLOT_NAMES, ANY_BOON_BY_ID } from '../data/boons.js';
 import { upgradeCost } from '../core/save.js';
 
@@ -143,6 +143,7 @@ export function createScreens(overlay, game) {
             · 무쇠 방벽은 정면 피해를 막는다. 돌아서 등을 쳐야 한다.
           </p>`;
         actions = `
+          <button class="btn ghost" id="touchSet">터치 감도</button>
           <span class="spacer"></span>
           <button class="btn primary" id="startBtn">회랑으로 들어간다</button>`;
       }
@@ -158,7 +159,87 @@ export function createScreens(overlay, game) {
         if (reset) reset.addEventListener('click', () => {
           if (confirm('영구 강화와 기록을 모두 지웁니다. 계속할까요?')) { game.resetSave(); render(); }
         });
+        const ts = root.querySelector('#touchSet');
+        if (ts) ts.addEventListener('click', () => { hide(); settings(() => { titleTab = 'howto'; render(); }); });
         root.querySelector('#startBtn').addEventListener('click', () => { hide(); game.startRun(weaponId); });
+      });
+    };
+    render();
+  }
+
+  // ============================================================
+  // 터치 감도 설정
+  //
+  // 손 크기·그립·기기는 사람마다 다르다. 기본값은 정답이 아니므로
+  // 플레이해 보고 바로 고칠 수 있어야 한다. 일시정지에서도 열 수 있다.
+  // ============================================================
+  const TOUCH_FIELDS = [
+    { key: 'stickRadius', name: '스틱 반경', min: 30, max: 110, step: 2, unit: 'px',
+      desc: '엄지를 최대로 꺾는 거리. 작을수록 조금만 움직여도 최대 속도가 난다.' },
+    { key: 'stickDead', name: '데드존', min: 0, max: 20, step: 1, unit: 'px',
+      desc: '이 거리 안의 움직임은 무시한다. 손이 떨려서 캐릭터가 흔들리면 올린다.' },
+    { key: 'aimAssist', name: '조준 보정', min: 0, max: 1, step: 0.05, unit: '%', pct: true,
+      desc: '조준 방향이 적을 거의 향하면 그쪽으로 끌어당긴다. 0이면 보정 없음.' },
+    { key: 'assistCone', name: '보정 범위', min: 0, max: 90, step: 5, unit: '°',
+      desc: '이 각도 안의 적에게만 보정이 걸린다. 넓히면 편하지만 원하는 적을 못 고를 수 있다.' },
+    { key: 'buttonScale', name: '버튼 크기', min: 0.7, max: 1.6, step: 0.05, unit: '×',
+      desc: '대시·특수기·명령 버튼의 크기.' },
+  ];
+  const TOUCH_TOGGLES = [
+    { key: 'slidingStick', name: '따라오는 스틱', desc: '엄지가 반경을 넘으면 스틱 원점이 따라온다. 끄면 원점이 고정된다.' },
+    { key: 'tapToAttack', name: '톡 쳐서 공격', desc: '오른쪽 화면을 짧게 치면 가장 가까운 적을 공격한다.' },
+    { key: 'leftHanded', name: '왼손잡이 배치', desc: '이동/조준과 버튼 위치를 좌우로 뒤집는다.' },
+    { key: 'haptics', name: '진동 피드백', desc: '버튼을 누를 때 진동한다. (지원 기기 한정)' },
+  ];
+
+  function settings(onBack) {
+    const render = () => {
+      const t = game.save.touch;
+      const sliders = TOUCH_FIELDS.map((f) => {
+        const v = t[f.key];
+        const shown = f.pct ? `${Math.round(v * 100)}%` : `${Math.round(v * 100) / 100}${f.unit}`;
+        return `
+        <div class="setrow">
+          <div class="sl"><span class="sname">${esc(f.name)}</span><span class="sval" data-val="${f.key}">${shown}</span></div>
+          <input type="range" data-set="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}">
+          <div class="sdesc">${esc(f.desc)}</div>
+        </div>`;
+      }).join('');
+      const toggles = TOUCH_TOGGLES.map((f) => `
+        <button class="toggle" data-toggle="${f.key}" aria-pressed="${!!t[f.key]}">
+          <span><span class="tname">${esc(f.name)}</span><br><span class="tdesc">${esc(f.desc)}</span></span>
+          <span class="sw"></span>
+        </button>`).join('');
+
+      show('settings', {
+        title: '터치 감도',
+        sub: '플레이해 보고 맞지 않으면 바로 고친다',
+        body: `<div class="settings">${sliders}${toggles}</div>`,
+        actions: `
+          <button class="btn ghost" id="resetTouch">기본값</button>
+          <span class="spacer"></span>
+          <button class="btn primary" id="doneTouch">완료</button>`,
+      }, (root) => {
+        root.querySelectorAll('[data-set]').forEach((el) => {
+          el.addEventListener('input', () => {
+            const f = TOUCH_FIELDS.find((x) => x.key === el.dataset.set);
+            const v = parseFloat(el.value);
+            game.setTouch(f.key, v);
+            const out = root.querySelector(`[data-val="${f.key}"]`);
+            if (out) out.textContent = f.pct ? `${Math.round(v * 100)}%` : `${Math.round(v * 100) / 100}${f.unit}`;
+          });
+        });
+        root.querySelectorAll('[data-toggle]').forEach((el) => {
+          el.addEventListener('click', () => {
+            const k = el.dataset.toggle;
+            const nv = !game.save.touch[k];
+            game.setTouch(k, nv);
+            el.setAttribute('aria-pressed', String(nv));
+            game.sfx.ui();
+          });
+        });
+        root.querySelector('#resetTouch').addEventListener('click', () => { game.resetTouch(); render(); });
+        root.querySelector('#doneTouch').addEventListener('click', () => { hide(); onBack(); });
       });
     };
     render();
@@ -285,13 +366,16 @@ export function createScreens(overlay, game) {
       body: noteHtml || '',
       actions: `
         <button class="btn ghost" id="quit">런 포기</button>
+        <button class="btn ghost" id="pauseSet">터치 감도</button>
         <span class="spacer"></span>
         <button class="btn primary" id="resume">계속하기</button>`,
     }, (root) => {
       root.querySelector('#resume').addEventListener('click', () => { hide(); game.resume(); });
       root.querySelector('#quit').addEventListener('click', () => { hide(); game.abandon(); });
+      // 플레이 중에 바로 감도를 고치고 돌아올 수 있어야 한다
+      root.querySelector('#pauseSet').addEventListener('click', () => { hide(); settings(() => pause(noteHtml)); });
     });
   }
 
-  return { title, reward, curse, shop, result, pause, hide, get current() { return current; } };
+  return { title, reward, curse, shop, result, pause, settings, hide, get current() { return current; } };
 }

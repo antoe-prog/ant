@@ -1,7 +1,7 @@
 // 영구 저장(메타 진행). 버전 + 마이그레이션 + 손상 대응.
 // 세이브 구조가 바뀌어도 기존 플레이어의 진행이 날아가지 않도록 한다.
 
-import { SAVE_VERSION, META } from '../data/balance.js';
+import { SAVE_VERSION, META, TOUCH_DEFAULTS } from '../data/balance.js';
 
 const KEY = 'ashfall.save';
 
@@ -13,6 +13,7 @@ export function defaultSave() {
     stats: { runs: 0, wins: 0, kills: 0, bestTime: null, deepest: '1-1' },
     lastWeapon: 'emberblade',
     seen: {},              // 처음 본 권능/적 (도감 확장 여지)
+    touch: { ...TOUCH_DEFAULTS },
   };
 }
 
@@ -21,6 +22,8 @@ function migrate(data) {
   const d = { ...defaultSave(), ...data };
   d.upgrades = { ...(data.upgrades || {}) };
   d.stats = { ...defaultSave().stats, ...(data.stats || {}) };
+  // v3 → v4: 터치 설정 추가. 없던 항목은 기본값으로 채운다.
+  d.touch = { ...TOUCH_DEFAULTS, ...(data.touch || {}) };
 
   // v1: ash 대신 'dust' 를 쓰던 시절
   if (data.version < 2 && typeof data.dust === 'number') d.ash = data.dust;
@@ -31,6 +34,16 @@ function migrate(data) {
   }
   for (const u of META.UPGRADES) {
     if (d.upgrades[u.id] != null) d.upgrades[u.id] = Math.min(u.max, Math.max(0, Math.floor(d.upgrades[u.id])));
+  }
+  // 터치 설정 값 범위 보정 (손상/구버전 값 방어)
+  const clampNum = (v, lo, hi, def) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def);
+  d.touch.stickRadius = clampNum(d.touch.stickRadius, 30, 110, TOUCH_DEFAULTS.stickRadius);
+  d.touch.stickDead = clampNum(d.touch.stickDead, 0, 24, TOUCH_DEFAULTS.stickDead);
+  d.touch.aimAssist = clampNum(d.touch.aimAssist, 0, 1, TOUCH_DEFAULTS.aimAssist);
+  d.touch.assistCone = clampNum(d.touch.assistCone, 0, 90, TOUCH_DEFAULTS.assistCone);
+  d.touch.buttonScale = clampNum(d.touch.buttonScale, 0.7, 1.6, TOUCH_DEFAULTS.buttonScale);
+  for (const k of ['slidingStick', 'tapToAttack', 'leftHanded', 'haptics']) {
+    if (typeof d.touch[k] !== 'boolean') d.touch[k] = TOUCH_DEFAULTS[k];
   }
   d.version = SAVE_VERSION;
   return d;

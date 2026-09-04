@@ -3,8 +3,8 @@
 
 import { createTouch } from './touch.js';
 
-export function createInput(canvas, camera, world) {
-  const touch = createTouch(canvas, world);
+export function createInput(canvas, camera, world, getTouchCfg) {
+  const touch = createTouch(canvas, world, getTouchCfg);
   const keys = new Set();
   const mouse = { x: 0, y: 0, down: false, right: false, movedAt: -999 };
   let usedMouse = false;
@@ -54,7 +54,7 @@ export function createInput(canvas, camera, world) {
     /** 현재 조준 지점(월드 좌표) */
     aim(viewW, viewH) {
       // 터치 조준이 최우선 (모바일에서 마우스 좌표는 의미가 없다)
-      const av = touch.aimVector();
+      const av = touch.aimVector(viewW, viewH);
       if (av && (av.x || av.y)) {
         const p = world.player;
         return { x: p.x + av.x * 260, y: p.y + av.y * 260 };
@@ -81,10 +81,10 @@ export function createInput(canvas, camera, world) {
       let mx = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
       let my = (held('down') ? 1 : 0) - (held('up') ? 1 : 0);
 
-      const tm = touch.moveVector();
+      const tm = touch.moveVector(viewW, viewH);
       if (tm.x || tm.y) { mx = tm.x; my = tm.y; }
 
-      const av = touch.aimVector();
+      const av = touch.aimVector(viewW, viewH);
       const ts = touch.state;
 
       return {
@@ -97,7 +97,7 @@ export function createInput(canvas, camera, world) {
       };
     },
 
-    endFrame() { touch.endFrame(); },
+    endFrame(dt) { touch.endFrame(dt); },
   };
 
   /** 키보드 전용/터치 조작에서 가장 가까운 적을 자동 조준 */

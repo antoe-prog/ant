@@ -3,7 +3,7 @@
 // 고정 타임스텝으로 시뮬레이션하고, 렌더는 프레임마다.
 // ============================================================
 
-import { SIM, VIEW, RUN, META } from './data/balance.js';
+import { SIM, VIEW, RUN, META, TOUCH_DEFAULTS } from './data/balance.js';
 import { WEAPON_BY_ID, WEAPONS } from './data/weapons.js';
 import { EventBus, EV } from './core/events.js';
 import { createInput } from './core/input.js';
@@ -72,7 +72,7 @@ const game = {
     world.camera = camera;
     vfx = createVfx(world, bus);
     renderer = createRenderer(canvas, world, camera, vfx);
-    input = createInput(canvas, camera, world);
+    input = createInput(canvas, camera, world, () => save.touch);
     hud = createHud(canvas, world, input);
 
     director.start();
@@ -101,8 +101,10 @@ const game = {
     return ok;
   },
   resetSave() { save = resetSave(); },
+  setTouch(key, value) { save.touch[key] = value; writeSave(save); },
+  resetTouch() { save.touch = { ...TOUCH_DEFAULTS }; writeSave(save); },
   /** 터치 버튼 배치 (테스트/디버그용) */
-  touchButtons(w, h) { return touchButtons(w, h); },
+  touchButtons(w, h) { return touchButtons(w, h, save.touch); },
 };
 
 const screens = createScreens(overlay, game);
@@ -198,7 +200,7 @@ function frame(now) {
   vfx.update(mode === 'playing' ? dtReal : dtReal * 0.35);
   renderer.draw(dtReal, aim);
   if (mode !== 'menu') hud.draw(dtReal);
-  input.endFrame();
+  input.endFrame(dtReal);
 }
 
 // ---------------- 일시정지 ----------------

@@ -142,6 +142,56 @@ async function mobileChecks() {
     `충전 ${chargesBefore} → ${chargesAfter}`);
 
   await mp.screenshot({ path: path.join(SHOTS, 'm2-touch-ui.png') });
+
+  // ---- 터치 감도 설정: 플레이 중 일시정지에서 열고, 값이 즉시 반영되는가 ----
+  await mp.keyboard.press('Escape');
+  await sleep(300);
+  check('[모바일] 일시정지에서 터치 감도 진입', await mp.locator('#pauseSet').isVisible());
+  await mp.locator('#pauseSet').tap();
+  await sleep(300);
+  check('[모바일] 설정 화면 표시', (await mp.evaluate(() => document.getElementById('overlay').dataset.screen)) === 'settings');
+  const beforeCfg = await mp.evaluate(() => ({ ...window.__ashfall.save.touch }));
+
+  // 슬라이더를 움직이면 저장까지 반영된다
+  await mp.evaluate(() => {
+    const el = document.querySelector('[data-set="aimAssist"]');
+    el.value = '0.9';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(150);
+  const afterSlider = await mp.evaluate(() => ({
+    mem: window.__ashfall.save.touch.aimAssist,
+    saved: JSON.parse(localStorage.getItem('ashfall.save')).touch.aimAssist,
+  }));
+  check('[모바일] 슬라이더 값이 저장에 반영', Math.abs(afterSlider.mem - 0.9) < 0.01 && Math.abs(afterSlider.saved - 0.9) < 0.01,
+    JSON.stringify(afterSlider));
+
+  // 토글
+  await mp.locator('[data-toggle="leftHanded"]').tap();
+  await sleep(150);
+  const lh = await mp.evaluate(() => window.__ashfall.save.touch.leftHanded);
+  check('[모바일] 토글 동작 (왼손잡이 배치)', lh !== beforeCfg.leftHanded, `${beforeCfg.leftHanded} → ${lh}`);
+
+  // 왼손잡이면 버튼이 왼쪽으로 간다
+  const btnSide = await mp.evaluate(() => {
+    const c = document.getElementById('game');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = c.width / dpr;
+    const bs = window.__ashfall.game.touchButtons(W, c.height / dpr);
+    return { dashX: bs.find((b) => b.id === 'dash').x, W };
+  });
+  check('[모바일] 왼손잡이 설정이 버튼 배치에 반영', btnSide.dashX < btnSide.W * 0.5, `dash x=${Math.round(btnSide.dashX)} / ${Math.round(btnSide.W)}`);
+  await mp.screenshot({ path: path.join(SHOTS, 'm3-settings.png') });
+
+  // 기본값 복원
+  await mp.locator('#resetTouch').tap();
+  await sleep(200);
+  const reset = await mp.evaluate(() => window.__ashfall.save.touch);
+  check('[모바일] 기본값 복원', reset.leftHanded === false && Math.abs(reset.aimAssist - 0.55) < 0.01);
+  await mp.locator('#doneTouch').tap();
+  await sleep(300);
+  check('[모바일] 설정에서 일시정지로 복귀', (await mp.evaluate(() => document.getElementById('overlay').dataset.screen)) === 'pause');
+
   await mp.close();
 }
 

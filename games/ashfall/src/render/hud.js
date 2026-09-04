@@ -200,18 +200,19 @@ export function createHud(canvas, world, input) {
     const st = t2.state;
 
     // 가상 스틱 (누른 자리에 나타난다)
+    const R = t2.stickRadius(W, H);
     const stick = (s0, color) => {
       if (!s0) return;
       ctx.save();
       ctx.globalAlpha = 0.28;
       ctx.strokeStyle = color; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(s0.ox, s0.oy, 62, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s0.ox, s0.oy, R, 0, TAU); ctx.stroke();
       ctx.globalAlpha = 0.6;
       const dx = s0.x - s0.ox, dy = s0.y - s0.oy;
-      const len = Math.min(62, Math.hypot(dx, dy)) || 0;
+      const len = Math.min(R, Math.hypot(dx, dy)) || 0;
       const a = Math.atan2(dy, dx);
       ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(s0.ox + Math.cos(a) * len, s0.oy + Math.sin(a) * len, 26, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(s0.ox + Math.cos(a) * len, s0.oy + Math.sin(a) * len, R * 0.42, 0, TAU); ctx.fill();
       ctx.restore();
     };
     stick(st.move, '#9fd8ff');
@@ -229,7 +230,7 @@ export function createHud(canvas, world, input) {
       special: p.spCd > 0 ? p.spCd.toFixed(1) : '',
       command: world.aliveMinions() ? `${world.aliveMinions()}` : '',
     };
-    for (const b of touchButtons(W, H)) {
+    for (const b of t2.buttons(W, H)) {
       const on = ready[b.id];
       ctx.save();
       ctx.globalAlpha = st.pressed[b.id] ? 0.95 : on ? 0.62 : 0.3;
