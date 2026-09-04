@@ -10,10 +10,31 @@ export const SIM = {
 };
 
 export const ARENA = {
+  // 기준 크기(가로 화면). 세로 화면에서는 같은 넓이를 유지한 채 형태만 바뀐다.
   WIDTH: 1200,
   HEIGHT: 780,
   WALL_PAD: 34,
+  // 화면 비율에 맞춘 아레나 형태 계산용
+  AREA: 1200 * 780,
+  MIN_SIDE: 620,
+  MAX_SIDE: 1560,
+  ASPECT_CLAMP: [0.45, 2.1],
 };
+
+/**
+ * 화면 비율에 맞는 아레나 크기.
+ * 세로 화면에서 가로형 아레나를 쓰면 화면의 일부만 보여 위협을 읽을 수 없다.
+ * 넓이(전투 공간의 총량)는 유지하고 형태만 화면에 맞춘다.
+ */
+export function arenaForAspect(aspect) {
+  const [lo, hi] = ARENA.ASPECT_CLAMP;
+  const a = Math.max(lo, Math.min(hi, aspect || ARENA.WIDTH / ARENA.HEIGHT));
+  let w = Math.sqrt(ARENA.AREA * a);
+  let h = Math.sqrt(ARENA.AREA / a);
+  w = Math.max(ARENA.MIN_SIDE, Math.min(ARENA.MAX_SIDE, w));
+  h = Math.max(ARENA.MIN_SIDE, Math.min(ARENA.MAX_SIDE, h));
+  return { width: Math.round(w), height: Math.round(h), pad: ARENA.WALL_PAD };
+}
 
 export const VIEW = {
   WIDTH: 960,

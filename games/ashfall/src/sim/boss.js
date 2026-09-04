@@ -120,6 +120,7 @@ function makeTelegraph(world, b, pat) {
   else if (pat.kind === 'ringBurst') { t.kind = 'ring'; t.radius = 90; }
   else if (pat.kind === 'blink') { t.kind = 'blink'; t.radius = pat.radius; }
   else if (pat.kind === 'summon') { t.kind = 'summon'; t.radius = 110; }
+  else if (pat.kind === 'raise') { t.kind = 'summon'; t.radius = 150; }
   return t;
 }
 
@@ -157,6 +158,10 @@ function startPattern(world, b, phase) {
     case 'summon':
       doSummon(world, b, pat);
       b.t = 0.5;
+      break;
+    case 'raise':
+      doRaise(world, b, pat);
+      b.t = 0.55;
       break;
     default:
       b.t = 0.3;
@@ -260,6 +265,38 @@ function doBlink(world, b, pat) {
   if (dist(b.x, b.y, p.x, p.y) < pat.radius + p.radius) {
     damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b });
   }
+}
+
+/**
+ * 전장의 시체를 되살린다.
+ * 플레이어가 시체를 자원으로 쓰는 만큼, 보스도 같은 자원을 노린다.
+ * → 사령술 빌드는 "시체를 남겨둘지 즉시 소비할지"를 보스전에서도 고민하게 된다.
+ */
+function doRaise(world, b, pat) {
+  const list = world.corpses.filter((c) => !c.used)
+    .sort((x, y) => dist(b.x, b.y, x.x, x.y) - dist(b.x, b.y, y.x, y.y))
+    .slice(0, pat.count);
+
+  if (!list.length) {
+    // 시체가 없으면 직접 소환으로 대체 (패턴이 헛돌지 않게)
+    world.bus.emit(EV.EXPLOSION, { x: b.x, y: b.y, radius: 120, element: 'necro' });
+    for (let i = 0; i < 2; i++) {
+      const a = world.rng.float(0, TAU);
+      world.spawnEnemy('cinderling', b.x + Math.cos(a) * 180, b.y + Math.sin(a) * 180, {});
+    }
+    return;
+  }
+  for (const c of list) {
+    c.used = true;
+    const e = world.spawnEnemy(c.enemyId, c.x, c.y, {});
+    if (e) {
+      e.hp = e.maxHp = e.maxHp * pat.hpMult;
+      e.noCorpse = true;      // 무한 부활 고리 방지
+      e.revived = true;
+    }
+    world.bus.emit(EV.EXPLOSION, { x: c.x, y: c.y, radius: 70, element: 'necro' });
+  }
+  world.shake(SHAKE.EXPLOSION * 0.7);
 }
 
 function doSummon(world, b, pat) {

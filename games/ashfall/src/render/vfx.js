@@ -147,6 +147,10 @@ export function createVfx(world, bus) {
   bus.on('corpseUsed', (p) => {
     burst(p.x, p.y, 10, '#9d7fd8', { dir: -Math.PI / 2, spread: 1.1, speedMax: 200, lifeMax: 0.5, glow: true });
   });
+  bus.on('minionCommand', (p) => {
+    rings.push({ x: p.x, y: p.y, r: 10, max: 230, life: 0.5, maxLife: 0.5, color: '#7ff0d8', width: 4 });
+    burst(p.x, p.y, 16, '#7ff0d8', { speedMax: 260, lifeMax: 0.5, glow: true });
+  });
   bus.on('raiseDead', (p) => {
     screenFlash = Math.max(screenFlash, 0.3); screenFlashColor = '#9d7fd8';
     rings.push({ x: p.x, y: p.y, r: 10, max: 300, life: 0.6, maxLife: 0.6, color: '#c4a8ff', width: 5 });

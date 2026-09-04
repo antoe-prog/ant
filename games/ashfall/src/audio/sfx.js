@@ -103,6 +103,7 @@ export function createSfx(bus) {
     raise() { [70, 105, 140].forEach((f, i) => tone({ freq: f, to: f * 3, dur: 0.5, type: 'sawtooth', gain: 0.15, delay: i * 0.07 })); },
     corpse() { noise({ dur: 0.18, freq: 500, gain: 0.22, sweep: 0.4 }); tone({ freq: 140, to: 300, dur: 0.16, type: 'triangle', gain: 0.1 }); },
     minionDown() { tone({ freq: 260, to: 90, dur: 0.28, type: 'triangle', gain: 0.12 }); },
+    command() { [520, 700].forEach((f, i) => tone({ freq: f, to: f * 1.3, dur: 0.18, type: 'square', gain: 0.11, delay: i * 0.07 })); },
   };
 
   // ---- 이벤트 바인딩 ----
@@ -129,6 +130,7 @@ export function createSfx(bus) {
   bus.on(EV.DOOR_OPEN, () => S.door());
   bus.on('minionSummon', () => throttle('summon', 60) && S.summon());
   bus.on('raiseDead', () => S.raise());
+  bus.on('minionCommand', () => S.command());
   bus.on('corpseUsed', () => throttle('corpse', 50) && S.corpse());
   bus.on('minionDeath', () => throttle('mdown', 80) && S.minionDown());
   bus.on(EV.STATUS, (p) => {

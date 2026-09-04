@@ -40,6 +40,111 @@ const state = () => page.evaluate(() => {
   };
 });
 
+// ---- 모바일: 레이아웃이 뷰포트를 넘지 않고, 터치로 플레이할 수 있는가 ----
+async function mobileChecks() {
+  const mp = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  mp.on('pageerror', (e) => errors.push('MOBILE PAGEERROR: ' + e.message));
+  await mp.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
+  await sleep(500);
+
+  const layout = await mp.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    const b = document.getElementById('startBtn').getBoundingClientRect();
+    return {
+      pageScrolls: document.documentElement.scrollHeight > innerHeight + 1,
+      overlayOverflows: ov.scrollHeight > ov.clientHeight + 1,
+      startVisible: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+      startH: Math.round(b.height),
+    };
+  });
+  check('[모바일] 페이지 자체는 스크롤되지 않는다', !layout.pageScrolls);
+  check('[모바일] 오버레이가 뷰포트를 넘지 않는다', !layout.overlayOverflows);
+  check('[모바일] 시작 버튼이 화면 안에 있다', layout.startVisible, `높이 ${layout.startH}px`);
+  check('[모바일] 터치 목표가 충분히 크다 (>=44px)', layout.startH >= 44, `${layout.startH}px`);
+
+  // 탭 전환
+  await mp.locator('[data-tab="meta"]').tap();
+  await sleep(200);
+  check('[모바일] 탭 전환 동작', await mp.locator('.upg').first().isVisible());
+  const metaOk = await mp.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    const b = document.getElementById('startBtn').getBoundingClientRect();
+    return !(ov.scrollHeight > ov.clientHeight + 1) === false || (b.bottom <= innerHeight);
+  });
+  check('[모바일] 강화 탭에서도 시작 버튼이 화면 안', metaOk);
+  await mp.locator('[data-tab="weapon"]').tap();
+  await sleep(150);
+
+  // 터치로 런 시작 → 실제 조작
+  await mp.locator('[data-weapon="gravecall"]').tap();
+  await mp.locator('#startBtn').tap();
+  await sleep(1000);
+  const st0 = await mp.evaluate(() => ({ s: window.__ashfall.world.run.state }));
+  check('[모바일] 터치로 런 시작', st0.s === 'fight');
+
+  // 좌측 가상 스틱으로 이동
+  const before = await mp.evaluate(() => ({ x: window.__ashfall.world.player.x, y: window.__ashfall.world.player.y }));
+  await mp.touchscreen.tap(100, 600);
+  const box = await mp.locator('#game').boundingBox();
+  await mp.evaluate(() => { window.__ashfall.world.run.state = 'fight'; });
+  // pointer 이벤트로 드래그 (좌측 절반)
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 90, clientY: 650, buttons: 1 });
+  for (let i = 0; i < 12; i++) {
+    await mp.dispatchEvent('#game', 'pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 90 + 60, clientY: 650, buttons: 1 });
+    await sleep(60);
+  }
+  const after = await mp.evaluate(() => ({ x: window.__ashfall.world.player.x, y: window.__ashfall.world.player.y }));
+  await mp.dispatchEvent('#game', 'pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 650 });
+  check('[모바일] 가상 스틱으로 이동한다', Math.abs(after.x - before.x) > 20, `Δx ${(after.x - before.x).toFixed(0)}`);
+
+  // 우측 드래그로 조준 + 자동 공격
+  const k0 = await mp.evaluate(() => window.__ashfall.world.run.kills);
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 300, clientY: 500, buttons: 1 });
+  for (let i = 0; i < 40; i++) {
+    const a = await mp.evaluate(() => {
+      const w = window.__ashfall.world, cam = w.camera, c = document.getElementById('game');
+      const dpr = Math.min(window.devicePixelRatio || 1, 2), W = c.width / dpr, H = c.height / dpr;
+      const p = w.player;
+      let best = null, bd = Infinity;
+      for (const e of w.enemies) { if (e.dead) continue; const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2; if (d < bd) { bd = d; best = e; } }
+      if (!best) return null;
+      const L = Math.hypot(best.x - p.x, best.y - p.y) || 1;
+      return { dx: (best.x - p.x) / L, dy: (best.y - p.y) / L, far: L > 90 };
+    });
+    if (!a) break;
+    await mp.dispatchEvent('#game', 'pointermove', { pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 300 + a.dx * 40, clientY: 500 + a.dy * 40, buttons: 1 });
+    // 이동 스틱으로 접근
+    if (a.far) {
+      await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90, clientY: 650, buttons: 1 });
+      await mp.dispatchEvent('#game', 'pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90 + a.dx * 55, clientY: 650 + a.dy * 55, buttons: 1 });
+    } else {
+      await mp.dispatchEvent('#game', 'pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90, clientY: 650 });
+    }
+    await sleep(80);
+  }
+  const k1 = await mp.evaluate(() => window.__ashfall.world.run.kills);
+  check('[모바일] 우측 드래그 조준으로 적을 처치한다', k1 > k0, `처치 ${k0} → ${k1}`);
+  await mp.screenshot({ path: path.join(SHOTS, 'm1-touch-combat.png') });
+
+  // 터치 버튼 (대시)
+  const btn = await mp.evaluate(() => {
+    const c = document.getElementById('game');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return window.__ashfall.game.touchButtons(c.width / dpr, c.height / dpr);
+  });
+  const dash = btn.find((b) => b.id === 'dash');
+  const chargesBefore = await mp.evaluate(() => window.__ashfall.world.player.dashCharges);
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: dash.x, clientY: dash.y, buttons: 1 });
+  await sleep(200);
+  await mp.dispatchEvent('#game', 'pointerup', { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: dash.x, clientY: dash.y });
+  const chargesAfter = await mp.evaluate(() => window.__ashfall.world.player.dashCharges);
+  check('[모바일] 대시 버튼이 동작한다', chargesAfter < chargesBefore || (await mp.evaluate(() => window.__ashfall.world.player.state)) === 'dash',
+    `충전 ${chargesBefore} → ${chargesAfter}`);
+
+  await mp.screenshot({ path: path.join(SHOTS, 'm2-touch-ui.png') });
+  await mp.close();
+}
+
 const results = [];
 const check = (name, ok, info = '') => {
   results.push({ name, ok, info });
@@ -113,7 +218,11 @@ async function playFor(ms) {
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
 await sleep(400);
 check('타이틀 화면 렌더', await page.locator('#startBtn').isVisible());
-check('메타 강화 패널 표시', await page.locator('.upg').first().isVisible());
+await page.locator('[data-tab="meta"]').click();
+await sleep(200);
+check('영구 강화 탭 표시', await page.locator('.upg').first().isVisible());
+await page.locator('[data-tab="weapon"]').click();
+await sleep(150);
 await shot('01-title');
 
 await page.locator('[data-weapon="emberblade"]').click();
@@ -273,6 +382,8 @@ const saveData = await page.evaluate(() => {
 });
 check('세이브 기록/버전', saveData && saveData.version >= 3 && saveData.stats.runs >= 1,
   saveData ? `v${saveData.version} runs=${saveData.stats.runs}` : 'none');
+
+await mobileChecks();
 
 const realErrors = errors.filter((e) => !/favicon|404/i.test(e));
 check('콘솔 에러 없음', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

@@ -3,7 +3,7 @@
 // 렌더러·오디오·UI 는 world 를 "읽기만" 하고, 변화는 EventBus 로 받는다.
 // ============================================================
 
-import { ARENA, SIM, PLAYER, ENEMY_SCALE, RUN, STATUS } from '../data/balance.js';
+import { ARENA, arenaForAspect, SIM, PLAYER, ENEMY_SCALE, RUN, STATUS } from '../data/balance.js';
 import { ENEMY_BY_ID, BOSS_BY_ID, MINIBOSS_BY_ID, ELITE_AFFIXES, BIOMES } from '../data/enemies.js';
 import { WEAPON_BY_ID, WEAPON_UPGRADE } from '../data/weapons.js';
 import { EventBus, EV } from '../core/events.js';
@@ -12,7 +12,7 @@ import { clamp, dist, TAU } from '../core/math.js';
 import { buildLoadout } from './loadout.js';
 import { createPlayer, updatePlayer, refreshPlayerStats } from './player.js';
 import { updateEnemies, updateProjectiles, retaliate } from './enemyAI.js';
-import { updateMinions, updateCorpses, summonMinion, spawnCorpse, corpsesNear, consumeCorpse, aliveMinions, minionCap } from './minions.js';
+import { updateMinions, updateCorpses, updateCommand, issueCommand, summonMinion, spawnCorpse, corpsesNear, consumeCorpse, aliveMinions, minionCap } from './minions.js';
 import { updateBoss } from './boss.js';
 import { updateStatuses, updatePlayerStatus, healPlayer, damageEnemy, damagePlayer, runHooks } from './combat.js';
 
@@ -25,7 +25,7 @@ export function createWorld(opts = {}) {
     time: 0,
     hitstop: 0,
     shakeAmount: 0,
-    arena: { width: ARENA.WIDTH, height: ARENA.HEIGHT, pad: ARENA.WALL_PAD },
+    arena: arenaForAspect(opts.aspect),
     obstacles: [],
     enemies: [],
     projectiles: [],
@@ -34,6 +34,8 @@ export function createWorld(opts = {}) {
     hazards: [],
     corpses: [],
     minions: [],
+    command: null,      // {x, y, t} — 소환수에게 내린 공격 지점
+    commandCd: 0,
     decals: [],
     weapon: WEAPON_BY_ID[opts.weaponId] || WEAPON_BY_ID.emberblade,
     weaponDamageMult: 1,
@@ -80,6 +82,7 @@ export function createWorld(opts = {}) {
     corpsesNear(x, y, r) { return corpsesNear(this, x, y, r); },
     consumeCorpse(c) { return consumeCorpse(this, c); },
     aliveMinions() { return aliveMinions(this); },
+    issueCommand(x, y) { return issueCommand(this, x, y); },
     minionCap() { return minionCap(this); },
 
     rebuildLoadout() {
@@ -222,6 +225,7 @@ function stepWorld(world, intent, dt) {
   updateMinions(world, dt);
   updateProjectiles(world, dt);
   updateCorpses(world, dt);
+  updateCommand(world, dt);
   updateStatuses(world, dt);
   updatePlayerStatus(world, dt);
   updateHazards(world, dt);

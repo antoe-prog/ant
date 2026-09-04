@@ -200,6 +200,24 @@ export const MINIBOSSES = [
     },
   },
   {
+    id: 'bonesovereign', name: '해골 군주', title: '무덤을 이끄는 자',
+    hp: 1050, radius: 33, speed: 104, gold: 50,
+    color: '#6b5a86', accent: '#c4a8ff', contactDmg: 0,
+    miniboss: true, necro: true,
+    phases: [
+      { at: 1.0, patterns: ['raise', 'boneVolley'] },
+      { at: 0.55, patterns: ['raise', 'boneVolley', 'graveNova', 'summon'], speedMult: 1.15, cooldownMult: 0.7 },
+    ],
+    patternCooldown: [1.2, 1.8],
+    patterns: {
+      // 전장에 깔린 시체를 자기 편으로 일으킨다 — 시체 관리가 보스전의 축이 된다
+      raise:       { kind: 'raise', telegraph: 0.85, count: 4, radius: 520, hpMult: 0.6 },
+      boneVolley:  { kind: 'aimedVolley', telegraph: 0.5, count: 4, spread: 0.3, projSpeed: 460, dmg: 11 },
+      graveNova:   { kind: 'ringBurst', telegraph: 0.62, count: 14, projSpeed: 260, dmg: 10, waves: 2, waveGap: 0.34, rotate: 0.2 },
+      summon:      { kind: 'summon', telegraph: 0.6, spawn: [{ id: 'bonecaller', n: 1 }] },
+    },
+  },
+  {
     id: 'stormherald', name: '폭풍 전령', title: '번개를 부르는 자',
     hp: 1150, radius: 34, speed: 122, gold: 55,
     color: '#6a5ab0', accent: '#ffe36b', contactDmg: 0,
@@ -275,7 +293,7 @@ export const BOSSES = [
       { at: 1.0, patterns: ['slam', 'aimedVolley', 'charge'] },
       { at: 0.68, patterns: ['slam', 'aimedVolley', 'charge', 'ringBurst', 'summon'], speedMult: 1.1, cooldownMult: 0.84 },
       { at: 0.38, patterns: ['slam', 'aimedVolley', 'chargeTriple', 'ringBurst', 'summon'], speedMult: 1.24, cooldownMult: 0.66 },
-      { at: 0.15, patterns: ['slam', 'ringBurst', 'chargeTriple', 'aimedVolley'], speedMult: 1.42, cooldownMult: 0.5, enrage: true },
+      { at: 0.15, patterns: ['slam', 'ringBurst', 'chargeTriple', 'aimedVolley', 'raiseFallen'], speedMult: 1.42, cooldownMult: 0.5, enrage: true },
     ],
     patternCooldown: [0.95, 1.4],
     patterns: {
@@ -285,6 +303,8 @@ export const BOSSES = [
       aimedVolley: { kind: 'aimedVolley', telegraph: 0.48, count: 4, spread: 0.42, projSpeed: 520, dmg: 12, status: { kind: 'shock', stacks: 1 } },
       ringBurst:   { kind: 'ringBurst', telegraph: 0.62, count: 18, projSpeed: 300, dmg: 11, waves: 3, waveGap: 0.3, rotate: -0.2 },
       summon:      { kind: 'summon', telegraph: 0.66, spawn: [{ id: 'warden', n: 2 }, { id: 'bomber', n: 2 }] },
+      // 격노 페이즈: 지금까지 쌓인 시체를 전부 일으킨다
+      raiseFallen: { kind: 'raise', telegraph: 0.7, count: 6, radius: 900, hpMult: 0.5 },
     },
   },
 ];
@@ -309,6 +329,7 @@ export const BIOMES = [
     pool: ['husk', 'cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'bonecaller'],
     boss: 'frostqueen',
     miniboss: 'frostwarden',
+    minibossPool: ['frostwarden', 'bonesovereign'],
     budget: [10.0, 13.0],
   },
   {
@@ -317,6 +338,7 @@ export const BIOMES = [
     pool: ['cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'lancer', 'warden', 'bonecaller'],
     boss: 'stormtyrant',
     miniboss: 'stormherald',
+    minibossPool: ['stormherald', 'bonesovereign'],
     budget: [13.0, 17.0],
   },
 ];

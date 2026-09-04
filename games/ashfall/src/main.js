@@ -7,6 +7,7 @@ import { SIM, VIEW, RUN, META } from './data/balance.js';
 import { WEAPON_BY_ID, WEAPONS } from './data/weapons.js';
 import { EventBus, EV } from './core/events.js';
 import { createInput } from './core/input.js';
+import { touchButtons } from './core/touch.js';
 import { loadSave, writeSave, resetSave, metaEffects, buyUpgrade } from './core/save.js';
 import { createWorld } from './sim/world.js';
 import { createRun } from './sim/run.js';
@@ -33,10 +34,14 @@ let lastTime = performance.now();
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+// 주소창이 접혔다 펴지는 모바일 브라우저 대응
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
 // ---------------- 게임 컨트롤러 (UI가 호출하는 유일한 창구) ----------------
 const game = {
@@ -53,15 +58,22 @@ const game = {
     sfx = createSfx(bus);
     game.sfx = sfx;
 
-    world = createWorld({ seed: Date.now() ^ (Math.random() * 0xffffffff), weaponId: save.lastWeapon, bus, metaEffects: metaEffects(save) });
+    // 아레나 형태를 화면 비율에 맞춘다 (세로 화면에서 일부만 보이는 문제 방지)
+    resize();
+    const aspect = (canvas.clientWidth || 16) / (canvas.clientHeight || 9);
+    world = createWorld({
+      seed: Date.now() ^ (Math.random() * 0xffffffff),
+      weaponId: save.lastWeapon, bus, aspect,
+      metaEffects: metaEffects(save),
+    });
     world.ash = 0;
     director = createRun(world);
     camera = createCamera(world);
     world.camera = camera;
     vfx = createVfx(world, bus);
     renderer = createRenderer(canvas, world, camera, vfx);
-    hud = createHud(canvas, world);
     input = createInput(canvas, camera, world);
+    hud = createHud(canvas, world, input);
 
     director.start();
     mode = 'playing';
@@ -89,6 +101,8 @@ const game = {
     return ok;
   },
   resetSave() { save = resetSave(); },
+  /** 터치 버튼 배치 (테스트/디버그용) */
+  touchButtons(w, h) { return touchButtons(w, h); },
 };
 
 const screens = createScreens(overlay, game);
@@ -184,6 +198,7 @@ function frame(now) {
   vfx.update(mode === 'playing' ? dtReal : dtReal * 0.35);
   renderer.draw(dtReal, aim);
   if (mode !== 'menu') hud.draw(dtReal);
+  input.endFrame();
 }
 
 // ---------------- 일시정지 ----------------

@@ -63,7 +63,9 @@ export function createRun(world) {
         return;
       }
       if (spec.type === 'miniboss') {
-        world.spawnBoss(biome.miniboss);
+        // 구역에 미니보스 후보가 여럿이면 무작위 — 같은 구역도 매번 다르게
+        const pool = biome.minibossPool || [biome.miniboss];
+        world.spawnBoss(world.rng.pick(pool));
         // 미니보스는 혼자 싸우지 않는다 — 잡졸이 섞여야 위치 잡기가 의미를 갖는다
         for (let i = 0; i < 3; i++) {
           const a = world.rng.float(0, Math.PI * 2);

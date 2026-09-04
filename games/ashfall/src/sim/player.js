@@ -24,7 +24,7 @@ export function createPlayer(world, weapon) {
     hurtFlash: 0,
     // 공격
     atkStep: -1, atkPhase: '', atkT: 0, atkHits: null,
-    comboTimer: 0, bufferAttack: 0, bufferDash: 0, bufferSpecial: 0,
+    comboTimer: 0, bufferAttack: 0, bufferDash: 0, bufferSpecial: 0, bufferCommand: 0,
     // 대시
     dashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
     maxDashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
@@ -65,6 +65,12 @@ export function updatePlayer(world, intent, dt) {
   if (p.bufferAttack > 0) p.bufferAttack -= dt;
   if (p.bufferDash > 0) p.bufferDash -= dt;
   if (p.bufferSpecial > 0) p.bufferSpecial -= dt;
+  if (p.bufferCommand > 0) p.bufferCommand -= dt;
+
+  // 소환수 명령은 어떤 상태에서든(공격 중에도) 낼 수 있다 — 지휘는 행동을 끊지 않는다
+  if (p.bufferCommand > 0 && world.commandCd <= 0) {
+    if (world.issueCommand(intent.aimX, intent.aimY)) p.bufferCommand = 0;
+  }
   if (p.dashCd > 0) p.dashCd -= dt;
   if (p.spCd > 0) p.spCd -= dt;
   if (p.dashStrikeT > 0) p.dashStrikeT -= dt;
@@ -100,6 +106,7 @@ export function updatePlayer(world, intent, dt) {
   if (intent.attack) p.bufferAttack = INPUT_BUFFER;
   if (intent.dash) p.bufferDash = INPUT_BUFFER;
   if (intent.special) p.bufferSpecial = INPUT_BUFFER;
+  if (intent.command) p.bufferCommand = INPUT_BUFFER;
 
   // ---- 상태별 처리 ----
   switch (p.state) {

@@ -2,12 +2,13 @@
 // 남은 체력 · 집중 · 대시 · 진행도 · 보스 체력 · 현재 빌드.
 
 import { clamp, TAU } from '../core/math.js';
+import { touchButtons } from '../core/touch.js';
 import { RARITY } from '../data/balance.js';
 import { ANY_BOON_BY_ID, GODS } from '../data/boons.js';
 import { RUN } from '../data/balance.js';
 import { WEAPON_UPGRADE } from '../data/weapons.js';
 
-export function createHud(canvas, world) {
+export function createHud(canvas, world, input) {
   const ctx = canvas.getContext('2d');
   let t = 0;
   let toast = null;
@@ -32,18 +33,26 @@ export function createHud(canvas, world) {
   function draw(dt) {
     t += dt;
     if (toast) { toast.life -= dt; if (toast.life <= 0) toast = null; }
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = canvas.width / dpr, H = canvas.height / dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const p = world.player;
     const run = world.run;
 
+    // 작은 화면에서는 HUD 전체를 비율로 줄인다 (폰에서 화면을 잡아먹지 않도록)
+    const S = clamp(Math.min(W, H) / 720, 0.62, 1);
+    const F = (px, weight = '') => `${weight ? weight + ' ' : ''}${Math.round(px * S)}px system-ui, sans-serif`;
+    // 터치 조작 중에는 우하단 버튼 영역을 피해 HUD를 왼쪽에 붙인다
+    const touchOn = !!(input && input.touchActive);
+
     // ---- 체력 ----
-    const bx = 22, by = H - 74, bw = 300, bh = 20;
+    const bx = Math.round(18 * S), bh = Math.round(20 * S);
+    const bw = Math.min(Math.round(300 * S), W * 0.52);
+    const by = H - Math.round(74 * S);
     const hpK = clamp(p.hp / p.maxHp, 0, 1);
     hpGhost += (hpK - hpGhost) * Math.min(1, dt * 4);
-    panel(bx - 6, by - 24, bw + 12, 66);
+    panel(bx - 6 * S, by - 24 * S, bw + 12 * S, 66 * S);
 
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(bx, by, bw, bh);
@@ -53,29 +62,29 @@ export function createHud(canvas, world) {
     ctx.fillRect(bx, by, bw * hpK, bh);
     ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
     ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
-    text(`${Math.ceil(p.hp)} / ${p.maxHp}`, bx + 8, by + bh / 2, '#fff', 'bold 13px system-ui', 'left');
+    text(`${Math.ceil(p.hp)} / ${p.maxHp}`, bx + 8 * S, by + bh / 2, '#fff', F(13, 'bold'), 'left');
 
     // ---- 집중(특수기) ----
-    const fy = by + bh + 6;
+    const fy = by + bh + 6 * S;
     const fK = clamp(p.focus / p.maxFocus, 0, 1);
     const cost = world.weapon.special.cost * world.loadout.mods.specialCostMult;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(bx, fy, bw, 10);
+    ctx.fillRect(bx, fy, bw, 10 * S);
     ctx.fillStyle = p.focus >= cost ? '#7fd8ff' : '#3d6d80';
-    ctx.fillRect(bx, fy, bw * fK, 10);
+    ctx.fillRect(bx, fy, bw * fK, 10 * S);
     // 특수기 사용 가능선
     const cx = bx + bw * (cost / p.maxFocus);
     ctx.strokeStyle = '#ffffffaa'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(cx, fy - 2); ctx.lineTo(cx, fy + 12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, fy - 2 * S); ctx.lineTo(cx, fy + 12 * S); ctx.stroke();
 
     // ---- 대시 충전 ----
     for (let i = 0; i < p.maxDashCharges; i++) {
-      const dx = bx + i * 20, dy = by - 14;
-      ctx.beginPath(); ctx.arc(dx + 6, dy, 6, 0, TAU);
+      const dx = bx + i * 20 * S, dy = by - 14 * S;
+      ctx.beginPath(); ctx.arc(dx + 6 * S, dy, 6 * S, 0, TAU);
       ctx.fillStyle = i < p.dashCharges ? '#9fd8ff' : 'rgba(255,255,255,0.15)';
       ctx.fill();
     }
-    text('DASH', bx + p.maxDashCharges * 20 + 6, by - 14, 'rgba(255,255,255,0.4)', 'bold 10px system-ui', 'left');
+    text('DASH', bx + p.maxDashCharges * 20 * S + 6 * S, by - 14 * S, 'rgba(255,255,255,0.4)', F(10, 'bold'), 'left');
 
     // ---- 가속(연속 타격 보너스) ----
     if (world.weapon.rampPerHit && p.ramp > 0) {
@@ -108,15 +117,18 @@ export function createHud(canvas, world) {
     }
 
     // ---- 무기 / 골드 / 진행도 ----
-    const rx = W - 22;
-    text(`${world.weapon.name}${run.weaponLevel ? ' ' + WEAPON_UPGRADE.names[run.weaponLevel] : ''}`, rx, H - 70, world.weapon.color, 'bold 15px system-ui', 'right');
-    text(`◈ ${run.gold}`, rx, H - 50, '#ffd166', 'bold 15px system-ui', 'right');
-    text(`${world.biome().name}  ${run.biomeIdx + 1}-${run.roomIdx + 1} / ${RUN.BIOMES}-${RUN.ROOMS_PER_BIOME}`, rx, H - 30, 'rgba(255,255,255,0.55)', '12px system-ui', 'right');
+    // 터치 조작 중에는 우하단이 버튼 영역이므로 진행 정보를 우상단으로 옮긴다
+    const rx = W - 18 * S;
+    const ry = touchOn ? 20 * S : H - 70 * S;
+    const step = touchOn ? 18 * S : 20 * S;
+    text(`${world.weapon.name}${run.weaponLevel ? ' ' + WEAPON_UPGRADE.names[run.weaponLevel] : ''}`, rx, ry, world.weapon.color, F(14, 'bold'), 'right');
+    text(`◈ ${run.gold}`, rx, ry + step, '#ffd166', F(14, 'bold'), 'right');
     const mm = Math.floor(run.elapsed / 60), ss = Math.floor(run.elapsed % 60);
-    text(`${mm}:${String(ss).padStart(2, '0')}`, rx, H - 14, 'rgba(255,255,255,0.35)', '12px system-ui', 'right');
+    text(`${world.biome().name} ${run.biomeIdx + 1}-${run.roomIdx + 1}  ${mm}:${String(ss).padStart(2, '0')}`,
+      rx, ry + step * 2, 'rgba(255,255,255,0.5)', F(11.5), 'right');
 
     // ---- 빌드(권능) 목록 ----
-    drawBoons(W, H);
+    drawBoons(W, H, S, F);
 
     // ---- 플레이어 디버프 ----
     if (p.status && Object.keys(p.status).length) {
@@ -163,6 +175,9 @@ export function createHud(canvas, world) {
       drawDoorHints(W, H);
     }
 
+    // ---- 터치 조작 UI ----
+    if (touchOn) drawTouchUi(W, H, S, F);
+
     // ---- 토스트 ----
     if (toast) {
       const k = Math.min(1, toast.life / 0.4);
@@ -171,6 +186,69 @@ export function createHud(canvas, world) {
       text(toast.title, W / 2, 62, toast.color || '#fff', 'bold 17px system-ui', 'center');
       if (toast.sub) text(toast.sub, W / 2, 82, 'rgba(255,255,255,0.7)', '12px system-ui', 'center');
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * 터치 조작 표시.
+   * 스틱은 "지금 어디를 누르고 있는지"를 보여주고,
+   * 버튼은 쿨다운/사용 가능 여부를 색으로 알린다.
+   */
+  function drawTouchUi(W, H, S, F) {
+    const t2 = input.touch;
+    const p = world.player;
+    const st = t2.state;
+
+    // 가상 스틱 (누른 자리에 나타난다)
+    const stick = (s0, color) => {
+      if (!s0) return;
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(s0.ox, s0.oy, 62, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 0.6;
+      const dx = s0.x - s0.ox, dy = s0.y - s0.oy;
+      const len = Math.min(62, Math.hypot(dx, dy)) || 0;
+      const a = Math.atan2(dy, dx);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(s0.ox + Math.cos(a) * len, s0.oy + Math.sin(a) * len, 26, 0, TAU); ctx.fill();
+      ctx.restore();
+    };
+    stick(st.move, '#9fd8ff');
+    stick(st.aim, world.weapon.color);
+
+    // 버튼
+    const cost = world.weapon.special.cost * world.loadout.mods.specialCostMult;
+    const ready = {
+      dash: p.dashCharges > 0 && p.dashCd <= 0,
+      special: p.spCd <= 0 && p.focus >= cost,
+      command: world.commandCd <= 0 && world.aliveMinions() > 0,
+    };
+    const sub = {
+      dash: `${p.dashCharges}`,
+      special: p.spCd > 0 ? p.spCd.toFixed(1) : '',
+      command: world.aliveMinions() ? `${world.aliveMinions()}` : '',
+    };
+    for (const b of touchButtons(W, H)) {
+      const on = ready[b.id];
+      ctx.save();
+      ctx.globalAlpha = st.pressed[b.id] ? 0.95 : on ? 0.62 : 0.3;
+      ctx.fillStyle = 'rgba(12,14,20,0.75)';
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = on ? '#e8eef5' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = on ? '#e8eef5' : 'rgba(255,255,255,0.4)';
+      ctx.font = `bold ${Math.round(b.r * 0.42)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, b.x, b.y - (sub[b.id] ? b.r * 0.16 : 0));
+      if (sub[b.id]) {
+        ctx.font = `${Math.round(b.r * 0.3)}px system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillText(sub[b.id], b.x, b.y + b.r * 0.34);
+      }
+      ctx.restore();
     }
   }
 
@@ -191,21 +269,27 @@ export function createHud(canvas, world) {
     }
   }
 
-  function drawBoons(W, H) {
+  function drawBoons(W, H, S, F) {
     const owned = world.run.owned;
     if (!owned.length) return;
-    const x = 22, y0 = 46;
-    text('빌드', x, y0 - 14, 'rgba(255,255,255,0.35)', 'bold 11px system-ui', 'left');
-    for (let i = 0; i < owned.length; i++) {
-      const o = owned[i];
+    const x = 18 * S, y0 = 44 * S;
+    const rowH = 18 * S;
+    const maxRows = Math.max(3, Math.floor((H * 0.5) / rowH));
+    text('빌드', x, y0 - 14 * S, 'rgba(255,255,255,0.35)', F(11, 'bold'), 'left');
+    const shown = owned.slice(0, maxRows);
+    for (let i = 0; i < shown.length; i++) {
+      const o = shown[i];
       const def = ANY_BOON_BY_ID[o.id];
       if (!def) continue;
-      const y = y0 + i * 19;
+      const y = y0 + i * rowH;
       const god = GODS[def.god] || GODS.none;
       ctx.fillStyle = god.color;
-      ctx.beginPath(); ctx.arc(x + 5, y, 4.5, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 5 * S, y, 4.5 * S, 0, TAU); ctx.fill();
       const rc = RARITY[o.rarity]?.color || '#fff';
-      text(def.name + (o.level > 1 ? ` +${o.level - 1}` : ''), x + 16, y, rc, '12px system-ui', 'left');
+      text(def.name + (o.level > 1 ? ` +${o.level - 1}` : ''), x + 16 * S, y, rc, F(11.5), 'left');
+    }
+    if (owned.length > shown.length) {
+      text(`+${owned.length - shown.length}`, x + 16 * S, y0 + shown.length * rowH, 'rgba(255,255,255,0.4)', F(11), 'left');
     }
   }
 

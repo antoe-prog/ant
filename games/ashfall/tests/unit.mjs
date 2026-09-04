@@ -12,7 +12,8 @@ import { WEAPONS } from '../src/data/weapons.js';
 import { BOONS, WEAPON_BOONS, DUO_BOONS, ALL_BOONS, scaleValues } from '../src/data/boons.js';
 import { ENEMIES, BOSSES, MINIBOSSES, ELITE_AFFIXES, BIOMES, ENEMY_COST } from '../src/data/enemies.js';
 import { MINIONS, MINION_BY_ID, MINION_RULES, CORPSE } from '../src/data/minions.js';
-import { summonMinion, updateMinions, updateCorpses, corpsesNear, minionCap, aliveMinions, damageMinion } from '../src/sim/minions.js';
+import { summonMinion, updateMinions, updateCorpses, updateCommand, issueCommand, corpsesNear, minionCap, aliveMinions, damageMinion } from '../src/sim/minions.js';
+import { updateBoss } from '../src/sim/boss.js';
 
 // ---- 아주 작은 테스트 하네스 ----
 const results = [];
@@ -463,6 +464,75 @@ test('확률 수치는 희귀도/레벨 스케일링으로 상한을 넘지 않�
       if (v[k] != null) assert(v[k] <= 1, `${b.id}.${k} 가 100%를 넘음: ${v[k]}`);
     }
   }
+});
+
+test('소환수 명령: 지정 지점의 적을 최우선으로 노린다', () => {
+  const w = testWorld();
+  w.enemies.length = 0; w.minions.length = 0; w.spawnQueue = [];
+  const p = w.player;
+  p.x = 300; p.y = 400;
+  // 가까운 적(무시해야 함)과 명령 지점의 적(노려야 함)
+  const near = w.spawnEnemy('husk', 360, 400); near.spawnT = 0; near.hp = near.maxHp = 100000;
+  const far = w.spawnEnemy('husk', 640, 400); far.spawnT = 0; far.hp = far.maxHp = 100000;
+  const m = summonMinion(w, 'wraith', 330, 400); m.spawnT = 0;
+
+  assert(issueCommand(w, far.x, far.y), '명령이 내려지지 않음');
+  assert(w.command, '명령 상태가 없음');
+  const nearHp = near.hp, farHp = far.hp;
+  for (let i = 0; i < 180; i++) { updateCommand(w, SIM.DT); updateMinions(w, SIM.DT); }
+  assert(far.hp < farHp, '명령 지점의 적을 때리지 않음');
+  assert(farHp - far.hp > nearHp - near.hp, '가까운 적보다 명령 대상을 우선해야 함');
+});
+
+test('소환수 명령은 쿨다운이 있고 소환수가 없으면 나가지 않는다', () => {
+  const w = testWorld();
+  w.minions.length = 0;
+  eq(issueCommand(w, 500, 400), false, '소환수 없이 명령이 나감');
+  const m = summonMinion(w, 'wraith', 400, 400); m.spawnT = 0;
+  assert(issueCommand(w, 500, 400), '첫 명령 실패');
+  eq(issueCommand(w, 500, 400), false, '쿨다운 중에 또 나감');
+  for (let i = 0; i < Math.ceil(MINION_RULES.COMMAND_CD * 60) + 5; i++) updateCommand(w, SIM.DT);
+  assert(issueCommand(w, 500, 400), '쿨다운 후 명령 실패');
+});
+
+test('명령 지점은 최대 사거리로 제한된다', () => {
+  const w = testWorld();
+  const m = summonMinion(w, 'wraith', 400, 400); m.spawnT = 0;
+  const p = w.player;
+  issueCommand(w, p.x + 5000, p.y);
+  const d = Math.hypot(w.command.x - p.x, w.command.y - p.y);
+  assert(d <= MINION_RULES.COMMAND_RANGE + 1, `명령 사거리 초과: ${d.toFixed(0)}`);
+});
+
+test('사령술 보스는 전장의 시체를 되살린다', () => {
+  const w = testWorld();
+  w.enemies.length = 0; w.corpses.length = 0; w.spawnQueue = [];
+  const b = w.spawnBoss('bonesovereign');
+  assert(b && b.isMini, '해골 군주가 소환되지 않음');
+  b.spawnT = 0;
+  for (let i = 0; i < 4; i++) {
+    w.corpses.push({ x: b.x + 40 + i * 20, y: b.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+  // raise 패턴을 강제로 실행
+  b.pattern = b.def.patterns.raise;
+  b.patternName = 'raise';
+  b.state = 'telegraph';
+  b.t = 0;
+  for (let i = 0; i < 120; i++) updateBoss(w, b, SIM.DT);
+  const revived = w.enemies.filter((e) => e.revived);
+  assert(revived.length >= 1, '보스가 시체를 되살리지 못함');
+  assert(revived.every((e) => e.noCorpse), '되살아난 적이 다시 시체를 남김');
+});
+
+test('사령술 보스는 시체가 없어도 패턴이 헛돌지 않는다', () => {
+  const w = testWorld();
+  w.enemies.length = 0; w.corpses.length = 0; w.spawnQueue = [];
+  const b = w.spawnBoss('bonesovereign');
+  b.spawnT = 0;
+  const before = w.enemies.length;
+  b.pattern = b.def.patterns.raise; b.patternName = 'raise'; b.state = 'telegraph'; b.t = 0;
+  for (let i = 0; i < 120; i++) updateBoss(w, b, SIM.DT);
+  assert(w.enemies.length > before, '시체가 없을 때 대체 소환이 없음');
 });
 
 // ============ 엘리트 접두사 / 미니보스 ============

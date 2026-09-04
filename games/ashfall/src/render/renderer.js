@@ -29,6 +29,7 @@ export function createRenderer(canvas, world, camera, vfx) {
 
     drawFloor(biome);
     drawCorpses();
+    drawCommand();
     drawHazards();
     drawTelegraphs();
     drawAuras();
@@ -211,6 +212,34 @@ export function createRenderer(canvas, world, camera, vfx) {
       }
       ctx.restore();
     }
+  }
+
+  /** 소환수에게 내린 공격 지점 — 어디를 치라고 했는지 눈에 보여야 한다 */
+  function drawCommand() {
+    const c = world.command;
+    if (!c) return;
+    const k = c.t / c.maxT;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.globalAlpha = 0.12 + 0.1 * k;
+    ctx.fillStyle = '#7ff0d8';
+    ctx.beginPath(); ctx.arc(0, 0, 230, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 0.7 * k + 0.2;
+    ctx.strokeStyle = '#7ff0d8';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath(); ctx.arc(0, 0, 230, -t * 1.2, -t * 1.2 + TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    // 중앙 표식
+    ctx.lineWidth = 3;
+    const s2 = 16 + 6 * Math.sin(t * 6);
+    ctx.beginPath();
+    ctx.moveTo(-s2, 0); ctx.lineTo(-s2 * 0.4, 0);
+    ctx.moveTo(s2 * 0.4, 0); ctx.lineTo(s2, 0);
+    ctx.moveTo(0, -s2); ctx.lineTo(0, -s2 * 0.4);
+    ctx.moveTo(0, s2 * 0.4); ctx.lineTo(0, s2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** 현재 빌드가 시체를 자원으로 쓰는가 (연출 강도를 바꾼다) */

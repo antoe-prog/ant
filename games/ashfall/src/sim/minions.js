@@ -131,10 +131,22 @@ export function updateMinions(world, dt) {
       continue;
     }
 
-    // 목표 선정: 플레이어 주변의 가장 가까운 적
-    const leashed = dist(m.x, m.y, p.x, p.y) > MINION_RULES.LEASH;
+    // 목표 선정
+    const cmd = world.command;
+    const leashed = !cmd && dist(m.x, m.y, p.x, p.y) > MINION_RULES.LEASH;
     let target = null, bestD = Infinity;
-    if (!leashed) {
+
+    if (cmd) {
+      // 명령 중: 지정 지점 주변의 적을 최우선으로
+      const r2 = MINION_RULES.COMMAND_RADIUS * MINION_RULES.COMMAND_RADIUS;
+      for (const e of world.enemies) {
+        if (e.dead || e.spawnT > 0) continue;
+        if (dist2(cmd.x, cmd.y, e.x, e.y) > r2) continue;
+        const d = dist2(m.x, m.y, e.x, e.y);
+        if (d < bestD) { bestD = d; target = e; }
+      }
+    }
+    if (!target && !leashed) {
       for (const e of world.enemies) {
         if (e.dead || e.spawnT > 0) continue;
         const d = dist2(m.x, m.y, e.x, e.y);
@@ -142,30 +154,38 @@ export function updateMinions(world, dt) {
       }
     }
 
-    if (!target) {
+    // 명령 중에는 더 빠르고 세진다
+    const cmdSpeed = cmd ? MINION_RULES.COMMAND_SPEED : 1;
+    const cmdDmg = cmd ? MINION_RULES.COMMAND_DAMAGE : 1;
+
+    if (!target && cmd) {
+      // 명령 지점에 적이 없으면 그 자리로 몰려간다
+      if (dist(m.x, m.y, cmd.x, cmd.y) > 50) moveToward(m, cmd.x, cmd.y, m.speed * cmdSpeed, dt);
+      else { m.vx *= 0.88; m.vy *= 0.88; }
+    } else if (!target) {
       // 적이 없으면 플레이어 곁으로 (뒤에 붙어 따라온다)
       const d = dist(m.x, m.y, p.x, p.y);
       if (d > 70) moveToward(m, p.x, p.y, m.speed * 1.15, dt);
       else { m.vx *= 0.86; m.vy *= 0.86; }
     } else if (m.def.kind === 'ranged') {
       const d = Math.sqrt(bestD);
-      if (d > m.def.range * 0.85) moveToward(m, target.x, target.y, m.speed, dt);
-      else if (d < m.def.range * 0.45) moveToward(m, m.x * 2 - target.x, m.y * 2 - target.y, m.speed, dt);
+      if (d > m.def.range * 0.85) moveToward(m, target.x, target.y, m.speed * cmdSpeed, dt);
+      else if (d < m.def.range * 0.45) moveToward(m, m.x * 2 - target.x, m.y * 2 - target.y, m.speed * cmdSpeed, dt);
       else { m.vx *= 0.9; m.vy *= 0.9; }
       m.facing = Math.atan2(target.y - m.y, target.x - m.x);
       if (m.attackCd <= 0 && d <= m.def.range) {
         m.attackCd = m.def.attackCd;
         world.spawnPlayerProjectile({
           x: m.x, y: m.y, angle: m.facing, speed: m.def.projSpeed,
-          dmg: m.dmg, radius: 8, life: 0.9, pierce: 1, color: m.def.accent, tag: 'minion',
+          dmg: m.dmg * cmdDmg, radius: 8, life: 0.9, pierce: 1, color: m.def.accent, tag: 'minion',
         });
       }
     } else {
-      moveToward(m, target.x, target.y, m.speed, dt);
+      moveToward(m, target.x, target.y, m.speed * cmdSpeed, dt);
       const reach = m.radius + target.radius + 6;
       if (m.attackCd <= 0 && Math.sqrt(bestD) <= reach) {
         m.attackCd = m.def.attackCd;
-        damageEnemy(world, target, m.dmg, 'none', {
+        damageEnemy(world, target, m.dmg * cmdDmg, 'none', {
           tag: 'minion', knock: 70, dir: Math.atan2(target.y - m.y, target.x - m.x), silent: true, noCrit: true,
         });
         for (const s of world.loadout.minionStatus) applyStatus(world, target, s.kind, s.stacks);
@@ -238,6 +258,37 @@ export function blockProjectile(world, pr) {
     }
   }
   return false;
+}
+
+// ---------------- 소환수 명령 ----------------
+
+/**
+ * "저기를 쳐라" — 조준 지점으로 군세를 몰아붙인다.
+ * 지정 반경 안의 적을 최우선으로 노리고, 그동안 더 빠르고 세진다.
+ * 소환 빌드가 자동 전투가 아니라 지휘로 성립하게 만드는 장치.
+ */
+export function issueCommand(world, x, y) {
+  if (world.commandCd > 0) return false;
+  if (aliveMinions(world) <= 0) return false;
+  const p = world.player;
+  const dx = x - p.x, dy = y - p.y;
+  const len = Math.hypot(dx, dy);
+  const max = MINION_RULES.COMMAND_RANGE;
+  const tx = len > max ? p.x + (dx / len) * max : x;
+  const ty = len > max ? p.y + (dy / len) * max : y;
+
+  world.command = { x: tx, y: ty, t: MINION_RULES.COMMAND_DURATION, maxT: MINION_RULES.COMMAND_DURATION };
+  world.commandCd = MINION_RULES.COMMAND_CD;
+  world.bus.emit('minionCommand', { x: tx, y: ty, count: aliveMinions(world) });
+  return true;
+}
+
+export function updateCommand(world, dt) {
+  if (world.commandCd > 0) world.commandCd -= dt;
+  if (world.command) {
+    world.command.t -= dt;
+    if (world.command.t <= 0) world.command = null;
+  }
 }
 
 export function aliveMinions(world) {

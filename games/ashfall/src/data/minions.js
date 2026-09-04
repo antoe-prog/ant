@@ -67,4 +67,14 @@ export const MINION_RULES = {
   ENEMY_DMG_TO_MINION: 0.55, // 소환수가 받는 피해 배율 (너무 쉽게 녹지 않도록)
   SUMMON_INVULN: 0.35,   // 소환 직후 무적(솟아오르는 연출 동안)
   EXPIRE_FADE: 1.2,
+
+  // ---- 소환수 명령 ----
+  // 소환수가 알아서 싸우기만 하면 플레이어의 선택이 없다.
+  // "여기를 쳐라"를 지정할 수 있어야 소환 빌드가 조작 가능한 시스템이 된다.
+  COMMAND_CD: 6.0,
+  COMMAND_DURATION: 3.6,
+  COMMAND_RADIUS: 230,     // 이 반경 안의 적을 최우선으로 노린다
+  COMMAND_SPEED: 1.4,      // 명령 중 이동속도 배율
+  COMMAND_DAMAGE: 1.3,     // 명령 중 피해 배율
+  COMMAND_RANGE: 420,      // 명령 지점을 찍을 수 있는 최대 거리
 };

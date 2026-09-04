@@ -7,6 +7,9 @@ import { VIEW } from '../data/balance.js';
 /** 화면 하단 HUD가 차지하는 높이(px) — 이 영역에는 전투가 오지 않게 한다 */
 const HUD_SAFE_PX = 92;
 
+/** 이보다 작게 줌아웃하면 적/예고가 너무 작아져 읽을 수 없다 */
+const MIN_ZOOM = 0.72;
+
 export function createCamera(world) {
   return {
     x: world.player.x, y: world.player.y,
@@ -24,8 +27,10 @@ export function createCamera(world) {
 
       // 아레나가 화면을 항상 가득 채우도록 최소 줌을 계산한다 (검은 여백 방지)
       const a = world.arena;
+      // 아레나 형태를 화면 비율에 맞췄으므로 cover 와 contain 이 거의 같다.
+      // 그래도 여백이 생기지 않도록 cover 를 쓰되, 지나친 확대는 막는다.
       const cover = viewW && viewH ? Math.max(viewW / a.width, viewH / a.height) : 1;
-      const base = Math.max(cover, 1);
+      const base = Math.max(cover, MIN_ZOOM);
       // 보스전에서는 살짝 줌아웃 (패턴 전체가 보여야 한다)
       this.targetZoom = Math.max(base, base * (world.boss ? 1.0 : 1.06));
       this.zoom = damp(this.zoom, this.targetZoom, 3, dt);
