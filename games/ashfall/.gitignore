@@ -1,4 +1,4 @@
 .shots/
-node_modules/
+node_modules
 # 빌드 산출물 (tools/build.mjs 로 언제든 재생성)
 dist/
