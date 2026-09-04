@@ -7,7 +7,7 @@ import { SIM } from '../src/data/balance.js';
 import { EV } from '../src/core/events.js';
 import { dist } from '../src/core/math.js';
 
-export function simulateRun({ seed = 1, weaponId = 'emberblade', maxSeconds = 1500, skill = 1, metaEffects = {}, onEvent } = {}) {
+export function simulateRun({ seed = 1, weaponId = 'gravecall', maxSeconds = 1500, skill = 1, metaEffects = {}, onEvent } = {}) {
   const world = createWorld({ seed, weaponId, metaEffects });
   const director = createRun(world);
   const log = { rooms: 0, kills: 0, boons: [], events: [], damageTaken: 0, bossPhases: 0 };

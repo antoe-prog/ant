@@ -125,7 +125,7 @@ test('합일 권능은 두 신을 모두 보유해야 해금된다', () => {
 });
 
 test('공격/대시/특수 슬롯은 중복 장착되지 않는다', () => {
-  const world = createWorld({ seed: 3, weaponId: 'emberblade' });
+  const world = createWorld({ seed: 3, weaponId: 'gravecall' });
   createRun(world);
   grantBoon(world, { id: 'ember_attack', rarity: 'common', level: 1 });
   const used = slotsUsed(world.run.owned);
@@ -138,7 +138,7 @@ test('공격/대시/특수 슬롯은 중복 장착되지 않는다', () => {
 });
 
 test('무기 전용 권능은 해당 무기에서만 제안된다', () => {
-  for (const weaponId of ['emberblade', 'ruinmaul', 'twinfangs']) {
+  for (const weaponId of WEAPONS.map((w) => w.id)) {
     const w = createWorld({ seed: 11, weaponId });
     createRun(w);
     const seen = new Set();
@@ -153,35 +153,30 @@ test('무기 전용 권능은 해당 무기에서만 제안된다', () => {
 });
 
 test('무기 전용 권능이 실제 전투에서 발동한다', () => {
-  // 검압: 3타 마무리가 아군 투사체를 만든다
-  const w = createWorld({ seed: 5, weaponId: 'emberblade' });
+  // 죽음의 손아귀: 적이 죽을 때 시체가 즉시 터진다
+  const w = createWorld({ seed: 5, weaponId: 'gravecall' });
   const d = createRun(w);
   d.enterRoom({ type: 'combat' });
-  grantBoon(w, { id: 'blade_wave', rarity: 'common', level: 1 });
-  w.projectiles.length = 0;
-  const p = w.player;
-  p.state = 'attack'; p.atkStep = 2; p.atkPhase = 'windup'; p.atkT = 0; p.atkHits = new Set();
-  const intent = { mx: 0, my: 0, aimX: p.x + 100, aimY: p.y, attack: false, dash: false, special: false };
-  for (let i = 0; i < 6; i++) updatePlayerFn(w, intent, SIM.DT);
-  assert(w.projectiles.some((pr) => !pr.hostile), '검기(아군 투사체)가 생성되지 않음');
+  w.rng.next = () => 0;   // 확률 판정을 항상 성공시킨다
+  grantBoon(w, { id: 'grave_grasp', rarity: 'common', level: 1 });
+  w.enemies.length = 0; w.spawnQueue = [];
+  const victim = w.spawnEnemy('husk', 500, 400);
+  const bystander = w.spawnEnemy('husk', 560, 400);
+  bystander.spawnT = 0;
+  const hp0 = bystander.hp;
+  damageEnemy(w, victim, 1e6, 'none', { silent: true });
+  assert(bystander.hp < hp0, '시체 폭발이 주변 적에게 피해를 주지 않음');
 
-  // 지진: 2타가 광역 경직을 건다
-  const w2 = createWorld({ seed: 5, weaponId: 'ruinmaul' });
-  const d2 = createRun(w2);
-  d2.enterRoom({ type: 'combat' });
-  grantBoon(w2, { id: 'maul_quake', rarity: 'common', level: 1 });
-  w2.enemies.length = 0;
-  const e = w2.spawnEnemy('husk', w2.player.x + 120, w2.player.y);
-  e.spawnT = 0;
-  const p2 = w2.player;
-  p2.state = 'attack'; p2.atkStep = 1; p2.atkPhase = 'windup'; p2.atkT = 0; p2.atkHits = new Set();
-  const intent2 = { mx: 0, my: 0, aimX: p2.x + 100, aimY: p2.y, attack: false, dash: false, special: false };
-  for (let i = 0; i < 6; i++) updatePlayerFn(w2, intent2, SIM.DT);
-  assert(e.staggerT > 0, '지진 경직이 적용되지 않음');
+  // 대군: 망자 봉기가 더 많은 시체를 일으킨다
+  const w2 = createWorld({ seed: 5, weaponId: 'gravecall' });
+  createRun(w2);
+  const base = w2.loadout.mods.raiseBonus;
+  grantBoon(w2, { id: 'grave_legion', rarity: 'common', level: 1 });
+  assert(w2.loadout.mods.raiseBonus > base, '일으키는 시체 수가 늘지 않음');
 });
 
 test('아군 투사체는 적을 관통하며 피해를 준다', () => {
-  const w = createWorld({ seed: 2, weaponId: 'emberblade' });
+  const w = createWorld({ seed: 2, weaponId: 'gravecall' });
   const d = createRun(w);
   d.enterRoom({ type: 'combat' });
   w.enemies.length = 0;
@@ -194,7 +189,7 @@ test('아군 투사체는 적을 관통하며 피해를 준다', () => {
 });
 
 test('경직된 적은 행동하지 않는다', () => {
-  const w = createWorld({ seed: 3, weaponId: 'emberblade' });
+  const w = createWorld({ seed: 3, weaponId: 'gravecall' });
   const d = createRun(w);
   d.enterRoom({ type: 'combat' });
   w.enemies.length = 0;
@@ -208,7 +203,7 @@ test('경직된 적은 행동하지 않는다', () => {
 });
 
 // ============ 상태이상 / 전투 ============
-function testWorld(weaponId = 'emberblade', seed = 1) {
+function testWorld(weaponId = 'gravecall', seed = 1) {
   const world = createWorld({ seed, weaponId });
   createRun(world);
   world.director.enterRoom({ type: 'combat' });
@@ -695,7 +690,7 @@ test('저주는 런 전체 배율에 적용된다', () => {
 
 test('시드가 같으면 런 진행이 재현된다', () => {
   const runOnce = () => {
-    const w = createWorld({ seed: 777, weaponId: 'emberblade' });
+    const w = createWorld({ seed: 777, weaponId: 'gravecall' });
     const d = createRun(w);
     d.start();
     const intent = { mx: 1, my: 0, aimX: 999, aimY: 400, attack: true, dash: false, special: false };
@@ -738,7 +733,7 @@ test('v3 세이브가 터치 설정(v4)으로 마이그레이션된다', () => {
   store.set('ashfall.save', JSON.stringify({
     version: 3, ash: 40, upgrades: { vigor: 2 },
     stats: { runs: 3, wins: 1, kills: 10, bestTime: null, deepest: '2-1' },
-    lastWeapon: 'twinfangs',
+    lastWeapon: 'gravecall',
   }));
   const l = loadSave();
   eq(l.version, 4, '버전 갱신 실패');
@@ -781,7 +776,7 @@ test('메타 강화가 실제 효과로 환산된다', () => {
   const e = metaEffects(s);
   assert(e.maxHp > 0, '최대 체력 보너스 미반영');
   assert(s.ash < 1000, '잿가루가 차감되지 않음');
-  const w = createWorld({ seed: 1, weaponId: 'emberblade', metaEffects: e });
+  const w = createWorld({ seed: 1, weaponId: 'gravecall', metaEffects: e });
   assert(w.player.maxHp > PLAYER.MAX_HP, '메타 강화가 런에 반영되지 않음');
 });
 

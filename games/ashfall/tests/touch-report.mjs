@@ -20,6 +20,12 @@ const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome
 const PORT = Number(process.env.PORT || 8215);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 무기가 여러 개일 때만 선택 UI 가 있다. 하나뿐이면 그냥 넘어간다. */
+async function pickWeapon(pg, id) {
+  const el = pg.locator(`[data-weapon="${id}"]`);
+  if (await el.count() && await el.isVisible().catch(() => false)) await el.click();
+}
+
 // 손 특성 프리셋
 const THUMB = {
   jitter: 7,        // 프레임당 좌표 흔들림(px)
@@ -35,7 +41,7 @@ await sleep(600);
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
 /** 한 판을 시뮬레이션 엄지로 플레이하고 지표를 수집한다 */
-async function play({ weaponId = 'emberblade', seconds = 42, viewport = { width: 390, height: 844 }, label = '', touch = null }) {
+async function play({ weaponId = 'gravecall', seconds = 42, viewport = { width: 390, height: 844 }, label = '', touch = null }) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -181,7 +187,7 @@ const byCond = [];
 for (const c of CONDITIONS) {
   const rows = [];
   for (let i = 0; i < REPS; i++) {
-    const wid = i % 2 === 0 ? 'emberblade' : 'twinfangs';
+    const wid = 'gravecall';
     rows.push(await play({ weaponId: wid, seconds: SECS, label: `${c.name}#${i + 1}`, touch: c.touch }));
   }
   byCond.push({ cond: c.name, rows });

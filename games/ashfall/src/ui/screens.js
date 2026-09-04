@@ -73,7 +73,15 @@ export function createScreens(overlay, game) {
 
       if (titleTab === 'weapon') {
         const w = WEAPONS.find((x) => x.id === weaponId) || WEAPONS[0];
-        body = `
+        const detail = `
+          <div class="detail" style="--c:${w.color}">
+            <div class="dname">${esc(w.name)}</div>
+            <div class="dtag">${esc(w.tagline)}</div>
+            <ul>${(w.traits || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+            <div class="dsp"><b>특수기 · ${esc(w.special.name)}</b><br>${esc(w.special.desc)}</div>
+          </div>`;
+        // 무기가 하나뿐이면 목록은 선택지가 아니라 잡음이다 — 정보만 보여준다
+        body = WEAPONS.length > 1 ? `
           <div class="pick">
             <div class="picklist" role="listbox">
               ${WEAPONS.map((it) => `
@@ -83,15 +91,10 @@ export function createScreens(overlay, game) {
                   <span class="chk">✓</span>
                 </button>`).join('')}
             </div>
-            <div class="detail" style="--c:${w.color}">
-              <div class="dname">${esc(w.name)}</div>
-              <div class="dtag">${esc(w.tagline)}</div>
-              <ul>${(w.traits || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-              <div class="dsp"><b>특수기 · ${esc(w.special.name)}</b><br>${esc(w.special.desc)}</div>
-            </div>
-          </div>`;
+            ${detail}
+          </div>` : detail;
         actions = `
-          <span class="note">${esc(w.name)} 선택됨</span>
+          <span class="note">${WEAPONS.length > 1 ? esc(w.name) + ' 선택됨' : esc(w.name)}</span>
           <span class="spacer"></span>
           <button class="btn primary" id="startBtn">회랑으로 들어간다</button>`;
       } else if (titleTab === 'meta') {

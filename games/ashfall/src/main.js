@@ -50,6 +50,7 @@ const game = {
 
   startRun(weaponId) {
     sfx.resume();
+    // 삭제된 무기가 세이브에 남아 있을 수 있다 — 항상 유효한 무기로 떨어뜨린다
     save.lastWeapon = WEAPON_BY_ID[weaponId] ? weaponId : WEAPONS[0].id;
     save.stats.runs++;
     writeSave(save);

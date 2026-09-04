@@ -86,21 +86,10 @@ export function createHud(canvas, world, input) {
     }
     text('DASH', bx + p.maxDashCharges * 20 * S + 6 * S, by - 14 * S, 'rgba(255,255,255,0.4)', F(10, 'bold'), 'left');
 
-    // ---- 가속(연속 타격 보너스) ----
-    if (world.weapon.rampPerHit && p.ramp > 0) {
-      const k = p.ramp / world.weapon.rampMax;
-      const rx0 = bx, ry0 = fy + 14;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(rx0, ry0, bw, 6);
-      ctx.fillStyle = k >= 0.99 ? '#ffd166' : '#63e6be';
-      ctx.fillRect(rx0, ry0, bw * k, 6);
-      text(`가속 +${Math.round(p.ramp * 100)}%`, rx0 + bw + 8, ry0 + 3, k >= 0.99 ? '#ffd166' : '#63e6be', 'bold 11px system-ui', 'left');
-    }
-
     // ---- 소환수 ----
     const alive = world.aliveMinions();
     if (alive > 0) {
-      const my = fy + (world.weapon.rampPerHit && p.ramp > 0 ? 26 : 14);
+      const my = fy + 14;
       text(`소환수 ${alive}`, bx, my + 4, '#c4a8ff', F(12, 'bold'), 'left');
       // 상한이 없으므로 점은 최대 12개까지만 그리고 나머지는 숫자로 안다
       const dots = Math.min(alive, 12);

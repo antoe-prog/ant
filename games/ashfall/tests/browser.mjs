@@ -16,6 +16,12 @@ const SHOTS = process.env.SHOT_DIR || path.join(ROOT, '.shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 무기가 여러 개일 때만 선택 UI 가 있다. 하나뿐이면 그냥 넘어간다. */
+async function pickWeapon(pg, id) {
+  const el = pg.locator(`[data-weapon="${id}"]`);
+  if (await el.count() && await el.isVisible().catch(() => false)) await el.click();
+}
 const server = spawn(process.execPath, [path.join(ROOT, 'tools/serve.mjs')], {
   env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore',
 });
@@ -76,7 +82,7 @@ async function mobileChecks() {
   await sleep(150);
 
   // 터치로 런 시작 → 실제 조작
-  await mp.locator('[data-weapon="gravecall"]').tap();
+  await pickWeapon(mp, 'gravecall');
   await mp.locator('#startBtn').tap();
   await sleep(1000);
   const st0 = await mp.evaluate(() => ({ s: window.__ashfall.world.run.state }));
@@ -275,7 +281,7 @@ await page.locator('[data-tab="weapon"]').click();
 await sleep(150);
 await shot('01-title');
 
-await page.locator('[data-weapon="emberblade"]').click();
+await pickWeapon(page, 'gravecall');
 await page.locator('#startBtn').click();
 await sleep(900);
 let s = await state();

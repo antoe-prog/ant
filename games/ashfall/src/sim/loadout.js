@@ -24,8 +24,6 @@ export function emptyLoadout() {
       specialCostMult: 1,
       dashStrikeMult: 0,
       dashStrikeWindow: 0,
-      comboWindowBonus: 0,
-      armorExtra: 0,
       // 사령술
       minionDamage: 0,
       raiseBonus: 0,      // 망자 봉기가 한 번에 더 일으키는 시체 수

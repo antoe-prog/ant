@@ -345,12 +345,6 @@ export function killEnemy(world, e, info = {}) {
     world.summon(soc.id, e.x, e.y, { scale: e.elite ? 1.5 : 1 });
   }
 
-  // 무기 고유: 처치 시 대시 충전 회복 (쌍아검)
-  if (world.weapon.dashOnKill) {
-    const p = world.player;
-    p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + world.weapon.dashOnKill);
-  }
-
   // onKill 훅 (dead 처리 후에 호출해야 연쇄 폭발이 자기 자신을 다시 죽이지 않음)
   runHooks(world, 'kill', { target: e, x: e.x, y: e.y, element: info.element, tag: info.tag });
 
@@ -369,25 +363,14 @@ export function damagePlayer(world, amount, opts = {}) {
   if (p.dead || p.iframes > 0 || world.run.state !== 'fight') return 0;
 
   // 슈퍼아머(파쇄추): 휘두르는 동안은 버틴다 — 느린 무기의 정체성
-  const W = world.weapon;
-  const armored = W.superArmor && p.state === 'attack';
-  const armorMult = armored
-    ? Math.max(0.2, 1 - (W.superArmorReduce || 0.3) - world.loadout.mods.armorExtra)
-    : 1;
-  // 가속 방어: 연속 타격을 유지하는 동안 단단해진다 (쌍아검)
-  const rampMult = W.rampArmor && p.ramp > 0
-    ? 1 - W.rampArmor * (p.ramp / W.rampMax)
-    : 1;
-  const final = amount * world.run.playerTakenMult * world.loadout.stats.damageTakenMult * armorMult * rampMult;
+  const final = amount * world.run.playerTakenMult * world.loadout.stats.damageTakenMult;
   p.hp -= final;
   p.iframes = PLAYER.HURT_IFRAMES;
   p.hurtFlash = 0.3;
-  if (p.ramp > 0) p.ramp *= 0.5; // 가속 절반 소실 — 맞으면 대가를 치르되 회복 가능해야 한다
   world.run.damageTaken += final;
-  if (armored) world.bus.emit(EV.STATUS, { x: p.x, y: p.y, kind: 'armor' });
 
   const dir = opts.dir ?? Math.atan2(p.y - (opts.fromY ?? p.y), p.x - (opts.fromX ?? p.x));
-  const kb = PLAYER.HURT_KNOCKBACK * (armored ? 0.25 : 1);
+  const kb = PLAYER.HURT_KNOCKBACK;
   p.vx += Math.cos(dir) * kb;
   p.vy += Math.sin(dir) * kb;
 

@@ -10,6 +10,12 @@ const FILE = path.join(ROOT, 'dist/ashfall.html');
 const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 무기가 여러 개일 때만 선택 UI 가 있다. 하나뿐이면 그냥 넘어간다. */
+async function pickWeapon(pg, id) {
+  const el = pg.locator(`[data-weapon="${id}"]`);
+  if (await el.count() && await el.isVisible().catch(() => false)) await el.click();
+}
+
 if (!fs.existsSync(FILE)) { console.error('먼저 node tools/build.mjs 를 실행하세요'); process.exit(1); }
 
 const results = [];
@@ -28,7 +34,7 @@ await sleep(900);
 check('단일 파일이 file:// 에서 로드된다', await page.locator('#startBtn').isVisible());
 check('모듈 번들이 초기화됐다', await page.evaluate(() => !!window.__ashfall));
 
-await page.locator('[data-weapon="gravecall"]').tap();
+await pickWeapon(page, 'gravecall');
 await page.locator('#startBtn').tap();
 await sleep(1200);
 const s = await page.evaluate(() => {
