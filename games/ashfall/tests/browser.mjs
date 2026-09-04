@@ -185,10 +185,19 @@ check('문 진입 → 방 진행', s.room > roomBefore || !!s.screen, `방 ${roo
 await shot('07-next-room');
 
 // ---- 보스전 ----
-if ((await state()).screen) {
-  const first = page.locator('.boon, .curse, #leave').first();
-  if (await first.isVisible().catch(() => false)) { await first.click(); await sleep(600); }
+// 어떤 화면이 떠 있든 정리하고 반드시 플레이 상태로 되돌린다 (사망했다면 새 런 시작)
+async function dismissScreens() {
+  for (let i = 0; i < 6; i++) {
+    const sc = (await state()).screen;
+    if (!sc) return true;
+    const btn = page.locator('#again, #resume, #leave, .boon, .curse').first();
+    if (await btn.isVisible().catch(() => false)) { await btn.click(); await sleep(800); }
+    else return false;
+  }
+  return !(await state()).screen;
 }
+const ready = await dismissScreens();
+check('선택/결과 화면에서 플레이로 복귀', ready, `화면 ${(await state()).screen || '없음'}`);
 await page.evaluate(() => {
   const g = window.__ashfall;
   g.world.run.roomIdx = 4; g.world.run.globalRoom = 4;

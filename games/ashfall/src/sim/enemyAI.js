@@ -6,7 +6,7 @@
 import { EV } from '../core/events.js';
 import { clamp, dist, normalize, arcHit, TAU, rotateToward, normAngle } from '../core/math.js';
 import { PLAYER } from '../data/balance.js';
-import { damagePlayer, statusSpeedMult, isDisabled, applyPlayerStatus, killEnemy } from './combat.js';
+import { damagePlayer, statusSpeedMult, isDisabled, applyPlayerStatus, applyStatus, damageEnemy, killEnemy } from './combat.js';
 
 const SEPARATION_FORCE = 260;
 
@@ -42,9 +42,26 @@ export function updateEnemies(world, dt) {
 function updateEnemy(world, e, dt) {
   const p = world.player;
   if (e.hurtFlash > 0) e.hurtFlash -= dt;
+  if (e.thornCd > 0) e.thornCd -= dt;
+  // '재생' 엘리트 — 화력이 모자라면 절대 못 잡는다
+  if (e.elite && e.affixes.length) {
+    for (const a of e.affixes) {
+      if (a.regenPerSec && e.hp < e.maxHp) {
+        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * a.regenPerSec * dt);
+      }
+    }
+  }
   if (e.tele) { e.tele.t -= dt; if (e.tele.t <= 0) e.tele = null; }
   if (e.spawnT > 0) { // 등장 연출 중엔 무적/무행동
     e.spawnT -= dt;
+    applyPhysics(world, e, dt);
+    return;
+  }
+
+  if (e.staggerT > 0) {
+    // 경직: 짧게 행동이 끊긴다 (무거운 타격의 보상)
+    e.staggerT -= dt;
+    e.vx *= 0.86; e.vy *= 0.86;
     applyPhysics(world, e, dt);
     return;
   }
@@ -107,7 +124,7 @@ function handleContactDamage(world, e, dt) {
     e.contactCd = (e.contactCd || 0) - dt;
     if (e.contactCd <= 0) {
       const dmg = e.dmg * (e.state === 'charge' ? 1.25 : 1);
-      if (damagePlayer(world, dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y })) {
+      if (damagePlayer(world, dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y, source: e })) {
         e.contactCd = PLAYER.CONTACT_GRACE;
         // 돌진 명중 시에만 디버프 (서리창 기병의 냉기 등)
         if (e.def.applyStatus && e.state === 'charge') applyPlayerStatus(world, e.def.applyStatus.kind);
@@ -165,7 +182,7 @@ const BEHAVIORS = {
       default:
         if (d < e.def.chargeRange && e.cd <= 0 && d > 40) {
           e.state = 'telegraph';
-          e.t = e.def.telegraph / world.run.enemySpeedMult;
+          e.t = (e.def.telegraph * e.teleMult) / world.run.enemySpeedMult;
           e.tele = { kind: 'line', t: e.t, maxT: e.t, range: e.def.chargeSpeed * e.def.chargeTime };
         } else {
           moveToward(e, p.x, p.y, e.speed * 0.75, dt, slow);
@@ -205,7 +222,7 @@ const BEHAVIORS = {
       }
       if (e.cd <= 0 && d < far * 1.2) {
         e.state = 'telegraph';
-        e.t = e.def.telegraph / world.run.enemySpeedMult;
+        e.t = (e.def.telegraph * e.teleMult) / world.run.enemySpeedMult;
         e.tele = { kind: 'aim', t: e.t, maxT: e.t, range: 520 };
       }
     }
@@ -223,7 +240,7 @@ const BEHAVIORS = {
         e.swung = true;
         const half = (e.def.swingArc * Math.PI) / 360;
         if (arcHit(e.x, e.y, e.facing, half, e.def.swingRange, p.x, p.y, p.radius)) {
-          damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y });
+          damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y, source: e });
         }
         world.bus.emit(EV.SHOCKWAVE, { x: e.x, y: e.y, radius: e.def.swingRange, color: e.def.accent, weak: true });
       }
@@ -232,7 +249,7 @@ const BEHAVIORS = {
       moveToward(e, p.x, p.y, e.speed, dt, slow);
       if (d < e.def.swingRange * 0.9 && e.cd <= 0) {
         e.state = 'telegraph';
-        e.t = e.def.telegraph / world.run.enemySpeedMult;
+        e.t = (e.def.telegraph * e.teleMult) / world.run.enemySpeedMult;
         e.tele = { kind: 'arc', t: e.t, maxT: e.t, arc: e.def.swingArc, range: e.def.swingRange };
       }
     }
@@ -246,7 +263,7 @@ const BEHAVIORS = {
       if (e.t <= 0) {
         world.bus.emit(EV.EXPLOSION, { x: e.x, y: e.y, radius: e.def.blastRadius, element: 'ember' });
         if (dist(e.x, e.y, p.x, p.y) < e.def.blastRadius + p.radius) {
-          damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y });
+          damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y, source: e });
         }
         e.hp = 0;
         e.suicide = true;
@@ -263,6 +280,30 @@ const BEHAVIORS = {
   },
 };
 
+/** 아군 투사체 갱신. 제거해야 하면 true 반환 */
+function updateFriendlyProjectile(world, pr, dt) {
+  if (pr.life <= 0) return true;
+  const a = world.arena;
+  if (pr.x < a.pad || pr.y < a.pad || pr.x > a.width - a.pad || pr.y > a.height - a.pad) {
+    world.bus.emit(EV.PROJECTILE_HIT, { x: pr.x, y: pr.y, color: pr.color });
+    return true;
+  }
+  for (const e of world.enemies) {
+    if (e.dead || pr.hitSet.has(e)) continue;
+    if (Math.hypot(pr.x - e.x, pr.y - e.y) > pr.radius + e.radius) continue;
+    pr.hitSet.add(e);
+    damageEnemy(world, e, pr.dmg, pr.element, {
+      tag: 'projectile', knock: 90, dir: Math.atan2(pr.vy, pr.vx), heavy: false,
+    });
+    if (pr.status) applyStatus(world, e, pr.status.kind, pr.status.stacks);
+    if (--pr.pierce <= 0) {
+      world.bus.emit(EV.PROJECTILE_HIT, { x: pr.x, y: pr.y, color: pr.color });
+      return true;
+    }
+  }
+  return false;
+}
+
 export function fireProjectile(world, e, p, overrides = {}) {
   const def = e.def;
   const angle = overrides.angle ?? (Math.atan2(p.y - e.y, p.x - e.x) + (def.spread ? world.rng.float(-def.spread, def.spread) : 0));
@@ -278,8 +319,19 @@ export function fireProjectile(world, e, p, overrides = {}) {
     status: overrides.status ?? def.applyStatus ?? null,
     color: overrides.color ?? def.accent ?? '#ffb347',
     hostile: true,
+    owner: e,
   });
   world.bus.emit(EV.PROJECTILE_SPAWN, { x: e.x, y: e.y, angle });
+}
+
+/** '가시' 엘리트의 반격: 사방으로 탄을 뿌린다 */
+export function retaliate(world, e, af) {
+  for (let i = 0; i < af.count; i++) {
+    const a = (i / af.count) * TAU + world.rng.float(0, 0.5);
+    fireProjectile(world, e, world.player, {
+      angle: a, speed: af.speed, dmg: af.dmg, radius: 7, life: 1.6, color: '#c07bff',
+    });
+  }
 }
 
 export function updateProjectiles(world, dt) {
@@ -290,6 +342,12 @@ export function updateProjectiles(world, dt) {
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
     pr.life -= dt;
+
+    // 플레이어 편 투사체: 적을 관통하며 때린다
+    if (!pr.hostile) {
+      if (updateFriendlyProjectile(world, pr, dt)) list.splice(i, 1);
+      continue;
+    }
 
     let remove = pr.life <= 0;
 
@@ -310,7 +368,7 @@ export function updateProjectiles(world, dt) {
     }
     // 플레이어 피격
     if (!remove && Math.hypot(pr.x - p.x, pr.y - p.y) < pr.radius + p.radius) {
-      if (damagePlayer(world, pr.dmg, { fromX: pr.x, fromY: pr.y })) {
+      if (damagePlayer(world, pr.dmg, { fromX: pr.x, fromY: pr.y, source: pr.owner })) {
         if (pr.status) applyPlayerStatus(world, pr.status.kind);
         world.bus.emit(EV.PROJECTILE_HIT, { x: pr.x, y: pr.y, color: pr.color });
         remove = true;

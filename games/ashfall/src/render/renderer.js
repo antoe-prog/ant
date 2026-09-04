@@ -6,6 +6,7 @@
 import { TAU, clamp } from '../core/math.js';
 import { STATUS } from '../data/balance.js';
 
+
 const ELEMENT_COLOR = { ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', none: '#ffffff' };
 
 export function createRenderer(canvas, world, camera, vfx) {
@@ -26,7 +27,9 @@ export function createRenderer(canvas, world, camera, vfx) {
     camera.apply(ctx, W, H);
 
     drawFloor(biome);
+    drawHazards();
     drawTelegraphs();
+    drawAuras();
     drawObstacles(biome);
     drawPickups();
     drawDoors();
@@ -160,6 +163,43 @@ export function createRenderer(canvas, world, camera, vfx) {
     }
   }
 
+  /** 곧 터질 지면 — 시체 근처에 서 있으면 안 된다는 정보 */
+  function drawHazards() {
+    for (const h of world.hazards) {
+      const p = 1 - h.t / h.maxT;
+      ctx.save();
+      ctx.globalAlpha = 0.14 + 0.26 * p;
+      ctx.fillStyle = h.color;
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = h.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.radius * p, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /** '수호' 엘리트의 보호 범위 — 오라 주인을 먼저 잡을지 판단할 수 있어야 한다 */
+  function drawAuras() {
+    for (const e of world.enemies) {
+      if (e.dead || !e.affixes || !e.affixes.length) continue;
+      for (const a of e.affixes) {
+        if (!a.aura) continue;
+        ctx.save();
+        ctx.globalAlpha = 0.10;
+        ctx.fillStyle = a.color;
+        ctx.beginPath(); ctx.arc(e.x, e.y, a.aura.radius, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = a.color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([12, 10]);
+        ctx.beginPath(); ctx.arc(e.x, e.y, a.aura.radius, t * 0.6, t * 0.6 + TAU); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+  }
+
   // ---------------- 픽업 / 문 ----------------
   function drawPickups() {
     for (const it of world.pickups) {
@@ -183,7 +223,7 @@ export function createRenderer(canvas, world, camera, vfx) {
       const pulse = 0.7 + 0.3 * Math.sin(t * 3.4);
       ctx.save();
       ctx.translate(d.x, d.y);
-      const col = d.boss ? '#ff4d6d' : d.elite ? '#ffd166' : '#7fd8ff';
+      const col = d.boss ? '#ff4d6d' : d.miniboss ? '#c07bff' : d.elite ? '#ffd166' : '#7fd8ff';
       ctx.globalAlpha = 0.22 * pulse;
       ctx.fillStyle = col;
       ctx.beginPath(); ctx.arc(0, 0, 54, 0, TAU); ctx.fill();
@@ -201,6 +241,7 @@ export function createRenderer(canvas, world, camera, vfx) {
 
   function rewardIcon(d) {
     if (d.boss) return '☠';
+    if (d.miniboss) return '⚑';
     switch (d.reward?.kind) {
       case 'boon': return '✦';
       case 'boonUpgrade': return '↑';
@@ -241,6 +282,8 @@ export function createRenderer(canvas, world, camera, vfx) {
       ctx.restore();
 
       drawStatusAura(e);
+      drawStagger(e);
+      drawNameTag(e);
       if (!e.isBoss) drawEnemyHpBar(e);
     }
   }
@@ -302,13 +345,17 @@ export function createRenderer(canvas, world, camera, vfx) {
         ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
     }
 
-    // 엘리트 표식
+    // 엘리트 표식 — 접두사마다 색이 다른 링이 하나씩 늘어난다
     if (e.elite) {
-      ctx.strokeStyle = '#ffd166';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath(); ctx.arc(0, 0, r + 7, t * 1.6, t * 1.6 + TAU * 0.85); ctx.stroke();
-      ctx.setLineDash([]);
+      const rings = (e.affixes && e.affixes.length) ? e.affixes : [{ color: '#ffd166' }];
+      for (let i = 0; i < rings.length; i++) {
+        ctx.strokeStyle = rings[i].color;
+        ctx.lineWidth = 2.4;
+        ctx.setLineDash([5, 5]);
+        const off = t * (1.6 + i * 0.7) * (i % 2 ? -1 : 1);
+        ctx.beginPath(); ctx.arc(0, 0, r + 7 + i * 5, off, off + TAU * 0.85); ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
   }
 
@@ -362,6 +409,41 @@ export function createRenderer(canvas, world, camera, vfx) {
       ctx.beginPath(); ctx.arc(0, 0, e.radius + 3, 0, TAU); ctx.fill();
     }
     ctx.restore();
+  }
+
+  /** 경직: 별 모양 스파크로 "끊겼다"를 알린다 */
+  function drawStagger(e) {
+    if (!(e.staggerT > 0)) return;
+    ctx.save();
+    ctx.translate(e.x, e.y - e.radius - 14);
+    ctx.strokeStyle = '#ffd166';
+    ctx.globalAlpha = Math.min(1, e.staggerT * 3);
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = t * 6 + (i / 3) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 4, Math.sin(a) * 4);
+      ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** 엘리트/미니보스 이름표 — 무엇을 상대하는지 즉시 알 수 있게 */
+  function drawNameTag(e) {
+    if (!e.elite && !e.isMini) return;
+    if (e.spawnT > 0) return;
+    const label = e.isMini
+      ? e.def.name
+      : (e.affixes || []).map((a) => a.name).join('·') + ' ' + e.def.name;
+    const y = e.y - e.radius - (e.elite ? 24 : 18);
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.strokeText(label, e.x, y);
+    ctx.fillStyle = e.isMini ? e.def.accent : (e.affixes?.[0]?.color || '#ffd166');
+    ctx.fillText(label, e.x, y);
   }
 
   function drawEnemyHpBar(e) {
@@ -467,9 +549,24 @@ export function createRenderer(canvas, world, camera, vfx) {
       ctx.fillStyle = pr.color;
       ctx.shadowBlur = 14; ctx.shadowColor = pr.color;
       ctx.rotate(Math.atan2(pr.vy, pr.vx));
-      ctx.beginPath();
-      ctx.ellipse(0, 0, pr.radius * 1.9, pr.radius, 0, 0, TAU);
-      ctx.fill();
+      if (pr.hostile) {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, pr.radius * 1.9, pr.radius, 0, 0, TAU);
+        ctx.fill();
+      } else {
+        // 아군 투사체: 길고 얇은 참격 형태 + 흰 코어 (적탄과 즉시 구분)
+        ctx.beginPath();
+        ctx.moveTo(pr.radius * 2.6, 0);
+        ctx.lineTo(0, -pr.radius);
+        ctx.lineTo(-pr.radius * 1.6, 0);
+        ctx.lineTo(0, pr.radius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(pr.radius * 0.4, 0, pr.radius * 1.1, pr.radius * 0.3, 0, 0, TAU);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }

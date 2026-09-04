@@ -4,8 +4,8 @@
 // ============================================================
 
 import { RUN, REWARD_WEIGHTS, RARITY, RARITY_ORDER, RARITY_LUCK_STEP, CURSES, SHOP, ENEMY_SCALE, META } from '../data/balance.js';
-import { BIOMES, ENEMY_COST, ENEMY_BY_ID } from '../data/enemies.js';
-import { BOONS, DUO_BOONS, ANY_BOON_BY_ID, scaleValues, GODS } from '../data/boons.js';
+import { BIOMES, ENEMY_COST, ENEMY_BY_ID, MINIBOSS_BY_ID } from '../data/enemies.js';
+import { BOONS, WEAPON_BOONS, DUO_BOONS, ANY_BOON_BY_ID, scaleValues, GODS } from '../data/boons.js';
 import { WEAPON_UPGRADE } from '../data/weapons.js';
 import { EV } from '../core/events.js';
 import { TAU, clamp } from '../core/math.js';
@@ -58,6 +58,16 @@ export function createRun(world) {
         run.state = 'fight';
         return;
       }
+      if (spec.type === 'miniboss') {
+        world.spawnBoss(biome.miniboss);
+        // 미니보스는 혼자 싸우지 않는다 — 잡졸이 섞여야 위치 잡기가 의미를 갖는다
+        for (let i = 0; i < 3; i++) {
+          const a = world.rng.float(0, Math.PI * 2);
+          world.spawnEnemy(biome.pool[0], world.arena.width / 2 + Math.cos(a) * 220, world.arena.height / 2 + Math.sin(a) * 180);
+        }
+        run.state = 'fight';
+        return;
+      }
       if (spec.type === 'rest') {
         run.state = 'cleared';
         this.openDoors();
@@ -86,6 +96,12 @@ export function createRun(world) {
       if (run.roomHeal) healPlayer(world, run.roomHeal);
       world.bus.emit(EV.ROOM_CLEAR, { roomIdx: run.roomIdx, biomeIdx: run.biomeIdx, type: run.roomType });
 
+      if (run.roomType === 'miniboss') {
+        world.ash = (world.ash || 0) + META.ASH_PER_ROOM * 3;
+        this.pendingAfterReward = () => { run.state = 'cleared'; this.openDoors(); };
+        this.openReward({ kind: 'boon', minRarity: 'rare' });
+        return;
+      }
       if (run.roomType === 'boss') {
         run.bossesKilled++;
         world.ash = (world.ash || 0) + META.ASH_PER_BOSS;
@@ -125,6 +141,16 @@ export function createRun(world) {
             label: BIOMES[run.biomeIdx].boss,
           });
         } else {
+          // 구역 중반에 미니보스 방이 열린다 — 보스 전 중간 목표
+          const canMini = run.roomIdx >= 1 && !run.minibossDone && world.rng.next() < RUN.MINIBOSS_CHANCE;
+          if (canMini && !doors.some((d) => d.roomType === 'miniboss')) {
+            doors.push({
+              ...s, roomType: 'miniboss', miniboss: true,
+              reward: { kind: 'miniboss' },
+              label: MINIBOSS_BY_ID[BIOMES[run.biomeIdx].miniboss]?.name,
+            });
+            continue;
+          }
           const elite = world.rng.next() < RUN.ELITE_CHANCE_BASE + RUN.ELITE_CHANCE_PER_BIOME * run.biomeIdx;
           doors.push({
             ...s,
@@ -156,6 +182,7 @@ export function createRun(world) {
       this.nextRoomSpec = { type: door.roomType, elite: door.elite };
 
       if (door.roomType === 'boss') { healPlayer(world, door.reward.amount); this.advanceRoom(); return; }
+      if (door.roomType === 'miniboss') { run.minibossDone = true; this.advanceRoom(); return; }
 
       // 엘리트 문: 저주를 하나 고르고 보상 등급이 올라간다 (위험 ↔ 보상)
       if (door.elite) {
@@ -213,6 +240,8 @@ export function createRun(world) {
         case 'shop':
           this.openShop();
           return;
+        case 'miniboss':
+          break;
         default: break;
       }
       this.advanceRoom();
@@ -283,6 +312,7 @@ export function createRun(world) {
     advanceBiome() {
       run.biomeIdx++;
       run.roomIdx = 0;
+      run.minibossDone = false;
       run.globalRoom++;
       world.ash = (world.ash || 0) + META.ASH_PER_BIOME;
       this.enterRoom({ type: 'combat' });
@@ -404,14 +434,16 @@ export function buildBoonOptions(world, minRarity, count = 3) {
   const used = slotsUsed(owned);
 
   const candidates = [];
-  for (const b of BOONS) {
+  // 현재 무기 전용 권능은 가중치를 높게 준다 — 무기 정체성이 빌드로 이어져야 한다
+  const pool = [...BOONS, ...WEAPON_BOONS.filter((b) => b.weapon === world.weapon.id)];
+  for (const b of pool) {
     if (ownedIds.has(b.id)) {
       const cur = owned.find((o) => o.id === b.id);
       if (cur.level >= MAX_BOON_LEVEL) continue;
       candidates.push({ def: b, level: cur.level + 1, upgrade: true, weight: 12 });
     } else {
       if (b.slot !== 'passive' && used[b.slot]) continue; // 슬롯 점유 → 선택지에서 제외
-      candidates.push({ def: b, level: 1, weight: 40 });
+      candidates.push({ def: b, level: 1, weight: b.weapon ? 58 : 40 });
     }
   }
   // 합일 권능: 해금되면 강한 우선순위로 등장

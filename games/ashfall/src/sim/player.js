@@ -25,10 +25,11 @@ export function createPlayer(world, weapon) {
     atkStep: -1, atkPhase: '', atkT: 0, atkHits: null,
     comboTimer: 0, bufferAttack: 0,
     // 대시
-    dashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges,
-    maxDashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges,
+    dashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
+    maxDashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
     dashRecharge: 0, dashCd: 0, dashT: 0, dashDir: 0,
-    dashStrikeT: 0,
+    dashStrikeT: 0, dashStrikeUsed: false,
+    ramp: 0, rampT: 0,
     trail: [],
     status: {},
     // 특수기
@@ -45,7 +46,7 @@ export function refreshPlayerStats(world) {
   p.maxHp = newMax;
   if (delta > 0) p.hp = Math.min(p.maxHp, p.hp + delta); // 최대체력 증가분은 즉시 회복
   p.hp = Math.min(p.hp, p.maxHp);
-  p.maxDashCharges = PLAYER.DASH_CHARGES + L.stats.dashCharges + world.run.bonusDashCharges;
+  p.maxDashCharges = PLAYER.DASH_CHARGES + L.stats.dashCharges + world.run.bonusDashCharges + (world.weapon.dashCharges || 0);
   p.dashCharges = Math.min(p.dashCharges + Math.max(0, p.maxDashCharges - p.dashCharges), p.maxDashCharges);
 }
 
@@ -65,6 +66,12 @@ export function updatePlayer(world, intent, dt) {
   if (p.spCd > 0) p.spCd -= dt;
   if (p.dashStrikeT > 0) p.dashStrikeT -= dt;
 
+  // 가속 감쇠: 공격을 멈추면 서서히 풀린다
+  if (W.rampPerHit && p.ramp > 0) {
+    p.rampT -= dt;
+    if (p.rampT <= 0) p.ramp = Math.max(0, p.ramp - dt * (W.rampMax / W.rampDecay));
+  }
+
   // 집중 자연회복 (감전되면 느려진다)
   const focusMult = p.status?.shock ? PLAYER_STATUS.shock.focusRegen : 1;
   p.focus = Math.min(p.maxFocus, p.focus + (PLAYER.FOCUS_REGEN + L.stats.focusRegen) * focusMult * dt);
@@ -72,7 +79,7 @@ export function updatePlayer(world, intent, dt) {
   // 대시 충전 회복
   if (p.dashCharges < p.maxDashCharges) {
     p.dashRecharge += dt;
-    if (p.dashRecharge >= PLAYER.DASH_RECHARGE * L.mods.dashCooldownMult) {
+    if (p.dashRecharge >= PLAYER.DASH_RECHARGE * L.mods.dashCooldownMult * (world.weapon.dashCooldownMult || 1)) {
       p.dashRecharge = 0;
       p.dashCharges++;
     }
@@ -123,7 +130,10 @@ function moveScaleFor(world, p) {
   if (p.state === 'dash') return 0;
   if (p.state === 'attack') {
     const step = world.weapon.combo[p.atkStep];
-    return step ? step.moveScale : 1;
+    if (!step) return 1;
+    const m = step.move;
+    if (typeof m === 'number') return m;
+    return m?.[p.atkPhase] ?? 0.5;
   }
   if (p.state === 'special') {
     const sp = world.weapon.special;
@@ -197,7 +207,7 @@ function canDash(p) {
   return p.dashCharges > 0 && p.dashCd <= 0;
 }
 
-export function startDash(world, p, intent) {
+export function startDash(world, p, intent, opts = {}) {
   const dirX = Math.abs(intent.mx) + Math.abs(intent.my) > 0.01 ? intent.mx : Math.cos(p.facing);
   const dirY = Math.abs(intent.mx) + Math.abs(intent.my) > 0.01 ? intent.my : Math.sin(p.facing);
   const n = normalize(dirX, dirY, Math.cos(p.facing), Math.sin(p.facing));
@@ -205,10 +215,17 @@ export function startDash(world, p, intent) {
   p.state = 'dash';
   p.dashT = PLAYER.DASH_TIME;
   p.dashCharges--;
-  p.dashCd = PLAYER.DASH_COOLDOWN * world.loadout.mods.dashCooldownMult;
-  p.iframes = Math.max(p.iframes, PLAYER.DASH_IFRAMES);
+  p.dashCd = PLAYER.DASH_COOLDOWN * world.loadout.mods.dashCooldownMult * (world.weapon.dashCooldownMult || 1);
+  p.iframes = Math.max(p.iframes, PLAYER.DASH_IFRAMES + (world.weapon.dashIframeBonus || 0));
   p.vx = 0; p.vy = 0;
-  p.atkStep = -1;
+  if (opts.keepCombo) {
+    // 대시 캔슬로 회피해도 콤보는 이어진다 — 회피가 딜 손실이 되지 않게 한다
+    p.comboTimer = world.weapon.comboWindow + world.loadout.mods.comboWindowBonus;
+  } else {
+    p.atkStep = -1;
+    p.comboTimer = 0;
+  }
+  p.atkPhase = '';
   world.bus.emit(EV.DASH, { x: p.x, y: p.y, dir: p.dashDir });
   runHooks(world, 'dashStart', { x: p.x, y: p.y });
 }
@@ -250,9 +267,13 @@ function updateAttack(world, p, intent, dt) {
   const spd = world.loadout.stats.attackSpeed;
   p.atkT -= dt;
 
-  // 대시 취소 (쌍아검) — 후딜을 대시로 끊어 공격적으로 운영
-  if (W.dashCancel && intent.dash && canDash(p) && p.atkPhase !== 'windup') {
-    startDash(world, p, intent);
+  // 대시 캔슬 — 후딜을 대시로 끊는 것이 이 장르의 기본기.
+  // dashCancel 무기(쌍아검)는 '이미 적중한' 판정 중에도 끊을 수 있다(히트 컨펌 캔슬).
+  // 빗나간 스윙까지 캔슬되면 자기 공격을 스스로 지우게 되므로 허용하지 않는다.
+  const cancelable = p.atkPhase === 'recover' ||
+    (W.dashCancel && p.atkPhase === 'active' && p.atkHits.size > 0);
+  if (cancelable && intent.dash && canDash(p)) {
+    startDash(world, p, intent, { keepCombo: !!W.dashCancel });
     return;
   }
 
@@ -260,6 +281,8 @@ function updateAttack(world, p, intent, dt) {
     p.atkPhase = 'active';
     p.atkT = step.active / spd;
     world.bus.emit(EV.ATTACK, { x: p.x, y: p.y, dir: p.facing, step: p.atkStep, weapon: W.id, heavy: !!step.heavy, arc: step.arc, range: step.range });
+    // 무기 전용 권능의 연결점: "몇 번째 타가 나갔는가"
+    runHooks(world, 'attackStep', { step: p.atkStep, dir: p.facing, x: p.x, y: p.y, tag: 'attack' });
     if (step.shockwave) {
       world.bus.emit(EV.SHOCKWAVE, { x: p.x, y: p.y, radius: step.range, color: W.color });
       world.shake(SHAKE.HEAVY);
@@ -269,12 +292,18 @@ function updateAttack(world, p, intent, dt) {
     if (p.atkT <= 0) {
       p.atkPhase = 'recover';
       p.atkT = step.recover / spd;
+      if (p.dashStrikeUsed) { p.dashStrikeT = 0; p.dashStrikeUsed = false; }
+      // 마무리 타가 적중하면 대시 강타가 다시 열린다 (공격적 순환 루프)
+      if (W.dashStrikeOnFinisher && p.atkStep === W.combo.length - 1 && p.atkHits.size > 0) {
+        p.dashStrikeT = W.dashStrikeOnFinisher;
+      }
     }
   } else if (p.atkPhase === 'recover' && p.atkT <= 0) {
     p.state = 'free';
     p.atkPhase = '';
-    p.comboTimer = W.comboWindow;
-    if (p.atkStep >= W.combo.length - 1) p.comboTimer = 0; // 마지막 타 후 콤보 리셋
+    p.comboTimer = W.comboWindow + world.loadout.mods.comboWindowBonus;
+    // 마지막 타 후에는 콤보가 끊긴다 — '연격' 권능이 있으면 계속 이어진다
+    if (p.atkStep >= W.combo.length - 1 && world.loadout.mods.comboWindowBonus <= 0) p.comboTimer = 0;
   }
 }
 
@@ -289,18 +318,28 @@ function doSwingHit(world, p, step) {
 
     let dmg = step.dmg;
     // 대시 직후 강타 (쌍아검 고유 + 피의 신 권능)
+    let dashStruck = false;
     if (p.dashStrikeT > 0) {
       const bonus = (W.dashStrikeMult ? W.dashStrikeMult - 1 : 0) + L.mods.dashStrikeMult;
       if (bonus > 0) {
         dmg *= 1 + bonus;
+        dashStruck = true;
+        p.dashStrikeUsed = true; // 스윙이 끝날 때 소모 — 광역 타격 전체가 강타로 들어간다
         world.bus.emit(EV.STATUS, { x: e.x, y: e.y, kind: 'dashStrike' });
       }
-      p.dashStrikeT = 0;
     }
 
+    if (W.rampPerHit) dmg *= 1 + p.ramp;
+
     damageEnemy(world, e, dmg, 'none', {
-      tag: 'attack', knock: step.knock, dir: p.facing, heavy: step.heavy,
+      tag: 'attack', knock: step.knock, dir: p.facing, heavy: step.heavy, step: p.atkStep,
     });
+
+    if (W.rampPerHit) {
+      p.ramp = Math.min(W.rampMax, p.ramp + W.rampPerHit);
+      p.rampT = W.rampDecay;
+    }
+    if (dashStruck) runHooks(world, 'dashStrike', { target: e, dmg, dir: p.facing, x: e.x, y: e.y, tag: 'attack' });
     for (const s of L.attackStatus) applyStatus(world, e, s.kind, s.stacks);
   }
 }

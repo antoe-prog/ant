@@ -109,7 +109,7 @@ export function createVfx(world, bus) {
   });
 
   bus.on(EV.STATUS, (p) => {
-    const map = { burn: '#ff7a3c', chill: '#7fd8ff', frozen: '#bff0ff', shock: '#ffe36b', bleed: '#ff4d6d', block: '#c8d2dc', dashStrike: '#ffd166', armor: '#c9a227' };
+    const map = { burn: '#ff7a3c', chill: '#7fd8ff', frozen: '#bff0ff', shock: '#ffe36b', bleed: '#ff4d6d', block: '#c8d2dc', dashStrike: '#ffd166', armor: '#c9a227', stagger: '#ffd166' };
     const c = map[p.kind] || '#fff';
     if (p.kind === 'frozen') rings.push({ x: p.x, y: p.y, r: 4, max: 44, life: 0.4, maxLife: 0.4, color: c, width: 3 });
     if (p.kind === 'block') numbers.push({ x: p.x, y: p.y - 18, v: '막힘', life: 0.5, maxLife: 0.5, color: c, small: true });

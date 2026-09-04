@@ -38,6 +38,7 @@ export function createScreens(overlay, game) {
       <button class="card weapon ${i === 0 ? 'sel' : ''}" data-weapon="${w.id}" data-sfx style="--c:${w.color}">
         <div class="wname">${esc(w.name)}</div>
         <div class="wtag">${esc(w.tagline)}</div>
+        <ul class="wtraits">${(w.traits || []).map((tr) => `<li>${esc(tr)}</li>`).join('')}</ul>
         <div class="wsp"><b>특수기 · ${esc(w.special.name)}</b><br>${esc(w.special.desc)}</div>
       </button>`).join('');
 

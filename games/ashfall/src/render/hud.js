@@ -74,6 +74,17 @@ export function createHud(canvas, world) {
     }
     text('DASH', bx + p.maxDashCharges * 20 + 6, by - 14, 'rgba(255,255,255,0.4)', 'bold 10px system-ui', 'left');
 
+    // ---- 가속(연속 타격 보너스) ----
+    if (world.weapon.rampPerHit && p.ramp > 0) {
+      const k = p.ramp / world.weapon.rampMax;
+      const rx0 = bx, ry0 = fy + 14;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(rx0, ry0, bw, 6);
+      ctx.fillStyle = k >= 0.99 ? '#ffd166' : '#63e6be';
+      ctx.fillRect(rx0, ry0, bw * k, 6);
+      text(`가속 +${Math.round(p.ramp * 100)}%`, rx0 + bw + 8, ry0 + 3, k >= 0.99 ? '#ffd166' : '#63e6be', 'bold 11px system-ui', 'left');
+    }
+
     // ---- 무기 / 골드 / 진행도 ----
     const rx = W - 22;
     text(`${world.weapon.name}${run.weaponLevel ? ' ' + WEAPON_UPGRADE.names[run.weaponLevel] : ''}`, rx, H - 70, world.weapon.color, 'bold 15px system-ui', 'right');
@@ -104,9 +115,9 @@ export function createHud(canvas, world) {
     // ---- 보스 체력바 ----
     if (world.boss && world.boss.spawnT <= 0) {
       const b = world.boss;
-      const w2 = Math.min(560, W - 80), x2 = (W - w2) / 2, y2 = 26;
+      const w2 = Math.min(b.isMini ? 380 : 560, W - 80), x2 = (W - w2) / 2, y2 = 26;
       panel(x2 - 8, y2 - 22, w2 + 16, 46);
-      text(b.def.name, W / 2, y2 - 9, b.def.accent, 'bold 15px system-ui', 'center');
+      text(b.isMini ? `${b.def.name} — ${b.def.title}` : b.def.name, W / 2, y2 - 9, b.def.accent, `bold ${b.isMini ? 13 : 15}px system-ui`, 'center');
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(x2, y2, w2, 12);
       ctx.fillStyle = b.def.accent;

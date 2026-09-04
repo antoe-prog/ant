@@ -81,10 +81,11 @@ export const RUN = {
   BIOMES: 3,
   ROOMS_PER_BIOME: 5,        // 마지막이 보스방
   // 방 난이도 곡선: 전역 방 인덱스 기반 승수
-  DIFFICULTY_PER_ROOM: 0.085,
-  DIFFICULTY_PER_BIOME: 0.34,
+  DIFFICULTY_PER_ROOM: 0.105,
+  DIFFICULTY_PER_BIOME: 0.47,
   ELITE_CHANCE_BASE: 0.16,
   ELITE_CHANCE_PER_BIOME: 0.1,
+  MINIBOSS_CHANCE: 0.45,     // 구역당 최대 1회, 중반에 등장
   GOLD_PER_ROOM: [12, 22],
   HEAL_ROOM_AMOUNT: 28,
   BOSS_HEAL: 34,

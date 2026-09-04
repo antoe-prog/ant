@@ -155,7 +155,12 @@ export function botIntent(world, skill) {
     if (Math.hypot(fx - p.x, fy - p.y) < pr.radius + p.radius + 26) push(-pr.vy, pr.vx, cur < 110);
   }
 
-  const desired = target.radius + p.radius + (target.isBoss ? 34 : 22);
+  // 무기 사거리를 활용해 거리를 잡는다 (사람은 긴 무기로 더 멀리서 친다)
+  const reach = Math.max(...world.weapon.combo.map((c) => c.range));
+  const desired = Math.min(
+    target.radius + reach * 0.72,
+    target.radius + p.radius + (target.isBoss ? 34 : 22) + reach * 0.35
+  );
   const lowHp = p.hp < p.maxHp * 0.28;
 
   // 접근 벡터
@@ -173,9 +178,12 @@ export function botIntent(world, skill) {
   intent.mx = mx / ml; intent.my = my / ml;
 
   if (emergency && p.dashCharges > 0 && p.dashCd <= 0 && p.iframes <= 0.05) intent.dash = true;
-  else if (bestD > 330 && p.dashCharges > 1 && p.dashCd <= 0) intent.dash = true;
+  else if (p.state !== 'attack' && p.dashCharges > 1 && p.dashCd <= 0 && bestD > desired + 40 && bestD < 320) {
+    // 대시로 파고들어 '대시 강타'를 노린다 (쌍아검/피의 신 빌드의 핵심 운영)
+    intent.dash = true;
+  }
 
-  if (bestD < desired + 40) {
+  if (bestD < target.radius + reach * 0.92) {
     intent.attack = true;
     if (p.focus >= p.maxFocus * 0.7) intent.special = true;
   }

@@ -4,16 +4,16 @@
 // ============================================================
 
 import { ARENA, SIM, PLAYER, ENEMY_SCALE, RUN, STATUS } from '../data/balance.js';
-import { ENEMY_BY_ID, BOSS_BY_ID, BIOMES } from '../data/enemies.js';
+import { ENEMY_BY_ID, BOSS_BY_ID, MINIBOSS_BY_ID, ELITE_AFFIXES, BIOMES } from '../data/enemies.js';
 import { WEAPON_BY_ID, WEAPON_UPGRADE } from '../data/weapons.js';
 import { EventBus, EV } from '../core/events.js';
 import { Rng } from '../core/rng.js';
 import { clamp, dist, TAU } from '../core/math.js';
 import { buildLoadout } from './loadout.js';
 import { createPlayer, updatePlayer, refreshPlayerStats } from './player.js';
-import { updateEnemies, updateProjectiles } from './enemyAI.js';
+import { updateEnemies, updateProjectiles, retaliate } from './enemyAI.js';
 import { updateBoss } from './boss.js';
-import { updateStatuses, updatePlayerStatus, healPlayer, damageEnemy } from './combat.js';
+import { updateStatuses, updatePlayerStatus, healPlayer, damageEnemy, damagePlayer } from './combat.js';
 
 export function createWorld(opts = {}) {
   const bus = opts.bus || new EventBus();
@@ -30,6 +30,7 @@ export function createWorld(opts = {}) {
     projectiles: [],
     pickups: [],
     doors: [],
+    hazards: [],
     decals: [],
     weapon: WEAPON_BY_ID[opts.weaponId] || WEAPON_BY_ID.emberblade,
     weaponDamageMult: 1,
@@ -63,9 +64,12 @@ export function createWorld(opts = {}) {
       roomHeal: opts.metaEffects?.roomHeal || 0,
       bossesKilled: 0,
       roomsCleared: 0,
+      minibossDone: false,
     },
 
     shake(amount) { this.shakeAmount = Math.max(this.shakeAmount, amount); },
+
+    retaliate(e, af) { retaliate(this, e, af); },
 
     rebuildLoadout() {
       this.loadout = buildLoadout(this.run.owned, this.meta);
@@ -80,17 +84,26 @@ export function createWorld(opts = {}) {
       const elite = !!extra.elite;
       const hp = def.hp * (1 + ENEMY_SCALE.HP_PER_DIFFICULTY * d) * this.run.enemyHpMult * (elite ? ENEMY_SCALE.ELITE_HP : 1);
       const dmg = def.dmg * (1 + ENEMY_SCALE.DMG_PER_DIFFICULTY * d) * (elite ? ENEMY_SCALE.ELITE_DMG : 1);
+      // 엘리트 접두사: 같은 적도 매번 다른 위협이 된다
+      let affixes = [];
+      if (elite) {
+        const n = this.run.biomeIdx >= 1 ? 2 : 1;
+        affixes = this.rng.sampleWeighted(ELITE_AFFIXES.slice(), n, () => 1);
+      }
+      const speedAffix = affixes.reduce((m, a) => m * (a.speedMult || 1), 1);
+      const teleAffix = affixes.reduce((m, a) => m * (a.telegraphMult || 1), 1);
+
       const e = {
-        def, id, elite,
+        def, id, elite, affixes, teleMult: teleAffix,
         x: clamp(x, this.arena.pad + 30, this.arena.width - this.arena.pad - 30),
         y: clamp(y, this.arena.pad + 30, this.arena.height - this.arena.pad - 30),
         vx: 0, vy: 0,
         radius: def.radius * (elite ? ENEMY_SCALE.ELITE_SCALE : 1),
         hp, maxHp: hp, dmg,
-        speed: def.speed * this.run.enemySpeedMult,
+        speed: def.speed * this.run.enemySpeedMult * speedAffix,
         facing: this.rng.float(0, TAU),
         state: 'idle', t: 0, cd: this.rng.float(0.2, 0.9),
-        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0,
+        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0,
         spawnT: extra.fromSplit ? 0.1 : 0.45,
         strafeDir: this.rng.bool() ? 1 : -1,
         isBoss: false,
@@ -99,26 +112,42 @@ export function createWorld(opts = {}) {
       return e;
     },
 
-    spawnBoss(bossId) {
-      const def = BOSS_BY_ID[bossId];
+    spawnBoss(bossId, opts = {}) {
+      const def = BOSS_BY_ID[bossId] || MINIBOSS_BY_ID[bossId];
+      if (!def) return null;
       const d = this.difficulty();
       const hp = def.hp * (1 + 0.22 * d) * this.run.enemyHpMult;
       const b = {
-        def, id: bossId, elite: false, isBoss: true,
-        x: this.arena.width / 2, y: this.arena.pad + 150,
+        def, id: bossId, elite: false, isBoss: true, isMini: !!def.miniboss, affixes: [], teleMult: 1,
+        x: this.arena.width / 2, y: this.arena.pad + 140,
         vx: 0, vy: 0,
         radius: def.radius,
         hp, maxHp: hp, dmg: def.contactDmg,
         speed: def.speed,
         facing: Math.PI / 2,
         state: 'idle', t: 0, cd: 1.6,
-        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0,
-        spawnT: 1.2, phaseIdx: 0, invuln: 0,
+        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0,
+        spawnT: def.miniboss ? 0.8 : 1.2, phaseIdx: 0, invuln: 0,
         ringPhase: this.rng.float(0, TAU),
       };
       this.enemies.push(b);
       this.boss = b;
       return b;
+    },
+
+    /** 플레이어 편 투사체 (권능으로 열리는 원거리 옵션) */
+    spawnPlayerProjectile({ x, y, angle, speed = 620, dmg = 20, radius = 10, life = 0.9, pierce = 3, color = '#ffd166', element = 'none', status = null }) {
+      this.projectiles.push({
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        radius, dmg, life, color, element, status,
+        hostile: false, pierce, hitSet: new Set(),
+      });
+      this.bus.emit(EV.PROJECTILE_SPAWN, { x, y, angle, friendly: true });
+    },
+
+    /** 예고 후 터지는 지면 위험지대 (폭발성 엘리트 등) */
+    spawnHazard(x, y, radius, dmg, delay, color = '#ff6b35') {
+      this.hazards.push({ x, y, radius, dmg, t: delay, maxT: delay, color });
     },
 
     spawnPickup(x, y, kind, amount) {
@@ -181,6 +210,7 @@ function stepWorld(world, intent, dt) {
   updateProjectiles(world, dt);
   updateStatuses(world, dt);
   updatePlayerStatus(world, dt);
+  updateHazards(world, dt);
   updatePickups(world, dt);
 
   // 죽은 적 정리
@@ -209,6 +239,20 @@ function stepWorld(world, intent, dt) {
         break;
       }
     }
+  }
+}
+
+function updateHazards(world, dt) {
+  for (let i = world.hazards.length - 1; i >= 0; i--) {
+    const h = world.hazards[i];
+    h.t -= dt;
+    if (h.t > 0) continue;
+    world.bus.emit(EV.EXPLOSION, { x: h.x, y: h.y, radius: h.radius, element: 'ember' });
+    world.shake(9);
+    if (dist(h.x, h.y, world.player.x, world.player.y) < h.radius + world.player.radius) {
+      damagePlayer(world, h.dmg * world.run.enemyDmgMult, { fromX: h.x, fromY: h.y });
+    }
+    world.hazards.splice(i, 1);
   }
 }
 

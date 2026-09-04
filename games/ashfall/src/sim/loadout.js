@@ -24,12 +24,16 @@ export function emptyLoadout() {
       specialCostMult: 1,
       dashStrikeMult: 0,
       dashStrikeWindow: 0,
+      comboWindowBonus: 0,
+      armorExtra: 0,
     },
     attackStatus: [],
     specialStatus: [],
     on: {
       hit: [], kill: [], dashStart: [], dashTrail: [], dashEnd: [],
       special: [], hurt: [], roomClear: [], modifyDamage: [], statusApplied: [],
+      attackStep: [],   // 콤보의 특정 단계가 발동할 때 (무기 전용 권능의 연결점)
+      dashStrike: [],   // 대시 직후 강타가 적중했을 때
     },
   };
 }

@@ -112,18 +112,31 @@ export function isDisabled(e) {
   return !!(e.status && e.status.frozen);
 }
 
+/**
+ * 경직: 짧게 행동을 끊는다. 빙결과 달리 추가 피해는 없고 상태이상도 아니다.
+ * 무거운 타격이 "먹혔다"는 감각을 만든다.
+ */
+export function staggerEnemy(world, e, time) {
+  if (!e || e.dead) return;
+  const t = e.isBoss ? time * 0.35 : time;
+  e.staggerT = Math.max(e.staggerT || 0, t);
+  world.bus.emit(EV.STATUS, { x: e.x, y: e.y, kind: 'stagger' });
+}
+
 // ---------------- 훅 컨텍스트 ----------------
 
 function makeCtx(world) {
   return {
     world, player: world.player, rng: world.rng,
-    target: null, dmg: 0, mult: 1, crit: false, element: 'none', tag: '', x: 0, y: 0,
+    target: null, dmg: 0, mult: 1, crit: false, element: 'none', tag: '', step: -1, dir: 0, x: 0, y: 0,
     damage: (e, amount, element, opts) => damageEnemy(world, e, amount, element, opts),
     heal: (amount) => healPlayer(world, amount),
     applyStatus: (e, kind, stacks) => applyStatus(world, e, kind, stacks),
     explode: (x, y, r, dmg, element, status) => explode(world, x, y, r, dmg, element, status),
     chain: (from, count, dmg, mult) => chainLightning(world, from, count, dmg, mult),
     strikeRandom: (count, dmg, radius) => strikeRandom(world, count, dmg, radius),
+    stagger: (e, time) => staggerEnemy(world, e, time),
+    shoot: (opts) => world.spawnPlayerProjectile(opts),
     forEachEnemyInRange: (x, y, r, fn) => forEachEnemyInRange(world, x, y, r, fn),
     fx: (type, payload) => world.bus.emit(type, payload),
   };
@@ -141,6 +154,8 @@ function runHooks(world, name, fields) {
   ctx.crit = fields.crit ?? false;
   ctx.element = fields.element ?? 'none';
   ctx.tag = fields.tag ?? '';
+  ctx.step = fields.step ?? -1;
+  ctx.dir = fields.dir ?? 0;
   ctx.x = fields.x ?? (fields.target ? fields.target.x : world.player.x);
   ctx.y = fields.y ?? (fields.target ? fields.target.y : world.player.y);
   ctx.mult = 1;
@@ -178,6 +193,7 @@ export function damageEnemy(world, e, amount, element = 'none', opts = {}) {
     const ctx = world._ctx || (world._ctx = makeCtx(world));
     ctx.player = world.player;
     ctx.target = e; ctx.tag = tag; ctx.element = element; ctx.mult = 1; ctx.dmg = amount;
+    ctx.step = opts.step ?? -1;
     world._hookDepth++;
     for (let i = 0; i < mods.length; i++) mods[i](ctx);
     world._hookDepth--;
@@ -200,7 +216,16 @@ export function damageEnemy(world, e, amount, element = 'none', opts = {}) {
     }
   }
 
-  // 5) 방패병 정면 방어 → 위치잡기 보상
+  // 5) '수호' 엘리트 오라 — 오라 주인을 먼저 잡을지, 무시하고 밀어붙일지 선택하게 한다
+  if (!e.elite || !hasAffix(e, 'warded')) {
+    const guard = findWardingElite(world, e);
+    if (guard) {
+      mult *= 1 - guard.reduce;
+      world.bus.emit(EV.STATUS, { x: e.x, y: e.y, kind: 'warded' });
+    }
+  }
+
+  // 6) 방패병 정면 방어 → 위치잡기 보상
   if (e.def.shieldArc && !e.dead) {
     const toPlayer = Math.atan2(world.player.y - e.y, world.player.x - e.x);
     let d = Math.abs(((toPlayer - e.facing + Math.PI * 3) % TAU) - Math.PI);
@@ -237,13 +262,45 @@ export function damageEnemy(world, e, amount, element = 'none', opts = {}) {
   // 집중 회복
   if (tag === 'attack') world.player.focus = Math.min(world.player.maxFocus, world.player.focus + PLAYER.FOCUS_ON_HIT);
 
-  // 6) onHit 훅
-  runHooks(world, 'hit', { target: e, dmg: final, crit, element, tag, x: e.x, y: e.y });
+  // 7) onHit 훅
+  runHooks(world, 'hit', {
+    target: e, dmg: final, crit, element, tag,
+    step: opts.step ?? -1, dir: opts.dir ?? 0, x: e.x, y: e.y,
+  });
 
-  // 7) 처치
+  // 8) 처치
+  // '가시' 엘리트: 근접 타격에 반격 탄을 뿌린다
+  if (hasAffix(e, 'thorned') && (tag === 'attack' || tag === 'special') && !e.dead) {
+    e.thornCd = (e.thornCd || 0);
+    if (e.thornCd <= 0) {
+      const af = getAffix(e, 'thorned').retaliate;
+      e.thornCd = af.cooldown;
+      world.retaliate(e, af);
+    }
+  }
+
   if (e.hp <= 0 && !e.dead) killEnemy(world, e, { element, tag });
 
   return final;
+}
+
+export function hasAffix(e, id) {
+  return !!(e.affixes && e.affixes.some((a) => a.id === id));
+}
+export function getAffix(e, id) {
+  return e.affixes && e.affixes.find((a) => a.id === id);
+}
+
+/** 대상을 보호 중인 '수호' 엘리트를 찾는다 */
+function findWardingElite(world, target) {
+  for (const g of world.enemies) {
+    if (g.dead || g === target || !hasAffix(g, 'warded')) continue;
+    const af = getAffix(g, 'warded').aura;
+    if (dist2(g.x, g.y, target.x, target.y) <= af.radius * af.radius) {
+      return { guard: g, reduce: af.damageReduce };
+    }
+  }
+  return null;
 }
 
 export function killEnemy(world, e, info = {}) {
@@ -265,6 +322,18 @@ export function killEnemy(world, e, info = {}) {
   if (e.elite) world.spawnPickup(e.x, e.y, 'heal', 12);
   else if (!e.isBoss && world.rng.next() < 0.07) world.spawnPickup(e.x, e.y, 'heal', 5);
 
+  // '폭발성' 엘리트: 죽은 자리에 예고된 폭발을 남긴다 (시체 근처에 서 있지 말 것)
+  if (hasAffix(e, 'volatile')) {
+    const af = getAffix(e, 'volatile').onDeath.explode;
+    world.spawnHazard(e.x, e.y, af.radius, af.dmg, af.telegraph, '#ff6b35');
+  }
+
+  // 무기 고유: 처치 시 대시 충전 회복 (쌍아검)
+  if (world.weapon.dashOnKill) {
+    const p = world.player;
+    p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + world.weapon.dashOnKill);
+  }
+
   // onKill 훅 (dead 처리 후에 호출해야 연쇄 폭발이 자기 자신을 다시 죽이지 않음)
   runHooks(world, 'kill', { target: e, x: e.x, y: e.y, element: info.element, tag: info.tag });
 
@@ -283,11 +352,20 @@ export function damagePlayer(world, amount, opts = {}) {
   if (p.dead || p.iframes > 0 || world.run.state !== 'fight') return 0;
 
   // 슈퍼아머(파쇄추): 휘두르는 동안은 버틴다 — 느린 무기의 정체성
-  const armored = world.weapon.superArmor && p.state === 'attack';
-  const final = amount * world.run.playerTakenMult * world.loadout.stats.damageTakenMult * (armored ? 0.7 : 1);
+  const W = world.weapon;
+  const armored = W.superArmor && p.state === 'attack';
+  const armorMult = armored
+    ? Math.max(0.2, 1 - (W.superArmorReduce || 0.3) - world.loadout.mods.armorExtra)
+    : 1;
+  // 가속 방어: 연속 타격을 유지하는 동안 단단해진다 (쌍아검)
+  const rampMult = W.rampArmor && p.ramp > 0
+    ? 1 - W.rampArmor * (p.ramp / W.rampMax)
+    : 1;
+  const final = amount * world.run.playerTakenMult * world.loadout.stats.damageTakenMult * armorMult * rampMult;
   p.hp -= final;
   p.iframes = PLAYER.HURT_IFRAMES;
   p.hurtFlash = 0.3;
+  if (p.ramp > 0) p.ramp *= 0.5; // 가속 절반 소실 — 맞으면 대가를 치르되 회복 가능해야 한다
   world.run.damageTaken += final;
   if (armored) world.bus.emit(EV.STATUS, { x: p.x, y: p.y, kind: 'armor' });
 
@@ -295,6 +373,14 @@ export function damagePlayer(world, amount, opts = {}) {
   const kb = PLAYER.HURT_KNOCKBACK * (armored ? 0.25 : 1);
   p.vx += Math.cos(dir) * kb;
   p.vy += Math.sin(dir) * kb;
+
+  // '흡혈' 엘리트는 때린 만큼 회복한다 — 빠르게 처리하지 않으면 소모전에서 진다
+  const src = opts.source;
+  if (src && !src.dead && hasAffix(src, 'vampiric')) {
+    const heal = final * getAffix(src, 'vampiric').lifesteal;
+    src.hp = Math.min(src.maxHp, src.hp + heal);
+    world.bus.emit(EV.HEAL, { x: src.x, y: src.y, amount: heal, enemy: true });
+  }
 
   world.bus.emit(EV.PLAYER_HURT, { x: p.x, y: p.y, dmg: final });
   world.hitstop = Math.max(world.hitstop, HITSTOP.PLAYER_HURT);

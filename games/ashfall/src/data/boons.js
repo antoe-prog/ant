@@ -259,6 +259,93 @@ export const BOONS = [
   },
 ];
 
+// ============================================================
+// 무기 전용 권능 — 해당 무기를 들었을 때만 등장한다.
+// 무기의 고유 메커니즘(콤보 마무리 / 슈퍼아머 / 대시 강타)을 빌드로 확장한다.
+// ============================================================
+export const WEAPON_BOONS = [
+  // ---- 잿불검: 3타 마무리를 중심으로 ----
+  {
+    id: 'blade_execute', weapon: 'emberblade', god: 'none', slot: 'passive', name: '참수',
+    values: { threshold: 0.3, bossMult: 0.9 },
+    desc: (v) => `3타 마무리가 체력 ${pct(v.threshold)} 이하의 적을 즉시 처형한다. (보스는 대신 +${pct(v.bossMult)} 피해)`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (c.step !== 2 || c.tag !== 'attack') return;
+        const t = c.target;
+        if (t.dead) return;
+        if (t.isBoss) { c.damage(t, c.dmg * v.bossMult, 'none', { tag: 'execute', silent: true, noCrit: true }); return; }
+        if (t.hp / t.maxHp <= v.threshold) {
+          c.fx('explosion', { x: t.x, y: t.y, radius: 70, element: 'blood' });
+          c.damage(t, t.hp + 1, 'none', { tag: 'execute', silent: true, noCrit: true });
+        }
+      });
+    },
+  },
+  {
+    id: 'blade_wave', weapon: 'emberblade', god: 'none', slot: 'passive', name: '검압',
+    values: { dmg: 30, speed: 700 },
+    desc: (v) => `3타 마무리가 관통하는 검기를 날린다 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.attackStep.push((c) => {
+        if (c.step !== 2) return;
+        c.shoot({ x: c.x, y: c.y, angle: c.dir, dmg: v.dmg, speed: v.speed, radius: 16, life: 0.55, pierce: 6, color: '#ff8b4a' });
+      });
+    },
+  },
+
+  // ---- 파쇄추: 슈퍼아머와 광역을 중심으로 ----
+  {
+    id: 'maul_quake', weapon: 'ruinmaul', god: 'none', slot: 'passive', name: '지진',
+    values: { radius: 210, dmg: 26, stagger: 0.9 },
+    desc: (v) => `2타 회전 강타가 반경 ${Math.round(v.radius)} 지진을 일으켜 ${Math.round(v.dmg)} 피해를 주고 적을 ${v.stagger.toFixed(1)}초 경직시킨다.`,
+    apply: (L, v) => {
+      L.on.attackStep.push((c) => {
+        if (c.step !== 1) return;
+        c.fx('shockwave', { x: c.x, y: c.y, radius: v.radius, color: '#c9a227', big: true });
+        c.forEachEnemyInRange(c.x, c.y, v.radius, (e) => {
+          c.damage(e, v.dmg, 'none', { tag: 'attack', knock: 260, dir: Math.atan2(e.y - c.y, e.x - c.x), silent: true, noCrit: true });
+          c.stagger(e, v.stagger);
+        });
+      });
+    },
+  },
+  {
+    id: 'maul_bulwark', weapon: 'ruinmaul', god: 'none', slot: 'passive', name: '철벽',
+    values: { armor: 0.2, counter: 46, radius: 150 },
+    desc: (v) => `슈퍼아머 중 받는 피해 추가 ${pct(v.armor)} 감소. 피격 시 주변에 ${Math.round(v.counter)} 반격 피해.`,
+    apply: (L, v) => {
+      L.mods.armorExtra += v.armor;
+      L.on.hurt.push((c) => {
+        c.explode(c.player.x, c.player.y, v.radius, v.counter, 'none', null);
+      });
+    },
+  },
+
+  // ---- 쌍아검: 대시 강타와 연타를 중심으로 ----
+  {
+    id: 'fang_flurry', weapon: 'twinfangs', god: 'none', slot: 'passive', name: '연격',
+    values: { window: 0.5, speed: 0.15 },
+    desc: (v) => `콤보가 끊기지 않고 계속 이어진다. 공격속도 +${pct(v.speed)}.`,
+    apply: (L, v) => {
+      L.mods.comboWindowBonus += v.window;
+      L.stats.attackSpeed *= 1 + v.speed;
+    },
+  },
+  {
+    id: 'fang_phantom', weapon: 'twinfangs', god: 'none', slot: 'passive', name: '그림자 일격',
+    values: { dmg: 40, radius: 120, charge: 1 },
+    desc: (v) => `대시 강타가 적중하면 그림자가 반경 ${Math.round(v.radius)}를 함께 베고(${Math.round(v.dmg)} 피해) 대시 충전을 되돌려준다.`,
+    apply: (L, v) => {
+      L.on.dashStrike.push((c) => {
+        c.explode(c.x, c.y, v.radius, v.dmg, 'blood', null);
+        const p = c.player;
+        p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + Math.round(v.charge));
+      });
+    },
+  },
+];
+
 export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b]));
 
 // ============================================================
@@ -338,7 +425,7 @@ export const DUO_BOONS = [
 ];
 
 export const DUO_BY_ID = Object.fromEntries(DUO_BOONS.map((b) => [b.id, b]));
-export const ALL_BOONS = [...BOONS, ...DUO_BOONS];
+export const ALL_BOONS = [...BOONS, ...WEAPON_BOONS, ...DUO_BOONS];
 export const ANY_BOON_BY_ID = Object.fromEntries(ALL_BOONS.map((b) => [b.id, b]));
 
 /** 레벨/희귀도가 반영된 실제 수치 계산 */

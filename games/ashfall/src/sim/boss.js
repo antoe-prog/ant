@@ -32,6 +32,7 @@ export function updateBoss(world, b, dt) {
 
   if (b.invuln > 0) b.invuln -= dt;
   if (isDisabled(b)) { applyBossPhysics(world, b, dt); return; }
+  if (b.staggerT > 0) { b.staggerT -= dt; b.vx *= 0.9; b.vy *= 0.9; applyBossPhysics(world, b, dt); return; }
 
   const slow = statusSpeedMult(b);
   b.t -= dt;
@@ -170,7 +171,7 @@ function execPattern(world, b, phase, dt) {
     b.vx = Math.cos(b.chargeDir) * pat.speed;
     b.vy = Math.sin(b.chargeDir) * pat.speed;
     if (dist(b.x, b.y, world.player.x, world.player.y) < b.radius + world.player.radius + 4) {
-      damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y });
+      damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b });
     }
     if (b.t <= 0) {
       b.repeat--;
@@ -216,7 +217,7 @@ function doSlam(world, b, pat) {
   world.hitstop = Math.max(world.hitstop, HITSTOP.HEAVY);
   const p = world.player;
   if (dist(b.x, b.y, p.x, p.y) < pat.radius + p.radius) {
-    if (damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y }) && pat.status) {
+    if (damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b }) && pat.status) {
       applyPlayerStatus(world, pat.status.kind);
     }
   }
@@ -257,7 +258,7 @@ function doBlink(world, b, pat) {
   b.y = clamp(p.y + Math.sin(a) * r, world.arena.pad + b.radius, world.arena.height - world.arena.pad - b.radius);
   world.bus.emit(EV.EXPLOSION, { x: b.x, y: b.y, radius: pat.radius, element: 'frost' });
   if (dist(b.x, b.y, p.x, p.y) < pat.radius + p.radius) {
-    damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y });
+    damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b });
   }
 }
 

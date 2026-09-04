@@ -111,6 +111,101 @@ export const ENEMIES = [
 export const ENEMY_BY_ID = Object.fromEntries(ENEMIES.map((e) => [e.id, e]));
 
 // ============================================================
+// 엘리트 접두사(affix) — 같은 적이라도 매번 다른 위협이 되게 한다.
+// 엘리트는 1~2개를 무작위로 얻고, 이름과 오라 색으로 표시된다.
+// ============================================================
+export const ELITE_AFFIXES = [
+  {
+    id: 'volatile', name: '폭발성', color: '#ff6b35',
+    desc: '죽을 때 폭발한다',
+    onDeath: { explode: { radius: 190, dmg: 26, telegraph: 0.55 } },
+  },
+  {
+    id: 'warded', name: '수호', color: '#7fd8ff',
+    desc: '주변 적이 받는 피해를 줄인다',
+    aura: { radius: 220, damageReduce: 0.45 },
+  },
+  {
+    id: 'swift', name: '신속', color: '#63e6be',
+    desc: '이동과 공격이 매우 빠르다',
+    speedMult: 1.5, telegraphMult: 0.65,
+  },
+  {
+    id: 'regen', name: '재생', color: '#8bd450',
+    desc: '체력을 계속 회복한다 (빠르게 처치해야 한다)',
+    regenPerSec: 0.035,
+  },
+  {
+    id: 'thorned', name: '가시', color: '#c07bff',
+    desc: '근접 공격을 받으면 반격 탄을 뿌린다',
+    retaliate: { count: 6, speed: 260, dmg: 9, cooldown: 1.1 },
+  },
+  {
+    id: 'vampiric', name: '흡혈', color: '#ff4d6d',
+    desc: '플레이어를 때리면 체력을 회복한다',
+    lifesteal: 0.35,
+  },
+];
+export const AFFIX_BY_ID = Object.fromEntries(ELITE_AFFIXES.map((a) => [a.id, a]));
+
+// ============================================================
+// 미니보스 — 구역 중반에 등장하는 이름 있는 적.
+// 보스와 같은 패턴 시스템을 쓰되 규모가 작다.
+// ============================================================
+export const MINIBOSSES = [
+  {
+    id: 'emberpriest', name: '잿불 사제', title: '불씨를 나르는 자',
+    hp: 620, radius: 30, speed: 108, gold: 30,
+    color: '#c96a3a', accent: '#ffb347', contactDmg: 0,
+    miniboss: true,
+    phases: [
+      { at: 1.0, patterns: ['flameRing', 'summon'] },
+      { at: 0.5, patterns: ['flameRing', 'summon', 'dive'], speedMult: 1.2, cooldownMult: 0.7 },
+    ],
+    patternCooldown: [1.2, 1.8],
+    patterns: {
+      flameRing: { kind: 'ringBurst', telegraph: 0.6, count: 12, projSpeed: 250, dmg: 10, waves: 2, waveGap: 0.4, rotate: 0.26 },
+      summon:    { kind: 'summon', telegraph: 0.6, spawn: [{ id: 'cinderling', n: 3 }] },
+      dive:      { kind: 'charge', telegraph: 0.5, speed: 700, time: 0.5, dmg: 14 },
+    },
+  },
+  {
+    id: 'frostwarden', name: '서리 파수병', title: '얼어붙은 감시자',
+    hp: 900, radius: 32, speed: 96, gold: 42,
+    color: '#5a8ca8', accent: '#bff0ff', contactDmg: 0,
+    miniboss: true,
+    phases: [
+      { at: 1.0, patterns: ['iceVolley', 'stomp'] },
+      { at: 0.5, patterns: ['iceVolley', 'stomp', 'blink'], speedMult: 1.15, cooldownMult: 0.72 },
+    ],
+    patternCooldown: [1.1, 1.7],
+    patterns: {
+      iceVolley: { kind: 'aimedVolley', telegraph: 0.5, count: 4, spread: 0.3, projSpeed: 440, dmg: 11, status: { kind: 'chill', stacks: 2 } },
+      stomp:     { kind: 'slam', telegraph: 0.66, radius: 170, dmg: 15, shake: 'BOSS_SLAM', status: { kind: 'chill', stacks: 1 } },
+      blink:     { kind: 'blink', telegraph: 0.32, dmg: 13, radius: 120 },
+    },
+  },
+  {
+    id: 'stormherald', name: '폭풍 전령', title: '번개를 부르는 자',
+    hp: 1150, radius: 34, speed: 122, gold: 55,
+    color: '#6a5ab0', accent: '#ffe36b', contactDmg: 0,
+    miniboss: true,
+    phases: [
+      { at: 1.0, patterns: ['boltVolley', 'dash'] },
+      { at: 0.5, patterns: ['boltVolley', 'dash', 'nova', 'summon'], speedMult: 1.2, cooldownMult: 0.68 },
+    ],
+    patternCooldown: [1.0, 1.5],
+    patterns: {
+      boltVolley: { kind: 'aimedVolley', telegraph: 0.44, count: 5, spread: 0.4, projSpeed: 500, dmg: 12, status: { kind: 'shock', stacks: 1 } },
+      dash:       { kind: 'charge', telegraph: 0.4, speed: 820, time: 0.45, dmg: 16, repeats: 2, repeatGap: 0.2 },
+      nova:       { kind: 'ringBurst', telegraph: 0.58, count: 16, projSpeed: 290, dmg: 11, waves: 2, waveGap: 0.3, rotate: -0.2 },
+      summon:     { kind: 'summon', telegraph: 0.6, spawn: [{ id: 'bomber', n: 2 }] },
+    },
+  },
+];
+export const MINIBOSS_BY_ID = Object.fromEntries(MINIBOSSES.map((b) => [b.id, b]));
+
+// ============================================================
 // 보스: 페이즈 + 패턴 목록. 각 패턴은 예고 후 실행된다.
 // ============================================================
 export const BOSSES = [
@@ -191,6 +286,7 @@ export const BIOMES = [
     floor: '#241c1a', wall: '#3a2c27', accent: '#ff8b4a', fog: '#160f0e',
     pool: ['husk', 'cinderling', 'bolter'],
     boss: 'ashwarden',
+    miniboss: 'emberpriest',
     budget: [7.0, 9.5], // 방당 스폰 예산(적 코스트 합)
   },
   {
@@ -198,6 +294,7 @@ export const BIOMES = [
     floor: '#1a2028', wall: '#27333f', accent: '#7fd8ff', fog: '#0d1218',
     pool: ['husk', 'cinderling', 'bolter', 'bulwark', 'splitter', 'bomber'],
     boss: 'frostqueen',
+    miniboss: 'frostwarden',
     budget: [10.0, 13.0],
   },
   {
@@ -205,6 +302,7 @@ export const BIOMES = [
     floor: '#1d1a2a', wall: '#2b2740', accent: '#c07bff', fog: '#100e18',
     pool: ['cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'lancer', 'warden'],
     boss: 'stormtyrant',
+    miniboss: 'stormherald',
     budget: [13.0, 17.0],
   },
 ];

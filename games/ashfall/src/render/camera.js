@@ -4,6 +4,9 @@
 import { clamp, damp } from '../core/math.js';
 import { VIEW } from '../data/balance.js';
 
+/** 화면 하단 HUD가 차지하는 높이(px) — 이 영역에는 전투가 오지 않게 한다 */
+const HUD_SAFE_PX = 92;
+
 export function createCamera(world) {
   return {
     x: world.player.x, y: world.player.y,
@@ -31,8 +34,12 @@ export function createCamera(world) {
       // 화면이 아레나보다 크면 중앙에 고정한다.
       if (viewW && viewH) {
         const halfW = viewW / (2 * this.zoom), halfH = viewH / (2 * this.zoom);
+        // 하단 HUD가 전투를 가리지 않도록 아레나 아래쪽에 여유를 둔다
+        const hudSafe = HUD_SAFE_PX / this.zoom;
         this.x = halfW * 2 >= a.width ? a.width / 2 : clamp(this.x, halfW, a.width - halfW);
-        this.y = halfH * 2 >= a.height ? a.height / 2 : clamp(this.y, halfH, a.height - halfH);
+        this.y = halfH * 2 >= a.height
+          ? a.height / 2 + hudSafe * 0.5
+          : clamp(this.y, halfH, a.height - halfH + hudSafe);
       }
 
       const s = world.shakeAmount;

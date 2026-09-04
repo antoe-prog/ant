@@ -4,11 +4,13 @@ import { arcHit, segCircleHit, normAngle, rotateToward } from '../src/core/math.
 import { createWorld } from '../src/sim/world.js';
 import { createRun, grantBoon, buildBoonOptions } from '../src/sim/run.js';
 import { buildLoadout, availableDuos, slotsUsed } from '../src/sim/loadout.js';
-import { applyStatus, updateStatuses, damageEnemy, damagePlayer, healPlayer } from '../src/sim/combat.js';
+import { applyStatus, updateStatuses, damageEnemy, damagePlayer, healPlayer, staggerEnemy as staggerFn } from '../src/sim/combat.js';
+import { updatePlayer as updatePlayerFn } from '../src/sim/player.js';
+import { updateProjectiles as updateProjectilesFn, updateEnemies as updateEnemiesFn } from '../src/sim/enemyAI.js';
 import { STATUS, SIM, PLAYER, RUN, ARENA } from '../src/data/balance.js';
 import { WEAPONS } from '../src/data/weapons.js';
-import { BOONS, DUO_BOONS, ALL_BOONS, scaleValues } from '../src/data/boons.js';
-import { ENEMIES, BOSSES, BIOMES, ENEMY_COST } from '../src/data/enemies.js';
+import { BOONS, WEAPON_BOONS, DUO_BOONS, ALL_BOONS, scaleValues } from '../src/data/boons.js';
+import { ENEMIES, BOSSES, MINIBOSSES, ELITE_AFFIXES, BIOMES, ENEMY_COST } from '../src/data/enemies.js';
 
 // ---- 아주 작은 테스트 하네스 ----
 const results = [];
@@ -130,6 +132,76 @@ test('공격/대시/특수 슬롯은 중복 장착되지 않는다', () => {
   }
 });
 
+test('무기 전용 권능은 해당 무기에서만 제안된다', () => {
+  for (const weaponId of ['emberblade', 'ruinmaul', 'twinfangs']) {
+    const w = createWorld({ seed: 11, weaponId });
+    createRun(w);
+    const seen = new Set();
+    for (let i = 0; i < 300; i++) for (const o of buildBoonOptions(w, null, 3)) seen.add(o.id);
+    for (const b of WEAPON_BOONS) {
+      if (b.weapon === weaponId) continue;
+      assert(!seen.has(b.id), `${weaponId} 에서 다른 무기 권능 ${b.id} 가 제안됨`);
+    }
+    const own = WEAPON_BOONS.filter((b) => b.weapon === weaponId);
+    assert(own.some((b) => seen.has(b.id)), `${weaponId} 전용 권능이 한 번도 제안되지 않음`);
+  }
+});
+
+test('무기 전용 권능이 실제 전투에서 발동한다', () => {
+  // 검압: 3타 마무리가 아군 투사체를 만든다
+  const w = createWorld({ seed: 5, weaponId: 'emberblade' });
+  const d = createRun(w);
+  d.enterRoom({ type: 'combat' });
+  grantBoon(w, { id: 'blade_wave', rarity: 'common', level: 1 });
+  w.projectiles.length = 0;
+  const p = w.player;
+  p.state = 'attack'; p.atkStep = 2; p.atkPhase = 'windup'; p.atkT = 0; p.atkHits = new Set();
+  const intent = { mx: 0, my: 0, aimX: p.x + 100, aimY: p.y, attack: false, dash: false, special: false };
+  for (let i = 0; i < 6; i++) updatePlayerFn(w, intent, SIM.DT);
+  assert(w.projectiles.some((pr) => !pr.hostile), '검기(아군 투사체)가 생성되지 않음');
+
+  // 지진: 2타가 광역 경직을 건다
+  const w2 = createWorld({ seed: 5, weaponId: 'ruinmaul' });
+  const d2 = createRun(w2);
+  d2.enterRoom({ type: 'combat' });
+  grantBoon(w2, { id: 'maul_quake', rarity: 'common', level: 1 });
+  w2.enemies.length = 0;
+  const e = w2.spawnEnemy('husk', w2.player.x + 120, w2.player.y);
+  e.spawnT = 0;
+  const p2 = w2.player;
+  p2.state = 'attack'; p2.atkStep = 1; p2.atkPhase = 'windup'; p2.atkT = 0; p2.atkHits = new Set();
+  const intent2 = { mx: 0, my: 0, aimX: p2.x + 100, aimY: p2.y, attack: false, dash: false, special: false };
+  for (let i = 0; i < 6; i++) updatePlayerFn(w2, intent2, SIM.DT);
+  assert(e.staggerT > 0, '지진 경직이 적용되지 않음');
+});
+
+test('아군 투사체는 적을 관통하며 피해를 준다', () => {
+  const w = createWorld({ seed: 2, weaponId: 'emberblade' });
+  const d = createRun(w);
+  d.enterRoom({ type: 'combat' });
+  w.enemies.length = 0;
+  const a = w.spawnEnemy('husk', 400, 400); a.spawnT = 0;
+  const b = w.spawnEnemy('husk', 480, 400); b.spawnT = 0;
+  const hpA = a.hp, hpB = b.hp;
+  w.spawnPlayerProjectile({ x: 300, y: 400, angle: 0, dmg: 15, pierce: 3, speed: 600, life: 1 });
+  for (let i = 0; i < 40; i++) updateProjectilesFn(w, SIM.DT);
+  assert(a.hp < hpA && b.hp < hpB, '관통 투사체가 두 적을 모두 때려야 함');
+});
+
+test('경직된 적은 행동하지 않는다', () => {
+  const w = createWorld({ seed: 3, weaponId: 'emberblade' });
+  const d = createRun(w);
+  d.enterRoom({ type: 'combat' });
+  w.enemies.length = 0;
+  const e = w.spawnEnemy('husk', 400, 400);
+  e.spawnT = 0; e.state = 'idle'; e.cd = 0;
+  w.player.x = 460; w.player.y = 400;
+  staggerFn(w, e, 1.0);
+  for (let i = 0; i < 30; i++) updateEnemiesFn(w, SIM.DT);
+  eq(e.state, 'idle', '경직 중에는 새 행동을 시작하지 않아야 함');
+  assert(e.staggerT > 0, '경직이 유지되어야 함');
+});
+
 // ============ 상태이상 / 전투 ============
 function testWorld(weaponId = 'emberblade', seed = 1) {
   const world = createWorld({ seed, weaponId });
@@ -219,6 +291,91 @@ test('회복은 최대 체력을 넘지 않는다', () => {
   w.player.hp = 10;
   healPlayer(w, 99999);
   eq(w.player.hp, w.player.maxHp);
+});
+
+// ============ 엘리트 접두사 / 미니보스 ============
+test('엘리트만 접두사를 얻는다', () => {
+  const w = testWorld();
+  const normal = w.spawnEnemy('husk', 400, 400);
+  eq(normal.affixes.length, 0, '일반 적에 접두사가 붙음');
+  for (let i = 0; i < 20; i++) {
+    const e = w.spawnEnemy('husk', 400, 400, { elite: true });
+    assert(e.affixes.length >= 1, '엘리트에 접두사가 없음');
+    const ids = new Set(e.affixes.map((a) => a.id));
+    eq(ids.size, e.affixes.length, '접두사가 중복됨');
+  }
+});
+
+test("'수호' 엘리트는 주변 적의 피해를 줄인다", () => {
+  const w = testWorld();
+  w.rng.next = () => 1; // 치명타 제거
+  const guard = w.spawnEnemy('husk', 400, 400, { elite: true });
+  guard.affixes = [ELITE_AFFIXES.find((a) => a.id === 'warded')];
+  const near = w.spawnEnemy('husk', 460, 400);
+  const far = w.spawnEnemy('husk', 400, 400 + 900);
+  near.hp = near.maxHp = far.hp = far.maxHp = 100000; // 측정 중 죽지 않도록
+  const dNear = damageEnemy(w, near, 100, 'none', { silent: true });
+  const dFar = damageEnemy(w, far, 100, 'none', { silent: true });
+  assert(dNear < dFar * 0.7, `오라 안이 더 단단해야 함 (${dNear.toFixed(1)} vs ${dFar.toFixed(1)})`);
+  // 오라 주인을 잡으면 보호가 사라진다
+  guard.dead = true;
+  const dAfter = damageEnemy(w, near, 100, 'none', { silent: true });
+  assert(dAfter > dNear * 1.5, '오라 주인 처치 후 보호가 사라져야 함');
+});
+
+test("'폭발성' 엘리트는 죽은 자리에 예고된 폭발을 남긴다", () => {
+  const w = testWorld();
+  const e = w.spawnEnemy('husk', 400, 400, { elite: true });
+  e.affixes = [ELITE_AFFIXES.find((a) => a.id === 'volatile')];
+  e.spawnT = 0;
+  w.hazards.length = 0;
+  damageEnemy(w, e, 1e6, 'none', { silent: true });
+  eq(w.hazards.length, 1, '위험지대가 생기지 않음');
+  // 폭발 지점에 서 있으면 피해를 받는다
+  w.player.x = 400; w.player.y = 400; w.player.iframes = 0;
+  const hp0 = w.player.hp;
+  for (let i = 0; i < 60; i++) w.step({ mx: 0, my: 0, aimX: 400, aimY: 500, attack: false, dash: false, special: false }, SIM.DT);
+  assert(w.player.hp < hp0, '폭발 피해가 들어가지 않음');
+  eq(w.hazards.length, 0, '폭발 후 위험지대가 정리되어야 함');
+});
+
+test("'흡혈' 엘리트는 플레이어를 때리면 회복한다", () => {
+  const w = testWorld();
+  const e = w.spawnEnemy('husk', 400, 400, { elite: true });
+  e.affixes = [ELITE_AFFIXES.find((a) => a.id === 'vampiric')];
+  e.hp = e.maxHp * 0.5;
+  const before = e.hp;
+  w.player.iframes = 0;
+  damagePlayer(w, 40, { source: e });
+  assert(e.hp > before, '흡혈이 적용되지 않음');
+});
+
+test('미니보스 방은 미니보스를 소환하고 클리어 시 희귀 이상 권능을 준다', () => {
+  const w = testWorld();
+  w.director.enterRoom({ type: 'miniboss' });
+  assert(w.boss && w.boss.isMini, '미니보스가 소환되지 않음');
+  assert(MINIBOSSES.some((m) => m.id === w.boss.id), '미니보스 정의가 일치하지 않음');
+  assert(w.enemies.filter((e) => !e.isBoss).length > 0, '미니보스 방에 잡졸이 없음');
+  w.enemies.length = 0; w.spawnQueue = [];
+  w.director.onRoomClear();
+  eq(w.run.state, 'reward', '미니보스 클리어 후 보상 선택이 열려야 함');
+  for (const o of w.director.rewardOptions) {
+    assert(['rare', 'epic', 'legendary'].includes(o.rarity), `희귀 이상이어야 함: ${o.rarity}`);
+  }
+  w.director.chooseReward(0);
+  eq(w.run.state, 'cleared', '보상 후 문이 열려야 함');
+  assert(w.doors.length >= 1, '문이 생기지 않음');
+});
+
+test('미니보스는 구역당 한 번만 등장한다', () => {
+  const w = testWorld();
+  w.run.minibossDone = true;
+  for (let i = 0; i < 60; i++) {
+    w.run.roomIdx = 1;
+    w.doors.length = 0;
+    w.director.openDoors();
+    assert(!w.doors.some((d) => d.roomType === 'miniboss'), '이미 처치했는데 또 등장함');
+  }
 });
 
 // ============ 런 진행 ============
