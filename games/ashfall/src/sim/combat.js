@@ -128,7 +128,8 @@ export function staggerEnemy(world, e, time) {
 function makeCtx(world) {
   return {
     world, player: world.player, rng: world.rng,
-    target: null, dmg: 0, mult: 1, crit: false, element: 'none', tag: '', step: -1, dir: 0, x: 0, y: 0,
+    target: null, dmg: 0, mult: 1, crit: false, element: 'none', tag: '', step: -1, dir: 0,
+    minion: null, x: 0, y: 0,
     damage: (e, amount, element, opts) => damageEnemy(world, e, amount, element, opts),
     heal: (amount) => healPlayer(world, amount),
     applyStatus: (e, kind, stacks) => applyStatus(world, e, kind, stacks),
@@ -161,6 +162,7 @@ function runHooks(world, name, fields) {
   ctx.tag = fields.tag ?? '';
   ctx.step = fields.step ?? -1;
   ctx.dir = fields.dir ?? 0;
+  ctx.minion = fields.minion ?? null;
   ctx.x = fields.x ?? (fields.target ? fields.target.x : world.player.x);
   ctx.y = fields.y ?? (fields.target ? fields.target.y : world.player.y);
   ctx.mult = 1;
@@ -270,7 +272,8 @@ export function damageEnemy(world, e, amount, element = 'none', opts = {}) {
   // 7) onHit 훅
   runHooks(world, 'hit', {
     target: e, dmg: final, crit, element, tag,
-    step: opts.step ?? -1, dir: opts.dir ?? 0, x: e.x, y: e.y,
+    step: opts.step ?? -1, dir: opts.dir ?? 0, minion: opts.minion ?? null,
+    x: e.x, y: e.y,
   });
 
   // 8) 처치

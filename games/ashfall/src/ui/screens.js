@@ -261,9 +261,10 @@ export function createScreens(overlay, game) {
           <span class="god">${o.duo ? '합일 권능' : esc(god.name)}</span>
           <span>${esc(SLOT_NAMES[o.slot] || '')}</span>
         </div>
+        ${o.reqText ? `<div class="breq">${esc(o.reqText)}</div>` : ''}
         <div class="bname">${esc(o.title)}${o.level > 1 ? ` <i>Lv.${o.level}</i>` : ''}</div>
         <div class="brar" style="color:${rc}">${RARITY[o.rarity]?.name || ''}</div>
-        <div class="bdesc">${esc(o.text)}</div>
+        <div class="bdesc">${esc(o.text).replace(/\n/g, '<br>')}</div>
         ${o.prevText ? `<div class="bprev">이전: ${esc(o.prevText)}</div>` : ''}
       </button>`;
     }).join('');

@@ -24,7 +24,7 @@ function run(boons, seed) {
   d.start();
   for (const id of boons) grantBoon(w, { id, rarity: 'epic', level: 2 });
 
-  const m = { byMinion: 0, byPlayer: 0, byBlast: 0, summons: 0, staggerTicks: 0, ticks: 0, minionSum: 0, kinds: {} };
+  const m = { byMinion: 0, byPlayer: 0, byBlast: 0, summons: 0, staggerTicks: 0, ticks: 0, minionSum: 0, kinds: {}, duoSeen: 0, duoTaken: 0 };
   w.bus.on(EV.HIT, (p) => {
     if (p.tag === 'minion') m.byMinion += p.dmg;
     else if (p.tag === 'explosion') m.byBlast += p.dmg;
@@ -35,7 +35,14 @@ function run(boons, seed) {
   let t = 0;
   while (t < 260) {
     const st = w.run;
-    if (st.state === 'reward') { d.chooseReward(0); continue; }
+    if (st.state === 'reward') {
+      // 분기 전용 합일이 제안되면 세고, 있으면 그것을 고른다 (사람의 선택을 흉내)
+      const opts = d.rewardOptions || [];
+      const i = opts.findIndex((o) => o.reqText);
+      if (i >= 0) { m.duoSeen++; m.duoTaken++; d.chooseReward(i); }
+      else d.chooseReward(0);
+      continue;
+    }
     if (st.state === 'curse') { d.chooseCurse(0); continue; }
     if (st.state === 'shop') { d.leaveShop(); continue; }
     if (st.state === 'dead' || st.state === 'victory') break;
@@ -50,7 +57,7 @@ function run(boons, seed) {
 }
 
 // 피해 출처는 실제로 tag 로 구분되므로, 태그를 흘려보내도록 hit 이벤트에 tag 추가가 필요하다
-console.log('분기        승  방수  분당처치  소환수(평균)  소환 종류            피해 출처(소환수/폭발/직접)  적경직시간');
+console.log('분기        승  방수  분당처치  소환수(평균)  소환 종류            피해출처(소환/폭발/직접)  적경직  분기합일획득');
 for (const b of BRANCHES) {
   const rows = [];
   for (let i = 0; i < REPS; i++) rows.push(run(b.boons, (i + 1) * 977));
@@ -69,6 +76,7 @@ for (const b of BRANCHES) {
     `${(avg((r) => r.minionSum) / avg((r) => r.ticks)).toFixed(1).padStart(11)}  ` +
     `${kindStr.padEnd(20)}  ` +
     `${Math.round(avg((r) => r.byMinion) / dmgTot * 100)}% / ${Math.round(avg((r) => r.byBlast) / dmgTot * 100)}% / ${Math.round(avg((r) => r.byPlayer) / dmgTot * 100)}%`.padStart(24) + '  ' +
-    `${Math.round(avg((r) => r.staggerTicks) / avg((r) => r.ticks) * 100)}%`
+    `${Math.round(avg((r) => r.staggerTicks) / avg((r) => r.ticks) * 100)}%`.padStart(6) + '  ' +
+    `${rows.filter((r) => r.duoTaken > 0).length}/${rows.length}판`
   );
 }

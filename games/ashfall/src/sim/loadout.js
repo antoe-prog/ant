@@ -90,13 +90,23 @@ export function godsOwned(owned) {
   return set;
 }
 
-/** 현재 보유 권능으로 해금된 합일 권능 목록 */
+/**
+ * 현재 보유 권능으로 해금된 합일 권능 목록.
+ *
+ * 조건은 두 가지를 쓸 수 있다:
+ *  - gods:     해당 신의 권능을 하나라도 가지고 있어야 한다 (계열 합일)
+ *  - requires: 지정한 권능을 반드시 가지고 있어야 한다 (분기 전용 합일)
+ * 분기 전용 합일 덕분에 초반에 고른 갈래가 후반까지 이어진다.
+ */
 export function availableDuos(owned) {
   const gods = godsOwned(owned);
   const ownedIds = new Set(owned.map((o) => o.id));
-  return DUO_BOONS.filter(
-    (d) => !ownedIds.has(d.id) && d.gods.every((g) => gods.has(g))
-  );
+  return DUO_BOONS.filter((d) => {
+    if (ownedIds.has(d.id)) return false;
+    if (d.gods && !d.gods.every((g) => gods.has(g))) return false;
+    if (d.requires && !d.requires.every((id) => ownedIds.has(id))) return false;
+    return true;
+  });
 }
 
 /** 슬롯 점유 상태 (attack/dash/special 은 1개 제한) */

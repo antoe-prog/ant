@@ -466,6 +466,7 @@ export function buildBoonOptions(world, minRarity, count = 3) {
     return {
       id: c.def.id, def: c.def, rarity, level, values,
       duo: !!c.duo, upgrade: !!c.upgrade,
+      reqText: c.def.reqText || null,   // 분기 전용 합일이면 무엇이 열었는지 보여준다
       title: c.def.name,
       god: c.def.god === 'none' && c.duo ? 'none' : c.def.god,
       slot: c.def.slot,

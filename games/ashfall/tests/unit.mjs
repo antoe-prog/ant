@@ -115,6 +115,74 @@ test('권능이 실제 스탯을 바꾼다', () => {
   assert(legendary.stats.damageMult > withPower.stats.damageMult, '희귀도/레벨 스케일링 미적용');
 });
 
+test('분기 전용 합일은 지정 권능을 가져야만 열린다', () => {
+  const has = (owned, id) => availableDuos(owned).some((d) => d.id === id);
+  // 서리 계열만 있으면 열리지 않는다
+  const frostOnly = [{ id: 'frost_attack', rarity: 'common', level: 1 }];
+  assert(!has(frostOnly, 'duo_frostfang'), '분기 권능 없이 열림');
+  // 사냥개만 있어도 열리지 않는다
+  const houndOnly = [{ id: 'necro_hounds', rarity: 'common', level: 1 }];
+  assert(!has(houndOnly, 'duo_frostfang'), '계열 없이 열림');
+  // 둘 다 있어야 열린다
+  const both = [...frostOnly, ...houndOnly];
+  assert(has(both, 'duo_frostfang'), '조건을 갖췄는데 열리지 않음');
+  // 다른 분기의 합일은 여전히 잠겨 있다
+  assert(!has(both, 'duo_collapse'), '다른 분기의 합일이 열림');
+  assert(!has(both, 'duo_chainblast'), '다른 분기의 합일이 열림');
+
+  // 각 분기가 자기 합일만 연다
+  const pairs = [
+    ['necro_giant', 'ember_attack', 'duo_collapse'],
+    ['necro_detonate', 'storm_attack', 'duo_chainblast'],
+    ['necro_plague', 'blood_attack', 'duo_plaguebloom'],
+  ];
+  for (const [branch, god, duo] of pairs) {
+    const o = [{ id: branch, rarity: 'common', level: 1 }, { id: god, rarity: 'common', level: 1 }];
+    assert(has(o, duo), `${duo} 가 열리지 않음`);
+  }
+});
+
+test('분기 전용 합일이 실제로 발동한다', () => {
+  // 서리 송곳니: 사냥개가 물면 냉기를 건다
+  const w = testWorld();
+  w.minions.length = 0; w.enemies.length = 0;
+  grantBoon(w, { id: 'necro_hounds', rarity: 'common', level: 1 });
+  grantBoon(w, { id: 'duo_frostfang', rarity: 'legendary', level: 1 });
+  const m = summonMinion(w, 'wraith', 410, 400);
+  eq(m.id, 'bonehound', '사냥개로 교체되지 않음');
+  m.spawnT = 0; m.attackCd = 0;
+  const e = w.spawnEnemy('husk', 425, 400);
+  e.spawnT = 0; e.hp = e.maxHp = 100000;
+  w.player.x = 400; w.player.y = 400;
+  for (let i = 0; i < 40 && !(e.status.chill || e.status.frozen); i++) updateMinions(w, SIM.DT);
+  assert(e.status.chill || e.status.frozen, '사냥개 물기가 냉기를 걸지 못함');
+
+  // 무너지는 거인: 거인이 스러질 때 폭발한다
+  const w2 = testWorld();
+  w2.minions.length = 0; w2.enemies.length = 0;
+  grantBoon(w2, { id: 'duo_collapse', rarity: 'common', level: 1 });
+  const g = summonMinion(w2, 'bonegiant', 500, 400, { noSwap: true, scale: 2 });
+  g.spawnT = 0; g.life = 0.01;
+  const t2 = w2.spawnEnemy('husk', 540, 400);
+  t2.spawnT = 0; t2.hp = t2.maxHp = 100000;
+  const hp0 = t2.hp;
+  for (let i = 0; i < 5; i++) updateMinions(w2, SIM.DT);
+  assert(t2.hp < hp0, '거인이 무너지며 폭발하지 않음');
+
+  // 연쇄 폭렬: 하나가 터지면 주변 소환수도 함께 터진다
+  const w3 = testWorld();
+  w3.minions.length = 0; w3.enemies.length = 0;
+  grantBoon(w3, { id: 'necro_detonate', rarity: 'common', level: 1 });
+  grantBoon(w3, { id: 'duo_chainblast', rarity: 'common', level: 1 });
+  const a = summonMinion(w3, 'wraith', 500, 400);
+  const b2 = summonMinion(w3, 'wraith', 540, 400);
+  a.spawnT = 0; b2.spawnT = 0;
+  a.life = 0.01;
+  const bLife = b2.life;
+  for (let i = 0; i < 4; i++) updateMinions(w3, SIM.DT);
+  assert(b2.dead || b2.life < bLife * 0.5, '주변 소환수가 연쇄로 터지지 않음');
+});
+
 test('합일 권능은 두 신을 모두 보유해야 해금된다', () => {
   eq(availableDuos([{ id: 'ember_attack', rarity: 'common', level: 1 }]).length, 0, '한 신만으론 해금 불가');
   const duos = availableDuos([

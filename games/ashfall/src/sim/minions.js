@@ -181,7 +181,8 @@ export function updateMinions(world, dt) {
         m.attackCd = m.def.attackCd;
         const hit = (e) => {
           damageEnemy(world, e, m.dmg * cmdDmg, 'none', {
-            tag: 'minion', knock: 70, dir: Math.atan2(e.y - m.y, e.x - m.x), silent: true, noCrit: true,
+            tag: 'minion', minion: m, knock: 70,
+            dir: Math.atan2(e.y - m.y, e.x - m.x), silent: true, noCrit: true,
           });
           for (const st of world.loadout.minionStatus) applyStatus(world, e, st.kind, st.stacks);
           // 사냥개: 물면 적의 행동을 끊는다 (피해보다 '붙잡기'가 역할)

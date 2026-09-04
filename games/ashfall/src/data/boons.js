@@ -298,19 +298,19 @@ export const BOONS = [
   {
     id: 'necro_hounds', god: 'necro', slot: 'passive', name: '사냥개 무리',
     values: { stagger: 0.15 },
-    desc: () => `망령 대신 뼈 사냥개가 일어난다. 훨씬 빠르고, 물면 적의 행동을 끊는다. (피해는 낮다)`,
+    desc: () => `망령 대신 뼈 사냥개가 일어난다. 훨씬 빠르고, 물면 적의 행동을 끊는다. (피해는 낮다)\n→ 서리 계열과 만나면 합일 '서리 송곳니'가 열린다.`,
     apply: (L) => { L.mods.minionSwap.wraith = 'bonehound'; },
   },
   {
     id: 'necro_giant', god: 'necro', slot: 'passive', name: '거인 결속',
     values: { merge: 4 },
-    desc: (v) => `망자 봉기가 시체 ${Math.round(v.merge)}구까지 합쳐 해골 거인 하나를 세운다. 합칠수록 강해진다.`,
+    desc: (v) => `망자 봉기가 시체 ${Math.round(v.merge)}구까지 합쳐 해골 거인 하나를 세운다. 합칠수록 강해진다.\n→ 재 계열과 만나면 합일 '무너지는 거인'이 열린다.`,
     apply: (L, v) => { L.mods.giantMerge = Math.max(L.mods.giantMerge, Math.round(v.merge)); },
   },
   {
     id: 'necro_detonate', god: 'necro', slot: 'passive', name: '폭렬 결속',
     values: { dmg: 48, radius: 145, lifeCut: 0.4 },
-    desc: (v) => `소환수가 스러질 때 폭발한다 (${Math.round(v.dmg)} 피해). 대신 지속시간 -${pct(v.lifeCut)}.`,
+    desc: (v) => `소환수가 스러질 때 폭발한다 (${Math.round(v.dmg)} 피해). 대신 지속시간 -${pct(v.lifeCut)}.\n→ 폭풍 계열과 만나면 합일 '연쇄 폭렬'이 열린다.`,
     caps: { lifeCut: 0.6 },
     apply: (L, v) => {
       L.mods.minionLife -= v.lifeCut;
@@ -323,7 +323,7 @@ export const BOONS = [
     id: 'necro_plague', god: 'necro', slot: 'passive', name: '역병',
     values: { burn: 2, bleed: 2, dmgCut: 0.2 },
     caps: { dmgCut: 0.35 },
-    desc: (v) => `소환수의 타격이 화상과 출혈을 함께 남긴다 (각 ${Math.round(v.burn)}중첩). 대신 소환수 피해 -${pct(v.dmgCut)}.`,
+    desc: (v) => `소환수의 타격이 화상과 출혈을 함께 남긴다 (각 ${Math.round(v.burn)}중첩). 대신 소환수 피해 -${pct(v.dmgCut)}.\n→ 피 계열과 만나면 합일 '역병의 피'가 열린다.`,
     apply: (L, v) => {
       L.minionStatus.push({ kind: 'burn', stacks: Math.round(v.burn) });
       L.minionStatus.push({ kind: 'bleed', stacks: Math.round(v.bleed) });
@@ -532,6 +532,78 @@ DUO_BOONS.push(
     desc: (v) => `소환수가 준 피해의 ${pct(v.leech)}만큼 내 체력이 회복된다.`,
     apply: (L, v) => {
       L.on.hit.push((c) => { if (c.tag === 'minion') c.heal(c.dmg * v.leech); });
+    },
+  },
+);
+
+// ============================================================
+// 분기 전용 합일 — 특정 사령술 갈래를 골랐을 때만 열린다.
+// 초반에 고른 갈래가 후반의 강력한 한 방으로 이어지게 만든다.
+// requires 에 적힌 권능을 반드시 보유해야 등장한다.
+// ============================================================
+DUO_BOONS.push(
+  {
+    id: 'duo_frostfang', gods: ['frost'], requires: ['necro_hounds'],
+    reqText: '사냥개 무리 + 서리 계열',
+    name: '서리 송곳니', slot: 'passive', god: 'none',
+    values: { stacks: 2, stagger: 0.9, shatter: 0.5 },
+    desc: (v) => `사냥개가 물면 냉기 ${Math.round(v.stacks)}중첩. 빙결된 적을 물면 ${v.stagger.toFixed(1)}초 경직시키고 +${pct(v.shatter)} 피해.`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (c.tag !== 'minion' || c.minion?.id !== 'bonehound') return;
+        c.applyStatus(c.target, 'chill', Math.round(v.stacks));
+        if (c.target.status?.frozen) c.stagger(c.target, v.stagger);
+      });
+      L.on.modifyDamage.push((c) => {
+        if (c.tag === 'minion' && c.target.status?.frozen) c.mult *= 1 + v.shatter;
+      });
+    },
+  },
+  {
+    id: 'duo_collapse', gods: ['ember'], requires: ['necro_giant'],
+    reqText: '거인 결속 + 재 계열',
+    name: '무너지는 거인', slot: 'passive', god: 'none',
+    values: { dmg: 90, radius: 200, stacks: 4 },
+    desc: (v) => `해골 거인이 스러질 때 무너져 내린다 (${Math.round(v.dmg)} 피해 + 화상). 합친 시체가 많을수록 크다.`,
+    apply: (L, v) => {
+      L.on.minionDeath.push((c) => {
+        if (c.minion?.id !== 'bonegiant') return;
+        const k = c.minion.scale || 1;
+        c.explode(c.x, c.y, v.radius * k, v.dmg * k, 'ember', { kind: 'burn', stacks: Math.round(v.stacks) });
+      });
+    },
+  },
+  {
+    id: 'duo_chainblast', gods: ['storm'], requires: ['necro_detonate'],
+    reqText: '폭렬 결속 + 폭풍 계열',
+    name: '연쇄 폭렬', slot: 'passive', god: 'none',
+    values: { radius: 190, stacks: 2 },
+    desc: (v) => `소환수가 터지면 반경 ${Math.round(v.radius)} 안의 다른 소환수도 함께 터진다. 폭발이 감전을 남긴다.`,
+    apply: (L, v) => {
+      L.on.minionDeath.push((c) => {
+        const r2 = v.radius * v.radius;
+        for (const m of c.minions()) {
+          if (m === c.minion || m.dead || m.life <= 0.02) continue;
+          const dx = m.x - c.x, dy = m.y - c.y;
+          if (dx * dx + dy * dy <= r2) m.life = 0.01;   // 다음 틱에 스러지며 함께 터진다
+        }
+        c.forEachEnemyInRange(c.x, c.y, v.radius, (e) => c.applyStatus(e, 'shock', Math.round(v.stacks)));
+      });
+    },
+  },
+  {
+    id: 'duo_plaguebloom', gods: ['blood'], requires: ['necro_plague'],
+    reqText: '역병 + 피 계열',
+    name: '역병의 피', slot: 'passive', god: 'none',
+    values: { heal: 9 },
+    desc: (v) => `화상과 출혈이 모두 걸린 적이 죽으면 그 자리에서 망령이 일어나고 체력 ${Math.round(v.heal)}를 회복한다.`,
+    apply: (L, v) => {
+      L.on.kill.push((c) => {
+        const st = c.target.status;
+        if (!st?.burn || !st?.bleed) return;
+        c.summon('wraith', c.x, c.y);
+        c.heal(v.heal);
+      });
     },
   },
 );
