@@ -217,6 +217,55 @@ const bossHpK = await page.evaluate(() => {
 check('보스에게 피해 적용', bossHpK < 1, `남은 체력 ${Math.round(bossHpK * 100)}%`);
 await shot('08-boss');
 
+// ---- 사령술: 새 런을 강령장으로 시작해 시체 → 소환수 루프를 검증 ----
+await dismissScreens();
+await page.evaluate(() => window.__ashfall.game.startRun('gravecall'));
+await sleep(1000);
+check('강령장으로 런 시작', (await state()).runState === 'fight');
+await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  w.spawnQueue.length = 0;
+  for (const e of w.enemies) e.hp = 1;   // 곧바로 처치되도록
+});
+await playFor(6000);
+const necro = await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  return { corpses: w.corpses.length, minions: w.minions.length, cap: w.minionCap(), kills: w.run.kills };
+});
+check('처치 시 시체가 남거나 소환수가 생긴다', necro.corpses > 0 || necro.minions > 0, JSON.stringify(necro));
+
+// 망자 봉기(특수기)로 시체를 소환수로 전환
+await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  const p = w.player;
+  p.focus = p.maxFocus;
+  w.minions.length = 0;
+  w.corpses.length = 0;
+  for (let i = 0; i < 3; i++) {
+    w.corpses.push({ x: p.x + 40 + i * 25, y: p.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+});
+const preSpecial = await page.evaluate(() => {
+  const p = window.__ashfall.world.player;
+  return { state: p.state, spCd: +p.spCd.toFixed(2), focus: Math.round(p.focus), dead: p.dead };
+});
+// 특수기 쿨다운이 남아 있을 수 있으므로 조건이 갖춰질 때까지 눌러 본다
+let raised = null;
+for (let i = 0; i < 12; i++) {
+  await page.keyboard.down('KeyK');
+  await sleep(120);
+  await page.keyboard.up('KeyK');
+  await sleep(180);
+  raised = await page.evaluate(() => ({
+    minions: window.__ashfall.world.minions.length,
+    corpses: window.__ashfall.world.corpses.filter((c) => !c.used).length,
+  }));
+  if (raised.minions > 0) break;
+}
+raised.pre = preSpecial;
+check('망자 봉기가 시체를 소환수로 바꾼다', raised.minions > 0 && raised.corpses < 3, JSON.stringify(raised));
+await shot('09-necro');
+
 // ---- 세이브 ----
 const saveData = await page.evaluate(() => {
   const raw = localStorage.getItem('ashfall.save');

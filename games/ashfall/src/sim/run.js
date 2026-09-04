@@ -35,6 +35,10 @@ export function createRun(world) {
       world.projectiles.length = 0;
       world.pickups.length = 0;
       world.doors.length = 0;
+      world.hazards.length = 0;
+      world.corpses.length = 0;
+      // 소환수는 방을 넘어 따라온다 — 다음 방의 시작을 돕는 보상
+      for (const m of world.minions) { m.x = world.arena.width / 2; m.y = world.arena.height - world.arena.pad - 110; }
       world.spawnQueue = [];
       world.boss = null;
       run.roomType = spec.type;

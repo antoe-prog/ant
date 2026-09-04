@@ -3,10 +3,11 @@
 // 입력은 intent 객체로만 받는다 → 봇/테스트가 그대로 조종할 수 있다.
 // ============================================================
 
-import { PLAYER, PLAYER_STATUS, SIM, HITSTOP, SHAKE } from '../data/balance.js';
+import { PLAYER, PLAYER_STATUS, SIM, HITSTOP, SHAKE, INPUT_BUFFER } from '../data/balance.js';
 import { EV } from '../core/events.js';
 import { clamp, arcHit, normalize, dist, segCircleHit, TAU } from '../core/math.js';
 import { damageEnemy, applyStatus, damagePlayer, explode, forEachEnemyInRange, runHooks, isDisabled } from './combat.js';
+import { corpsesNear, consumeCorpse, summonMinion } from './minions.js';
 
 export function createPlayer(world, weapon) {
   const L = world.loadout;
@@ -23,7 +24,7 @@ export function createPlayer(world, weapon) {
     hurtFlash: 0,
     // 공격
     atkStep: -1, atkPhase: '', atkT: 0, atkHits: null,
-    comboTimer: 0, bufferAttack: 0,
+    comboTimer: 0, bufferAttack: 0, bufferDash: 0, bufferSpecial: 0,
     // 대시
     dashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
     maxDashCharges: PLAYER.DASH_CHARGES + L.stats.dashCharges + (weapon.dashCharges || 0),
@@ -62,6 +63,8 @@ export function updatePlayer(world, intent, dt) {
   if (p.hurtFlash > 0) p.hurtFlash -= dt;
   if (p.comboTimer > 0) p.comboTimer -= dt;
   if (p.bufferAttack > 0) p.bufferAttack -= dt;
+  if (p.bufferDash > 0) p.bufferDash -= dt;
+  if (p.bufferSpecial > 0) p.bufferSpecial -= dt;
   if (p.dashCd > 0) p.dashCd -= dt;
   if (p.spCd > 0) p.spCd -= dt;
   if (p.dashStrikeT > 0) p.dashStrikeT -= dt;
@@ -92,7 +95,11 @@ export function updatePlayer(world, intent, dt) {
   }
 
   // ---- 입력 버퍼링 ----
-  if (intent.attack) p.bufferAttack = 0.2;
+  // 짧게 톡 누른 입력이 프레임 사이에 사라지지 않도록 모든 행동 키를 버퍼링한다.
+  // (공격만 버퍼가 있으면 대시/특수기를 '눌렀는데 안 나가는' 순간이 생긴다)
+  if (intent.attack) p.bufferAttack = INPUT_BUFFER;
+  if (intent.dash) p.bufferDash = INPUT_BUFFER;
+  if (intent.special) p.bufferSpecial = INPUT_BUFFER;
 
   // ---- 상태별 처리 ----
   switch (p.state) {
@@ -104,9 +111,11 @@ export function updatePlayer(world, intent, dt) {
 
   // ---- 자유 상태에서의 행동 개시 ----
   if (p.state === 'free') {
-    if (intent.dash && canDash(p)) { startDash(world, p, intent); }
-    else if (intent.special && p.spCd <= 0 && p.focus >= specialCost(world)) { startSpecial(world, p, intent); }
-    else if (p.bufferAttack > 0) { startAttack(world, p); }
+    if (p.bufferDash > 0 && canDash(p)) { p.bufferDash = 0; startDash(world, p, intent); }
+    else if (p.bufferSpecial > 0 && p.spCd <= 0 && p.focus >= specialCost(world)) {
+      p.bufferSpecial = 0;
+      startSpecial(world, p, intent);
+    } else if (p.bufferAttack > 0) { startAttack(world, p); }
   }
 
   // ---- 이동 ----
@@ -252,7 +261,7 @@ function startAttack(world, p) {
   const next = p.comboTimer > 0 ? (p.atkStep + 1) % W.combo.length : 0;
   p.atkStep = next;
   p.atkPhase = 'windup';
-  p.atkT = W.combo[next].windup / world.loadout.stats.attackSpeed;
+  p.atkT = W.combo[next].windup / (world.loadout.stats.attackSpeed * corpseHasteMult(world));
   p.atkHits = new Set();
   p.state = 'attack';
   const step = W.combo[next];
@@ -261,10 +270,18 @@ function startAttack(world, p) {
   p.vy += Math.sin(p.facing) * step.lunge;
 }
 
+/** 강령장: 주변 시체가 많을수록 빨라진다 — 시체 위에서 싸우게 만드는 압력 */
+export function corpseHasteMult(world) {
+  const ch = world.weapon.corpseHaste;
+  if (!ch) return 1;
+  const n = corpsesNear(world, world.player.x, world.player.y, ch.radius).length;
+  return 1 + Math.min(ch.max, ch.perCorpse * n);
+}
+
 function updateAttack(world, p, intent, dt) {
   const W = world.weapon;
   const step = W.combo[p.atkStep];
-  const spd = world.loadout.stats.attackSpeed;
+  const spd = world.loadout.stats.attackSpeed * corpseHasteMult(world);
   p.atkT -= dt;
 
   // 대시 캔슬 — 후딜을 대시로 끊는 것이 이 장르의 기본기.
@@ -272,7 +289,8 @@ function updateAttack(world, p, intent, dt) {
   // 빗나간 스윙까지 캔슬되면 자기 공격을 스스로 지우게 되므로 허용하지 않는다.
   const cancelable = p.atkPhase === 'recover' ||
     (W.dashCancel && p.atkPhase === 'active' && p.atkHits.size > 0);
-  if (cancelable && intent.dash && canDash(p)) {
+  if (cancelable && p.bufferDash > 0 && canDash(p)) {
+    p.bufferDash = 0;
     startDash(world, p, intent, { keepCombo: !!W.dashCancel });
     return;
   }
@@ -373,6 +391,40 @@ function startSpecial(world, p, intent) {
     p.iframes = Math.max(p.iframes, sp.chargeTime + 0.12);
   } else if (sp.kind === 'whirl') {
     p.spT = sp.duration;
+  } else if (sp.kind === 'raiseDead') {
+    p.spT = 0.42;
+    p.spPhase = 'raise';
+    p.iframes = Math.max(p.iframes, 0.3);
+    doRaiseDead(world, p, sp);
+  }
+}
+
+/** 망자 봉기: 주변 시체를 해골 병사로 일으킨다. 시체가 없으면 영혼 파동. */
+function doRaiseDead(world, p, sp) {
+  const L = world.loadout;
+  const list = corpsesNear(world, p.x, p.y, sp.radius);
+  const max = sp.maxRaise + L.mods.minionCap;
+  let raised = 0;
+  for (const c of list) {
+    if (raised >= max) break;
+    if (!consumeCorpse(world, c)) continue;
+    const archer = (L.mods.archerChance || 0) > 0 && world.rng.next() < L.mods.archerChance;
+    summonMinion(world, archer ? 'bonearcher' : sp.minion, c.x, c.y, { scale: c.scale });
+    for (const s of L.specialStatus) { /* 상태이상은 소환수 타격으로 전달된다 */ }
+    raised++;
+  }
+  if (raised === 0) {
+    // 시체가 없으면 화력으로 전환 — 자원이 없다고 특수기가 무용지물이 되지 않게
+    world.bus.emit(EV.SHOCKWAVE, { x: p.x, y: p.y, radius: sp.fallbackRadius, color: world.weapon.color, big: true });
+    world.shake(SHAKE.HEAVY);
+    forEachEnemyInRange(world, p.x, p.y, sp.fallbackRadius, (e) => {
+      damageEnemy(world, e, sp.fallbackDmg, 'necro', {
+        tag: 'special', knock: 300, dir: Math.atan2(e.y - p.y, e.x - p.x), heavy: true,
+      });
+      for (const s of L.specialStatus) applyStatus(world, e, s.kind, s.stacks);
+    });
+  } else {
+    world.bus.emit('raiseDead', { x: p.x, y: p.y, count: raised });
   }
 }
 
@@ -411,6 +463,12 @@ function updateSpecial(world, p, intent, dt) {
         });
       }
     } else if (p.spT <= 0) { p.state = 'free'; p.spPhase = ''; }
+    return;
+  }
+
+  if (sp.kind === 'raiseDead') {
+    p.vx *= 0.88; p.vy *= 0.88;
+    if (p.spT <= 0) { p.state = 'free'; p.spPhase = ''; }
     return;
   }
 

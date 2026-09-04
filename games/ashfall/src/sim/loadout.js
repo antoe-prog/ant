@@ -26,14 +26,27 @@ export function emptyLoadout() {
       dashStrikeWindow: 0,
       comboWindowBonus: 0,
       armorExtra: 0,
+      // 사령술
+      minionCap: 0,
+      minionDamage: 0,
+      minionHp: 0,
+      minionLife: 0,
+      corpseRadius: 0,
+      archerChance: 0,
     },
     attackStatus: [],
     specialStatus: [],
+    minionStatus: [],   // 소환수 타격이 부여하는 상태이상
     on: {
       hit: [], kill: [], dashStart: [], dashTrail: [], dashEnd: [],
       special: [], hurt: [], roomClear: [], modifyDamage: [], statusApplied: [],
       attackStep: [],   // 콤보의 특정 단계가 발동할 때 (무기 전용 권능의 연결점)
       dashStrike: [],   // 대시 직후 강타가 적중했을 때
+      summon: [],       // 소환수를 불렀을 때
+      minionDeath: [],  // 소환수가 스러졌을 때
+      corpse: [],       // 시체가 생겼을 때
+      corpseExpire: [], // 시체가 자연 소멸했을 때
+      tick: [],         // 매 시뮬레이션 틱 (밟고 지나가는 상호작용용, 보통 비어 있다)
     },
   };
 }

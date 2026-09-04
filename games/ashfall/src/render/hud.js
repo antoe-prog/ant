@@ -17,7 +17,10 @@ export function createHud(canvas, world) {
     toast = { title: `${p.biome}  ${p.biomeIdx + 1}-${p.roomIdx + 1}`, sub: labelFor(p), life: 2.4, maxLife: 2.4 };
   });
   world.bus.on('boonTaken', (p) => {
-    toast = { title: p.boon.title, sub: p.boon.text, life: 3.2, maxLife: 3.2, color: RARITY[p.boon.rarity]?.color };
+    const def = ANY_BOON_BY_ID[p.boon.id];
+    const title = p.boon.title || def?.name || p.boon.id;
+    const sub = p.boon.text || (def && p.boon.values ? def.desc(p.boon.values) : '');
+    toast = { title, sub, life: 3.2, maxLife: 3.2, color: RARITY[p.boon.rarity]?.color };
   });
 
   function labelFor(p) {
@@ -83,6 +86,25 @@ export function createHud(canvas, world) {
       ctx.fillStyle = k >= 0.99 ? '#ffd166' : '#63e6be';
       ctx.fillRect(rx0, ry0, bw * k, 6);
       text(`가속 +${Math.round(p.ramp * 100)}%`, rx0 + bw + 8, ry0 + 3, k >= 0.99 ? '#ffd166' : '#63e6be', 'bold 11px system-ui', 'left');
+    }
+
+    // ---- 소환수 ----
+    const cap = world.minionCap();
+    const alive = world.aliveMinions();
+    if (alive > 0 || cap > 3) {
+      const my = fy + (world.weapon.rampPerHit && p.ramp > 0 ? 26 : 14);
+      text(`소환수 ${alive}/${cap}`, bx, my + 4, alive >= cap ? '#c4a8ff' : '#9d7fd8', 'bold 12px system-ui', 'left');
+      for (let i = 0; i < cap; i++) {
+        ctx.beginPath();
+        ctx.arc(bx + 78 + i * 13, my + 4, 4.2, 0, TAU);
+        ctx.fillStyle = i < alive ? '#c4a8ff' : 'rgba(255,255,255,0.15)';
+        ctx.fill();
+      }
+    }
+
+    // ---- 시체 (사령술 빌드일 때만) ----
+    if (world.corpses.length && (world.weapon.corpseHaste || world.weapon.summonOnKill || world.loadout.mods.minionCap > 0)) {
+      text(`시체 ${world.corpses.length}`, bx + 210, fy + 18, '#9d7fd8', 'bold 12px system-ui', 'left');
     }
 
     // ---- 무기 / 골드 / 진행도 ----

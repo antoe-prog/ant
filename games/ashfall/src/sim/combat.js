@@ -137,6 +137,11 @@ function makeCtx(world) {
     strikeRandom: (count, dmg, radius) => strikeRandom(world, count, dmg, radius),
     stagger: (e, time) => staggerEnemy(world, e, time),
     shoot: (opts) => world.spawnPlayerProjectile(opts),
+    // 사령술
+    summon: (id, x, y, opts) => world.summon(id, x, y, opts),
+    corpses: (x, y, r) => world.corpsesNear(x, y, r),
+    consume: (c) => world.consumeCorpse(c),
+    minions: () => world.minions.filter((m) => !m.dead),
     forEachEnemyInRange: (x, y, r, fn) => forEachEnemyInRange(world, x, y, r, fn),
     fx: (type, payload) => world.bus.emit(type, payload),
   };
@@ -322,10 +327,22 @@ export function killEnemy(world, e, info = {}) {
   if (e.elite) world.spawnPickup(e.x, e.y, 'heal', 12);
   else if (!e.isBoss && world.rng.next() < 0.07) world.spawnPickup(e.x, e.y, 'heal', 5);
 
+  // 시체를 남긴다 — 사령술 빌드의 자원이자, 적 시체 술사의 자원이기도 하다
+  if (!e.noCorpse) {
+    world.spawnCorpse(e);
+    runHooks(world, 'corpse', { x: e.x, y: e.y, target: e });
+  }
+
   // '폭발성' 엘리트: 죽은 자리에 예고된 폭발을 남긴다 (시체 근처에 서 있지 말 것)
   if (hasAffix(e, 'volatile')) {
     const af = getAffix(e, 'volatile').onDeath.explode;
     world.spawnHazard(e.x, e.y, af.radius, af.dmg, af.telegraph, '#ff6b35');
+  }
+
+  // 무기 고유: 처치 시 망령 자동 소환 (강령장)
+  const soc = world.weapon.summonOnKill;
+  if (soc && !e.isBoss && world.rng.next() < soc.chance) {
+    world.summon(soc.id, e.x, e.y, { scale: e.elite ? 1.5 : 1 });
   }
 
   // 무기 고유: 처치 시 대시 충전 회복 (쌍아검)

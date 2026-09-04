@@ -4,9 +4,10 @@
 // ============================================================
 
 import { EV } from '../core/events.js';
-import { clamp, dist, normalize, arcHit, TAU, rotateToward, normAngle } from '../core/math.js';
+import { clamp, dist, dist2, normalize, arcHit, TAU, rotateToward, normAngle } from '../core/math.js';
 import { PLAYER } from '../data/balance.js';
 import { damagePlayer, statusSpeedMult, isDisabled, applyPlayerStatus, applyStatus, damageEnemy, killEnemy } from './combat.js';
+import { blockProjectile } from './minions.js';
 
 const SEPARATION_FORCE = 260;
 
@@ -255,6 +256,63 @@ const BEHAVIORS = {
     }
   },
 
+  /**
+   * 시체 술사: 전장의 시체를 되살린다.
+   * 플레이어의 사령술 자원을 놓고 경쟁하며, 방치하면 방이 끝나지 않는다.
+   * 부활은 길게 예고되므로 '먼저 끊을지 / 시체를 먼저 치울지'가 선택이 된다.
+   */
+  raiser(world, e, p, dt, slow) {
+    const d = dist(e.x, e.y, p.x, p.y);
+    const [near, far] = e.def.keepDist;
+    e.facing = rotateToward(e.facing, Math.atan2(p.y - e.y, p.x - e.x), 3.4 * dt);
+
+    if (e.state === 'telegraph') {
+      e.vx *= 0.88; e.vy *= 0.88;
+      if (e.t <= 0) {
+        const c = e.raiseTarget;
+        if (c && !c.used && world.corpses.includes(c)) {
+          c.used = true;
+          const revived = world.spawnEnemy(c.enemyId, c.x, c.y, {});
+          if (revived) {
+            revived.hp = revived.maxHp = revived.maxHp * e.def.revivedHp;
+            revived.noCorpse = true;   // 무한 부활 고리를 막는다
+            revived.revived = true;
+          }
+          world.bus.emit(EV.EXPLOSION, { x: c.x, y: c.y, radius: 70, element: 'necro' });
+        }
+        e.raiseTarget = null;
+        e.state = 'idle';
+        e.cd = e.def.cooldown / world.run.enemySpeedMult;
+      }
+      return;
+    }
+
+    // 되살릴 시체를 찾는다
+    if (e.cd <= 0) {
+      let best = null, bestD = Infinity;
+      for (const c of world.corpses) {
+        if (c.used) continue;
+        const cd = dist2(e.x, e.y, c.x, c.y);
+        if (cd < bestD && cd <= e.def.raiseRange * e.def.raiseRange) { bestD = cd; best = c; }
+      }
+      if (best) {
+        e.raiseTarget = best;
+        e.state = 'telegraph';
+        e.t = (e.def.telegraph * e.teleMult) / world.run.enemySpeedMult;
+        e.tele = { kind: 'raise', t: e.t, maxT: e.t, radius: 60, tx: best.x, ty: best.y };
+        return;
+      }
+    }
+
+    // 시체가 없으면 거리를 유지하며 배회한다
+    if (d < near) moveToward(e, e.x * 2 - p.x, e.y * 2 - p.y, e.speed, dt, slow);
+    else if (d > far) moveToward(e, p.x, p.y, e.speed, dt, slow);
+    else {
+      const a = Math.atan2(p.y - e.y, p.x - e.x) + Math.PI / 2 * (e.strafeDir || 1);
+      moveToward(e, e.x + Math.cos(a) * 100, e.y + Math.sin(a) * 100, e.speed * 0.6, dt, slow);
+    }
+  },
+
   /** 접근 후 자폭. 도망칠 시간을 준다. */
   bomber(world, e, p, dt, slow) {
     const d = dist(e.x, e.y, p.x, p.y);
@@ -360,6 +418,9 @@ export function updateProjectiles(world, dt) {
         }
       }
     }
+    // 소환수가 몸으로 막는다 (해골 병사) — 진형이 의미를 갖는 지점
+    if (!remove && blockProjectile(world, pr)) remove = true;
+
     // 아레나 밖
     const a = world.arena;
     if (!remove && (pr.x < a.pad || pr.y < a.pad || pr.x > a.width - a.pad || pr.y > a.height - a.pad)) {

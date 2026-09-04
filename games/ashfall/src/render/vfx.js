@@ -7,7 +7,7 @@ import { EV } from '../core/events.js';
 import { TAU } from '../core/math.js';
 
 const ELEMENT_COLOR = {
-  ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', none: '#ffffff',
+  ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', necro: '#9d7fd8', none: '#ffffff',
 };
 
 export function createVfx(world, bus) {
@@ -134,6 +134,23 @@ export function createVfx(world, bus) {
     rings.push({ x: p.boss.x, y: p.boss.y, r: 10, max: 420, life: 0.8, maxLife: 0.8, color: p.boss.def.accent, width: 7 });
   });
   bus.on(EV.BOON_TAKEN, () => { screenFlash = 0.3; screenFlashColor = '#ffd166'; });
+
+  // ---- 사령술 ----
+  bus.on('minionSummon', (p) => {
+    // 땅에서 솟아오르는 느낌: 위로 뻗는 입자 + 바닥 링
+    burst(p.x, p.y, 18, p.color, { dir: -Math.PI / 2, spread: 0.8, speedMin: 90, speedMax: 260, lifeMax: 0.6, glow: true });
+    rings.push({ x: p.x, y: p.y, r: 4, max: 54 * (p.scale || 1), life: 0.42, maxLife: 0.42, color: '#c4a8ff', width: 3 });
+  });
+  bus.on('minionExpire', (p) => burst(p.x, p.y, 10, p.color || '#9d7fd8', { speedMax: 140, lifeMax: 0.5 }));
+  bus.on('minionDeath', (p) => burst(p.x, p.y, 14, p.color || '#9d7fd8', { speedMax: 220, lifeMax: 0.5, glow: true }));
+  bus.on('minionHit', (p) => burst(p.x, p.y, 4, p.color || '#c4a8ff', { speedMax: 120, lifeMax: 0.25 }));
+  bus.on('corpseUsed', (p) => {
+    burst(p.x, p.y, 10, '#9d7fd8', { dir: -Math.PI / 2, spread: 1.1, speedMax: 200, lifeMax: 0.5, glow: true });
+  });
+  bus.on('raiseDead', (p) => {
+    screenFlash = Math.max(screenFlash, 0.3); screenFlashColor = '#9d7fd8';
+    rings.push({ x: p.x, y: p.y, r: 10, max: 300, life: 0.6, maxLife: 0.6, color: '#c4a8ff', width: 5 });
+  });
 
   return {
     particles, numbers, rings, beams, slashes, flashes,

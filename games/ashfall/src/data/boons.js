@@ -13,6 +13,7 @@ export const GODS = {
   frost: { id: 'frost', name: '서리 신 글라시아', color: '#7fd8ff', element: 'frost' },
   storm: { id: 'storm', name: '폭풍 신 볼트',   color: '#ffe36b', element: 'storm' },
   blood: { id: 'blood', name: '피의 신 상귄',   color: '#ff4d6d', element: 'blood' },
+  necro: { id: 'necro', name: '사령의 신 모르', color: '#9d7fd8', element: 'necro' },
   none:  { id: 'none',  name: '방랑자의 유물',  color: '#c8d2dc', element: 'none' },
 };
 
@@ -122,7 +123,7 @@ export const BOONS = [
   // ---------------- 폭풍 신 볼트 (연쇄 / 기동) ----------------
   {
     id: 'storm_attack', god: 'storm', slot: 'attack', name: '방전 각인',
-    values: { chance: 0.3, dmg: 16, targets: 2 },
+    values: { chance: 0.3, dmg: 16, targets: 2 }, caps: { chance: 0.75 },
     desc: (v) => `기본공격이 ${pct(v.chance)} 확률로 ${Math.round(v.targets)}명에게 연쇄 번개 (${Math.round(v.dmg)} 피해).`,
     apply: (L, v) => {
       L.on.hit.push((c) => {
@@ -134,7 +135,7 @@ export const BOONS = [
   },
   {
     id: 'storm_dash', god: 'storm', slot: 'dash', name: '뇌전 질주',
-    values: { cdr: 0.28, dmg: 18, stacks: 1 },
+    values: { cdr: 0.28, dmg: 18, stacks: 1 }, caps: { cdr: 0.55 },
     desc: (v) => `대시 쿨다운 -${pct(v.cdr)}. 대시가 스친 적에게 ${Math.round(v.dmg)} 피해와 감전.`,
     apply: (L, v) => {
       L.mods.dashCooldownMult *= 1 - v.cdr;
@@ -175,7 +176,7 @@ export const BOONS = [
   // ---------------- 피의 신 상귄 (흡혈 / 광폭) ----------------
   {
     id: 'blood_attack', god: 'blood', slot: 'attack', name: '갈증의 각인',
-    values: { leech: 0.07, stacks: 1 },
+    values: { leech: 0.07, stacks: 1 }, caps: { leech: 0.2 },
     desc: (v) => `기본공격이 출혈을 부여하고 피해의 ${pct(v.leech)}를 회복한다.`,
     apply: (L, v) => {
       L.attackStatus.push({ kind: 'bleed', stacks: Math.round(v.stacks) });
@@ -193,7 +194,7 @@ export const BOONS = [
   },
   {
     id: 'blood_special', god: 'blood', slot: 'special', name: '피의 대가',
-    values: { mult: 0.55, leech: 0.22 },
+    values: { mult: 0.55, leech: 0.22 }, caps: { leech: 0.5 },
     desc: (v) => `특수기 피해 +${pct(v.mult)}, 특수기 피해의 ${pct(v.leech)}를 회복.`,
     apply: (L, v) => {
       L.on.modifyDamage.push((c) => { if (c.tag === 'special') c.mult *= 1 + v.mult; });
@@ -202,7 +203,7 @@ export const BOONS = [
   },
   {
     id: 'blood_frenzy', god: 'blood', slot: 'passive', name: '광란',
-    values: { max: 0.55 },
+    values: { max: 0.55 }, caps: { max: 1.2 },
     desc: (v) => `체력이 낮을수록 피해 증가 (최대 +${pct(v.max)}).`,
     apply: (L, v) => {
       L.on.modifyDamage.push((c) => {
@@ -216,6 +217,91 @@ export const BOONS = [
     values: { heal: 4 },
     desc: (v) => `적 처치 시 체력 ${Math.round(v.heal)} 회복.`,
     apply: (L, v) => { L.on.kill.push((c) => c.heal(v.heal)); },
+  },
+
+  // ---------------- 사령의 신 모르 (시체 · 소환) ----------------
+  // 이 계열의 자원은 '시체'다. 어디서 싸웠는지가 그대로 힘이 된다.
+  {
+    id: 'necro_attack', god: 'necro', slot: 'attack', name: '망자의 인장',
+    values: { chance: 0.35 }, caps: { chance: 0.8 },
+    desc: (v) => `기본공격으로 적을 처치하면 ${pct(v.chance)} 확률로 그 자리에서 망령이 일어난다.`,
+    apply: (L, v) => {
+      L.on.kill.push((c) => {
+        if (c.tag !== 'attack') return;
+        if (c.rng.next() > v.chance) return;
+        const near = c.corpses(c.x, c.y, 60)[0];
+        if (near) c.consume(near);
+        c.summon('wraith', c.x, c.y, { scale: c.target.elite ? 1.5 : 1 });
+      });
+    },
+  },
+  {
+    id: 'necro_dash', god: 'necro', slot: 'dash', name: '영혼 수확',
+    values: { radius: 120, heal: 5 },
+    desc: (v) => `대시가 지나간 자리의 시체를 거두어 망령으로 일으키고 체력 ${Math.round(v.heal)}를 회복한다.`,
+    apply: (L, v) => {
+      L.on.dashTrail.push((c) => {
+        const list = c.corpses(c.x, c.y, v.radius);
+        if (!list.length) return;
+        const target = list[0];
+        if (!c.consume(target)) return;
+        c.summon('wraith', target.x, target.y, { scale: target.scale });
+        c.heal(v.heal);
+      });
+    },
+  },
+  {
+    id: 'necro_special', god: 'necro', slot: 'special', name: '시체 폭발',
+    values: { radius: 300, dmg: 52, blast: 130 },
+    desc: (v) => `특수기가 반경 ${Math.round(v.radius)} 내 모든 시체를 터뜨린다 (각각 ${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.special.push((c) => {
+        for (const corpse of c.corpses(c.x, c.y, v.radius)) {
+          if (!c.consume(corpse)) continue;
+          c.explode(corpse.x, corpse.y, v.blast * corpse.scale, v.dmg * corpse.scale, 'necro', null);
+        }
+      });
+    },
+  },
+  {
+    id: 'necro_horde', god: 'necro', slot: 'passive', name: '군세',
+    values: { cap: 2, dmg: 0.25 },
+    desc: (v) => `최대 소환수 +${Math.round(v.cap)}, 소환수 피해 +${pct(v.dmg)}.`,
+    apply: (L, v) => { L.mods.minionCap += Math.round(v.cap); L.mods.minionDamage += v.dmg; },
+  },
+  {
+    id: 'necro_grave', god: 'necro', slot: 'passive', name: '무덤의 가호',
+    values: { perCorpse: 0.05, max: 0.35, radius: 240 }, caps: { max: 0.6 },
+    desc: (v) => `주변 시체 1구당 주는 피해 +${pct(v.perCorpse)} (최대 +${pct(v.max)}).`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => {
+        const n = c.corpses(c.player.x, c.player.y, v.radius).length;
+        if (n > 0) c.mult *= 1 + Math.min(v.max, v.perCorpse * n);
+      });
+    },
+  },
+  {
+    id: 'necro_harvest', god: 'necro', slot: 'passive', name: '시체 흡수',
+    values: { heal: 7, focus: 12 },
+    desc: (v) => `시체를 밟으면 흡수하여 체력 ${Math.round(v.heal)}와 집중 ${Math.round(v.focus)}를 얻는다.`,
+    apply: (L, v) => {
+      L.on.tick.push((c) => {
+        const near = c.corpses(c.player.x, c.player.y, 46)[0];
+        if (!near || !c.consume(near)) return;
+        c.heal(v.heal);
+        c.player.focus = Math.min(c.player.maxFocus, c.player.focus + v.focus);
+      });
+    },
+  },
+  {
+    id: 'necro_bind', god: 'necro', slot: 'passive', name: '영혼 결속',
+    values: { life: 0.5, hp: 0.6, status: 2 },
+    desc: (v) => `소환수 지속시간 +${pct(v.life)}, 체력 +${pct(v.hp)}. 소환수 타격이 냉기를 부여한다.`,
+    apply: (L, v) => {
+      L.mods.minionLife += v.life;
+      L.mods.minionHp += v.hp;
+      L.minionStatus.push({ kind: 'chill', stacks: Math.round(v.status) });
+    },
   },
 
   // ---------------- 공용 유물 ----------------
@@ -233,7 +319,7 @@ export const BOONS = [
   },
   {
     id: 'relic_focus', god: 'none', slot: 'passive', name: '명상의 인장',
-    values: { regen: 4.5, cost: 0.18 },
+    values: { regen: 4.5, cost: 0.18 }, caps: { cost: 0.5 },
     desc: (v) => `집중 회복 +${v.regen.toFixed(1)}/초, 특수기 소모 -${pct(v.cost)}.`,
     apply: (L, v) => { L.stats.focusRegen += v.regen; L.mods.specialCostMult *= 1 - v.cost; },
   },
@@ -267,7 +353,7 @@ export const WEAPON_BOONS = [
   // ---- 잿불검: 3타 마무리를 중심으로 ----
   {
     id: 'blade_execute', weapon: 'emberblade', god: 'none', slot: 'passive', name: '참수',
-    values: { threshold: 0.3, bossMult: 0.9 },
+    values: { threshold: 0.3, bossMult: 0.9 }, caps: { threshold: 0.5 },
     desc: (v) => `3타 마무리가 체력 ${pct(v.threshold)} 이하의 적을 즉시 처형한다. (보스는 대신 +${pct(v.bossMult)} 피해)`,
     apply: (L, v) => {
       L.on.hit.push((c) => {
@@ -318,6 +404,30 @@ export const WEAPON_BOONS = [
       L.mods.armorExtra += v.armor;
       L.on.hurt.push((c) => {
         c.explode(c.player.x, c.player.y, v.radius, v.counter, 'none', null);
+      });
+    },
+  },
+
+  // ---- 강령장: 시체와 군세를 중심으로 ----
+  {
+    id: 'grave_legion', weapon: 'gravecall', god: 'none', slot: 'passive', name: '대군',
+    values: { cap: 3, archer: 0.5 }, caps: { archer: 0.75 },
+    desc: (v) => `최대 소환수 +${Math.round(v.cap)}. 망자 봉기가 ${pct(v.archer)} 확률로 뼈 궁수를 일으킨다.`,
+    apply: (L, v) => {
+      L.mods.minionCap += Math.round(v.cap);
+      L.mods.archerChance = (L.mods.archerChance || 0) + v.archer;
+    },
+  },
+  {
+    id: 'grave_grasp', weapon: 'gravecall', god: 'none', slot: 'passive', name: '죽음의 손아귀',
+    values: { dmg: 44, radius: 150, chance: 0.5 }, caps: { chance: 0.85 },
+    desc: (v) => `적이 죽을 때 ${pct(v.chance)} 확률로 시체가 즉시 터진다 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.corpse.push((c) => {
+        if (c.rng.next() > v.chance) return;
+        const near = c.corpses(c.x, c.y, 40)[0];
+        if (near) c.consume(near);
+        c.explode(c.x, c.y, v.radius, v.dmg, 'necro', null);
       });
     },
   },
@@ -380,7 +490,7 @@ export const DUO_BOONS = [
   },
   {
     id: 'duo_ashthirst', gods: ['ember', 'blood'], name: '재의 갈증', slot: 'passive', god: 'none',
-    values: { leech: 0.35 },
+    values: { leech: 0.35 }, caps: { leech: 0.7 },
     desc: (v) => `화상 피해의 ${pct(v.leech)}만큼 체력을 회복한다.`,
     apply: (L, v) => {
       L.on.hit.push((c) => { if (c.tag === 'burn') c.heal(c.dmg * v.leech); });
@@ -412,7 +522,7 @@ export const DUO_BOONS = [
   },
   {
     id: 'duo_overload', gods: ['storm', 'blood'], name: '혈류 과부하', slot: 'passive', god: 'none',
-    values: { dmg: 34, targets: 4 },
+    values: { dmg: 34, targets: 4 }, caps: {},
     desc: (v) => `출혈 중인 적을 때리면 ${Math.round(v.targets)}명에게 방전된다 (${Math.round(v.dmg)} 피해).`,
     apply: (L, v) => {
       L.on.hit.push((c) => {
@@ -424,16 +534,66 @@ export const DUO_BOONS = [
   },
 ];
 
+// 사령의 신과의 합일 — 소환/시체가 다른 계열과 맞물린다
+DUO_BOONS.push(
+  {
+    id: 'duo_pyre', gods: ['necro', 'ember'], name: '화장', slot: 'passive', god: 'none',
+    values: { dmg: 55, radius: 130, stacks: 3 },
+    desc: (v) => `소환수가 스러질 때 폭발한다 (${Math.round(v.dmg)} 피해 + 화상).`,
+    apply: (L, v) => {
+      L.on.minionDeath.push((c) => {
+        c.explode(c.x, c.y, v.radius, v.dmg, 'ember', { kind: 'burn', stacks: Math.round(v.stacks) });
+      });
+    },
+  },
+  {
+    id: 'duo_icetomb', gods: ['necro', 'frost'], name: '빙결의 무덤', slot: 'passive', god: 'none',
+    values: { radius: 160, stacks: 3, dmg: 24 },
+    desc: (v) => `시체가 사라질 때 냉기 폭발을 남긴다 (${Math.round(v.dmg)} 피해 + 냉기 ${Math.round(v.stacks)}중첩).`,
+    apply: (L, v) => {
+      L.on.corpseExpire.push((c) => {
+        c.explode(c.x, c.y, v.radius, v.dmg, 'frost', { kind: 'chill', stacks: Math.round(v.stacks) });
+      });
+    },
+  },
+  {
+    id: 'duo_soulcharge', gods: ['necro', 'storm'], name: '영혼 방전', slot: 'passive', god: 'none',
+    values: { dmg: 24, targets: 2, chance: 0.35 }, caps: { chance: 0.8 },
+    desc: (v) => `소환수의 타격이 ${pct(v.chance)} 확률로 ${Math.round(v.targets)}명에게 연쇄 번개를 부른다.`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (c.tag !== 'minion') return;
+        if (c.rng.next() > v.chance) return;
+        c.chain(c.target, Math.round(v.targets), v.dmg);
+      });
+    },
+  },
+  {
+    id: 'duo_siphon', gods: ['necro', 'blood'], name: '생명 착취', slot: 'passive', god: 'none',
+    values: { leech: 0.3 }, caps: { leech: 0.6 },
+    desc: (v) => `소환수가 준 피해의 ${pct(v.leech)}만큼 내 체력이 회복된다.`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => { if (c.tag === 'minion') c.heal(c.dmg * v.leech); });
+    },
+  },
+);
+
 export const DUO_BY_ID = Object.fromEntries(DUO_BOONS.map((b) => [b.id, b]));
 export const ALL_BOONS = [...BOONS, ...WEAPON_BOONS, ...DUO_BOONS];
 export const ANY_BOON_BY_ID = Object.fromEntries(ALL_BOONS.map((b) => [b.id, b]));
 
-/** 레벨/희귀도가 반영된 실제 수치 계산 */
+/**
+ * 레벨/희귀도가 반영된 실제 수치 계산.
+ * caps 에 상한이 지정된 키는 그 값을 넘지 않는다 —
+ * 확률(0~1)이나 감소율이 스케일링으로 100%를 넘어 의미를 잃는 것을 막는다.
+ */
 export function scaleValues(boon, rarityMult, level) {
   const out = {};
   const lvMult = 1 + 0.32 * (level - 1);
+  const caps = boon.caps || {};
   for (const [k, base] of Object.entries(boon.values || {})) {
-    out[k] = base * rarityMult * lvMult;
+    const v = base * rarityMult * lvMult;
+    out[k] = caps[k] != null ? Math.min(caps[k], v) : v;
   }
   return out;
 }

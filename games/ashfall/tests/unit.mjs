@@ -5,12 +5,14 @@ import { createWorld } from '../src/sim/world.js';
 import { createRun, grantBoon, buildBoonOptions } from '../src/sim/run.js';
 import { buildLoadout, availableDuos, slotsUsed } from '../src/sim/loadout.js';
 import { applyStatus, updateStatuses, damageEnemy, damagePlayer, healPlayer, staggerEnemy as staggerFn } from '../src/sim/combat.js';
-import { updatePlayer as updatePlayerFn } from '../src/sim/player.js';
+import { updatePlayer as updatePlayerFn, corpseHasteMult as corpseHasteFn } from '../src/sim/player.js';
 import { updateProjectiles as updateProjectilesFn, updateEnemies as updateEnemiesFn } from '../src/sim/enemyAI.js';
 import { STATUS, SIM, PLAYER, RUN, ARENA } from '../src/data/balance.js';
 import { WEAPONS } from '../src/data/weapons.js';
 import { BOONS, WEAPON_BOONS, DUO_BOONS, ALL_BOONS, scaleValues } from '../src/data/boons.js';
 import { ENEMIES, BOSSES, MINIBOSSES, ELITE_AFFIXES, BIOMES, ENEMY_COST } from '../src/data/enemies.js';
+import { MINIONS, MINION_BY_ID, MINION_RULES, CORPSE } from '../src/data/minions.js';
+import { summonMinion, updateMinions, updateCorpses, corpsesNear, minionCap, aliveMinions, damageMinion } from '../src/sim/minions.js';
 
 // ---- 아주 작은 테스트 하네스 ----
 const results = [];
@@ -291,6 +293,176 @@ test('회복은 최대 체력을 넘지 않는다', () => {
   w.player.hp = 10;
   healPlayer(w, 99999);
   eq(w.player.hp, w.player.maxHp);
+});
+
+// ============ 사령술: 시체 / 소환수 ============
+test('적이 죽으면 시체가 남고, 시간이 지나면 사라진다', () => {
+  const w = testWorld();
+  w.corpses.length = 0;
+  const e = w.spawnEnemy('husk', 400, 400);
+  damageEnemy(w, e, 1e6, 'none', { silent: true });
+  eq(w.corpses.length, 1, '시체가 생기지 않음');
+  for (let i = 0; i < Math.ceil(CORPSE.LIFETIME * 60) + 5; i++) updateCorpses(w, SIM.DT);
+  eq(w.corpses.length, 0, '시체가 만료되지 않음');
+});
+
+test('되살아난 적은 시체를 남기지 않는다 (무한 부활 방지)', () => {
+  const w = testWorld();
+  w.corpses.length = 0;
+  const e = w.spawnEnemy('husk', 400, 400);
+  e.noCorpse = true;
+  damageEnemy(w, e, 1e6, 'none', { silent: true });
+  eq(w.corpses.length, 0, '되살아난 적이 시체를 남김');
+});
+
+test('시체 자연 소멸은 corpseExpire 훅을 발생시킨다', () => {
+  const w = testWorld();
+  let fired = 0;
+  w.loadout.on.corpseExpire.push(() => fired++);
+  w.corpses.length = 0;
+  const e = w.spawnEnemy('husk', 400, 400);
+  damageEnemy(w, e, 1e6, 'none', { silent: true });
+  for (let i = 0; i < Math.ceil(CORPSE.LIFETIME * 60) + 5; i++) updateCorpses(w, SIM.DT);
+  eq(fired, 1, 'corpseExpire 미발생');
+  // 소비된 시체는 만료 훅을 발생시키지 않는다
+  fired = 0;
+  const e2 = w.spawnEnemy('husk', 500, 500);
+  damageEnemy(w, e2, 1e6, 'none', { silent: true });
+  w.consumeCorpse(w.corpses[0]);
+  for (let i = 0; i < 10; i++) updateCorpses(w, SIM.DT);
+  eq(fired, 0, '소비된 시체가 만료 훅을 발생시킴');
+});
+
+test('소환수는 상한을 넘지 않고, 넘치면 가장 오래된 것이 스러진다', () => {
+  const w = testWorld();
+  const cap = minionCap(w);
+  for (let i = 0; i < cap + 4; i++) summonMinion(w, 'wraith', 400 + i * 5, 400);
+  for (let i = 0; i < 3; i++) updateMinions(w, SIM.DT);
+  assert(aliveMinions(w) <= cap, `상한 ${cap} 초과: ${aliveMinions(w)}`);
+});
+
+test('권능이 소환수 상한/성능을 올린다', () => {
+  const w = testWorld();
+  const base = minionCap(w);
+  grantBoon(w, { id: 'necro_horde', rarity: 'common', level: 1 });
+  assert(minionCap(w) > base, '상한 미증가');
+  const before = summonMinion(w, 'wraith', 400, 400).dmg;
+  grantBoon(w, { id: 'necro_horde', rarity: 'legendary', level: 3 });
+  const after = summonMinion(w, 'wraith', 400, 400).dmg;
+  assert(after > before, '소환수 피해 미증가');
+  assert(minionCap(w) <= MINION_RULES.HARD_CAP, '하드 캡을 넘음');
+});
+
+test('소환수가 적을 공격한다', () => {
+  const w = testWorld();
+  w.enemies.length = 0;
+  const e = w.spawnEnemy('husk', 400, 400);
+  e.spawnT = 0; e.hp = e.maxHp = 100000;
+  w.player.x = 400; w.player.y = 420;
+  const m = summonMinion(w, 'wraith', 420, 400);
+  m.spawnT = 0;
+  const hp0 = e.hp;
+  for (let i = 0; i < 120; i++) updateMinions(w, SIM.DT);
+  assert(e.hp < hp0, '소환수가 피해를 주지 못함');
+});
+
+test('해골 병사는 적탄을 몸으로 막는다', () => {
+  const w = testWorld();
+  w.projectiles.length = 0;
+  w.player.x = 600; w.player.y = 400; w.player.iframes = 0;
+  const m = summonMinion(w, 'skeleton', 500, 400);
+  m.spawnT = 0;
+  const mHp = m.hp;
+  w.projectiles.push({ x: 400, y: 400, vx: 600, vy: 0, radius: 8, dmg: 20, life: 2, color: '#fff', hostile: true });
+  const pHp = w.player.hp;
+  for (let i = 0; i < 40; i++) updateProjectilesFn(w, SIM.DT);
+  eq(w.projectiles.length, 0, '탄이 사라지지 않음');
+  assert(m.hp < mHp, '해골이 피해를 받지 않음');
+  eq(w.player.hp, pHp, '플레이어가 대신 맞음 — 막지 못했다');
+});
+
+test('망자 봉기는 시체를 소환수로 바꾸고, 시체가 없으면 광역 피해를 준다', () => {
+  const w = createWorld({ seed: 4, weaponId: 'gravecall' });
+  const d = createRun(w);
+  d.enterRoom({ type: 'combat' });
+  w.enemies.length = 0; w.spawnQueue = []; w.minions.length = 0; w.corpses.length = 0;
+  const p = w.player;
+  // 시체 3구 배치
+  for (let i = 0; i < 3; i++) {
+    w.corpses.push({ x: p.x + 40 + i * 30, y: p.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+  p.focus = p.maxFocus;
+  const intent = { mx: 0, my: 0, aimX: p.x + 100, aimY: p.y, attack: false, dash: false, special: true };
+  updatePlayerFn(w, intent, SIM.DT);
+  assert(aliveMinions(w) >= 1, '시체가 소환수로 바뀌지 않음');
+  assert(w.corpses.filter((c) => !c.used).length < 3, '시체가 소비되지 않음');
+
+  // 시체가 없을 때는 광역 피해로 전환
+  const w2 = createWorld({ seed: 4, weaponId: 'gravecall' });
+  const d2 = createRun(w2);
+  d2.enterRoom({ type: 'combat' });
+  w2.enemies.length = 0; w2.corpses.length = 0; w2.minions.length = 0;
+  const e = w2.spawnEnemy('husk', w2.player.x + 60, w2.player.y);
+  e.spawnT = 0; e.hp = e.maxHp = 100000;
+  const hp0 = e.hp;
+  w2.player.focus = w2.player.maxFocus;
+  updatePlayerFn(w2, { mx: 0, my: 0, aimX: e.x, aimY: e.y, attack: false, dash: false, special: true }, SIM.DT);
+  assert(e.hp < hp0, '시체가 없을 때 대체 피해가 없음');
+  eq(aliveMinions(w2), 0, '시체가 없는데 소환됨');
+});
+
+test('강령장은 주변 시체 수만큼 공격이 빨라진다', () => {
+  const w = createWorld({ seed: 4, weaponId: 'gravecall' });
+  createRun(w);
+  const base = corpseHasteFn(w);
+  eq(base, 1, '시체가 없으면 배율 1이어야 함');
+  for (let i = 0; i < 4; i++) {
+    w.corpses.push({ x: w.player.x + i * 20, y: w.player.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+  const hasted = corpseHasteFn(w);
+  assert(hasted > base, '시체 가속이 적용되지 않음');
+  // 상한을 넘지 않는다
+  for (let i = 0; i < 30; i++) {
+    w.corpses.push({ x: w.player.x, y: w.player.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+  assert(corpseHasteFn(w) <= 1 + w.weapon.corpseHaste.max + 1e-9, '시체 가속 상한 초과');
+});
+
+test('시체 술사는 시체를 되살리고, 되살아난 적은 다시 시체가 되지 않는다', () => {
+  const w = testWorld();
+  w.enemies.length = 0; w.corpses.length = 0; w.spawnQueue = [];
+  w.player.x = 300; w.player.y = 400;
+  const caller = w.spawnEnemy('bonecaller', 600, 400);
+  caller.spawnT = 0; caller.cd = 0;
+  w.corpses.push({ x: 620, y: 400, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  for (let i = 0; i < 200; i++) updateEnemiesFn(w, SIM.DT);
+  const revived = w.enemies.filter((e) => e.revived);
+  assert(revived.length >= 1, '시체를 되살리지 못함');
+  assert(revived[0].noCorpse, '되살아난 적이 다시 시체를 남기도록 되어 있음');
+  assert(revived[0].maxHp < ENEMY_BY_ID_husk(w), '되살아난 적의 체력이 줄지 않음');
+});
+function ENEMY_BY_ID_husk(w) {
+  const e = w.spawnEnemy('husk', 10, 10);
+  const hp = e.maxHp;
+  e.dead = true;
+  return hp;
+}
+
+test('확률 수치는 희귀도/레벨 스케일링으로 상한을 넘지 않는다', () => {
+  for (const b of ALL_BOONS) {
+    if (!b.caps) continue;
+    const v = scaleValues(b, 2.3, 3); // 전설 + 최대 레벨
+    for (const [k, cap] of Object.entries(b.caps)) {
+      assert(v[k] <= cap + 1e-9, `${b.id}.${k} 상한 ${cap} 초과: ${v[k]}`);
+    }
+  }
+  // 확률로 쓰이는 값은 모두 1 이하여야 한다
+  for (const b of ALL_BOONS) {
+    const v = scaleValues(b, 2.3, 3);
+    for (const k of ['chance', 'archer']) {
+      if (v[k] != null) assert(v[k] <= 1, `${b.id}.${k} 가 100%를 넘음: ${v[k]}`);
+    }
+  }
 });
 
 // ============ 엘리트 접두사 / 미니보스 ============

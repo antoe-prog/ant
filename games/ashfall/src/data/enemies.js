@@ -106,6 +106,20 @@ export const ENEMIES = [
     cooldown: 1.9, burst: 3, burstGap: 0.13, spread: 0.22,
     applyStatus: { kind: 'shock', stacks: 1 },
   },
+  {
+    id: 'bonecaller',
+    name: '시체 술사',
+    ai: 'raiser',
+    hp: 62, dmg: 10, speed: 104, radius: 16, gold: 11,
+    color: '#5c4b73', accent: '#9d7fd8',
+    weight: 42, minBiome: 1,
+    telegraph: 0.8,          // 부활 예고 — 끊을 시간을 준다
+    keepDist: [230, 380],
+    raiseRange: 340,
+    revivedHp: 0.55,         // 되살아난 적의 체력 배율
+    cooldown: 2.6,
+    contact: false,
+  },
 ];
 
 export const ENEMY_BY_ID = Object.fromEntries(ENEMIES.map((e) => [e.id, e]));
@@ -292,7 +306,7 @@ export const BIOMES = [
   {
     id: 'frostvault', name: '서리 지하묘',
     floor: '#1a2028', wall: '#27333f', accent: '#7fd8ff', fog: '#0d1218',
-    pool: ['husk', 'cinderling', 'bolter', 'bulwark', 'splitter', 'bomber'],
+    pool: ['husk', 'cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'bonecaller'],
     boss: 'frostqueen',
     miniboss: 'frostwarden',
     budget: [10.0, 13.0],
@@ -300,7 +314,7 @@ export const BIOMES = [
   {
     id: 'stormspire', name: '폭풍의 첨탑',
     floor: '#1d1a2a', wall: '#2b2740', accent: '#c07bff', fog: '#100e18',
-    pool: ['cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'lancer', 'warden'],
+    pool: ['cinderling', 'bolter', 'bulwark', 'splitter', 'bomber', 'lancer', 'warden', 'bonecaller'],
     boss: 'stormtyrant',
     miniboss: 'stormherald',
     budget: [13.0, 17.0],
@@ -310,5 +324,5 @@ export const BIOMES = [
 /** 스폰 예산 계산용 적 코스트 */
 export const ENEMY_COST = {
   cinderling: 0.55, husk: 1.0, bolter: 1.1, bomber: 1.2,
-  splitter: 1.6, bulwark: 2.0, lancer: 1.9, warden: 2.0, splitterling: 0,
+  splitter: 1.6, bulwark: 2.0, lancer: 1.9, warden: 2.0, bonecaller: 2.2, splitterling: 0,
 };

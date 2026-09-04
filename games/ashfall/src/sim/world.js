@@ -12,8 +12,9 @@ import { clamp, dist, TAU } from '../core/math.js';
 import { buildLoadout } from './loadout.js';
 import { createPlayer, updatePlayer, refreshPlayerStats } from './player.js';
 import { updateEnemies, updateProjectiles, retaliate } from './enemyAI.js';
+import { updateMinions, updateCorpses, summonMinion, spawnCorpse, corpsesNear, consumeCorpse, aliveMinions, minionCap } from './minions.js';
 import { updateBoss } from './boss.js';
-import { updateStatuses, updatePlayerStatus, healPlayer, damageEnemy, damagePlayer } from './combat.js';
+import { updateStatuses, updatePlayerStatus, healPlayer, damageEnemy, damagePlayer, runHooks } from './combat.js';
 
 export function createWorld(opts = {}) {
   const bus = opts.bus || new EventBus();
@@ -31,6 +32,8 @@ export function createWorld(opts = {}) {
     pickups: [],
     doors: [],
     hazards: [],
+    corpses: [],
+    minions: [],
     decals: [],
     weapon: WEAPON_BY_ID[opts.weaponId] || WEAPON_BY_ID.emberblade,
     weaponDamageMult: 1,
@@ -71,6 +74,14 @@ export function createWorld(opts = {}) {
 
     retaliate(e, af) { retaliate(this, e, af); },
 
+    // ---- 사령술 API (권능/무기가 쓰는 창구) ----
+    summon(id, x, y, opts) { return summonMinion(this, id, x, y, opts); },
+    spawnCorpse(e) { spawnCorpse(this, e); },
+    corpsesNear(x, y, r) { return corpsesNear(this, x, y, r); },
+    consumeCorpse(c) { return consumeCorpse(this, c); },
+    aliveMinions() { return aliveMinions(this); },
+    minionCap() { return minionCap(this); },
+
     rebuildLoadout() {
       this.loadout = buildLoadout(this.run.owned, this.meta);
       this.weaponDamageMult = 1 + WEAPON_UPGRADE.DMG_PER_LEVEL * this.run.weaponLevel;
@@ -103,7 +114,7 @@ export function createWorld(opts = {}) {
         speed: def.speed * this.run.enemySpeedMult * speedAffix,
         facing: this.rng.float(0, TAU),
         state: 'idle', t: 0, cd: this.rng.float(0.2, 0.9),
-        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0,
+        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0, noCorpse: false,
         spawnT: extra.fromSplit ? 0.1 : 0.45,
         strafeDir: this.rng.bool() ? 1 : -1,
         isBoss: false,
@@ -126,7 +137,7 @@ export function createWorld(opts = {}) {
         speed: def.speed,
         facing: Math.PI / 2,
         state: 'idle', t: 0, cd: 1.6,
-        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0,
+        status: {}, dead: false, hurtFlash: 0, _thermalCd: 0, staggerT: 0, noCorpse: false,
         spawnT: def.miniboss ? 0.8 : 1.2, phaseIdx: 0, invuln: 0,
         ringPhase: this.rng.float(0, TAU),
       };
@@ -201,13 +212,16 @@ function stepWorld(world, intent, dt) {
   if (paused) return;
 
   updatePlayer(world, intent, dt);
+  runHooks(world, 'tick', {});
 
   for (const e of world.enemies) {
     if (e.dead) continue;
     if (e.isBoss) updateBoss(world, e, dt);
   }
   updateEnemies(world, dt);
+  updateMinions(world, dt);
   updateProjectiles(world, dt);
+  updateCorpses(world, dt);
   updateStatuses(world, dt);
   updatePlayerStatus(world, dt);
   updateHazards(world, dt);

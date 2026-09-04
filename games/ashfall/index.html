@@ -62,20 +62,21 @@
   }
 
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .cards.weapons { grid-template-columns: repeat(2, 1fr); }
   .card {
     text-align: left; background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; padding: 14px; color: var(--text); cursor: pointer;
+    border-radius: 12px; padding: 12px 13px; color: var(--text); cursor: pointer;
     transition: transform .12s, border-color .12s, box-shadow .12s;
     font-family: inherit; font-size: 13px;
   }
   .card:hover { transform: translateY(-3px); border-color: var(--c, #fff); box-shadow: 0 8px 26px rgba(0,0,0,.5); }
   .card.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c) inset, 0 8px 26px rgba(0,0,0,.5); }
-  .weapon .wname { font-size: 19px; font-weight: 700; color: var(--c); margin-bottom: 4px; }
-  .weapon .wtag { color: var(--muted); line-height: 1.55; min-height: 38px; }
+  .weapon .wname { font-size: 18px; font-weight: 700; color: var(--c); margin-bottom: 3px; }
+  .weapon .wtag { color: var(--muted); line-height: 1.5; min-height: 0; margin-bottom: 2px; }
   .weapon .wtraits { list-style: none; padding: 0; margin: 8px 0 0; }
-  .weapon .wtraits li { font-size: 11.5px; color: #b9c4cf; line-height: 1.5; padding-left: 12px; position: relative; }
+  .weapon .wtraits li { font-size: 11px; color: #b9c4cf; line-height: 1.5; padding-left: 12px; position: relative; }
   .weapon .wtraits li::before { content: '·'; position: absolute; left: 3px; color: var(--c); font-weight: 700; }
-  .weapon .wsp { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); line-height: 1.55; font-size: 12px; }
+  .weapon .wsp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); line-height: 1.5; font-size: 11.5px; }
 
   /* ---- 권능 카드 ---- */
   .choose { text-align: center; }

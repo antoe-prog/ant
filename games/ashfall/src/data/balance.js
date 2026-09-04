@@ -42,6 +42,10 @@ export const PLAYER = {
   CONTACT_GRACE: 0.35,       // 적 접촉 데미지 재적용 간격
 };
 
+// 입력 버퍼: 이 시간 안에 누른 키는 조건이 갖춰지는 즉시 발동한다.
+// 짧게 톡 누른 입력이 프레임 사이에서 사라지는 것을 막는다.
+export const INPUT_BUFFER = 0.18;
+
 export const HITSTOP = {
   LIGHT: 0.028,
   HEAVY: 0.075,

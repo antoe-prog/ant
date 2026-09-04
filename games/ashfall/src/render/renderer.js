@@ -7,7 +7,8 @@ import { TAU, clamp } from '../core/math.js';
 import { STATUS } from '../data/balance.js';
 
 
-const ELEMENT_COLOR = { ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', none: '#ffffff' };
+const ALLY_RING = '#7ff0d8';
+const ELEMENT_COLOR = { ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', necro: '#9d7fd8', none: '#ffffff' };
 
 export function createRenderer(canvas, world, camera, vfx) {
   const ctx = canvas.getContext('2d');
@@ -27,6 +28,7 @@ export function createRenderer(canvas, world, camera, vfx) {
     camera.apply(ctx, W, H);
 
     drawFloor(biome);
+    drawCorpses();
     drawHazards();
     drawTelegraphs();
     drawAuras();
@@ -34,6 +36,7 @@ export function createRenderer(canvas, world, camera, vfx) {
     drawPickups();
     drawDoors();
     drawEnemies();
+    drawMinions();
     drawPlayer();
     drawProjectiles();
     drawSlashes();
@@ -154,12 +157,139 @@ export function createRenderer(canvas, world, camera, vfx) {
         ctx.lineTo(e.x + Math.cos(e.facing) * tl.range, e.y + Math.sin(e.facing) * tl.range);
         ctx.stroke();
         ctx.setLineDash([]);
+      } else if (tl.kind === 'raise') {
+        // 시체 술사 → 되살릴 시체를 잇는 선. 무엇을 끊어야 하는지 보인다.
+        ctx.globalAlpha = 0.5 + 0.4 * p;
+        ctx.strokeStyle = '#9d7fd8';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(tl.tx, tl.ty); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(tl.tx, tl.ty, tl.radius * (0.3 + 0.7 * p), 0, TAU); ctx.stroke();
       } else if (tl.kind === 'ring' || tl.kind === 'summon' || tl.kind === 'blink') {
         ctx.globalAlpha = 0.7;
         ctx.lineWidth = 3 + 4 * p;
         ctx.beginPath(); ctx.arc(e.x, e.y, (tl.radius || 90) * (0.4 + 0.6 * p), 0, TAU); ctx.stroke();
       }
       ctx.restore();
+    }
+  }
+
+  /**
+   * 시체 — 사령술의 자원. 바닥에 깔려 있어야 하므로 지형처럼 낮게 그린다.
+   * 사령술 빌드일 때는 빛나서 "쓸 수 있는 것"임을 알린다.
+   */
+  function drawCorpses() {
+    if (!world.corpses.length) return;
+    const necro = usesCorpses();
+    for (const c of world.corpses) {
+      const fade = Math.min(1, c.life / 2.2);
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.seed);
+      ctx.globalAlpha = 0.55 * fade * (c.life < 2.2 ? 0.5 + 0.5 * Math.abs(Math.sin(t * 9)) : 1);
+      // 그림자처럼 눌린 잔해
+      ctx.fillStyle = '#100c14';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, c.radius * 1.15 * c.scale, c.radius * 0.55 * c.scale, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = necro ? '#9d7fd8' : '#3a3040';
+      ctx.lineWidth = necro ? 2 : 1.4;
+      ctx.globalAlpha = (necro ? 0.85 : 0.5) * fade;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, c.radius * 1.15 * c.scale, c.radius * 0.55 * c.scale, 0, 0, TAU);
+      ctx.stroke();
+      if (necro) {
+        // 일으킬 수 있다는 신호: 위로 피어오르는 영혼 불꽃
+        ctx.globalAlpha = 0.5 * fade;
+        ctx.fillStyle = '#c4a8ff';
+        const bob = Math.sin(t * 3 + c.seed) * 3;
+        ctx.beginPath();
+        ctx.arc(0, -10 + bob, 2.6 * c.scale, 0, TAU);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** 현재 빌드가 시체를 자원으로 쓰는가 (연출 강도를 바꾼다) */
+  function usesCorpses() {
+    if (world.weapon.summonOnKill || world.weapon.corpseHaste) return true;
+    const L = world.loadout;
+    return L.on.corpse.length > 0 || L.on.corpseExpire.length > 0 ||
+      L.on.tick.length > 0 || L.mods.minionCap > 0;
+  }
+
+  /** 소환수 — 아군임이 한눈에 보여야 한다 (밝은 테두리 + 발밑 링) */
+  function drawMinions() {
+    for (const m of world.minions) {
+      if (m.dead) continue;
+      const def = m.def;
+      ctx.save();
+      ctx.translate(m.x, m.y);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(0, m.radius * 0.7, m.radius * 0.9, m.radius * 0.36, 0, 0, TAU); ctx.fill();
+
+      // 아군 표식 — 모든 소환수가 같은 민트색 링을 공유한다.
+      // "이 링 = 내 편"이라는 규칙 하나만 배우면 난전에서도 헷갈리지 않는다.
+      ctx.strokeStyle = ALLY_RING;
+      ctx.lineWidth = 2.4;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.arc(0, 0, m.radius + 5, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      if (m.spawnT > 0) {
+        // 땅에서 솟아오르는 연출
+        const k = 1 - m.spawnT / 0.35;
+        ctx.globalAlpha = k;
+        ctx.translate(0, (1 - k) * 18);
+        ctx.scale(1, Math.max(0.2, k));
+      }
+      // 곧 스러질 때 깜빡임
+      if (m.life < 2) ctx.globalAlpha *= 0.45 + 0.55 * Math.abs(Math.sin(t * 10));
+
+      ctx.rotate(m.facing + Math.PI / 2);
+      const body = m.hurtFlash > 0 ? '#ffffff' : def.color;
+      ctx.fillStyle = body;
+      ctx.strokeStyle = def.accent;
+      ctx.lineWidth = 2;
+      const r = m.radius;
+
+      if (m.id === 'wraith') {
+        // 아래가 흩어지는 유령 형태
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 1.3);
+        ctx.quadraticCurveTo(r, -r * 0.2, r * 0.7, r);
+        ctx.quadraticCurveTo(0, r * 0.5, -r * 0.7, r);
+        ctx.quadraticCurveTo(-r, -r * 0.2, 0, -r * 1.3);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      } else if (m.id === 'skeleton') {
+        ctx.fillRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
+        ctx.strokeRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
+        // 방패 (탄을 막는다는 정보)
+        ctx.fillStyle = def.accent;
+        ctx.beginPath();
+        ctx.arc(0, -r * 0.6, r * 1.2, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.lineTo(0, -r * 0.15);
+        ctx.closePath(); ctx.fill();
+      } else {
+        poly(0, 0, r, 3, 0); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = def.accent; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, -r * 0.2, r * 1.2, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke();
+      }
+      ctx.restore();
+
+      // 체력바 (다칠 때만)
+      if (m.hp < m.maxHp && m.spawnT <= 0) {
+        const w = m.radius * 2;
+        const x = m.x - w / 2, y = m.y - m.radius - 10;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(x - 1, y - 1, w + 2, 4);
+        ctx.fillStyle = def.accent;
+        ctx.fillRect(x, y, w * clamp(m.hp / m.maxHp, 0, 1), 2);
+      }
     }
   }
 
@@ -336,6 +466,14 @@ export function createRenderer(canvas, world, camera, vfx) {
         ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(0, -r - 8); ctx.stroke();
         break;
       }
+      case 'bonecaller':
+        poly(0, 0, r, 5, 0); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = acc; ctx.lineWidth = 2.5;
+        // 지팡이
+        ctx.beginPath(); ctx.moveTo(r * 0.5, -r * 0.3); ctx.lineTo(r * 0.5, -r - 14); ctx.stroke();
+        ctx.fillStyle = acc;
+        ctx.beginPath(); ctx.arc(r * 0.5, -r - 16, 4, 0, TAU); ctx.fill();
+        break;
       case 'lancer':
         poly(0, 0, r * 1.15, 3, 0); ctx.fill(); ctx.stroke();
         ctx.strokeStyle = acc; ctx.lineWidth = 3;

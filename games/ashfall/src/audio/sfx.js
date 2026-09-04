@@ -98,6 +98,11 @@ export function createSfx(bus) {
     death() { [220, 165, 110, 82].forEach((f, i) => tone({ freq: f, to: f * 0.6, dur: 0.5, type: 'sawtooth', gain: 0.2, delay: i * 0.16 })); },
     victory() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone({ freq: f, dur: 0.42, type: 'triangle', gain: 0.16, delay: i * 0.12 })); },
     ui() { tone({ freq: 700, dur: 0.06, type: 'square', gain: 0.08 }); },
+    // 사령술: 낮게 깔리며 위로 솟는 소리
+    summon() { tone({ freq: 90, to: 260, dur: 0.34, type: 'sawtooth', gain: 0.14 }); noise({ dur: 0.3, freq: 700, type: 'bandpass', q: 1.4, gain: 0.18, sweep: 2.2 }); },
+    raise() { [70, 105, 140].forEach((f, i) => tone({ freq: f, to: f * 3, dur: 0.5, type: 'sawtooth', gain: 0.15, delay: i * 0.07 })); },
+    corpse() { noise({ dur: 0.18, freq: 500, gain: 0.22, sweep: 0.4 }); tone({ freq: 140, to: 300, dur: 0.16, type: 'triangle', gain: 0.1 }); },
+    minionDown() { tone({ freq: 260, to: 90, dur: 0.28, type: 'triangle', gain: 0.12 }); },
   };
 
   // ---- 이벤트 바인딩 ----
@@ -122,6 +127,10 @@ export function createSfx(bus) {
   bus.on(EV.BOON_TAKEN, () => S.boon());
   bus.on(EV.BOSS_PHASE, () => S.bossPhase());
   bus.on(EV.DOOR_OPEN, () => S.door());
+  bus.on('minionSummon', () => throttle('summon', 60) && S.summon());
+  bus.on('raiseDead', () => S.raise());
+  bus.on('corpseUsed', () => throttle('corpse', 50) && S.corpse());
+  bus.on('minionDeath', () => throttle('mdown', 80) && S.minionDown());
   bus.on(EV.STATUS, (p) => {
     if (p.kind === 'frozen') S.freeze();
     else if (p.kind === 'shock' && throttle('shock', 90)) S.shock();
