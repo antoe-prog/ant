@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E">
+<title>잿불의 회랑 — 핵앤슬래시 로그라이크</title>
+<style>
+  :root {
+    --bg: #08090c;
+    --panel: rgba(14,16,22,0.92);
+    --line: rgba(255,255,255,0.12);
+    --text: #e8eef5;
+    --muted: rgba(232,238,245,0.55);
+    --gold: #ffd166;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  #wrap {
+    position: relative; width: 100vw; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, #14161d 0%, #08090c 70%);
+  }
+  #game {
+    width: 100%; height: 100%; display: block; cursor: crosshair;
+    image-rendering: auto;
+  }
+  #overlay {
+    position: absolute; inset: 0; display: none;
+    align-items: flex-start; justify-content: center;
+    background: rgba(4,5,8,0.82);
+    backdrop-filter: blur(6px);
+    overflow-y: auto; padding: 24px;
+  }
+  #overlay.active { display: flex; }
+
+  .screen { width: 100%; max-width: 1080px; margin: auto; animation: rise .22s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px);} to {opacity:1; transform:none;} }
+
+  h1 { font-size: 42px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 20px; margin: 22px 0 12px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .muted { color: var(--muted); }
+
+  /* ---- 타이틀 ---- */
+  .title-screen { display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: start; }
+  .title-main h1 {
+    background: linear-gradient(100deg, #ff8b4a, #ffd166 40%, #7fd8ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .controls { margin-top: 18px; font-size: 12.5px; color: var(--muted); line-height: 1.9; }
+  kbd {
+    background: rgba(255,255,255,0.1); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit;
+  }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card {
+    text-align: left; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px; color: var(--text); cursor: pointer;
+    transition: transform .12s, border-color .12s, box-shadow .12s;
+    font-family: inherit; font-size: 13px;
+  }
+  .card:hover { transform: translateY(-3px); border-color: var(--c, #fff); box-shadow: 0 8px 26px rgba(0,0,0,.5); }
+  .card.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c) inset, 0 8px 26px rgba(0,0,0,.5); }
+  .weapon .wname { font-size: 19px; font-weight: 700; color: var(--c); margin-bottom: 4px; }
+  .weapon .wtag { color: var(--muted); line-height: 1.55; min-height: 42px; }
+  .weapon .wsp { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); line-height: 1.55; font-size: 12px; }
+
+  /* ---- 권능 카드 ---- */
+  .choose { text-align: center; }
+  .choose .cards { margin-top: 8px; }
+  .boon { border-top: 3px solid var(--c); min-height: 190px; display: flex; flex-direction: column; }
+  .btop { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .btop .god { color: var(--c); font-weight: 600; }
+  .bname { font-size: 18px; font-weight: 700; margin: 8px 0 2px; }
+  .bname i { font-style: normal; font-size: 12px; color: var(--gold); }
+  .brar { font-size: 11px; font-weight: 700; letter-spacing: .06em; margin-bottom: 8px; }
+  .bdesc { line-height: 1.6; color: #d6dee7; flex: 1; }
+  .bprev { margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .bgain { margin-top: 10px; font-size: 11.5px; color: var(--gold); }
+  .curse { border-top: 3px solid #ff4d6d; }
+
+  /* ---- 상점 ---- */
+  .shop .gold { color: var(--gold); font-weight: 700; margin-bottom: 12px; }
+  .shoplist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .shopitem {
+    display: grid; grid-template-columns: 200px 1fr 90px; gap: 12px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; color: var(--text); cursor: pointer; text-align: left;
+    font-family: inherit; font-size: 13px; transition: border-color .12s;
+  }
+  .shopitem:hover:not(:disabled) { border-color: var(--gold); }
+  .shopitem .sname { font-weight: 700; }
+  .shopitem .sdesc { color: var(--muted); }
+  .shopitem .scost { color: var(--gold); text-align: right; font-weight: 700; }
+  .shopitem.poor { opacity: .45; }
+  .shopitem.sold { opacity: .3; text-decoration: line-through; }
+
+  /* ---- 메타 강화 ---- */
+  .meta { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .meta h2 { margin-top: 0; }
+  .ash { color: var(--gold); font-size: 13px; margin-bottom: 12px; }
+  .ash b { font-size: 18px; }
+  .upgrades { display: flex; flex-direction: column; gap: 6px; }
+  .upg {
+    display: grid; gap: 2px; text-align: left; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+    color: var(--text); cursor: pointer; font-family: inherit; transition: border-color .12s;
+  }
+  .upg:hover:not(:disabled) { border-color: var(--gold); }
+  .upg .un { font-size: 13px; font-weight: 700; }
+  .upg .un i { font-style: normal; color: var(--muted); font-weight: 400; font-size: 11px; }
+  .upg .ud { font-size: 11.5px; color: var(--muted); }
+  .upg .uc { font-size: 11.5px; color: var(--gold); }
+  .upg.poor { opacity: .5; }
+  .upg.maxed { opacity: .4; cursor: default; }
+  .stats { margin-top: 14px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+  /* ---- 결과 ---- */
+  .result { text-align: center; max-width: 660px; }
+  .result.win h1 { color: var(--gold); }
+  .result.lose h1 { color: #ff6b81; }
+  .resgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 20px 0; }
+  .resgrid div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 8px; }
+  .resgrid b { display: block; font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+  .resgrid span { font-size: 17px; font-weight: 700; }
+  .resgrid .ash { color: var(--gold); }
+  .boonlist { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .boonlist li { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 5px 13px; font-size: 12.5px; }
+
+  /* ---- 버튼 ---- */
+  .row { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+  button.primary, button.ghost {
+    font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+    border-radius: 10px; padding: 13px 26px; transition: transform .1s, filter .12s;
+  }
+  button.primary { background: linear-gradient(100deg, #ff8b4a, #ffd166); color: #17110a; border: none; margin-top: 20px; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); margin-top: 20px; }
+  button.primary:hover, button.ghost:hover { transform: translateY(-2px); filter: brightness(1.08); }
+  button:disabled { cursor: default; transform: none !important; }
+
+  @media (max-width: 900px) {
+    .title-screen { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: 1fr; }
+    .resgrid { grid-template-columns: repeat(2, 1fr); }
+    .shopitem { grid-template-columns: 1fr; }
+    h1 { font-size: 30px; }
+  }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game"></canvas>
+    <div id="overlay"></div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

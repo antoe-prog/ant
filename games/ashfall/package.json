@@ -1,0 +1,11 @@
+{
+  "name": "ashfall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "잿불의 회랑 - 핵앤슬래시 로그라이크 (HTML5 Canvas, 빌드 없음)",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "test": "node tests/run-all.mjs"
+  }
+}

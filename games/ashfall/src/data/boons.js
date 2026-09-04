@@ -1,0 +1,352 @@
+// ============================================================
+// 권능(Boon) = 빌드의 핵심.
+// 각 권능은 loadout(L)에 스탯/훅을 주입한다. sim 은 훅만 호출한다.
+//
+// slot: attack(기본공격) / dash(대시) / special(특수기) / passive(패시브)
+//  - attack/dash/special 은 슬롯당 1개만 장착 가능 → 선택 압박이 생긴다.
+//  - passive 는 여러 개 누적.
+// god: ember/frost/storm/blood/none  (합일 권능 조건에 사용)
+// ============================================================
+
+export const GODS = {
+  ember: { id: 'ember', name: '재의 신 엠버',   color: '#ff8b4a', element: 'ember' },
+  frost: { id: 'frost', name: '서리 신 글라시아', color: '#7fd8ff', element: 'frost' },
+  storm: { id: 'storm', name: '폭풍 신 볼트',   color: '#ffe36b', element: 'storm' },
+  blood: { id: 'blood', name: '피의 신 상귄',   color: '#ff4d6d', element: 'blood' },
+  none:  { id: 'none',  name: '방랑자의 유물',  color: '#c8d2dc', element: 'none' },
+};
+
+export const SLOT_NAMES = {
+  attack: '기본공격', dash: '대시', special: '특수기', passive: '패시브',
+};
+
+const pct = (x) => `${Math.round(x * 100)}%`;
+
+/**
+ * 권능 정의.
+ *  values: 기본 수치. 실제 값 = base * rarityMult * (1 + 0.32*(level-1))
+ *  apply(L, v, ctxDefs) 에서 L 을 변형한다.
+ */
+export const BOONS = [
+  // ---------------- 재의 신 엠버 (지속피해 / 폭발) ----------------
+  {
+    id: 'ember_attack', god: 'ember', slot: 'attack', name: '잿불 각인',
+    values: { stacks: 2 },
+    desc: (v) => `기본공격이 화상 ${Math.round(v.stacks)}중첩을 부여한다.`,
+    apply: (L, v) => { L.attackStatus.push({ kind: 'burn', stacks: Math.round(v.stacks) }); },
+  },
+  {
+    id: 'ember_dash', god: 'ember', slot: 'dash', name: '작열 폭발',
+    values: { dmg: 26, radius: 92, stacks: 2 },
+    desc: (v) => `대시가 끝날 때 반경 ${Math.round(v.radius)} 폭발 (${Math.round(v.dmg)} 피해 + 화상).`,
+    apply: (L, v) => {
+      L.on.dashEnd.push((c) => {
+        c.explode(c.x, c.y, v.radius, v.dmg, 'ember', { kind: 'burn', stacks: Math.round(v.stacks) });
+      });
+    },
+  },
+  {
+    id: 'ember_special', god: 'ember', slot: 'special', name: '화염 파문',
+    values: { stacks: 3, mult: 0.25 },
+    desc: (v) => `특수기가 화상 ${Math.round(v.stacks)}중첩을 부여하고 화상 대상에게 +${pct(v.mult)} 피해.`,
+    apply: (L, v) => {
+      L.specialStatus.push({ kind: 'burn', stacks: Math.round(v.stacks) });
+      L.on.modifyDamage.push((c) => { if (c.tag === 'special' && c.target.status?.burn) c.mult *= 1 + v.mult; });
+    },
+  },
+  {
+    id: 'ember_amplify', god: 'ember', slot: 'passive', name: '타오르는 심장',
+    values: { mult: 0.45 },
+    desc: (v) => `화상 피해 +${pct(v.mult)}.`,
+    apply: (L, v) => { L.mods.burnMult += v.mult; },
+  },
+  {
+    id: 'ember_spread', god: 'ember', slot: 'passive', name: '번지는 불씨',
+    values: { radius: 130, stacks: 2 },
+    desc: (v) => `화상 중인 적을 처치하면 반경 ${Math.round(v.radius)} 내 적에게 화상 ${Math.round(v.stacks)}중첩이 옮겨붙는다.`,
+    apply: (L, v) => {
+      L.on.kill.push((c) => {
+        if (!c.target.status?.burn) return;
+        c.forEachEnemyInRange(c.x, c.y, v.radius, (e) => c.applyStatus(e, 'burn', Math.round(v.stacks)));
+        c.fx('explosion', { x: c.x, y: c.y, radius: v.radius, element: 'ember' });
+      });
+    },
+  },
+
+  // ---------------- 서리 신 글라시아 (제어 / 파쇄) ----------------
+  {
+    id: 'frost_attack', god: 'frost', slot: 'attack', name: '서리 각인',
+    values: { stacks: 1 },
+    desc: (v) => `기본공격이 냉기 ${Math.round(v.stacks)}중첩을 부여한다. 최대 중첩 시 적이 빙결된다.`,
+    apply: (L, v) => { L.attackStatus.push({ kind: 'chill', stacks: Math.round(v.stacks) }); },
+  },
+  {
+    id: 'frost_dash', god: 'frost', slot: 'dash', name: '한파의 자취',
+    values: { radius: 110, stacks: 2, dmg: 8 },
+    desc: (v) => `대시가 지나간 자리의 적에게 냉기 ${Math.round(v.stacks)}중첩과 ${Math.round(v.dmg)} 피해.`,
+    apply: (L, v) => {
+      L.on.dashTrail.push((c) => {
+        c.forEachEnemyInRange(c.x, c.y, v.radius, (e) => {
+          c.applyStatus(e, 'chill', Math.round(v.stacks));
+          c.damage(e, v.dmg, 'frost', { tag: 'dash', silent: true });
+        });
+      });
+    },
+  },
+  {
+    id: 'frost_special', god: 'frost', slot: 'special', name: '절대 영도',
+    values: { stacks: 3 },
+    desc: (v) => `특수기가 냉기 ${Math.round(v.stacks)}중첩을 부여한다.`,
+    apply: (L, v) => { L.specialStatus.push({ kind: 'chill', stacks: Math.round(v.stacks) }); },
+  },
+  {
+    id: 'frost_shatter', god: 'frost', slot: 'passive', name: '파쇄',
+    values: { mult: 0.5 },
+    desc: (v) => `빙결된 적에게 주는 피해 +${pct(v.mult)}.`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => { if (c.target.status?.frozen) c.mult *= 1 + v.mult; });
+    },
+  },
+  {
+    id: 'frost_nova', god: 'frost', slot: 'passive', name: '얼음 무덤',
+    values: { radius: 120, dmg: 22, stacks: 2 },
+    desc: (v) => `냉기에 걸린 적이 죽으면 냉기 폭발이 일어난다 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.kill.push((c) => {
+        if (!c.target.status?.chill && !c.target.status?.frozen) return;
+        c.explode(c.x, c.y, v.radius, v.dmg, 'frost', { kind: 'chill', stacks: Math.round(v.stacks) });
+      });
+    },
+  },
+
+  // ---------------- 폭풍 신 볼트 (연쇄 / 기동) ----------------
+  {
+    id: 'storm_attack', god: 'storm', slot: 'attack', name: '방전 각인',
+    values: { chance: 0.3, dmg: 16, targets: 2 },
+    desc: (v) => `기본공격이 ${pct(v.chance)} 확률로 ${Math.round(v.targets)}명에게 연쇄 번개 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (c.tag !== 'attack') return;
+        if (c.rng.next() > v.chance) return;
+        c.chain(c.target, Math.round(v.targets), v.dmg);
+      });
+    },
+  },
+  {
+    id: 'storm_dash', god: 'storm', slot: 'dash', name: '뇌전 질주',
+    values: { cdr: 0.28, dmg: 18, stacks: 1 },
+    desc: (v) => `대시 쿨다운 -${pct(v.cdr)}. 대시가 스친 적에게 ${Math.round(v.dmg)} 피해와 감전.`,
+    apply: (L, v) => {
+      L.mods.dashCooldownMult *= 1 - v.cdr;
+      L.on.dashTrail.push((c) => {
+        c.forEachEnemyInRange(c.x, c.y, 78, (e) => {
+          c.damage(e, v.dmg, 'storm', { tag: 'dash', silent: true });
+          c.applyStatus(e, 'shock', Math.round(v.stacks));
+        });
+      });
+    },
+  },
+  {
+    id: 'storm_special', god: 'storm', slot: 'special', name: '벼락 소환',
+    values: { dmg: 40, count: 3, radius: 74 },
+    desc: (v) => `특수기 사용 시 무작위 적 ${Math.round(v.count)}명에게 낙뢰 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.special.push((c) => { c.strikeRandom(Math.round(v.count), v.dmg, v.radius); });
+    },
+  },
+  {
+    id: 'storm_haste', god: 'storm', slot: 'passive', name: '폭풍의 발걸음',
+    values: { move: 0.1, atk: 0.12 },
+    desc: (v) => `이동속도 +${pct(v.move)}, 공격속도 +${pct(v.atk)}.`,
+    apply: (L, v) => { L.stats.moveMult *= 1 + v.move; L.stats.attackSpeed *= 1 + v.atk; },
+  },
+  {
+    id: 'storm_conduct', god: 'storm', slot: 'passive', name: '과전류',
+    values: { perStack: 0.09 },
+    desc: (v) => `감전 중첩 1당 대상이 받는 피해 +${pct(v.perStack)}.`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => {
+        const s = c.target.status?.shock;
+        if (s) c.mult *= 1 + v.perStack * s.stacks;
+      });
+    },
+  },
+
+  // ---------------- 피의 신 상귄 (흡혈 / 광폭) ----------------
+  {
+    id: 'blood_attack', god: 'blood', slot: 'attack', name: '갈증의 각인',
+    values: { leech: 0.07, stacks: 1 },
+    desc: (v) => `기본공격이 출혈을 부여하고 피해의 ${pct(v.leech)}를 회복한다.`,
+    apply: (L, v) => {
+      L.attackStatus.push({ kind: 'bleed', stacks: Math.round(v.stacks) });
+      L.on.hit.push((c) => { if (c.tag === 'attack') c.heal(c.dmg * v.leech); });
+    },
+  },
+  {
+    id: 'blood_dash', god: 'blood', slot: 'dash', name: '흡혈 도약',
+    values: { mult: 0.6, window: 1.2 },
+    desc: (v) => `대시 직후 ${v.window.toFixed(1)}초 내 첫 공격 피해 +${pct(v.mult)}.`,
+    apply: (L, v) => {
+      L.mods.dashStrikeWindow = Math.max(L.mods.dashStrikeWindow, v.window);
+      L.mods.dashStrikeMult += v.mult;
+    },
+  },
+  {
+    id: 'blood_special', god: 'blood', slot: 'special', name: '피의 대가',
+    values: { mult: 0.55, leech: 0.22 },
+    desc: (v) => `특수기 피해 +${pct(v.mult)}, 특수기 피해의 ${pct(v.leech)}를 회복.`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => { if (c.tag === 'special') c.mult *= 1 + v.mult; });
+      L.on.hit.push((c) => { if (c.tag === 'special') c.heal(c.dmg * v.leech); });
+    },
+  },
+  {
+    id: 'blood_frenzy', god: 'blood', slot: 'passive', name: '광란',
+    values: { max: 0.55 },
+    desc: (v) => `체력이 낮을수록 피해 증가 (최대 +${pct(v.max)}).`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => {
+        const missing = 1 - c.player.hp / c.player.maxHp;
+        c.mult *= 1 + v.max * missing;
+      });
+    },
+  },
+  {
+    id: 'blood_feast', god: 'blood', slot: 'passive', name: '피의 만찬',
+    values: { heal: 4 },
+    desc: (v) => `적 처치 시 체력 ${Math.round(v.heal)} 회복.`,
+    apply: (L, v) => { L.on.kill.push((c) => c.heal(v.heal)); },
+  },
+
+  // ---------------- 공용 유물 ----------------
+  {
+    id: 'relic_crit', god: 'none', slot: 'passive', name: '사냥꾼의 눈',
+    values: { chance: 0.12, mult: 0.25 },
+    desc: (v) => `치명타 확률 +${pct(v.chance)}, 치명타 피해 +${pct(v.mult)}.`,
+    apply: (L, v) => { L.stats.critChance += v.chance; L.stats.critMult += v.mult; },
+  },
+  {
+    id: 'relic_hp', god: 'none', slot: 'passive', name: '강철 심장',
+    values: { hp: 22 },
+    desc: (v) => `최대 체력 +${Math.round(v.hp)} (즉시 회복).`,
+    apply: (L, v) => { L.stats.maxHpBonus += Math.round(v.hp); },
+  },
+  {
+    id: 'relic_focus', god: 'none', slot: 'passive', name: '명상의 인장',
+    values: { regen: 4.5, cost: 0.18 },
+    desc: (v) => `집중 회복 +${v.regen.toFixed(1)}/초, 특수기 소모 -${pct(v.cost)}.`,
+    apply: (L, v) => { L.stats.focusRegen += v.regen; L.mods.specialCostMult *= 1 - v.cost; },
+  },
+  {
+    id: 'relic_dash', god: 'none', slot: 'passive', name: '바람의 부적',
+    values: { charges: 1 },
+    desc: () => `대시 충전 +1.`,
+    apply: (L) => { L.stats.dashCharges += 1; },
+  },
+  {
+    id: 'relic_power', god: 'none', slot: 'passive', name: '전쟁의 표식',
+    values: { mult: 0.16 },
+    desc: (v) => `모든 피해 +${pct(v.mult)}.`,
+    apply: (L, v) => { L.stats.damageMult *= 1 + v.mult; },
+  },
+  {
+    id: 'relic_thorns', god: 'none', slot: 'passive', name: '가시 갑주',
+    values: { dmg: 34, radius: 130 },
+    desc: (v) => `피격 시 주변 적에게 ${Math.round(v.dmg)} 피해로 반격한다.`,
+    apply: (L, v) => {
+      L.on.hurt.push((c) => { c.explode(c.player.x, c.player.y, v.radius, v.dmg, 'none', null); });
+    },
+  },
+];
+
+export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b]));
+
+// ============================================================
+// 합일 권능 (Duo) — 두 신의 권능을 모두 보유했을 때만 등장.
+// 빌드가 "완성되는" 순간을 만든다.
+// ============================================================
+export const DUO_BOONS = [
+  {
+    id: 'duo_thermal', gods: ['ember', 'frost'], name: '열충격', slot: 'passive', god: 'none',
+    values: { dmg: 70, radius: 140 },
+    desc: (v) => `화상과 냉기가 동시에 걸린 적이 폭발한다 (${Math.round(v.dmg)} 피해, 반경 ${Math.round(v.radius)}).`,
+    apply: (L, v) => {
+      L.on.statusApplied.push((c) => {
+        const st = c.target.status;
+        if (!st?.burn || !(st.chill || st.frozen)) return;
+        if (c.target._thermalCd > 0) return;
+        c.target._thermalCd = 1.1;
+        c.explode(c.target.x, c.target.y, v.radius, v.dmg, 'ember', null);
+      });
+    },
+  },
+  {
+    id: 'duo_wildfire', gods: ['ember', 'storm'], name: '연쇄 화염', slot: 'passive', god: 'none',
+    values: { dmg: 46, radius: 150 },
+    desc: (v) => `감전된 적을 처치하면 대폭발이 일어난다 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.kill.push((c) => {
+        if (!c.target.status?.shock) return;
+        c.explode(c.x, c.y, v.radius, v.dmg, 'ember', { kind: 'burn', stacks: 3 });
+      });
+    },
+  },
+  {
+    id: 'duo_ashthirst', gods: ['ember', 'blood'], name: '재의 갈증', slot: 'passive', god: 'none',
+    values: { leech: 0.35 },
+    desc: (v) => `화상 피해의 ${pct(v.leech)}만큼 체력을 회복한다.`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => { if (c.tag === 'burn') c.heal(c.dmg * v.leech); });
+    },
+  },
+  {
+    id: 'duo_superconduct', gods: ['frost', 'storm'], name: '초전도', slot: 'passive', god: 'none',
+    values: { mult: 2.0, targets: 3, dmg: 28 },
+    desc: (v) => `빙결된 적을 때리면 ${Math.round(v.targets)}명에게 강력한 연쇄 번개 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (!c.target.status?.frozen) return;
+        c.chain(c.target, Math.round(v.targets), v.dmg, 1.9);
+      });
+    },
+  },
+  {
+    id: 'duo_frostbite', gods: ['frost', 'blood'], name: '동상', slot: 'passive', god: 'none',
+    values: { perStack: 0.22 },
+    desc: (v) => `출혈 피해가 대상의 냉기 중첩 1당 +${pct(v.perStack)}.`,
+    apply: (L, v) => {
+      L.on.modifyDamage.push((c) => {
+        if (c.tag !== 'bleed') return;
+        const s = c.target.status?.chill;
+        if (s) c.mult *= 1 + v.perStack * s.stacks;
+        if (c.target.status?.frozen) c.mult *= 1 + v.perStack * 5;
+      });
+    },
+  },
+  {
+    id: 'duo_overload', gods: ['storm', 'blood'], name: '혈류 과부하', slot: 'passive', god: 'none',
+    values: { dmg: 34, targets: 4 },
+    desc: (v) => `출혈 중인 적을 때리면 ${Math.round(v.targets)}명에게 방전된다 (${Math.round(v.dmg)} 피해).`,
+    apply: (L, v) => {
+      L.on.hit.push((c) => {
+        if (c.tag !== 'attack' || !c.target.status?.bleed) return;
+        if (c.rng.next() > 0.45) return;
+        c.chain(c.target, Math.round(v.targets), v.dmg);
+      });
+    },
+  },
+];
+
+export const DUO_BY_ID = Object.fromEntries(DUO_BOONS.map((b) => [b.id, b]));
+export const ALL_BOONS = [...BOONS, ...DUO_BOONS];
+export const ANY_BOON_BY_ID = Object.fromEntries(ALL_BOONS.map((b) => [b.id, b]));
+
+/** 레벨/희귀도가 반영된 실제 수치 계산 */
+export function scaleValues(boon, rarityMult, level) {
+  const out = {};
+  const lvMult = 1 + 0.32 * (level - 1);
+  for (const [k, base] of Object.entries(boon.values || {})) {
+    out[k] = base * rarityMult * lvMult;
+  }
+  return out;
+}
