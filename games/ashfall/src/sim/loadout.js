@@ -27,8 +27,8 @@ export function emptyLoadout() {
       comboWindowBonus: 0,
       armorExtra: 0,
       // 사령술
-      minionCap: 0,
       minionDamage: 0,
+      raiseBonus: 0,      // 망자 봉기가 한 번에 더 일으키는 시체 수
       minionHp: 0,
       minionLife: 0,
       corpseRadius: 0,

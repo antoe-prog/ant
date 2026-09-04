@@ -98,21 +98,23 @@ export function createHud(canvas, world, input) {
     }
 
     // ---- 소환수 ----
-    const cap = world.minionCap();
     const alive = world.aliveMinions();
-    if (alive > 0 || cap > 3) {
+    if (alive > 0) {
       const my = fy + (world.weapon.rampPerHit && p.ramp > 0 ? 26 : 14);
-      text(`소환수 ${alive}/${cap}`, bx, my + 4, alive >= cap ? '#c4a8ff' : '#9d7fd8', 'bold 12px system-ui', 'left');
-      for (let i = 0; i < cap; i++) {
+      text(`소환수 ${alive}`, bx, my + 4, '#c4a8ff', F(12, 'bold'), 'left');
+      // 상한이 없으므로 점은 최대 12개까지만 그리고 나머지는 숫자로 안다
+      const dots = Math.min(alive, 12);
+      for (let i = 0; i < dots; i++) {
         ctx.beginPath();
-        ctx.arc(bx + 78 + i * 13, my + 4, 4.2, 0, TAU);
-        ctx.fillStyle = i < alive ? '#c4a8ff' : 'rgba(255,255,255,0.15)';
+        ctx.arc(bx + 62 * S + i * 11 * S, my + 4, 4 * S, 0, TAU);
+        ctx.fillStyle = '#c4a8ff';
         ctx.fill();
       }
+      if (alive > dots) text('+', bx + (62 + dots * 11) * S + 4, my + 4, '#9d7fd8', F(12, 'bold'), 'left');
     }
 
     // ---- 시체 (사령술 빌드일 때만) ----
-    if (world.corpses.length && (world.weapon.corpseHaste || world.weapon.summonOnKill || world.loadout.mods.minionCap > 0)) {
+    if (world.corpses.length && (world.weapon.corpseHaste || world.weapon.summonOnKill || world.loadout.mods.raiseBonus > 0 || world.aliveMinions() > 0)) {
       text(`시체 ${world.corpses.length}`, bx + 210, fy + 18, '#9d7fd8', 'bold 12px system-ui', 'left');
     }
 

@@ -5,9 +5,12 @@
 
 import { TAU, clamp } from '../core/math.js';
 import { STATUS } from '../data/balance.js';
+import { MINIONS as MINION_DEFS } from '../data/minions.js';
 
 
 const ALLY_RING = '#7ff0d8';
+/** 이 수를 넘으면 소환수를 단순하게 그린다 (겹쳐서 안 보이는 디테일에 비용을 쓰지 않는다) */
+const LOD_MINIONS = 36;
 const ELEMENT_COLOR = { ember: '#ff8b4a', frost: '#7fd8ff', storm: '#ffe36b', blood: '#ff4d6d', necro: '#9d7fd8', none: '#ffffff' };
 
 export function createRenderer(canvas, world, camera, vfx) {
@@ -247,12 +250,59 @@ export function createRenderer(canvas, world, camera, vfx) {
     if (world.weapon.summonOnKill || world.weapon.corpseHaste) return true;
     const L = world.loadout;
     return L.on.corpse.length > 0 || L.on.corpseExpire.length > 0 ||
-      L.on.tick.length > 0 || L.mods.minionCap > 0;
+      L.on.tick.length > 0 || L.mods.raiseBonus > 0 || world.minions.length > 0;
   }
 
-  /** 소환수 — 아군임이 한눈에 보여야 한다 (밝은 테두리 + 발밑 링) */
+  /**
+   * 소환수 — 아군임이 한눈에 보여야 한다 (민트색 발밑 링).
+   *
+   * 수에 제한이 없으므로 많아지면 자동으로 단순하게 그린다(LOD).
+   * 개체당 그림자·회전·세부 실루엣은 수가 적을 때만 의미가 있고,
+   * 수십 마리가 겹치면 어차피 보이지 않으면서 비용만 든다.
+   */
   function drawMinions() {
-    for (const m of world.minions) {
+    const list = world.minions;
+    if (!list.length) return;
+    const simple = list.length > LOD_MINIONS;
+
+    if (simple) {
+      // --- 단순 모드: 상태 변경을 최소화하고 한 번에 몰아 그린다 ---
+      // 1) 발밑 링 (아군 표식은 절대 생략하지 않는다 — 적과 구분되어야 하므로)
+      ctx.strokeStyle = ALLY_RING;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      for (const m of list) {
+        if (m.dead) continue;
+        ctx.moveTo(m.x + m.radius + 5, m.y);
+        ctx.arc(m.x, m.y, m.radius + 5, 0, TAU);
+      }
+      ctx.stroke();
+      // 2) 몸통 (종류별로 색을 묶어 fillStyle 변경 횟수를 줄인다)
+      ctx.globalAlpha = 1;
+      for (const def of MINION_DEFS) {
+        let any = false;
+        ctx.beginPath();
+        for (const m of list) {
+          if (m.dead || m.id !== def.id) continue;
+          any = true;
+          ctx.moveTo(m.x + m.radius, m.y);
+          ctx.arc(m.x, m.y, m.radius, 0, TAU);
+        }
+        if (!any) continue;
+        ctx.fillStyle = def.color;
+        ctx.fill();
+      }
+      // 3) 다친 개체만 체력바
+      for (const m of list) {
+        if (m.dead || m.hp >= m.maxHp || m.spawnT > 0) continue;
+        drawMinionHp(m);
+      }
+      return;
+    }
+
+    // --- 상세 모드 ---
+    for (const m of list) {
       if (m.dead) continue;
       const def = m.def;
       ctx.save();
@@ -270,13 +320,11 @@ export function createRenderer(canvas, world, camera, vfx) {
       ctx.globalAlpha = 1;
 
       if (m.spawnT > 0) {
-        // 땅에서 솟아오르는 연출
         const k = 1 - m.spawnT / 0.35;
         ctx.globalAlpha = k;
         ctx.translate(0, (1 - k) * 18);
         ctx.scale(1, Math.max(0.2, k));
       }
-      // 곧 스러질 때 깜빡임
       if (m.life < 2) ctx.globalAlpha *= 0.45 + 0.55 * Math.abs(Math.sin(t * 10));
 
       ctx.rotate(m.facing + Math.PI / 2);
@@ -287,7 +335,6 @@ export function createRenderer(canvas, world, camera, vfx) {
       const r = m.radius;
 
       if (m.id === 'wraith') {
-        // 아래가 흩어지는 유령 형태
         ctx.beginPath();
         ctx.moveTo(0, -r * 1.3);
         ctx.quadraticCurveTo(r, -r * 0.2, r * 0.7, r);
@@ -297,7 +344,6 @@ export function createRenderer(canvas, world, camera, vfx) {
       } else if (m.id === 'skeleton') {
         ctx.fillRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
         ctx.strokeRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
-        // 방패 (탄을 막는다는 정보)
         ctx.fillStyle = def.accent;
         ctx.beginPath();
         ctx.arc(0, -r * 0.6, r * 1.2, Math.PI * 1.15, Math.PI * 1.85);
@@ -310,16 +356,17 @@ export function createRenderer(canvas, world, camera, vfx) {
       }
       ctx.restore();
 
-      // 체력바 (다칠 때만)
-      if (m.hp < m.maxHp && m.spawnT <= 0) {
-        const w = m.radius * 2;
-        const x = m.x - w / 2, y = m.y - m.radius - 10;
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(x - 1, y - 1, w + 2, 4);
-        ctx.fillStyle = def.accent;
-        ctx.fillRect(x, y, w * clamp(m.hp / m.maxHp, 0, 1), 2);
-      }
+      if (m.hp < m.maxHp && m.spawnT <= 0) drawMinionHp(m);
     }
+  }
+
+  function drawMinionHp(m) {
+    const w = m.radius * 2;
+    const x = m.x - w / 2, y = m.y - m.radius - 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x - 1, y - 1, w + 2, 4);
+    ctx.fillStyle = m.def.accent;
+    ctx.fillRect(x, y, w * clamp(m.hp / m.maxHp, 0, 1), 2);
   }
 
   /** 곧 터질 지면 — 시체 근처에 서 있으면 안 된다는 정보 */

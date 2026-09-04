@@ -36,6 +36,7 @@ export function createWorld(opts = {}) {
     minions: [],
     command: null,      // {x, y, t} — 소환수에게 내린 공격 지점
     commandCd: 0,
+    commandSeq: 0,      // 명령이 바뀔 때마다 증가 (소환수 즉시 재탐색용)
     decals: [],
     weapon: WEAPON_BY_ID[opts.weaponId] || WEAPON_BY_ID.emberblade,
     weaponDamageMult: 1,
@@ -83,7 +84,7 @@ export function createWorld(opts = {}) {
     consumeCorpse(c) { return consumeCorpse(this, c); },
     aliveMinions() { return aliveMinions(this); },
     issueCommand(x, y) { return issueCommand(this, x, y); },
-    minionCap() { return minionCap(this); },
+    minionCap() { return minionCap(); },   // 제한 없음 (Infinity)
 
     rebuildLoadout() {
       this.loadout = buildLoadout(this.run.owned, this.meta);

@@ -389,7 +389,7 @@ await page.evaluate(() => {
 await playFor(6000);
 const necro = await page.evaluate(() => {
   const w = window.__ashfall.world;
-  return { corpses: w.corpses.length, minions: w.minions.length, cap: w.minionCap(), kills: w.run.kills };
+  return { corpses: w.corpses.length, minions: w.minions.length, kills: w.run.kills };
 });
 check('처치 시 시체가 남거나 소환수가 생긴다', necro.corpses > 0 || necro.minions > 0, JSON.stringify(necro));
 
@@ -423,6 +423,15 @@ for (let i = 0; i < 12; i++) {
 }
 raised.pre = preSpecial;
 check('망자 봉기가 시체를 소환수로 바꾼다', raised.minions > 0 && raised.corpses < 3, JSON.stringify(raised));
+
+// 소환수 수에 제한이 없다 — 많이 불러도 기존 소환수가 밀려나지 않는다
+const noCap = await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  w.minions.length = 0;
+  for (let i = 0; i < 40; i++) w.summon('wraith', w.player.x + (i % 8) * 12, w.player.y + Math.floor(i / 8) * 12);
+  return { alive: w.minions.length, cap: w.minionCap() === Infinity };
+});
+check('소환수 수 제한 없음', noCap.alive === 40 && noCap.cap, JSON.stringify(noCap));
 await shot('09-necro');
 
 // ---- 세이브 ----

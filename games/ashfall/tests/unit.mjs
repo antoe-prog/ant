@@ -19,6 +19,7 @@ import { updateBoss } from '../src/sim/boss.js';
 // ---- 아주 작은 테스트 하네스 ----
 const results = [];
 function test(name, fn) {
+  if (process.env.TRACE) process.stdout.write(`  ... ${name}\n`);
   try { fn(); results.push({ name, ok: true }); }
   catch (e) { results.push({ name, ok: false, err: e.message }); }
 }
@@ -335,24 +336,44 @@ test('시체 자연 소멸은 corpseExpire 훅을 발생시킨다', () => {
   eq(fired, 0, '소비된 시체가 만료 훅을 발생시킴');
 });
 
-test('소환수는 상한을 넘지 않고, 넘치면 가장 오래된 것이 스러진다', () => {
+test('소환수 수에는 제한이 없다', () => {
   const w = testWorld();
-  const cap = minionCap(w);
-  for (let i = 0; i < cap + 4; i++) summonMinion(w, 'wraith', 400 + i * 5, 400);
+  const N = 60;
+  for (let i = 0; i < N; i++) summonMinion(w, 'wraith', 400 + (i % 10) * 8, 400 + Math.floor(i / 10) * 8);
   for (let i = 0; i < 3; i++) updateMinions(w, SIM.DT);
-  assert(aliveMinions(w) <= cap, `상한 ${cap} 초과: ${aliveMinions(w)}`);
+  eq(aliveMinions(w), N, '소환수가 임의로 사라졌다');
+  // 예전처럼 '가장 오래된 것이 스러지는' 동작이 남아 있으면 안 된다
+  summonMinion(w, 'wraith', 500, 500);
+  eq(aliveMinions(w), N + 1, '새로 부를 때 기존 소환수가 사라졌다');
+  eq(minionCap(w), Infinity, '상한이 남아 있다');
 });
 
-test('권능이 소환수 상한/성능을 올린다', () => {
+test('소환수의 자연스러운 상한은 지속시간이 만든다', () => {
   const w = testWorld();
-  const base = minionCap(w);
-  grantBoon(w, { id: 'necro_horde', rarity: 'common', level: 1 });
-  assert(minionCap(w) > base, '상한 미증가');
-  const before = summonMinion(w, 'wraith', 400, 400).dmg;
+  const m = summonMinion(w, 'wraith', 400, 400);
+  m.spawnT = 0;
+  const life = m.life;
+  assert(life > 0, '지속시간이 없다');
+  for (let i = 0; i < Math.ceil(life * 60) + 10; i++) updateMinions(w, SIM.DT);
+  eq(aliveMinions(w), 0, '지속시간이 지나도 사라지지 않는다');
+});
+
+test('군세 권능은 지속시간과 피해를 올린다', () => {
+  const w = testWorld();
+  const before = summonMinion(w, 'wraith', 400, 400);
+  const bLife = before.maxLife, bDmg = before.dmg;
   grantBoon(w, { id: 'necro_horde', rarity: 'legendary', level: 3 });
-  const after = summonMinion(w, 'wraith', 400, 400).dmg;
-  assert(after > before, '소환수 피해 미증가');
-  assert(minionCap(w) <= MINION_RULES.HARD_CAP, '하드 캡을 넘음');
+  const after = summonMinion(w, 'wraith', 400, 400);
+  assert(after.maxLife > bLife, `지속시간 미증가 ${bLife} → ${after.maxLife}`);
+  assert(after.dmg > bDmg, `피해 미증가 ${bDmg} → ${after.dmg}`);
+});
+
+test('대군 권능은 망자 봉기가 일으키는 시체 수를 늘린다', () => {
+  const w = createWorld({ seed: 9, weaponId: 'gravecall' });
+  createRun(w);
+  const base = w.loadout.mods.raiseBonus;
+  grantBoon(w, { id: 'grave_legion', rarity: 'common', level: 1 });
+  assert(w.loadout.mods.raiseBonus > base, '일으키는 시체 수가 늘지 않음');
 });
 
 test('소환수가 적을 공격한다', () => {

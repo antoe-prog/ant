@@ -265,9 +265,9 @@ export const BOONS = [
   },
   {
     id: 'necro_horde', god: 'necro', slot: 'passive', name: '군세',
-    values: { cap: 2, dmg: 0.25 },
-    desc: (v) => `최대 소환수 +${Math.round(v.cap)}, 소환수 피해 +${pct(v.dmg)}.`,
-    apply: (L, v) => { L.mods.minionCap += Math.round(v.cap); L.mods.minionDamage += v.dmg; },
+    values: { life: 0.45, dmg: 0.25 },
+    desc: (v) => `소환수 지속시간 +${pct(v.life)}, 피해 +${pct(v.dmg)}. (오래 살수록 군세가 두꺼워진다)`,
+    apply: (L, v) => { L.mods.minionLife += v.life; L.mods.minionDamage += v.dmg; },
   },
   {
     id: 'necro_grave', god: 'necro', slot: 'passive', name: '무덤의 가호',
@@ -411,11 +411,11 @@ export const WEAPON_BOONS = [
   // ---- 강령장: 시체와 군세를 중심으로 ----
   {
     id: 'grave_legion', weapon: 'gravecall', god: 'none', slot: 'passive', name: '대군',
-    values: { cap: 3, archer: 0.5 }, caps: { archer: 0.75 },
-    desc: (v) => `최대 소환수 +${Math.round(v.cap)}. 망자 봉기가 ${pct(v.archer)} 확률로 뼈 궁수를 일으킨다.`,
+    values: { raise: 3, archer: 0.5 }, caps: { archer: 0.75 },
+    desc: (v) => `망자 봉기가 시체 ${Math.round(v.raise)}구를 더 일으키고, ${pct(v.archer)} 확률로 뼈 궁수가 나온다.`,
     apply: (L, v) => {
-      L.mods.minionCap += Math.round(v.cap);
-      L.mods.archerChance = (L.mods.archerChance || 0) + v.archer;
+      L.mods.raiseBonus += Math.round(v.raise);
+      L.mods.archerChance += v.archer;
     },
   },
   {

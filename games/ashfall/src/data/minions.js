@@ -59,8 +59,9 @@ export const MINIONS = [
 export const MINION_BY_ID = Object.fromEntries(MINIONS.map((m) => [m.id, m]));
 
 export const MINION_RULES = {
-  BASE_MAX: 3,           // 기본 최대 소환수 (권능으로 증가)
-  HARD_CAP: 9,           // 화면 가독성/성능 상한 — 이 이상은 늘지 않는다
+  // 소환수 수 제한 없음. 자연스러운 상한은 '지속시간'이 만든다 —
+  // 소환 속도 × 지속시간이 곧 동시 존재 수다. 인위적인 상한을 두지 않는다.
+  RETARGET_INTERVAL: 0.15,  // 목표 재탐색 주기(초). 매 프레임 전수 탐색하면 수가 많을 때 비싸다
   LEASH: 460,            // 플레이어에게서 이만큼 멀어지면 되돌아온다
   SEEK_RANGE: 520,       // 적을 찾는 범위
   CONTACT_CD: 0.5,       // 적과 몸이 닿았을 때 서로 피해를 주는 간격

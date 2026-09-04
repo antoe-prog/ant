@@ -60,8 +60,13 @@ export function consumeCorpse(world, c) {
 
 // ---------------- 소환수 ----------------
 
-export function minionCap(world) {
-  return Math.min(MINION_RULES.HARD_CAP, MINION_RULES.BASE_MAX + world.loadout.mods.minionCap);
+/**
+ * 소환수 수에는 제한이 없다.
+ * 자연스러운 상한은 지속시간이 만든다 — 소환 속도 × 지속시간 = 동시 존재 수.
+ * (HUD/설명용으로만 남겨둔 함수. 더 이상 소환을 막지 않는다.)
+ */
+export function minionCap() {
+  return Infinity;
 }
 
 /**
@@ -72,17 +77,6 @@ export function summonMinion(world, id, x, y, opts = {}) {
   const def = MINION_BY_ID[id];
   if (!def) return null;
   const L = world.loadout;
-  const cap = minionCap(world);
-
-  const alive = world.minions.filter((m) => !m.dead);
-  if (alive.length >= cap) {
-    // 가장 오래 산 소환수를 스러지게 한다 (상한이 곧 선택이 되도록)
-    let oldest = alive[0];
-    for (const m of alive) if (m.life < oldest.life) oldest = m;
-    oldest.dead = true;
-    world.bus.emit('minionExpire', { x: oldest.x, y: oldest.y, color: oldest.def.color });
-  }
-
   const scale = opts.scale || 1;
   const hp = def.hp * scale * (1 + L.mods.minionHp);
   const m = {
@@ -101,6 +95,9 @@ export function summonMinion(world, id, x, y, opts = {}) {
     contactCd: 0,
     spawnT: MINION_RULES.SUMMON_INVULN,
     hurtFlash: 0,
+    target: null,
+    retargetT: world.rng.float(0, MINION_RULES.RETARGET_INTERVAL), // 재탐색 시점을 분산
+    cmdSeq: -1,
     dead: false,
     scale,
   };
@@ -131,28 +128,21 @@ export function updateMinions(world, dt) {
       continue;
     }
 
-    // 목표 선정
+    // 목표 선정.
+    // 소환수 수에 제한이 없으므로 매 프레임 전수 탐색하면 O(소환수×적)이 커진다.
+    // 목표는 짧은 주기로만 갱신하고, 그 사이에는 캐시된 목표를 쫓는다.
     const cmd = world.command;
     const leashed = !cmd && dist(m.x, m.y, p.x, p.y) > MINION_RULES.LEASH;
-    let target = null, bestD = Infinity;
 
-    if (cmd) {
-      // 명령 중: 지정 지점 주변의 적을 최우선으로
-      const r2 = MINION_RULES.COMMAND_RADIUS * MINION_RULES.COMMAND_RADIUS;
-      for (const e of world.enemies) {
-        if (e.dead || e.spawnT > 0) continue;
-        if (dist2(cmd.x, cmd.y, e.x, e.y) > r2) continue;
-        const d = dist2(m.x, m.y, e.x, e.y);
-        if (d < bestD) { bestD = d; target = e; }
-      }
+    m.retargetT -= dt;
+    if (m.target && (m.target.dead || m.target.spawnT > 0)) m.target = null;
+    if (m.retargetT <= 0 || !m.target || m.cmdSeq !== world.commandSeq) {
+      m.retargetT = MINION_RULES.RETARGET_INTERVAL;
+      m.cmdSeq = world.commandSeq;
+      m.target = pickTarget(world, m, cmd, leashed);
     }
-    if (!target && !leashed) {
-      for (const e of world.enemies) {
-        if (e.dead || e.spawnT > 0) continue;
-        const d = dist2(m.x, m.y, e.x, e.y);
-        if (d < bestD && d <= MINION_RULES.SEEK_RANGE * MINION_RULES.SEEK_RANGE) { bestD = d; target = e; }
-      }
-    }
+    const target = m.target;
+    const bestD = target ? dist2(m.x, m.y, target.x, target.y) : Infinity;
 
     // 명령 중에는 더 빠르고 세진다
     const cmdSpeed = cmd ? MINION_RULES.COMMAND_SPEED : 1;
@@ -209,20 +199,41 @@ export function updateMinions(world, dt) {
     m.x = clamp(m.x, a.pad + m.radius, a.width - a.pad - m.radius);
     m.y = clamp(m.y, a.pad + m.radius, a.height - a.pad - m.radius);
 
-    // 적과 몸이 닿으면 서로 갉아먹는다 — 소환수가 압박을 나눠 받는다
-    if (m.contactCd <= 0) {
-      for (const e of world.enemies) {
-        if (e.dead || e.spawnT > 0 || !e.def.contact) continue;
-        if (dist(m.x, m.y, e.x, e.y) < m.radius + e.radius) {
-          m.contactCd = MINION_RULES.CONTACT_CD;
-          damageMinion(world, m, e.dmg * MINION_RULES.ENEMY_DMG_TO_MINION * world.run.enemyDmgMult);
-          break;
-        }
+    // 적과 몸이 닿으면 서로 갉아먹는다 — 소환수가 압박을 나눠 받는다.
+    // 전수 탐색 대신 '지금 쫓는 적'만 본다 (닿을 수 있는 건 사실상 그 적이다).
+    if (m.contactCd <= 0 && target && target.def.contact && !target.dead) {
+      if (dist(m.x, m.y, target.x, target.y) < m.radius + target.radius) {
+        m.contactCd = MINION_RULES.CONTACT_CD;
+        damageMinion(world, m, target.dmg * MINION_RULES.ENEMY_DMG_TO_MINION * world.run.enemyDmgMult);
       }
     }
   }
 
   for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
+}
+
+/** 목표 선정 (재탐색 주기마다 한 번만 호출된다) */
+function pickTarget(world, m, cmd, leashed) {
+  let target = null, bestD = Infinity;
+  if (cmd) {
+    // 명령 중: 지정 지점 주변의 적을 최우선으로
+    const r2 = MINION_RULES.COMMAND_RADIUS * MINION_RULES.COMMAND_RADIUS;
+    for (const e of world.enemies) {
+      if (e.dead || e.spawnT > 0) continue;
+      if (dist2(cmd.x, cmd.y, e.x, e.y) > r2) continue;
+      const d = dist2(m.x, m.y, e.x, e.y);
+      if (d < bestD) { bestD = d; target = e; }
+    }
+  }
+  if (!target && !leashed) {
+    const seek2 = MINION_RULES.SEEK_RANGE * MINION_RULES.SEEK_RANGE;
+    for (const e of world.enemies) {
+      if (e.dead || e.spawnT > 0) continue;
+      const d = dist2(m.x, m.y, e.x, e.y);
+      if (d < bestD && d <= seek2) { bestD = d; target = e; }
+    }
+  }
+  return target;
 }
 
 function moveToward(m, tx, ty, speed, dt) {
@@ -278,6 +289,7 @@ export function issueCommand(world, x, y) {
   const ty = len > max ? p.y + (dy / len) * max : y;
 
   world.command = { x: tx, y: ty, t: MINION_RULES.COMMAND_DURATION, maxT: MINION_RULES.COMMAND_DURATION };
+  world.commandSeq++;   // 소환수들이 즉시 목표를 다시 고르게 한다
   world.commandCd = MINION_RULES.COMMAND_CD;
   world.bus.emit('minionCommand', { x: tx, y: ty, count: aliveMinions(world) });
   return true;
@@ -287,7 +299,7 @@ export function updateCommand(world, dt) {
   if (world.commandCd > 0) world.commandCd -= dt;
   if (world.command) {
     world.command.t -= dt;
-    if (world.command.t <= 0) world.command = null;
+    if (world.command.t <= 0) { world.command = null; world.commandSeq++; }
   }
 }
 

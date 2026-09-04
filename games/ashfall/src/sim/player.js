@@ -410,7 +410,7 @@ function startSpecial(world, p, intent) {
 function doRaiseDead(world, p, sp) {
   const L = world.loadout;
   const list = corpsesNear(world, p.x, p.y, sp.radius);
-  const max = sp.maxRaise + L.mods.minionCap;
+  const max = sp.maxRaise + L.mods.raiseBonus;
   let raised = 0;
   for (const c of list) {
     if (raised >= max) break;

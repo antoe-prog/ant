@@ -14,6 +14,7 @@
 // 실행: node tools/build.mjs
 // ============================================================
 import fs from 'node:fs';
+import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,8 +43,15 @@ for (const abs of files) {
 
   code = code.replace(IMPORT_RE, (_, names, spec) => {
     const depId = path.posix.normalize(path.posix.join(path.posix.dirname(id), spec));
-    deps.push({ id: depId, names: names.trim() });
-    return `const {${names.trim()}} = __M[${JSON.stringify(depId)}];`;
+    // `A as B` 는 구조분해에서 `A: B` 다. 그대로 두면 잘못된 문법이 생성된다.
+    const bindings = names.split(',').map((n) => {
+      const t = n.trim();
+      if (!t) return '';
+      const m = t.match(/^([A-Za-z0-9_$]+)\s+as\s+([A-Za-z0-9_$]+)$/);
+      return m ? `${m[1]}: ${m[2]}` : t;
+    }).filter(Boolean).join(', ');
+    deps.push({ id: depId, names: bindings });
+    return `const {${bindings}} = __M[${JSON.stringify(depId)}];`;
   });
 
   // export 이름 수집 후 키워드 제거
@@ -61,6 +69,9 @@ for (const abs of files) {
 
   if (/^export\s/m.test(code)) {
     throw new Error(`${id}: 처리하지 못한 export 구문이 있습니다`);
+  }
+  if (/^import\s/m.test(code)) {
+    throw new Error(`${id}: 처리하지 못한 import 구문이 있습니다 (기본/네임스페이스 import 는 지원하지 않음)`);
   }
   mods.set(id, { id, body: code, deps, exports: [...exports] });
 }
@@ -88,7 +99,18 @@ const bundle = order.map((id) => {
     `__M[${JSON.stringify(id)}] = (function () {\n${m.body}\nreturn { ${m.exports.join(', ')} };\n})();`;
 }).join('\n\n');
 
-const script = `<script type="module">\n"use strict";\nconst __M = {};\n\n${bundle}\n</script>`;
+const scriptBody = `"use strict";\nconst __M = {};\n\n${bundle}`;
+
+// 번들 문법을 여기서 검사한다 — 잘못된 코드가 브라우저까지 가지 않도록.
+// (import 별칭 변환 실수 같은 것이 조용히 빠져나가면 런타임에야 드러난다)
+try {
+  new vm.Script(scriptBody, { filename: 'bundle.js' });
+} catch (err) {
+  console.error('번들 문법 오류:', err.message);
+  process.exit(1);
+}
+
+const script = `<script type="module">\n${scriptBody}\n</script>`;
 
 // index.html 을 뼈대로 삼는다 — 스타일/마크업을 한 곳에서만 관리하기 위해
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
