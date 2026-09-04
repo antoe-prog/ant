@@ -7,6 +7,7 @@ import { EV } from '../core/events.js';
 import { SHAKE, HITSTOP } from '../data/balance.js';
 import { clamp, dist, normalize, TAU, rotateToward } from '../core/math.js';
 import { damagePlayer, statusSpeedMult, isDisabled, applyPlayerStatus, forEachEnemyInRange } from './combat.js';
+import { damageMinionsInRange } from './minions.js';
 import { fireProjectile } from './enemyAI.js';
 
 export function updateBoss(world, b, dt) {
@@ -176,8 +177,10 @@ function execPattern(world, b, phase, dt) {
     b.vx = Math.cos(b.chargeDir) * pat.speed;
     b.vy = Math.sin(b.chargeDir) * pat.speed;
     if (dist(b.x, b.y, world.player.x, world.player.y) < b.radius + world.player.radius + 4) {
-      damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b });
+      damagePlayer(world, pat.dmg * world.run.enemyDmgMult * b.dmgMult, { fromX: b.x, fromY: b.y, source: b });
     }
+    // 돌진 경로의 소환수도 밀려 부서진다
+    damageMinionsInRange(world, b.x, b.y, b.radius + 18, pat.dmg * world.run.enemyDmgMult * b.dmgMult);
     if (b.t <= 0) {
       b.repeat--;
       if (b.repeat > 0) {
@@ -222,7 +225,7 @@ function doSlam(world, b, pat) {
   world.hitstop = Math.max(world.hitstop, HITSTOP.HEAVY);
   const p = world.player;
   if (dist(b.x, b.y, p.x, p.y) < pat.radius + p.radius) {
-    if (damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b }) && pat.status) {
+    if (damagePlayer(world, pat.dmg * world.run.enemyDmgMult * b.dmgMult, { fromX: b.x, fromY: b.y, source: b }) && pat.status) {
       applyPlayerStatus(world, pat.status.kind);
     }
   }
@@ -234,7 +237,7 @@ function doRing(world, b, pat, waveIdx) {
   for (let i = 0; i < n; i++) {
     const a = base + (i / n) * TAU;
     fireProjectile(world, b, world.player, {
-      angle: a, speed: pat.projSpeed, dmg: pat.dmg, radius: 9, life: 3.4,
+      angle: a, speed: pat.projSpeed, dmg: pat.dmg * b.dmgMult, radius: 9, life: 3.4,
       status: pat.status || null, color: b.def.accent,
     });
   }
@@ -248,7 +251,7 @@ function doVolley(world, b, pat) {
   for (let i = 0; i < n; i++) {
     const off = n === 1 ? 0 : ((i / (n - 1)) - 0.5) * 2 * pat.spread;
     fireProjectile(world, b, p, {
-      angle: base + off, speed: pat.projSpeed, dmg: pat.dmg, radius: 8, life: 3.0,
+      angle: base + off, speed: pat.projSpeed, dmg: pat.dmg * b.dmgMult, radius: 8, life: 3.0,
       status: pat.status || null, color: b.def.accent,
     });
   }
@@ -262,8 +265,9 @@ function doBlink(world, b, pat) {
   b.x = clamp(p.x + Math.cos(a) * r, world.arena.pad + b.radius, world.arena.width - world.arena.pad - b.radius);
   b.y = clamp(p.y + Math.sin(a) * r, world.arena.pad + b.radius, world.arena.height - world.arena.pad - b.radius);
   world.bus.emit(EV.EXPLOSION, { x: b.x, y: b.y, radius: pat.radius, element: 'frost' });
+  damageMinionsInRange(world, b.x, b.y, pat.radius, pat.dmg * world.run.enemyDmgMult * b.dmgMult * 1.2);
   if (dist(b.x, b.y, p.x, p.y) < pat.radius + p.radius) {
-    damagePlayer(world, pat.dmg * world.run.enemyDmgMult, { fromX: b.x, fromY: b.y, source: b });
+    damagePlayer(world, pat.dmg * world.run.enemyDmgMult * b.dmgMult, { fromX: b.x, fromY: b.y, source: b });
   }
 }
 

@@ -7,7 +7,7 @@ import { EV } from '../core/events.js';
 import { clamp, dist, dist2, normalize, arcHit, TAU, rotateToward, normAngle } from '../core/math.js';
 import { PLAYER } from '../data/balance.js';
 import { damagePlayer, statusSpeedMult, isDisabled, applyPlayerStatus, applyStatus, damageEnemy, killEnemy } from './combat.js';
-import { blockProjectile } from './minions.js';
+import { blockProjectile, damageMinionsInRange } from './minions.js';
 
 const SEPARATION_FORCE = 260;
 
@@ -243,6 +243,7 @@ const BEHAVIORS = {
         if (arcHit(e.x, e.y, e.facing, half, e.def.swingRange, p.x, p.y, p.radius)) {
           damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y, source: e });
         }
+        damageMinionsInRange(world, e.x, e.y, e.def.swingRange * 0.8, e.dmg * world.run.enemyDmgMult);
         world.bus.emit(EV.SHOCKWAVE, { x: e.x, y: e.y, radius: e.def.swingRange, color: e.def.accent, weak: true });
       }
       if (e.t <= 0) { e.state = 'idle'; e.cd = e.def.cooldown / world.run.enemySpeedMult; }
@@ -320,6 +321,7 @@ const BEHAVIORS = {
       e.vx *= 0.9; e.vy *= 0.9;
       if (e.t <= 0) {
         world.bus.emit(EV.EXPLOSION, { x: e.x, y: e.y, radius: e.def.blastRadius, element: 'ember' });
+        damageMinionsInRange(world, e.x, e.y, e.def.blastRadius, e.dmg * world.run.enemyDmgMult * 1.3);
         if (dist(e.x, e.y, p.x, p.y) < e.def.blastRadius + p.radius) {
           damagePlayer(world, e.dmg * world.run.enemyDmgMult, { fromX: e.x, fromY: e.y, source: e });
         }

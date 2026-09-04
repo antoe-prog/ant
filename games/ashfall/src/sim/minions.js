@@ -320,6 +320,24 @@ export function updateCommand(world, dt) {
   }
 }
 
+/**
+ * 광역 공격이 소환수도 친다.
+ * 소환수가 적의 공격을 전혀 받지 않으면 군세는 '공짜 화력'이 되고,
+ * 보스는 아무것도 못 한 채 녹는다. 군세는 소모품이어야 한다.
+ */
+export function damageMinionsInRange(world, x, y, radius, dmg) {
+  const r2 = radius * radius;
+  let hit = 0;
+  for (const m of world.minions) {
+    if (m.dead || m.spawnT > 0) continue;
+    const dx = m.x - x, dy = m.y - y;
+    if (dx * dx + dy * dy > r2) continue;
+    damageMinion(world, m, dmg * MINION_RULES.ENEMY_DMG_TO_MINION);
+    hit++;
+  }
+  return hit;
+}
+
 export function aliveMinions(world) {
   let n = 0;
   for (const m of world.minions) if (!m.dead) n++;

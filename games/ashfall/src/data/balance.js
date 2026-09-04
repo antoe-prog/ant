@@ -104,7 +104,7 @@ export const PLAYER_STATUS = {
 // ---- 런 구조 (10~20분 목표) ----
 export const RUN = {
   BIOMES: 3,
-  ROOMS_PER_BIOME: 5,        // 마지막이 보스방
+  ROOMS_PER_BIOME: 6,        // 마지막이 보스방 — 총 18방, 봇 기준 ~4.5분 / 사람 기준 10~15분
   // 방 난이도 곡선: 전역 방 인덱스 기반 승수
   DIFFICULTY_PER_ROOM: 0.105,
   DIFFICULTY_PER_BIOME: 0.47,
@@ -112,8 +112,9 @@ export const RUN = {
   ELITE_CHANCE_PER_BIOME: 0.1,
   MINIBOSS_CHANCE: 0.45,     // 구역당 최대 1회, 중반에 등장
   GOLD_PER_ROOM: [12, 22],
-  HEAL_ROOM_AMOUNT: 28,
-  BOSS_HEAL: 34,
+  HEAL_ROOM_AMOUNT: 28,      // 보상 문에서 '권능 대신' 고르는 회복 — 선택의 대가가 있으므로 크게 유지
+  BOSS_HEAL: 26,             // 보스 처치 후 무상 회복. 예전 34는 체력을 거의 리셋해
+                             // 층과 층 사이의 소모가 사라졌다 → 숨 돌릴 정도로만 남긴다
 };
 
 // 보상 종류별 등장 가중치
@@ -148,6 +149,29 @@ export const RARITY_ORDER = ['common', 'rare', 'epic', 'legendary'];
 export const RARITY_LUCK_STEP = 0.55;
 
 // ---- 적 스케일링 ----
+/**
+ * 난이도 손잡이. 개별 적/보스 데이터를 건드리지 않고 전체 압력만 조절한다.
+ *
+ * 목표치 / 실측(봇 24런, 강령장):
+ *   승률       35~40%  →  37%
+ *   보스전     층마다 무거워질 것  →  1층 18초 / 2층 31초 / 3층 33초
+ *   일반 방    →  13초
+ *   런 길이    →  264초(봇). 사람 기준 10~15분
+ * 미달: 클리어 시 HP 목표 50~70% 대비 실측 86% — 봇이 거의 안 맞는다.
+ *       회복량이 아니라 '피격 빈도' 쪽 문제라 이 손잡이로는 못 내린다.
+ */
+export const TUNING = {
+  BOSS_HP: 1.70,         // 보스 체력 배율
+  BOSS_HP_PER_DIFF: 0.86,// 진행도에 따른 보스 체력 증가 계수.
+                         // 0.22 였을 때 잡몹(0.62)보다 느리게 자라서 3층 보스가
+                         // 1층 보스보다 쉬웠다 — 층마다 확실히 무거워지도록 올린다.
+  ROOM_BUDGET: 1.02,     // 방당 적 스폰 예산 배율
+  ENEMY_DMG: 1.0,        // 적 피해 배율
+  BOSS_DMG: 0.70,        // 보스 피해 배율 — 체력과 반대로 움직여
+                         // '오래 버티는 보스'와 '한 방에 죽이는 보스'를 분리한다.
+                         // 체력↑ + 피해↓ = 실수 한 번으로 끝나지 않고, 패턴을 읽어내는 싸움.
+};
+
 export const ENEMY_SCALE = {
   HP_PER_DIFFICULTY: 0.62,
   DMG_PER_DIFFICULTY: 0.38,

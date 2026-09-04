@@ -11,11 +11,12 @@ const BASE = ['necro_attack', 'necro_dash', 'necro_special'];
 const BRANCHES = [
   { name: '군세(기본)', boons: [...BASE, 'necro_horde', 'necro_bind'] },
   { name: '사냥개',     boons: [...BASE, 'necro_hounds', 'necro_horde'] },
-  { name: '거인',       boons: [...BASE, 'necro_giant', 'grave_legion'] },
+  { name: '거인',       boons: [...BASE, 'necro_giant', 'necro_horde'] },
   { name: '폭렬',       boons: [...BASE, 'necro_detonate', 'necro_horde'] },
   { name: '역병',       boons: [...BASE, 'necro_plague', 'necro_bind'] },
 ];
 const REPS = Number(process.env.REPS || 4);
+const BUDGET = Number(process.env.BUDGET || 420);  // 18방 런은 봇 기준 ~264초, 여유를 둔다
 const SHORT = { wraith: '망령', skeleton: '해골', bonearcher: '궁수', bonehound: '사냥개', bonegiant: '거인' };
 
 function run(boons, seed) {
@@ -33,7 +34,7 @@ function run(boons, seed) {
   w.bus.on('minionSummon', (p) => { m.summons++; m.kinds[p.id] = (m.kinds[p.id] || 0) + 1; });
 
   let t = 0;
-  while (t < 260) {
+  while (t < BUDGET) {
     const st = w.run;
     if (st.state === 'reward') {
       // 분기 전용 합일이 제안되면 세고, 있으면 그것을 고른다 (사람의 선택을 흉내)

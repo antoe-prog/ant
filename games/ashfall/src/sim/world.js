@@ -3,7 +3,7 @@
 // 렌더러·오디오·UI 는 world 를 "읽기만" 하고, 변화는 EventBus 로 받는다.
 // ============================================================
 
-import { ARENA, arenaForAspect, SIM, PLAYER, ENEMY_SCALE, RUN, STATUS } from '../data/balance.js';
+import { ARENA, arenaForAspect, SIM, PLAYER, ENEMY_SCALE, TUNING, RUN, STATUS } from '../data/balance.js';
 import { ENEMY_BY_ID, BOSS_BY_ID, MINIBOSS_BY_ID, ELITE_AFFIXES, BIOMES } from '../data/enemies.js';
 import { WEAPON_BY_ID, WEAPON_UPGRADE } from '../data/weapons.js';
 import { EventBus, EV } from '../core/events.js';
@@ -98,7 +98,7 @@ export function createWorld(opts = {}) {
       const d = this.difficulty();
       const elite = !!extra.elite;
       const hp = def.hp * (1 + ENEMY_SCALE.HP_PER_DIFFICULTY * d) * this.run.enemyHpMult * (elite ? ENEMY_SCALE.ELITE_HP : 1);
-      const dmg = def.dmg * (1 + ENEMY_SCALE.DMG_PER_DIFFICULTY * d) * (elite ? ENEMY_SCALE.ELITE_DMG : 1);
+      const dmg = def.dmg * (1 + ENEMY_SCALE.DMG_PER_DIFFICULTY * d) * (elite ? ENEMY_SCALE.ELITE_DMG : 1) * TUNING.ENEMY_DMG;
       // 엘리트 접두사: 같은 적도 매번 다른 위협이 된다
       let affixes = [];
       if (elite) {
@@ -131,9 +131,10 @@ export function createWorld(opts = {}) {
       const def = BOSS_BY_ID[bossId] || MINIBOSS_BY_ID[bossId];
       if (!def) return null;
       const d = this.difficulty();
-      const hp = def.hp * (1 + 0.22 * d) * this.run.enemyHpMult;
+      const hp = def.hp * (1 + TUNING.BOSS_HP_PER_DIFF * d) * this.run.enemyHpMult * TUNING.BOSS_HP;
       const b = {
         def, id: bossId, elite: false, isBoss: true, isMini: !!def.miniboss, affixes: [], teleMult: 1,
+        dmgMult: TUNING.BOSS_DMG,
         x: this.arena.width / 2, y: this.arena.pad + 140,
         vx: 0, vy: 0,
         radius: def.radius,

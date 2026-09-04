@@ -3,7 +3,7 @@
 // "전투 → 클리어 → 선택(문) → 보상 → 다음 전투" 루프의 주인.
 // ============================================================
 
-import { RUN, REWARD_WEIGHTS, RARITY, RARITY_ORDER, RARITY_LUCK_STEP, CURSES, SHOP, ENEMY_SCALE, META } from '../data/balance.js';
+import { RUN, REWARD_WEIGHTS, RARITY, RARITY_ORDER, RARITY_LUCK_STEP, CURSES, SHOP, ENEMY_SCALE, TUNING, META } from '../data/balance.js';
 import { BIOMES, ENEMY_COST, ENEMY_BY_ID, MINIBOSS_BY_ID } from '../data/enemies.js';
 import { BOONS, WEAPON_BOONS, DUO_BOONS, ANY_BOON_BY_ID, scaleValues, GODS } from '../data/boons.js';
 import { WEAPON_UPGRADE } from '../data/weapons.js';
@@ -336,7 +336,7 @@ export function createRun(world) {
 function buildWaves(world, biome, spec) {
   const run = world.run;
   const [lo, hi] = biome.budget;
-  let budget = world.rng.float(lo, hi) * run.enemyCountMult * (1 + run.roomIdx * 0.07);
+  let budget = world.rng.float(lo, hi) * run.enemyCountMult * (1 + run.roomIdx * 0.07) * TUNING.ROOM_BUDGET;
   if (spec.elite) budget *= 1.25;
 
   const pool = biome.pool.map((id) => ENEMY_BY_ID[id]).filter(Boolean);
