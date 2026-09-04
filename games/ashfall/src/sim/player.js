@@ -8,6 +8,7 @@ import { EV } from '../core/events.js';
 import { clamp, arcHit, normalize, TAU } from '../core/math.js';
 import { damageEnemy, applyStatus, damagePlayer, forEachEnemyInRange, runHooks } from './combat.js';
 import { corpsesNear, consumeCorpse, summonMinion } from './minions.js';
+import { MINION_RULES } from '../data/minions.js';
 
 export function createPlayer(world, weapon) {
   const L = world.loadout;
@@ -365,12 +366,30 @@ function doRaiseDead(world, p, sp) {
   const list = corpsesNear(world, p.x, p.y, sp.radius);
   const max = sp.maxRaise + L.mods.raiseBonus;
   let raised = 0;
+
+  // '거인 결속': 여러 시체를 합쳐 하나의 큰 소환수로 만든다.
+  // 수를 포기하는 대신 하나가 벽이 된다 — 군세 빌드와 갈라지는 지점.
+  if (L.mods.giantMerge > 0 && list.length) {
+    const merge = Math.min(L.mods.giantMerge, MINION_RULES.GIANT_MAX_MERGE, list.length);
+    let used = 0, cx = 0, cy = 0;
+    for (let i = 0; i < merge; i++) {
+      if (!consumeCorpse(world, list[i])) continue;
+      cx += list[i].x; cy += list[i].y; used++;
+    }
+    if (used > 0) {
+      // 합친 시체 수만큼 커지고 강해진다
+      summonMinion(world, 'bonegiant', cx / used, cy / used, { scale: 0.7 + 0.3 * used, noSwap: true });
+      raised += used;
+      world.bus.emit('raiseDead', { x: p.x, y: p.y, count: used, giant: true });
+      return;
+    }
+  }
+
   for (const c of list) {
     if (raised >= max) break;
     if (!consumeCorpse(world, c)) continue;
-    const archer = (L.mods.archerChance || 0) > 0 && world.rng.next() < L.mods.archerChance;
+    const archer = L.mods.archerChance > 0 && world.rng.next() < L.mods.archerChance;
     summonMinion(world, archer ? 'bonearcher' : sp.minion, c.x, c.y, { scale: c.scale });
-    for (const s of L.specialStatus) { /* 상태이상은 소환수 타격으로 전달된다 */ }
     raised++;
   }
   if (raised === 0) {

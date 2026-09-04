@@ -256,12 +256,12 @@ export function damageEnemy(world, e, amount, element = 'none', opts = {}) {
 
   if (!opts.silent) {
     world.bus.emit(EV.HIT, {
-      x: e.x, y: e.y, dmg: final, crit, element, heavy: !!opts.heavy, target: e,
+      x: e.x, y: e.y, dmg: final, crit, element, heavy: !!opts.heavy, target: e, tag,
     });
     world.hitstop = Math.max(world.hitstop, HITSTOP[opts.heavy ? 'HEAVY' : 'LIGHT']);
     world.shake(crit || opts.heavy ? SHAKE.HEAVY : SHAKE.LIGHT);
   } else {
-    world.bus.emit(EV.HIT, { x: e.x, y: e.y, dmg: final, crit, element, tick: true, target: e });
+    world.bus.emit(EV.HIT, { x: e.x, y: e.y, dmg: final, crit, element, tick: true, target: e, tag });
   }
 
   // 집중 회복

@@ -54,6 +54,30 @@ export const MINIONS = [
     blocksProjectiles: false,
     desc: '거리를 두고 뼈 화살을 쏜다',
   },
+  {
+    id: 'bonehound',
+    name: '뼈 사냥개',
+    hp: 22, dmg: 9, speed: 278, radius: 10,
+    life: 11,
+    attackCd: 0.5,
+    color: '#b8a68c', accent: '#f0e2c8',
+    kind: 'melee',
+    blocksProjectiles: false,
+    staggerOnHit: 0.45,        // 물면 적의 행동이 끊긴다 — 피해보다 '붙잡기'가 역할
+    desc: '아주 빠르게 달려들어 적을 물어 넘어뜨린다',
+  },
+  {
+    id: 'bonegiant',
+    name: '해골 거인',
+    hp: 150, dmg: 26, speed: 92, radius: 24,
+    life: 20,
+    attackCd: 1.25,
+    color: '#8f8674', accent: '#e8dcc2',
+    kind: 'melee',
+    blocksProjectiles: true,
+    slamRadius: 105,           // 광역 강타 — 하나가 여럿 몫을 한다
+    desc: '느리지만 거대하다. 광역으로 내리치고 적탄을 막는다',
+  },
 ];
 
 export const MINION_BY_ID = Object.fromEntries(MINIONS.map((m) => [m.id, m]));
@@ -62,6 +86,7 @@ export const MINION_RULES = {
   // 소환수 수 제한 없음. 자연스러운 상한은 '지속시간'이 만든다 —
   // 소환 속도 × 지속시간이 곧 동시 존재 수다. 인위적인 상한을 두지 않는다.
   RETARGET_INTERVAL: 0.15,  // 목표 재탐색 주기(초). 매 프레임 전수 탐색하면 수가 많을 때 비싸다
+  GIANT_MAX_MERGE: 6,       // 거인 하나를 만드는 데 쓸 수 있는 시체 수 상한
   LEASH: 460,            // 플레이어에게서 이만큼 멀어지면 되돌아온다
   SEEK_RANGE: 520,       // 적을 찾는 범위
   CONTACT_CD: 0.5,       // 적과 몸이 닿았을 때 서로 피해를 주는 간격

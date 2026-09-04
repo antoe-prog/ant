@@ -552,6 +552,80 @@ test('사령술 보스는 시체가 없어도 패턴이 헛돌지 않는다', ()
   assert(w.enemies.length > before, '시체가 없을 때 대체 소환이 없음');
 });
 
+test("'사냥개 무리'는 소환되는 종류를 바꾸고 경직을 건다", () => {
+  const w = testWorld();
+  w.minions.length = 0;
+  eq(summonMinion(w, 'wraith', 400, 400).id, 'wraith', '기본은 망령이어야 함');
+  grantBoon(w, { id: 'necro_hounds', rarity: 'common', level: 1 });
+  const m = summonMinion(w, 'wraith', 400, 400);
+  eq(m.id, 'bonehound', '사냥개로 교체되지 않음');
+  // 물면 적이 경직된다
+  w.enemies.length = 0;
+  const e = w.spawnEnemy('husk', 420, 400);
+  e.spawnT = 0; e.hp = e.maxHp = 100000;
+  m.spawnT = 0; m.x = 410; m.y = 400; m.attackCd = 0;
+  w.player.x = 400; w.player.y = 400;
+  for (let i = 0; i < 30 && !(e.staggerT > 0); i++) updateMinions(w, SIM.DT);
+  assert(e.staggerT > 0, '사냥개가 경직을 걸지 못함');
+});
+
+test("'거인 결속'은 여러 시체를 하나의 거인으로 합친다", () => {
+  const w = createWorld({ seed: 4, weaponId: 'gravecall' });
+  const d = createRun(w);
+  d.enterRoom({ type: 'combat' });
+  w.enemies.length = 0; w.spawnQueue = []; w.minions.length = 0; w.corpses.length = 0;
+  grantBoon(w, { id: 'necro_giant', rarity: 'common', level: 1 });
+  const p = w.player;
+  for (let i = 0; i < 4; i++) {
+    w.corpses.push({ x: p.x + 40 + i * 20, y: p.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+  p.focus = p.maxFocus;
+  updatePlayerFn(w, { mx: 0, my: 0, aimX: p.x + 100, aimY: p.y, attack: false, dash: false, special: true }, SIM.DT);
+  const alive = w.minions.filter((m) => !m.dead);
+  eq(alive.length, 1, `거인 하나만 나와야 함 (${alive.length}체)`);
+  eq(alive[0].id, 'bonegiant', '거인이 아님');
+  assert(alive[0].scale > 1, '합친 시체 수만큼 커지지 않음');
+  eq(w.corpses.filter((c) => !c.used).length, 0, '시체가 소비되지 않음');
+});
+
+test("'폭렬 결속'은 지속시간을 깎는 대신 스러질 때 폭발한다", () => {
+  const w = testWorld();
+  w.minions.length = 0; w.enemies.length = 0;
+  const plain = summonMinion(w, 'wraith', 400, 400).maxLife;
+  grantBoon(w, { id: 'necro_detonate', rarity: 'common', level: 1 });
+  const m = summonMinion(w, 'wraith', 400, 400);
+  assert(m.maxLife < plain, `지속시간이 줄지 않음 ${plain} → ${m.maxLife}`);
+  const e = w.spawnEnemy('husk', 420, 400);
+  e.spawnT = 0; e.hp = e.maxHp = 100000;
+  const hp0 = e.hp;
+  m.spawnT = 0; m.life = 0.01;
+  for (let i = 0; i < 5; i++) updateMinions(w, SIM.DT);
+  assert(e.hp < hp0, '소환수 소멸 시 폭발하지 않음');
+});
+
+test("'역병'은 소환수 타격에 화상·출혈을 함께 얹는다", () => {
+  const w = testWorld();
+  grantBoon(w, { id: 'necro_plague', rarity: 'common', level: 1 });
+  const kinds = w.loadout.minionStatus.map((s) => s.kind);
+  assert(kinds.includes('burn') && kinds.includes('bleed'), `상태이상 누락: ${kinds}`);
+});
+
+test('거인은 광역으로 내리치고 적탄을 막는다', () => {
+  const w = testWorld();
+  w.minions.length = 0; w.enemies.length = 0; w.projectiles.length = 0;
+  const g = summonMinion(w, 'bonegiant', 500, 400, { noSwap: true });
+  g.spawnT = 0; g.attackCd = 0;
+  w.player.x = 500; w.player.y = 430;
+  const a = w.spawnEnemy('husk', 515, 400);
+  const b = w.spawnEnemy('husk', 560, 400);
+  a.spawnT = 0; b.spawnT = 0;
+  a.hp = a.maxHp = b.hp = b.maxHp = 100000;
+  const ha = a.hp, hb = b.hp;
+  for (let i = 0; i < 10; i++) updateMinions(w, SIM.DT);
+  assert(a.hp < ha && b.hp < hb, '광역 강타가 둘 다 때리지 않음');
+  assert(MINION_BY_ID.bonegiant.blocksProjectiles, '거인이 탄을 막지 않음');
+});
+
 // ============ 엘리트 접두사 / 미니보스 ============
 test('엘리트만 접두사를 얻는다', () => {
   const w = testWorld();

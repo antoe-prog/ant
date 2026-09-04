@@ -293,6 +293,43 @@ export const BOONS = [
       });
     },
   },
+  // ---- 아래 셋은 '군세를 무엇으로 쓸 것인가'를 가르는 분기다.
+  //      전부 사이드그레이드다 — 더 세지는 게 아니라 역할이 바뀐다.
+  {
+    id: 'necro_hounds', god: 'necro', slot: 'passive', name: '사냥개 무리',
+    values: { stagger: 0.15 },
+    desc: () => `망령 대신 뼈 사냥개가 일어난다. 훨씬 빠르고, 물면 적의 행동을 끊는다. (피해는 낮다)`,
+    apply: (L) => { L.mods.minionSwap.wraith = 'bonehound'; },
+  },
+  {
+    id: 'necro_giant', god: 'necro', slot: 'passive', name: '거인 결속',
+    values: { merge: 4 },
+    desc: (v) => `망자 봉기가 시체 ${Math.round(v.merge)}구까지 합쳐 해골 거인 하나를 세운다. 합칠수록 강해진다.`,
+    apply: (L, v) => { L.mods.giantMerge = Math.max(L.mods.giantMerge, Math.round(v.merge)); },
+  },
+  {
+    id: 'necro_detonate', god: 'necro', slot: 'passive', name: '폭렬 결속',
+    values: { dmg: 48, radius: 145, lifeCut: 0.4 },
+    desc: (v) => `소환수가 스러질 때 폭발한다 (${Math.round(v.dmg)} 피해). 대신 지속시간 -${pct(v.lifeCut)}.`,
+    caps: { lifeCut: 0.6 },
+    apply: (L, v) => {
+      L.mods.minionLife -= v.lifeCut;
+      L.on.minionDeath.push((c) => {
+        c.explode(c.x, c.y, v.radius, v.dmg, 'necro', null);
+      });
+    },
+  },
+  {
+    id: 'necro_plague', god: 'necro', slot: 'passive', name: '역병',
+    values: { burn: 2, bleed: 2, dmgCut: 0.2 },
+    caps: { dmgCut: 0.35 },
+    desc: (v) => `소환수의 타격이 화상과 출혈을 함께 남긴다 (각 ${Math.round(v.burn)}중첩). 대신 소환수 피해 -${pct(v.dmgCut)}.`,
+    apply: (L, v) => {
+      L.minionStatus.push({ kind: 'burn', stacks: Math.round(v.burn) });
+      L.minionStatus.push({ kind: 'bleed', stacks: Math.round(v.bleed) });
+      L.mods.minionDamage -= v.dmgCut;   // 직접 때리는 대신 곪게 한다
+    },
+  },
   {
     id: 'necro_bind', god: 'necro', slot: 'passive', name: '영혼 결속',
     values: { life: 0.5, hp: 0.6, status: 2 },

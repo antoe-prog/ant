@@ -341,6 +341,24 @@ export function createRenderer(canvas, world, camera, vfx) {
         ctx.quadraticCurveTo(0, r * 0.5, -r * 0.7, r);
         ctx.quadraticCurveTo(-r, -r * 0.2, 0, -r * 1.3);
         ctx.closePath(); ctx.fill(); ctx.stroke();
+      } else if (m.id === 'bonehound') {
+        // 네 발로 달리는 낮은 실루엣 — 빠르다는 인상
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 1.5);
+        ctx.lineTo(r * 0.85, r * 0.3);
+        ctx.lineTo(0, r * 0.9);
+        ctx.lineTo(-r * 0.85, r * 0.3);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = def.accent; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-r * 0.4, -r * 1.1); ctx.lineTo(r * 0.4, -r * 1.1); ctx.stroke();
+      } else if (m.id === 'bonegiant') {
+        // 크고 각진 몸통 + 어깨 — 벽이라는 인상
+        ctx.fillRect(-r * 0.85, -r * 0.7, r * 1.7, r * 1.5);
+        ctx.strokeRect(-r * 0.85, -r * 0.7, r * 1.7, r * 1.5);
+        ctx.fillStyle = def.accent;
+        ctx.fillRect(-r * 1.15, -r * 0.75, r * 0.35, r * 0.9);
+        ctx.fillRect(r * 0.8, -r * 0.75, r * 0.35, r * 0.9);
+        ctx.beginPath(); poly(0, -r * 0.95, r * 0.42, 3, 0); ctx.fill();
       } else if (m.id === 'skeleton') {
         ctx.fillRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
         ctx.strokeRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);

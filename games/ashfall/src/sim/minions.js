@@ -11,7 +11,7 @@
 import { CORPSE, MINION_BY_ID, MINION_RULES } from '../data/minions.js';
 import { EV } from '../core/events.js';
 import { clamp, dist, dist2, normalize, TAU } from '../core/math.js';
-import { damageEnemy, applyStatus, runHooks } from './combat.js';
+import { damageEnemy, applyStatus, staggerEnemy, forEachEnemyInRange, runHooks } from './combat.js';
 
 // ---------------- 시체 ----------------
 
@@ -74,9 +74,13 @@ export function minionCap() {
  * scale 은 시체 크기(엘리트/보스)로 강화된 배율.
  */
 export function summonMinion(world, id, x, y, opts = {}) {
-  const def = MINION_BY_ID[id];
-  if (!def) return null;
   const L = world.loadout;
+  // 권능이 소환수 종류를 바꾼다 (예: 망령 → 뼈 사냥개).
+  // 소환처(처치/대시/특수기)를 건드리지 않고 '무엇이 나오는지'만 갈아끼운다.
+  const swapped = (!opts.noSwap && L.mods.minionSwap[id]) || id;
+  const def = MINION_BY_ID[swapped];
+  if (!def) return null;
+  id = swapped;
   const scale = opts.scale || 1;
   const hp = def.hp * scale * (1 + L.mods.minionHp);
   const m = {
@@ -175,11 +179,23 @@ export function updateMinions(world, dt) {
       const reach = m.radius + target.radius + 6;
       if (m.attackCd <= 0 && Math.sqrt(bestD) <= reach) {
         m.attackCd = m.def.attackCd;
-        damageEnemy(world, target, m.dmg * cmdDmg, 'none', {
-          tag: 'minion', knock: 70, dir: Math.atan2(target.y - m.y, target.x - m.x), silent: true, noCrit: true,
-        });
-        for (const s of world.loadout.minionStatus) applyStatus(world, target, s.kind, s.stacks);
-        world.bus.emit('minionHit', { x: target.x, y: target.y, color: m.def.accent });
+        const hit = (e) => {
+          damageEnemy(world, e, m.dmg * cmdDmg, 'none', {
+            tag: 'minion', knock: 70, dir: Math.atan2(e.y - m.y, e.x - m.x), silent: true, noCrit: true,
+          });
+          for (const st of world.loadout.minionStatus) applyStatus(world, e, st.kind, st.stacks);
+          // 사냥개: 물면 적의 행동을 끊는다 (피해보다 '붙잡기'가 역할)
+          if (m.def.staggerOnHit) staggerEnemy(world, e, m.def.staggerOnHit);
+          world.bus.emit('minionHit', { x: e.x, y: e.y, color: m.def.accent });
+        };
+        if (m.def.slamRadius) {
+          // 거인: 광역으로 내리친다 — 하나가 여럿 몫을 한다
+          const r = m.def.slamRadius * (0.7 + 0.3 * m.scale);
+          world.bus.emit('shockwave', { x: m.x, y: m.y, radius: r, color: m.def.accent, weak: true });
+          forEachEnemyInRange(world, m.x, m.y, r, hit);
+        } else {
+          hit(target);
+        }
       }
     }
 

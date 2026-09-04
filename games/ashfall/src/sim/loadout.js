@@ -27,6 +27,8 @@ export function emptyLoadout() {
       // 사령술
       minionDamage: 0,
       raiseBonus: 0,      // 망자 봉기가 한 번에 더 일으키는 시체 수
+      minionSwap: {},     // 소환수 종류 교체 (원래 id → 바꿀 id)
+      giantMerge: 0,      // 망자 봉기가 시체를 합쳐 거인을 만든다 (합칠 최대 수)
       minionHp: 0,
       minionLife: 0,
       corpseRadius: 0,
