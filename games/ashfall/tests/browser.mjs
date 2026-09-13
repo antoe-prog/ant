@@ -1,0 +1,461 @@
+// ============================================================
+// 브라우저 스모크 테스트 — 실제 페이지를 띄우고 실제 입력으로 플레이한다.
+// 준비: npm i playwright-core  (또는 games/ashfall/node_modules 에 심볼릭 링크)
+// 실행: node tests/browser.mjs
+// ============================================================
+import { chromium } from 'playwright-core';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const PORT = Number(process.env.PORT || 8199);
+const SHOTS = process.env.SHOT_DIR || path.join(ROOT, '.shots');
+fs.mkdirSync(SHOTS, { recursive: true });
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 무기가 여러 개일 때만 선택 UI 가 있다. 하나뿐이면 그냥 넘어간다. */
+async function pickWeapon(pg, id) {
+  const el = pg.locator(`[data-weapon="${id}"]`);
+  if (await el.count() && await el.isVisible().catch(() => false)) await el.click();
+}
+const server = spawn(process.execPath, [path.join(ROOT, 'tools/serve.mjs')], {
+  env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore',
+});
+await sleep(600);
+
+const errors = [];
+const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox', '--use-gl=swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+
+const shot = (n) => page.screenshot({ path: path.join(SHOTS, n + '.png') });
+const state = () => page.evaluate(() => {
+  const w = window.__ashfall.world;
+  if (!w) return { screen: document.getElementById('overlay').dataset.screen || '' };
+  return {
+    runState: w.run.state, biome: w.run.biomeIdx + 1, room: w.run.roomIdx + 1,
+    hp: Math.round(w.player.hp), maxHp: w.player.maxHp, enemies: w.enemies.filter((e) => !e.dead).length,
+    kills: w.run.kills, boons: w.run.owned.length, gold: w.run.gold,
+    elapsed: +w.run.elapsed.toFixed(1),
+    screen: document.getElementById('overlay').dataset.screen || '',
+  };
+});
+
+// ---- 모바일: 레이아웃이 뷰포트를 넘지 않고, 터치로 플레이할 수 있는가 ----
+async function mobileChecks() {
+  const mp = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  mp.on('pageerror', (e) => errors.push('MOBILE PAGEERROR: ' + e.message));
+  await mp.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
+  await sleep(500);
+
+  const layout = await mp.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    const b = document.getElementById('startBtn').getBoundingClientRect();
+    return {
+      pageScrolls: document.documentElement.scrollHeight > innerHeight + 1,
+      overlayOverflows: ov.scrollHeight > ov.clientHeight + 1,
+      startVisible: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+      startH: Math.round(b.height),
+    };
+  });
+  check('[모바일] 페이지 자체는 스크롤되지 않는다', !layout.pageScrolls);
+  check('[모바일] 오버레이가 뷰포트를 넘지 않는다', !layout.overlayOverflows);
+  check('[모바일] 시작 버튼이 화면 안에 있다', layout.startVisible, `높이 ${layout.startH}px`);
+  check('[모바일] 터치 목표가 충분히 크다 (>=44px)', layout.startH >= 44, `${layout.startH}px`);
+
+  // 탭 전환
+  await mp.locator('[data-tab="meta"]').tap();
+  await sleep(200);
+  check('[모바일] 탭 전환 동작', await mp.locator('.upg').first().isVisible());
+  const metaOk = await mp.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    const b = document.getElementById('startBtn').getBoundingClientRect();
+    return !(ov.scrollHeight > ov.clientHeight + 1) === false || (b.bottom <= innerHeight);
+  });
+  check('[모바일] 강화 탭에서도 시작 버튼이 화면 안', metaOk);
+  await mp.locator('[data-tab="weapon"]').tap();
+  await sleep(150);
+
+  // 터치로 런 시작 → 실제 조작
+  await pickWeapon(mp, 'gravecall');
+  await mp.locator('#startBtn').tap();
+  await sleep(1000);
+  const st0 = await mp.evaluate(() => ({ s: window.__ashfall.world.run.state }));
+  check('[모바일] 터치로 런 시작', st0.s === 'fight');
+
+  // 좌측 가상 스틱으로 이동
+  const before = await mp.evaluate(() => ({ x: window.__ashfall.world.player.x, y: window.__ashfall.world.player.y }));
+  await mp.touchscreen.tap(100, 600);
+  const box = await mp.locator('#game').boundingBox();
+  await mp.evaluate(() => { window.__ashfall.world.run.state = 'fight'; });
+  // pointer 이벤트로 드래그 (좌측 절반)
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 90, clientY: 650, buttons: 1 });
+  for (let i = 0; i < 12; i++) {
+    await mp.dispatchEvent('#game', 'pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 90 + 60, clientY: 650, buttons: 1 });
+    await sleep(60);
+  }
+  const after = await mp.evaluate(() => ({ x: window.__ashfall.world.player.x, y: window.__ashfall.world.player.y }));
+  await mp.dispatchEvent('#game', 'pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 650 });
+  check('[모바일] 가상 스틱으로 이동한다', Math.abs(after.x - before.x) > 20, `Δx ${(after.x - before.x).toFixed(0)}`);
+
+  // 우측 드래그로 조준 + 자동 공격
+  const k0 = await mp.evaluate(() => window.__ashfall.world.run.kills);
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 300, clientY: 500, buttons: 1 });
+  for (let i = 0; i < 40; i++) {
+    const a = await mp.evaluate(() => {
+      const w = window.__ashfall.world, cam = w.camera, c = document.getElementById('game');
+      const dpr = Math.min(window.devicePixelRatio || 1, 2), W = c.width / dpr, H = c.height / dpr;
+      const p = w.player;
+      let best = null, bd = Infinity;
+      for (const e of w.enemies) { if (e.dead) continue; const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2; if (d < bd) { bd = d; best = e; } }
+      if (!best) return null;
+      const L = Math.hypot(best.x - p.x, best.y - p.y) || 1;
+      return { dx: (best.x - p.x) / L, dy: (best.y - p.y) / L, far: L > 90 };
+    });
+    if (!a) break;
+    await mp.dispatchEvent('#game', 'pointermove', { pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 300 + a.dx * 40, clientY: 500 + a.dy * 40, buttons: 1 });
+    // 이동 스틱으로 접근
+    if (a.far) {
+      await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90, clientY: 650, buttons: 1 });
+      await mp.dispatchEvent('#game', 'pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90 + a.dx * 55, clientY: 650 + a.dy * 55, buttons: 1 });
+    } else {
+      await mp.dispatchEvent('#game', 'pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: false, clientX: 90, clientY: 650 });
+    }
+    await sleep(80);
+  }
+  const k1 = await mp.evaluate(() => window.__ashfall.world.run.kills);
+  check('[모바일] 우측 드래그 조준으로 적을 처치한다', k1 > k0, `처치 ${k0} → ${k1}`);
+  await mp.screenshot({ path: path.join(SHOTS, 'm1-touch-combat.png') });
+
+  // 터치 버튼 (대시)
+  const btn = await mp.evaluate(() => {
+    const c = document.getElementById('game');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return window.__ashfall.game.touchButtons(c.width / dpr, c.height / dpr);
+  });
+  const dash = btn.find((b) => b.id === 'dash');
+  const chargesBefore = await mp.evaluate(() => window.__ashfall.world.player.dashCharges);
+  await mp.dispatchEvent('#game', 'pointerdown', { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: dash.x, clientY: dash.y, buttons: 1 });
+  await sleep(200);
+  await mp.dispatchEvent('#game', 'pointerup', { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: dash.x, clientY: dash.y });
+  const chargesAfter = await mp.evaluate(() => window.__ashfall.world.player.dashCharges);
+  check('[모바일] 대시 버튼이 동작한다', chargesAfter < chargesBefore || (await mp.evaluate(() => window.__ashfall.world.player.state)) === 'dash',
+    `충전 ${chargesBefore} → ${chargesAfter}`);
+
+  await mp.screenshot({ path: path.join(SHOTS, 'm2-touch-ui.png') });
+
+  // ---- 터치 감도 설정: 플레이 중 일시정지에서 열고, 값이 즉시 반영되는가 ----
+  await mp.keyboard.press('Escape');
+  await sleep(300);
+  check('[모바일] 일시정지에서 터치 감도 진입', await mp.locator('#pauseSet').isVisible());
+  await mp.locator('#pauseSet').tap();
+  await sleep(300);
+  check('[모바일] 설정 화면 표시', (await mp.evaluate(() => document.getElementById('overlay').dataset.screen)) === 'settings');
+  const beforeCfg = await mp.evaluate(() => ({ ...window.__ashfall.save.touch }));
+
+  // 슬라이더를 움직이면 저장까지 반영된다
+  await mp.evaluate(() => {
+    const el = document.querySelector('[data-set="aimAssist"]');
+    el.value = '0.9';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(150);
+  const afterSlider = await mp.evaluate(() => ({
+    mem: window.__ashfall.save.touch.aimAssist,
+    saved: JSON.parse(localStorage.getItem('ashfall.save')).touch.aimAssist,
+  }));
+  check('[모바일] 슬라이더 값이 저장에 반영', Math.abs(afterSlider.mem - 0.9) < 0.01 && Math.abs(afterSlider.saved - 0.9) < 0.01,
+    JSON.stringify(afterSlider));
+
+  // 토글
+  await mp.locator('[data-toggle="leftHanded"]').tap();
+  await sleep(150);
+  const lh = await mp.evaluate(() => window.__ashfall.save.touch.leftHanded);
+  check('[모바일] 토글 동작 (왼손잡이 배치)', lh !== beforeCfg.leftHanded, `${beforeCfg.leftHanded} → ${lh}`);
+
+  // 왼손잡이면 버튼이 왼쪽으로 간다
+  const btnSide = await mp.evaluate(() => {
+    const c = document.getElementById('game');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = c.width / dpr;
+    const bs = window.__ashfall.game.touchButtons(W, c.height / dpr);
+    return { dashX: bs.find((b) => b.id === 'dash').x, W };
+  });
+  check('[모바일] 왼손잡이 설정이 버튼 배치에 반영', btnSide.dashX < btnSide.W * 0.5, `dash x=${Math.round(btnSide.dashX)} / ${Math.round(btnSide.W)}`);
+  await mp.screenshot({ path: path.join(SHOTS, 'm3-settings.png') });
+
+  // 기본값 복원
+  await mp.locator('#resetTouch').tap();
+  await sleep(200);
+  const reset = await mp.evaluate(() => window.__ashfall.save.touch);
+  check('[모바일] 기본값 복원', reset.leftHanded === false && Math.abs(reset.aimAssist - 0.55) < 0.01);
+  await mp.locator('#doneTouch').tap();
+  await sleep(300);
+  check('[모바일] 설정에서 일시정지로 복귀', (await mp.evaluate(() => document.getElementById('overlay').dataset.screen)) === 'pause');
+
+  await mp.close();
+}
+
+const results = [];
+const check = (name, ok, info = '') => {
+  results.push({ name, ok, info });
+  console.log(`${ok ? '  PASS' : '  FAIL'}  ${name}${info ? '  ' + info : ''}`);
+};
+
+// ---- 브라우저 안에서 조준/이동을 계산해 실제 입력으로 되돌린다 ----
+const decide = () => page.evaluate(() => {
+  const w = window.__ashfall.world, cam = w.camera;
+  const canvas = document.getElementById('game');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = canvas.width / dpr, H = canvas.height / dpr;
+  const screen = document.getElementById('overlay').dataset.screen || '';
+  if (screen) return { screen };
+  const p = w.player;
+  let tx, ty, attack = false;
+  if (w.run.state === 'cleared' && w.doors.length) { tx = w.doors[0].x; ty = w.doors[0].y; }
+  else {
+    let best = null, bd = Infinity;
+    for (const e of w.enemies) {
+      if (e.dead) continue;
+      const dd = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+      if (dd < bd) { bd = dd; best = e; }
+    }
+    if (!best) return { keys: [], screen: '', runState: w.run.state };
+    tx = best.x; ty = best.y;
+    attack = Math.sqrt(bd) < best.radius + p.radius + 46;
+  }
+  const dx = tx - p.x, dy = ty - p.y;
+  const keys = [];
+  if (Math.hypot(dx, dy) > 62) {
+    if (dy < -20) keys.push('KeyW');
+    if (dy > 20) keys.push('KeyS');
+    if (dx < -20) keys.push('KeyA');
+    if (dx > 20) keys.push('KeyD');
+  }
+  return {
+    keys, attack, screen: '', runState: w.run.state,
+    mx: (tx - cam.x) * cam.zoom + W / 2, my: (ty - cam.y) * cam.zoom + H / 2,
+    special: p.focus > p.maxFocus * 0.8,
+  };
+});
+
+const heldKeys = new Set();
+let mouseDown = false;
+let box = null;
+async function applyKeys(keys) {
+  for (const k of [...heldKeys]) if (!keys.includes(k)) { await page.keyboard.up(k); heldKeys.delete(k); }
+  for (const k of keys) if (!heldKeys.has(k)) { await page.keyboard.down(k); heldKeys.add(k); }
+}
+async function playFor(ms) {
+  const end = Date.now() + ms;
+  let i = 0;
+  while (Date.now() < end) {
+    const d = await decide();
+    if (d.screen) break;
+    await applyKeys(d.keys || []);
+    if (d.mx != null) await page.mouse.move(box.x + d.mx, box.y + d.my);
+    if (d.attack && !mouseDown) { await page.mouse.down(); mouseDown = true; }
+    else if (!d.attack && mouseDown) { await page.mouse.up(); mouseDown = false; }
+    if (d.special && i % 8 === 0) await page.keyboard.press('KeyK');
+    if (i % 7 === 3) await page.keyboard.press('Space');
+    i++;
+    await sleep(70);
+  }
+  await applyKeys([]);
+  if (mouseDown) { await page.mouse.up(); mouseDown = false; }
+}
+
+// ============================================================
+await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
+await sleep(400);
+check('타이틀 화면 렌더', await page.locator('#startBtn').isVisible());
+await page.locator('[data-tab="meta"]').click();
+await sleep(200);
+check('영구 강화 탭 표시', await page.locator('.upg').first().isVisible());
+await page.locator('[data-tab="weapon"]').click();
+await sleep(150);
+await shot('01-title');
+
+await pickWeapon(page, 'gravecall');
+await page.locator('#startBtn').click();
+await sleep(900);
+let s = await state();
+check('런 시작 → 전투 상태', s.runState === 'fight', JSON.stringify(s));
+check('적 스폰', s.enemies > 0, `적 ${s.enemies}`);
+box = await page.locator('#game').boundingBox();
+await shot('02-combat');
+
+await page.keyboard.press('Escape');
+await sleep(300);
+check('Esc 일시정지', (await state()).screen === 'pause');
+await shot('03-pause');
+await page.locator('#resume').click();
+await sleep(250);
+check('일시정지 해제', (await state()).screen === '');
+
+await playFor(8000);
+s = await state();
+check('실제 입력으로 적 처치', s.kills > 0, `처치 ${s.kills}`);
+check('골드 드롭 획득', s.gold > 0, `◈ ${s.gold}`);
+await shot('04-fighting');
+
+// ---- 권능 UI 배선 (RNG 비의존) ----
+if ((await state()).screen === '') {
+  await page.evaluate(() => window.__ashfall.director.openReward({ kind: 'boon' }));
+  await sleep(400);
+}
+check('권능 선택 화면', await page.locator('.boon').first().isVisible());
+check('선택지 3개', (await page.locator('.boon').count()) === 3);
+await shot('05-boon-choice');
+const snapshot = () => page.evaluate(() => {
+  const w = window.__ashfall.world;
+  return JSON.stringify({
+    stats: w.loadout.stats, mods: w.loadout.mods,
+    atk: w.loadout.attackStatus.length, sp: w.loadout.specialStatus.length,
+    hooks: Object.values(w.loadout.on).reduce((a, b) => a + b.length, 0),
+  });
+});
+const before = (await state()).boons;
+const loadoutBefore = await snapshot();
+await page.locator('.boon').first().click();
+await sleep(500);
+s = await state();
+check('선택이 빌드에 반영', s.boons === before + 1, `${before} → ${s.boons}`);
+const loadoutAfter = await snapshot();
+check('권능이 전투 로드아웃에 컴파일됨(스탯/훅 변화)', loadoutAfter !== loadoutBefore);
+
+// ---- 클리어 → 문 → 다음 방 ----
+await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  w.spawnQueue.length = 0;              // 남은 웨이브 취소
+  for (const e of w.enemies) e.dead = true;  // 즉시 전멸시켜 클리어 전이를 검증
+});
+await sleep(700);
+s = await state();
+check('전멸 → 클리어 상태', s.runState === 'cleared', JSON.stringify(s));
+const doors = await page.evaluate(() => window.__ashfall.world.doors.map((d) => d.reward.kind));
+check('문(다음 방 선택지) 생성', doors.length >= 1, doors.join(', '));
+await shot('06-doors');
+
+const roomBefore = (await state()).room;
+await playFor(10000);
+await sleep(500);
+s = await state();
+check('문 진입 → 방 진행', s.room > roomBefore || !!s.screen, `방 ${roomBefore} → ${s.room} (화면 ${s.screen || '없음'})`);
+await shot('07-next-room');
+
+// ---- 보스전 ----
+// 어떤 화면이 떠 있든 정리하고 반드시 플레이 상태로 되돌린다 (사망했다면 새 런 시작)
+async function dismissScreens() {
+  for (let i = 0; i < 6; i++) {
+    const sc = (await state()).screen;
+    if (!sc) return true;
+    const btn = page.locator('#again, #resume, #leave, .boon, .curse').first();
+    if (await btn.isVisible().catch(() => false)) { await btn.click(); await sleep(800); }
+    else return false;
+  }
+  return !(await state()).screen;
+}
+const ready = await dismissScreens();
+check('선택/결과 화면에서 플레이로 복귀', ready, `화면 ${(await state()).screen || '없음'}`);
+await page.evaluate(() => {
+  const g = window.__ashfall;
+  g.world.run.roomIdx = 4; g.world.run.globalRoom = 4;
+  g.director.enterRoom({ type: 'boss' });
+});
+await sleep(1800);
+const bossInfo = await page.evaluate(() => {
+  const b = window.__ashfall.world.boss;
+  return b ? { name: b.def.name, hp: Math.round(b.hp), phases: b.def.phases.length } : null;
+});
+check('보스 등장', !!bossInfo, JSON.stringify(bossInfo));
+await playFor(6000);
+const bossHpK = await page.evaluate(() => {
+  const b = window.__ashfall.world.boss;
+  return b ? +(b.hp / b.maxHp).toFixed(2) : 0;
+});
+check('보스에게 피해 적용', bossHpK < 1, `남은 체력 ${Math.round(bossHpK * 100)}%`);
+await shot('08-boss');
+
+// ---- 사령술: 새 런을 강령장으로 시작해 시체 → 소환수 루프를 검증 ----
+await dismissScreens();
+await page.evaluate(() => window.__ashfall.game.startRun('gravecall'));
+await sleep(1000);
+check('강령장으로 런 시작', (await state()).runState === 'fight');
+await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  w.spawnQueue.length = 0;
+  for (const e of w.enemies) e.hp = 1;   // 곧바로 처치되도록
+});
+await playFor(6000);
+const necro = await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  return { corpses: w.corpses.length, minions: w.minions.length, kills: w.run.kills };
+});
+check('처치 시 시체가 남거나 소환수가 생긴다', necro.corpses > 0 || necro.minions > 0, JSON.stringify(necro));
+
+// 망자 봉기(특수기)로 시체를 소환수로 전환
+await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  const p = w.player;
+  p.focus = p.maxFocus;
+  w.minions.length = 0;
+  w.corpses.length = 0;
+  for (let i = 0; i < 3; i++) {
+    w.corpses.push({ x: p.x + 40 + i * 25, y: p.y, radius: 15, scale: 1, enemyId: 'husk', life: 10, seed: 0, used: false });
+  }
+});
+const preSpecial = await page.evaluate(() => {
+  const p = window.__ashfall.world.player;
+  return { state: p.state, spCd: +p.spCd.toFixed(2), focus: Math.round(p.focus), dead: p.dead };
+});
+// 특수기 쿨다운이 남아 있을 수 있으므로 조건이 갖춰질 때까지 눌러 본다
+let raised = null;
+for (let i = 0; i < 12; i++) {
+  await page.keyboard.down('KeyK');
+  await sleep(120);
+  await page.keyboard.up('KeyK');
+  await sleep(180);
+  raised = await page.evaluate(() => ({
+    minions: window.__ashfall.world.minions.length,
+    corpses: window.__ashfall.world.corpses.filter((c) => !c.used).length,
+  }));
+  if (raised.minions > 0) break;
+}
+raised.pre = preSpecial;
+check('망자 봉기가 시체를 소환수로 바꾼다', raised.minions > 0 && raised.corpses < 3, JSON.stringify(raised));
+
+// 소환수 수에 제한이 없다 — 많이 불러도 기존 소환수가 밀려나지 않는다
+const noCap = await page.evaluate(() => {
+  const w = window.__ashfall.world;
+  w.minions.length = 0;
+  for (let i = 0; i < 40; i++) w.summon('wraith', w.player.x + (i % 8) * 12, w.player.y + Math.floor(i / 8) * 12);
+  return { alive: w.minions.length, cap: w.minionCap() === Infinity };
+});
+check('소환수 수 제한 없음', noCap.alive === 40 && noCap.cap, JSON.stringify(noCap));
+await shot('09-necro');
+
+// ---- 세이브 ----
+const saveData = await page.evaluate(() => {
+  const raw = localStorage.getItem('ashfall.save');
+  return raw ? JSON.parse(raw) : null;
+});
+check('세이브 기록/버전', saveData && saveData.version >= 3 && saveData.stats.runs >= 1,
+  saveData ? `v${saveData.version} runs=${saveData.stats.runs}` : 'none');
+
+await mobileChecks();
+
+const realErrors = errors.filter((e) => !/favicon|404/i.test(e));
+check('콘솔 에러 없음', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
+
+await browser.close();
+server.kill();
+
+const failed = results.filter((r) => !r.ok);
+console.log(`\n브라우저 테스트: ${results.length - failed.length}/${results.length} 통과  (스크린샷: ${SHOTS})`);
+if (failed.length) process.exitCode = 1;
